@@ -1,13 +1,20 @@
 const builtin = @import("builtin");
+
 const std = @import("../std.zig");
-const Watch = @This();
+const Io = std.Io;
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const fatal = std.zig.fatal;
+const fatal = std.process.fatal;
+const Watch = @This();
+const FsEvents = @import("Watch/FsEvents.zig");
 
-dir_table: DirTable,
 os: Os,
+/// The number to show as the number of directories being watched.
+dir_count: usize,
+// These fields are common to most implementations so are kept here for simplicity.
+// They are `undefined` on implementations which do not utilize then.
+dir_table: DirTable,
 generation: Generation,
 
 pub const have_impl = Os != void;
@@ -33,9 +40,12 @@ const Os = switch (builtin.os.tag) {
 
         /// Keyed differently but indexes correspond 1:1 with `dir_table`.
         handle_table: HandleTable,
-        poll_fds: [1]posix.pollfd,
+        /// fanotify file descriptors are keyed by mount id since marks
+        /// are limited to a single filesystem.
+        poll_fds: std.AutoArrayHashMapUnmanaged(MountId, posix.pollfd),
 
-        const HandleTable = std.ArrayHashMapUnmanaged(FileHandle, ReactionSet, FileHandle.Adapter, false);
+        const MountId = i32;
+        const HandleTable = std.ArrayHashMapUnmanaged(FileHandle, struct { mount_id: MountId, reaction_set: ReactionSet }, FileHandle.Adapter, false);
 
         const fan_mask: std.os.linux.fanotify.MarkMask = .{
             .CLOSE_WRITE = true,
@@ -56,7 +66,7 @@ const Os = switch (builtin.os.tag) {
                 const bytes = lfh.slice();
                 const new_ptr = try gpa.alignedAlloc(
                     u8,
-                    @alignOf(std.os.linux.file_handle),
+                    .of(std.os.linux.file_handle),
                     @sizeOf(std.os.linux.file_handle) + bytes.len,
                 );
                 const new_header: *std.os.linux.file_handle = @ptrCast(new_ptr);
@@ -91,31 +101,15 @@ const Os = switch (builtin.os.tag) {
             };
         };
 
-        fn init() !Watch {
-            const fan_fd = std.posix.fanotify_init(.{
-                .CLASS = .NOTIF,
-                .CLOEXEC = true,
-                .NONBLOCK = true,
-                .REPORT_NAME = true,
-                .REPORT_DIR_FID = true,
-                .REPORT_FID = true,
-                .REPORT_TARGET_FID = true,
-            }, 0) catch |err| switch (err) {
-                error.UnsupportedFlags => fatal("fanotify_init failed due to old kernel; requires 5.17+", .{}),
-                else => |e| return e,
-            };
+        fn init(cwd_path: []const u8) !Watch {
+            _ = cwd_path;
             return .{
                 .dir_table = .{},
+                .dir_count = 0,
                 .os = switch (builtin.os.tag) {
                     .linux => .{
                         .handle_table = .{},
-                        .poll_fds = .{
-                            .{
-                                .fd = fan_fd,
-                                .events = std.posix.POLL.IN,
-                                .revents = undefined,
-                            },
-                        },
+                        .poll_fds = .{},
                     },
                     else => {},
                 },
@@ -123,22 +117,20 @@ const Os = switch (builtin.os.tag) {
             };
         }
 
-        fn getDirHandle(gpa: Allocator, path: std.Build.Cache.Path) !FileHandle {
+        fn getDirHandle(gpa: Allocator, path: std.Build.Cache.Path, mount_id: *MountId) !FileHandle {
             var file_handle_buffer: [@sizeOf(std.os.linux.file_handle) + 128]u8 align(@alignOf(std.os.linux.file_handle)) = undefined;
-            var mount_id: i32 = undefined;
             var buf: [std.fs.max_path_bytes]u8 = undefined;
             const adjusted_path = if (path.sub_path.len == 0) "./" else std.fmt.bufPrint(&buf, "{s}/", .{
                 path.sub_path,
             }) catch return error.NameTooLong;
             const stack_ptr: *std.os.linux.file_handle = @ptrCast(&file_handle_buffer);
             stack_ptr.handle_bytes = file_handle_buffer.len - @sizeOf(std.os.linux.file_handle);
-            try posix.name_to_handle_at(path.root_dir.handle.fd, adjusted_path, stack_ptr, &mount_id, std.os.linux.AT.HANDLE_FID);
+            try posix.name_to_handle_at(path.root_dir.handle.handle, adjusted_path, stack_ptr, mount_id, std.os.linux.AT.HANDLE_FID);
             const stack_lfh: FileHandle = .{ .handle = stack_ptr };
             return stack_lfh.clone(gpa);
         }
 
-        fn markDirtySteps(w: *Watch, gpa: Allocator) !bool {
-            const fan_fd = w.os.getFanFd();
+        fn markDirtySteps(w: *Watch, gpa: Allocator, fan_fd: posix.fd_t) !bool {
             const fanotify = std.os.linux.fanotify;
             const M = fanotify.event_metadata;
             var events_buf: [256 + 4096]u8 = undefined;
@@ -167,10 +159,10 @@ const Os = switch (builtin.os.tag) {
                             const file_name_z: [*:0]u8 = @ptrCast((&file_handle.f_handle).ptr + file_handle.handle_bytes);
                             const file_name = std.mem.span(file_name_z);
                             const lfh: FileHandle = .{ .handle = file_handle };
-                            if (w.os.handle_table.getPtr(lfh)) |reaction_set| {
-                                if (reaction_set.getPtr(".")) |glob_set|
+                            if (w.os.handle_table.getPtr(lfh)) |value| {
+                                if (value.reaction_set.getPtr(".")) |glob_set|
                                     any_dirty = markStepSetDirty(gpa, glob_set, any_dirty);
-                                if (reaction_set.getPtr(file_name)) |step_set|
+                                if (value.reaction_set.getPtr(file_name)) |step_set|
                                     any_dirty = markStepSetDirty(gpa, step_set, any_dirty);
                             }
                         },
@@ -180,19 +172,44 @@ const Os = switch (builtin.os.tag) {
             }
         }
 
-        fn getFanFd(os: *const @This()) posix.fd_t {
-            return os.poll_fds[0].fd;
-        }
-
         fn update(w: *Watch, gpa: Allocator, steps: []const *Step) !void {
-            const fan_fd = w.os.getFanFd();
             // Add missing marks and note persisted ones.
             for (steps) |step| {
                 for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
                     const reaction_set = rs: {
                         const gop = try w.dir_table.getOrPut(gpa, path);
                         if (!gop.found_existing) {
-                            const dir_handle = try Os.getDirHandle(gpa, path);
+                            var mount_id: MountId = undefined;
+                            const dir_handle = Os.getDirHandle(gpa, path, &mount_id) catch |err| switch (err) {
+                                error.FileNotFound => {
+                                    std.debug.assert(w.dir_table.swapRemove(path));
+                                    continue;
+                                },
+                                else => return err,
+                            };
+                            const fan_fd = blk: {
+                                const fd_gop = try w.os.poll_fds.getOrPut(gpa, mount_id);
+                                if (!fd_gop.found_existing) {
+                                    const fan_fd = std.posix.fanotify_init(.{
+                                        .CLASS = .NOTIF,
+                                        .CLOEXEC = true,
+                                        .NONBLOCK = true,
+                                        .REPORT_NAME = true,
+                                        .REPORT_DIR_FID = true,
+                                        .REPORT_FID = true,
+                                        .REPORT_TARGET_FID = true,
+                                    }, 0) catch |err| switch (err) {
+                                        error.UnsupportedFlags => fatal("fanotify_init failed due to old kernel; requires 5.17+", .{}),
+                                        else => |e| return e,
+                                    };
+                                    fd_gop.value_ptr.* = .{
+                                        .fd = fan_fd,
+                                        .events = std.posix.POLL.IN,
+                                        .revents = undefined,
+                                    };
+                                }
+                                break :blk fd_gop.value_ptr.*.fd;
+                            };
                             // `dir_handle` may already be present in the table in
                             // the case that we have multiple Cache.Path instances
                             // that compare inequal but ultimately point to the same
@@ -204,17 +221,17 @@ const Os = switch (builtin.os.tag) {
                                 _ = w.dir_table.pop();
                             } else {
                                 assert(dh_gop.index == gop.index);
-                                dh_gop.value_ptr.* = .{};
+                                dh_gop.value_ptr.* = .{ .mount_id = mount_id, .reaction_set = .{} };
                                 posix.fanotify_mark(fan_fd, .{
                                     .ADD = true,
                                     .ONLYDIR = true,
-                                }, fan_mask, path.root_dir.handle.fd, path.subPathOrDot()) catch |err| {
-                                    fatal("unable to watch {}: {s}", .{ path, @errorName(err) });
+                                }, fan_mask, path.root_dir.handle.handle, path.subPathOrDot()) catch |err| {
+                                    fatal("unable to watch {f}: {s}", .{ path, @errorName(err) });
                                 };
                             }
-                            break :rs dh_gop.value_ptr;
+                            break :rs &dh_gop.value_ptr.reaction_set;
                         }
-                        break :rs &w.os.handle_table.values()[gop.index];
+                        break :rs &w.os.handle_table.values()[gop.index].reaction_set;
                     };
                     for (files.items) |basename| {
                         const gop = try reaction_set.getOrPut(gpa, basename);
@@ -229,7 +246,7 @@ const Os = switch (builtin.os.tag) {
                 var i: usize = 0;
                 while (i < w.os.handle_table.entries.len) {
                     {
-                        const reaction_set = &w.os.handle_table.values()[i];
+                        const reaction_set = &w.os.handle_table.values()[i].reaction_set;
                         var step_set_i: usize = 0;
                         while (step_set_i < reaction_set.entries.len) {
                             const step_set = &reaction_set.values()[step_set_i];
@@ -256,12 +273,14 @@ const Os = switch (builtin.os.tag) {
 
                     const path = w.dir_table.keys()[i];
 
+                    const mount_id = w.os.handle_table.values()[i].mount_id;
+                    const fan_fd = w.os.poll_fds.getEntry(mount_id).?.value_ptr.fd;
                     posix.fanotify_mark(fan_fd, .{
                         .REMOVE = true,
                         .ONLYDIR = true,
-                    }, fan_mask, path.root_dir.handle.fd, path.subPathOrDot()) catch |err| switch (err) {
+                    }, fan_mask, path.root_dir.handle.handle, path.subPathOrDot()) catch |err| switch (err) {
                         error.FileNotFound => {}, // Expected, harmless.
-                        else => |e| std.log.warn("unable to unwatch '{}': {s}", .{ path, @errorName(e) }),
+                        else => |e| std.log.warn("unable to unwatch '{f}': {s}", .{ path, @errorName(e) }),
                     };
 
                     w.dir_table.swapRemoveAt(i);
@@ -269,16 +288,18 @@ const Os = switch (builtin.os.tag) {
                 }
                 w.generation +%= 1;
             }
+            w.dir_count = w.dir_table.count();
         }
 
         fn wait(w: *Watch, gpa: Allocator, timeout: Timeout) !WaitResult {
-            const events_len = try std.posix.poll(&w.os.poll_fds, timeout.to_i32_ms());
-            return if (events_len == 0)
-                .timeout
-            else if (try Os.markDirtySteps(w, gpa))
-                .dirty
-            else
-                .clean;
+            const events_len = try std.posix.poll(w.os.poll_fds.values(), timeout.to_i32_ms());
+            if (events_len == 0)
+                return .timeout;
+            for (w.os.poll_fds.values()) |poll_fd| {
+                if (poll_fd.revents & std.posix.POLL.IN == std.posix.POLL.IN and try Os.markDirtySteps(w, gpa, poll_fd.fd))
+                    return .dirty;
+            }
+            return .clean;
         }
     },
     .windows => struct {
@@ -332,10 +353,10 @@ const Os = switch (builtin.os.tag) {
             }
 
             fn init(gpa: Allocator, path: Cache.Path) !*@This() {
-                // The following code is a drawn out NtCreateFile call. (mostly adapted from std.fs.Dir.makeOpenDirAccessMaskW)
+                // The following code is a drawn out NtCreateFile call. (mostly adapted from Io.Dir.makeOpenDirAccessMaskW)
                 // It's necessary in order to get the specific flags that are required when calling ReadDirectoryChangesW.
                 var dir_handle: windows.HANDLE = undefined;
-                const root_fd = path.root_dir.handle.fd;
+                const root_fd = path.root_dir.handle.handle;
                 const sub_path = path.subPathOrDot();
                 const sub_path_w = try windows.sliceToPrefixedFileW(root_fd, sub_path);
                 const path_len_bytes = std.math.cast(u16, sub_path_w.len * 2) orelse return error.NameTooLong;
@@ -348,7 +369,7 @@ const Os = switch (builtin.os.tag) {
                 var attr = windows.OBJECT_ATTRIBUTES{
                     .Length = @sizeOf(windows.OBJECT_ATTRIBUTES),
                     .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w.span())) null else root_fd,
-                    .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+                    .Attributes = .{},
                     .ObjectName = &nt_name,
                     .SecurityDescriptor = null,
                     .SecurityQualityOfService = null,
@@ -357,14 +378,23 @@ const Os = switch (builtin.os.tag) {
 
                 switch (windows.ntdll.NtCreateFile(
                     &dir_handle,
-                    windows.SYNCHRONIZE | windows.GENERIC_READ | windows.FILE_LIST_DIRECTORY,
+                    .{
+                        .SPECIFIC = .{ .FILE_DIRECTORY = .{
+                            .LIST = true,
+                        } },
+                        .STANDARD = .{ .SYNCHRONIZE = true },
+                        .GENERIC = .{ .READ = true },
+                    },
                     &attr,
                     &io,
                     null,
-                    0,
-                    windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE,
-                    windows.FILE_OPEN,
-                    windows.FILE_DIRECTORY_FILE | windows.FILE_OPEN_FOR_BACKUP_INTENT,
+                    .{},
+                    .VALID_FLAGS,
+                    .OPEN,
+                    .{
+                        .DIRECTORY_FILE = true,
+                        .OPEN_FOR_BACKUP_INTENT = true,
+                    },
                     null,
                     0,
                 )) {
@@ -400,9 +430,11 @@ const Os = switch (builtin.os.tag) {
             }
         };
 
-        fn init() !Watch {
+        fn init(cwd_path: []const u8) !Watch {
+            _ = cwd_path;
             return .{
                 .dir_table = .{},
+                .dir_count = 0,
                 .os = switch (builtin.os.tag) {
                     .windows => .{
                         .handle_table = .{},
@@ -418,13 +450,13 @@ const Os = switch (builtin.os.tag) {
         fn getFileId(handle: windows.HANDLE) !FileId {
             var file_id: FileId = undefined;
             var io_status: windows.IO_STATUS_BLOCK = undefined;
-            var volume_info: windows.FILE_FS_VOLUME_INFORMATION = undefined;
+            var volume_info: windows.FILE.FS_VOLUME_INFORMATION = undefined;
             switch (windows.ntdll.NtQueryVolumeInformationFile(
                 handle,
                 &io_status,
                 &volume_info,
-                @sizeOf(windows.FILE_FS_VOLUME_INFORMATION),
-                .FileFsVolumeInformation,
+                @sizeOf(windows.FILE.FS_VOLUME_INFORMATION),
+                .Volume,
             )) {
                 .SUCCESS => {},
                 // Buffer overflow here indicates that there is more information available than was able to be stored in the buffer
@@ -434,13 +466,13 @@ const Os = switch (builtin.os.tag) {
                 else => |rc| return windows.unexpectedStatus(rc),
             }
             file_id.volumeSerialNumber = volume_info.VolumeSerialNumber;
-            var internal_info: windows.FILE_INTERNAL_INFORMATION = undefined;
+            var internal_info: windows.FILE.INTERNAL_INFORMATION = undefined;
             switch (windows.ntdll.NtQueryInformationFile(
                 handle,
                 &io_status,
                 &internal_info,
-                @sizeOf(windows.FILE_INTERNAL_INFORMATION),
-                .FileInternalInformation,
+                @sizeOf(windows.FILE.INTERNAL_INFORMATION),
+                .Internal,
             )) {
                 .SUCCESS => {},
                 else => |rc| return windows.unexpectedStatus(rc),
@@ -567,6 +599,7 @@ const Os = switch (builtin.os.tag) {
                 }
                 w.generation +%= 1;
             }
+            w.dir_count = w.dir_table.count();
         }
 
         fn wait(w: *Watch, gpa: Allocator, timeout: Timeout) !WaitResult {
@@ -595,12 +628,12 @@ const Os = switch (builtin.os.tag) {
                 },
                 .Timeout => break .timeout,
                 // This status is issued because CancelIo was called, skip and try again.
-                .Cancelled => continue,
+                .Canceled => continue,
                 else => break error.Unexpected,
             };
         }
     },
-    .dragonfly, .freebsd, .netbsd, .openbsd, .ios, .macos, .tvos, .visionos, .watchos, .haiku => struct {
+    .dragonfly, .freebsd, .netbsd, .openbsd, .ios, .tvos, .visionos, .watchos => struct {
         const posix = std.posix;
 
         kq_fd: i32,
@@ -612,8 +645,6 @@ const Os = switch (builtin.os.tag) {
             /// -1. Otherwise, it needs to be opened in update(), and will be
             /// stored here.
             dir_fd: i32,
-            /// Number of files being watched by this directory handle.
-            ref_count: u32,
         }),
 
         const dir_open_flags: posix.O = f: {
@@ -631,13 +662,13 @@ const Os = switch (builtin.os.tag) {
         const EV = std.c.EV;
         const NOTE = std.c.NOTE;
 
-        fn init() !Watch {
-            const kq_fd = try posix.kqueue();
-            errdefer posix.close(kq_fd);
+        fn init(cwd_path: []const u8) !Watch {
+            _ = cwd_path;
             return .{
                 .dir_table = .{},
+                .dir_count = 0,
                 .os = .{
-                    .kq_fd = kq_fd,
+                    .kq_fd = try Io.Kqueue.createFileDescriptor(),
                     .handles = .empty,
                 },
                 .generation = 0,
@@ -653,10 +684,10 @@ const Os = switch (builtin.os.tag) {
                         if (!gop.found_existing) {
                             const skip_open_dir = path.sub_path.len == 0;
                             const dir_fd = if (skip_open_dir)
-                                path.root_dir.handle.fd
+                                path.root_dir.handle.handle
                             else
-                                posix.openat(path.root_dir.handle.fd, path.sub_path, dir_open_flags, 0) catch |err| {
-                                    fatal("failed to open directory {}: {s}", .{ path, @errorName(err) });
+                                posix.openat(path.root_dir.handle.handle, path.sub_path, dir_open_flags, 0) catch |err| {
+                                    fatal("failed to open directory {f}: {t}", .{ path, err });
                                 };
                             // Empirically the dir has to stay open or else no events are triggered.
                             errdefer if (!skip_open_dir) posix.close(dir_fd);
@@ -668,16 +699,14 @@ const Os = switch (builtin.os.tag) {
                                 .data = 0,
                                 .udata = gop.index,
                             }};
-                            _ = try posix.kevent(w.os.kq_fd, &changes, &.{}, null);
+                            _ = try Io.Kqueue.kevent(w.os.kq_fd, &changes, &.{}, null);
                             assert(handles.len == gop.index);
                             try handles.append(gpa, .{
                                 .rs = .{},
                                 .dir_fd = if (skip_open_dir) -1 else dir_fd,
-                                .ref_count = 1,
                             });
-                        } else {
-                            handles.items(.ref_count)[gop.index] += 1;
                         }
+
                         break :rs &handles.items(.rs)[gop.index];
                     };
                     for (files.items) |basename| {
@@ -718,17 +747,13 @@ const Os = switch (builtin.os.tag) {
                         }
                     }
 
-                    const ref_count_ptr = &handles.items(.ref_count)[i];
-                    ref_count_ptr.* -= 1;
-                    if (ref_count_ptr.* > 0) continue;
-
                     // If the sub_path == "" then this patch has already the
                     // dir fd that we need to use as the ident to remove the
                     // event. If it was opened above with openat() then we need
                     // to access that data via the dir_fd field.
                     const path = w.dir_table.keys()[i];
                     const dir_fd = if (path.sub_path.len == 0)
-                        path.root_dir.handle.fd
+                        path.root_dir.handle.handle
                     else
                         handles.items(.dir_fd)[i];
                     assert(dir_fd != -1);
@@ -738,10 +763,10 @@ const Os = switch (builtin.os.tag) {
                     // index in the udata field.
                     const last_dir_fd = fd: {
                         const last_path = w.dir_table.keys()[handles.len - 1];
-                        const last_dir_fd = if (last_path.sub_path.len != 0)
-                            last_path.root_dir.handle.fd
+                        const last_dir_fd = if (last_path.sub_path.len == 0)
+                            last_path.root_dir.handle.handle
                         else
-                            handles.items(.dir_fd)[i];
+                            handles.items(.dir_fd)[handles.len - 1];
                         assert(last_dir_fd != -1);
                         break :fd last_dir_fd;
                     };
@@ -764,7 +789,7 @@ const Os = switch (builtin.os.tag) {
                         },
                     };
                     const filtered_changes = if (i == handles.len - 1) changes[0..1] else &changes;
-                    _ = try posix.kevent(w.os.kq_fd, filtered_changes, &.{}, null);
+                    _ = try Io.Kqueue.kevent(w.os.kq_fd, filtered_changes, &.{}, null);
                     if (path.sub_path.len != 0) posix.close(dir_fd);
 
                     w.dir_table.swapRemoveAt(i);
@@ -772,18 +797,19 @@ const Os = switch (builtin.os.tag) {
                 }
                 w.generation +%= 1;
             }
+            w.dir_count = w.dir_table.count();
         }
 
         fn wait(w: *Watch, gpa: Allocator, timeout: Timeout) !WaitResult {
             var timespec_buffer: posix.timespec = undefined;
             var event_buffer: [100]posix.Kevent = undefined;
-            var n = try posix.kevent(w.os.kq_fd, &.{}, &event_buffer, timeout.toTimespec(&timespec_buffer));
+            var n = try Io.Kqueue.kevent(w.os.kq_fd, &.{}, &event_buffer, timeout.toTimespec(&timespec_buffer));
             if (n == 0) return .timeout;
             const reaction_sets = w.os.handles.items(.rs);
             var any_dirty = markDirtySteps(gpa, reaction_sets, event_buffer[0..n], false);
             timespec_buffer = .{ .sec = 0, .nsec = 0 };
             while (n == event_buffer.len) {
-                n = try posix.kevent(w.os.kq_fd, &.{}, &event_buffer, &timespec_buffer);
+                n = try Io.Kqueue.kevent(w.os.kq_fd, &.{}, &event_buffer, &timespec_buffer);
                 if (n == 0) break;
                 any_dirty = markDirtySteps(gpa, reaction_sets, event_buffer[0..n], any_dirty);
             }
@@ -815,11 +841,33 @@ const Os = switch (builtin.os.tag) {
             return any_dirty;
         }
     },
+    .macos => struct {
+        fse: FsEvents,
+
+        fn init(cwd_path: []const u8) !Watch {
+            return .{
+                .os = .{ .fse = try .init(cwd_path) },
+                .dir_count = 0,
+                .dir_table = undefined,
+                .generation = undefined,
+            };
+        }
+        fn update(w: *Watch, gpa: Allocator, steps: []const *Step) !void {
+            try w.os.fse.setPaths(gpa, steps);
+            w.dir_count = w.os.fse.watch_roots.len;
+        }
+        fn wait(w: *Watch, gpa: Allocator, timeout: Timeout) !WaitResult {
+            return w.os.fse.wait(gpa, switch (timeout) {
+                .none => null,
+                .ms => |ms| @as(u64, ms) * std.time.ns_per_ms,
+            });
+        }
+    },
     else => void,
 };
 
-pub fn init() !Watch {
-    return Os.init();
+pub fn init(cwd_path: []const u8) !Watch {
+    return Os.init(cwd_path);
 }
 
 pub const Match = struct {
@@ -846,10 +894,14 @@ pub const Match = struct {
 };
 
 fn markAllFilesDirty(w: *Watch, gpa: Allocator) void {
-    for (w.os.handle_table.values()) |reaction_set| {
+    for (w.os.handle_table.values()) |value| {
+        const reaction_set = switch (builtin.os.tag) {
+            .linux => value.reaction_set,
+            else => value,
+        };
         for (reaction_set.values()) |step_set| {
             for (step_set.keys()) |step| {
-                step.recursiveReset(gpa);
+                _ = step.invalidateResult(gpa);
             }
         }
     }
@@ -858,10 +910,7 @@ fn markAllFilesDirty(w: *Watch, gpa: Allocator) void {
 fn markStepSetDirty(gpa: Allocator, step_set: *StepSet, any_dirty: bool) bool {
     var this_any_dirty = false;
     for (step_set.keys()) |step| {
-        if (step.state != .precheck_done) {
-            step.recursiveReset(gpa);
-            this_any_dirty = true;
-        }
+        if (step.invalidateResult(gpa)) this_any_dirty = true;
     }
     return any_dirty or this_any_dirty;
 }

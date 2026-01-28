@@ -251,7 +251,6 @@ class XtensaConstantIslands : public MachineFunctionPass {
   const XtensaSubtarget *STI = nullptr;
   const XtensaInstrInfo *TII;
   const TargetRegisterInfo *TRI;
-  XtensaFunctionInfo *MFI;
   MachineFunction *MF = nullptr;
   MachineConstantPool *MCP = nullptr;
   MachineBasicBlock *InitConstantMBB = nullptr;
@@ -337,7 +336,6 @@ bool XtensaConstantIslands::runOnMachineFunction(MachineFunction &mf) {
   LLVM_DEBUG(dbgs() << "constant island machine function "
                     << "\n");
   TII = (const XtensaInstrInfo *)STI->getInstrInfo();
-  MFI = MF->getInfo<XtensaFunctionInfo>();
 
   TRI = STI->getRegisterInfo();
 

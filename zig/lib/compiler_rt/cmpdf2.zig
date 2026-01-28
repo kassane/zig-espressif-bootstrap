@@ -3,8 +3,6 @@
 const common = @import("./common.zig");
 const comparef = @import("./comparef.zig");
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_aeabi) {
         @export(&__aeabi_dcmpeq, .{ .name = "__aeabi_dcmpeq", .linkage = common.linkage, .visibility = common.visibility });

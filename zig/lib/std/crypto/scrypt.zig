@@ -5,7 +5,6 @@
 const std = @import("std");
 const crypto = std.crypto;
 const fmt = std.fmt;
-const io = std.io;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
@@ -21,7 +20,7 @@ const Error = pwhash.Error;
 
 const max_size = math.maxInt(usize);
 const max_int = max_size >> 1;
-const default_salt_len = 32;
+pub const default_salt_len = 32;
 const default_hash_len = 32;
 const max_salt_len = 64;
 const max_hash_len = 64;
@@ -195,11 +194,11 @@ pub fn kdf(
         params.r > max_int / 256 or
         n > max_int / 128 / @as(u64, params.r)) return KdfError.WeakParameters;
 
-    const xy = try allocator.alignedAlloc(u32, 16, 64 * params.r);
+    const xy = try allocator.alignedAlloc(u32, .@"16", 64 * params.r);
     defer allocator.free(xy);
-    const v = try allocator.alignedAlloc(u32, 16, 32 * n * params.r);
+    const v = try allocator.alignedAlloc(u32, .@"16", 32 * n * params.r);
     defer allocator.free(v);
-    var dk = try allocator.alignedAlloc(u8, 16, params.p * 128 * params.r);
+    var dk = try allocator.alignedAlloc(u8, .@"16", params.p * 128 * params.r);
     defer allocator.free(dk);
 
     try pwhash.pbkdf2(dk, password, salt, 1, HmacSha256);
@@ -304,30 +303,34 @@ const crypt_format = struct {
 
     /// Serialize parameters into a string in modular crypt format.
     pub fn serialize(params: anytype, str: []u8) EncodingError![]const u8 {
-        var buf = io.fixedBufferStream(str);
-        try serializeTo(params, buf.writer());
-        return buf.getWritten();
+        var w: std.Io.Writer = .fixed(str);
+        serializeTo(params, &w) catch |err| switch (err) {
+            error.WriteFailed => return error.NoSpaceLeft,
+            else => |e| return e,
+        };
+        return w.buffered();
     }
 
     /// Compute the number of bytes required to serialize `params`
     pub fn calcSize(params: anytype) usize {
-        var buf = io.countingWriter(io.null_writer);
-        serializeTo(params, buf.writer()) catch unreachable;
-        return @as(usize, @intCast(buf.bytes_written));
+        var trash: [128]u8 = undefined;
+        var d: std.Io.Writer.Discarding = .init(&trash);
+        serializeTo(params, &d.writer) catch unreachable;
+        return @intCast(d.fullCount());
     }
 
-    fn serializeTo(params: anytype, out: anytype) !void {
+    fn serializeTo(params: anytype, w: *std.Io.Writer) !void {
         var header: [14]u8 = undefined;
         header[0..3].* = prefix.*;
         Codec.intEncode(header[3..4], params.ln);
         Codec.intEncode(header[4..9], params.r);
         Codec.intEncode(header[9..14], params.p);
-        try out.writeAll(&header);
-        try out.writeAll(params.salt);
-        try out.writeAll("$");
+        try w.writeAll(&header);
+        try w.writeAll(params.salt);
+        try w.writeAll("$");
         var buf: [@TypeOf(params.hash).max_encoded_length]u8 = undefined;
         const hash_str = try params.hash.toB64(&buf);
-        try out.writeAll(hash_str);
+        try w.writeAll(hash_str);
     }
 
     /// Custom codec that maps 6 bits into 8 like regular Base64, but uses its own alphabet,
@@ -355,7 +358,7 @@ const crypt_format = struct {
             fn intDecode(comptime T: type, src: *const [(@bitSizeOf(T) + 5) / 6]u8) !T {
                 var v: T = 0;
                 for (src, 0..) |x, i| {
-                    const vi = mem.indexOfScalar(u8, &map64, x) orelse return EncodingError.InvalidEncoding;
+                    const vi = mem.findScalar(u8, &map64, x) orelse return EncodingError.InvalidEncoding;
                     v |= @as(T, @intCast(vi)) << @as(math.Log2Int(T), @intCast(i * 6));
                 }
                 return v;
@@ -414,19 +417,31 @@ const PhcFormatHasher = struct {
         password: []const u8,
         params: Params,
         buf: []u8,
+        io: std.Io,
     ) HasherError![]const u8 {
         var salt: [default_salt_len]u8 = undefined;
-        crypto.random.bytes(&salt);
+        io.random(&salt);
+        return createWithSalt(allocator, password, params, buf, &salt);
+    }
 
+    /// Return a deterministic hash of the password encoded as a PHC-format string.
+    /// Uses the provided salt instead of generating one randomly.
+    pub fn createWithSalt(
+        allocator: mem.Allocator,
+        password: []const u8,
+        params: Params,
+        buf: []u8,
+        salt: *const [default_salt_len]u8,
+    ) HasherError![]const u8 {
         var hash: [default_hash_len]u8 = undefined;
-        try kdf(allocator, &hash, password, &salt, params);
+        try kdf(allocator, &hash, password, salt, params);
 
         return phc_format.serialize(HashResult{
             .alg_id = alg_id,
             .ln = params.ln,
             .r = params.r,
             .p = params.p,
-            .salt = try BinValue(max_salt_len).fromSlice(&salt),
+            .salt = try BinValue(max_salt_len).fromSlice(salt),
             .hash = try BinValue(max_hash_len).fromSlice(&hash),
         }, buf);
     }
@@ -463,10 +478,23 @@ const CryptFormatHasher = struct {
         password: []const u8,
         params: Params,
         buf: []u8,
+        io: std.Io,
     ) HasherError![]const u8 {
         var salt_bin: [default_salt_len]u8 = undefined;
-        crypto.random.bytes(&salt_bin);
-        const salt = crypt_format.saltFromBin(salt_bin.len, salt_bin);
+        io.random(&salt_bin);
+        return createWithSalt(allocator, password, params, buf, &salt_bin);
+    }
+
+    /// Return a deterministic hash of the password encoded into the modular crypt format.
+    /// Uses the provided salt instead of generating one randomly.
+    pub fn createWithSalt(
+        allocator: mem.Allocator,
+        password: []const u8,
+        params: Params,
+        buf: []u8,
+        salt_bin: *const [default_salt_len]u8,
+    ) HasherError![]const u8 {
+        const salt = crypt_format.saltFromBin(salt_bin.len, salt_bin.*);
 
         var hash: [default_hash_len]u8 = undefined;
         try kdf(allocator, &hash, password, &salt, params);
@@ -512,11 +540,28 @@ pub fn strHash(
     password: []const u8,
     options: HashOptions,
     out: []u8,
+    io: std.Io,
 ) Error![]const u8 {
     const allocator = options.allocator orelse return Error.AllocatorRequired;
     switch (options.encoding) {
-        .phc => return PhcFormatHasher.create(allocator, password, options.params, out),
-        .crypt => return CryptFormatHasher.create(allocator, password, options.params, out),
+        .phc => return PhcFormatHasher.create(allocator, password, options.params, out, io),
+        .crypt => return CryptFormatHasher.create(allocator, password, options.params, out, io),
+    }
+}
+
+/// Compute a deterministic hash of a password using the scrypt key derivation function.
+/// The function returns a string that includes all the parameters required for verification.
+/// Uses the provided salt instead of generating one randomly.
+pub fn strHashWithSalt(
+    password: []const u8,
+    options: HashOptions,
+    out: []u8,
+    salt: *const [default_salt_len]u8,
+) Error![]const u8 {
+    const allocator = options.allocator orelse return Error.AllocatorRequired;
+    switch (options.encoding) {
+        .phc => return PhcFormatHasher.createWithSalt(allocator, password, options.params, out, salt),
+        .crypt => return CryptFormatHasher.createWithSalt(allocator, password, options.params, out, salt),
     }
 }
 
@@ -628,6 +673,7 @@ test "password hashing (crypt format)" {
     if (!run_long_tests) return error.SkipZigTest;
 
     const alloc = std.testing.allocator;
+    const io = std.testing.io;
 
     const str = "$7$A6....1....TrXs5Zk6s8sWHpQgWDIXTR8kUU3s6Jc3s.DtdS8M2i4$a4ik5hGDN7foMuHOW.cp.CtX01UyCeO0.JAG.AHPpx5";
     const password = "Y0!?iQa9M%5ekffW(`";
@@ -635,7 +681,7 @@ test "password hashing (crypt format)" {
 
     const params = Params.interactive;
     var buf: [CryptFormatHasher.pwhash_str_length]u8 = undefined;
-    const str2 = try CryptFormatHasher.create(alloc, password, params, &buf);
+    const str2 = try CryptFormatHasher.create(alloc, password, params, &buf, io);
     try CryptFormatHasher.verify(alloc, str2, password);
 }
 
@@ -643,6 +689,7 @@ test "strHash and strVerify" {
     if (!run_long_tests) return error.SkipZigTest;
 
     const alloc = std.testing.allocator;
+    const io = std.testing.io;
 
     const password = "testpass";
     const params = Params.interactive;
@@ -654,6 +701,7 @@ test "strHash and strVerify" {
             password,
             .{ .allocator = alloc, .params = params, .encoding = .crypt },
             &buf,
+            io,
         );
         try strVerify(str, password, verify_options);
     }
@@ -662,6 +710,7 @@ test "strHash and strVerify" {
             password,
             .{ .allocator = alloc, .params = params, .encoding = .phc },
             &buf,
+            io,
         );
         try strVerify(str, password, verify_options);
     }
@@ -717,4 +766,24 @@ test "kdf fast" {
         try kdf(std.testing.allocator, &dk, v.password, v.salt, v.params);
         try std.testing.expectEqualSlices(u8, &dk, v.want);
     }
+}
+
+test "strHashWithSalt deterministic" {
+    const alloc = std.testing.allocator;
+    const password = "testpass";
+    const salt: [default_salt_len]u8 = "0123456789abcdef0123456789abcdef".*;
+    const params: Params = .{ .ln = 1, .r = 1, .p = 1 };
+
+    var buf1: [128]u8 = undefined;
+    var buf2: [128]u8 = undefined;
+
+    const str1 = try strHashWithSalt(password, .{ .allocator = alloc, .params = params, .encoding = .phc }, &buf1, &salt);
+    const str2 = try strHashWithSalt(password, .{ .allocator = alloc, .params = params, .encoding = .phc }, &buf2, &salt);
+    try std.testing.expectEqualStrings(str1, str2);
+    try strVerify(str1, password, .{ .allocator = alloc });
+
+    const str3 = try strHashWithSalt(password, .{ .allocator = alloc, .params = params, .encoding = .crypt }, &buf1, &salt);
+    const str4 = try strHashWithSalt(password, .{ .allocator = alloc, .params = params, .encoding = .crypt }, &buf2, &salt);
+    try std.testing.expectEqualStrings(str3, str4);
+    try strVerify(str3, password, .{ .allocator = alloc });
 }

@@ -5,8 +5,9 @@ const testing = std.testing;
 const P384 = @import("../p384.zig").P384;
 
 test "p384 ECDH key exchange" {
-    const dha = P384.scalar.random(.little);
-    const dhb = P384.scalar.random(.little);
+    const io = testing.io;
+    const dha = P384.scalar.random(io, .little);
+    const dhb = P384.scalar.random(io, .little);
     const dhA = try P384.basePoint.mul(dha, .little);
     const dhB = try P384.basePoint.mul(dhb, .little);
     const shareda = try dhA.mul(dhb, .little);
@@ -67,7 +68,8 @@ test "p384 test vectors - doubling" {
 }
 
 test "p384 compressed sec1 encoding/decoding" {
-    const p = P384.random();
+    const io = testing.io;
+    const p = P384.random(io);
     const s0 = p.toUncompressedSec1();
     const s = p.toCompressedSec1();
     try testing.expectEqualSlices(u8, s0[1..49], s[1..49]);
@@ -76,21 +78,24 @@ test "p384 compressed sec1 encoding/decoding" {
 }
 
 test "p384 uncompressed sec1 encoding/decoding" {
-    const p = P384.random();
+    const io = testing.io;
+    const p = P384.random(io);
     const s = p.toUncompressedSec1();
     const q = try P384.fromSec1(&s);
     try testing.expect(p.equivalent(q));
 }
 
 test "p384 public key is the neutral element" {
+    const io = testing.io;
     const n = P384.scalar.Scalar.zero.toBytes(.little);
-    const p = P384.random();
+    const p = P384.random(io);
     try testing.expectError(error.IdentityElement, p.mul(n, .little));
 }
 
 test "p384 public key is the neutral element (public verification)" {
+    const io = testing.io;
     const n = P384.scalar.Scalar.zero.toBytes(.little);
-    const p = P384.random();
+    const p = P384.random(io);
     try testing.expectError(error.IdentityElement, p.mulPublic(n, .little));
 }
 

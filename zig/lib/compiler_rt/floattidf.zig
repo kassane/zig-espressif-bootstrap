@@ -2,16 +2,11 @@ const builtin = @import("builtin");
 const common = @import("./common.zig");
 const floatFromInt = @import("./float_from_int.zig").floatFromInt;
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_windows_v2u64_abi) {
         @export(&__floattidf_windows_x86_64, .{ .name = "__floattidf", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(&__floattidf, .{ .name = switch (builtin.cpu.arch) {
-            .hexagon => "__hexagon",
-            else => "_",
-        } ++ "_floattidf", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__floattidf, .{ .name = "__floattidf", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

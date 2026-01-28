@@ -5,8 +5,6 @@ const common = @import("common.zig");
 const normalize = common.normalize;
 const wideMultiply = common.wideMultiply;
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_ppc_abi) {
         @export(&__divtf3, .{ .name = "__divkf3", .linkage = common.linkage, .visibility = common.visibility });

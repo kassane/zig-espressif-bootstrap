@@ -1,5 +1,5 @@
 /* Private libc-internal interface for mutex locks.  NPTL version.
-   Copyright (C) 1996-2025 Free Software Foundation, Inc.
+   Copyright (C) 1996-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -89,13 +89,6 @@ _Static_assert (LLL_LOCK_INITIALIZER == 0, "LLL_LOCK_INITIALIZER != 0");
 # define __libc_maybe_call(FUNC, ARGS, ELSE) \
   (FUNC != NULL ? FUNC ARGS : ELSE)
 #endif
-
-/* All previously forwarded functions are now called directly (either
-   via local call in libc, or through a __export), but __libc_ptf_call
-   is still used in generic code shared with Hurd.  */
-#define PTFAVAIL(NAME) 1
-#define __libc_ptf_call(FUNC, ARGS, ELSE) FUNC ARGS
-#define __libc_ptf_call_always(FUNC, ARGS) FUNC ARGS
 
 /* Initialize the named lock variable, leaving it in a consistent, unlocked
    state.  */

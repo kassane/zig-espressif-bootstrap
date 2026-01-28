@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const mulc3 = @import("./mulc3.zig");
 
-pub const panic = common.panic;
-
 comptime {
     if (@import("builtin").zig_backend != .stage2_c) {
         @export(&__muldc3, .{ .name = "__muldc3", .linkage = common.linkage, .visibility = common.visibility });

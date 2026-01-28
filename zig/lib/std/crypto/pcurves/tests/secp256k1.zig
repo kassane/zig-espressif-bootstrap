@@ -5,8 +5,9 @@ const testing = std.testing;
 const Secp256k1 = @import("../secp256k1.zig").Secp256k1;
 
 test "secp256k1 ECDH key exchange" {
-    const dha = Secp256k1.scalar.random(.little);
-    const dhb = Secp256k1.scalar.random(.little);
+    const io = testing.io;
+    const dha = Secp256k1.scalar.random(io, .little);
+    const dhb = Secp256k1.scalar.random(io, .little);
     const dhA = try Secp256k1.basePoint.mul(dha, .little);
     const dhB = try Secp256k1.basePoint.mul(dhb, .little);
     const shareda = try dhA.mul(dhb, .little);
@@ -15,8 +16,9 @@ test "secp256k1 ECDH key exchange" {
 }
 
 test "secp256k1 ECDH key exchange including public multiplication" {
-    const dha = Secp256k1.scalar.random(.little);
-    const dhb = Secp256k1.scalar.random(.little);
+    const io = testing.io;
+    const dha = Secp256k1.scalar.random(io, .little);
+    const dhb = Secp256k1.scalar.random(io, .little);
     const dhA = try Secp256k1.basePoint.mul(dha, .little);
     const dhB = try Secp256k1.basePoint.mulPublic(dhb, .little);
     const shareda = try dhA.mul(dhb, .little);
@@ -77,28 +79,32 @@ test "secp256k1 test vectors - doubling" {
 }
 
 test "secp256k1 compressed sec1 encoding/decoding" {
-    const p = Secp256k1.random();
+    const io = testing.io;
+    const p = Secp256k1.random(io);
     const s = p.toCompressedSec1();
     const q = try Secp256k1.fromSec1(&s);
     try testing.expect(p.equivalent(q));
 }
 
 test "secp256k1 uncompressed sec1 encoding/decoding" {
-    const p = Secp256k1.random();
+    const io = testing.io;
+    const p = Secp256k1.random(io);
     const s = p.toUncompressedSec1();
     const q = try Secp256k1.fromSec1(&s);
     try testing.expect(p.equivalent(q));
 }
 
 test "secp256k1 public key is the neutral element" {
+    const io = testing.io;
     const n = Secp256k1.scalar.Scalar.zero.toBytes(.little);
-    const p = Secp256k1.random();
+    const p = Secp256k1.random(io);
     try testing.expectError(error.IdentityElement, p.mul(n, .little));
 }
 
 test "secp256k1 public key is the neutral element (public verification)" {
+    const io = testing.io;
     const n = Secp256k1.scalar.Scalar.zero.toBytes(.little);
-    const p = Secp256k1.random();
+    const p = Secp256k1.random(io);
     try testing.expectError(error.IdentityElement, p.mulPublic(n, .little));
 }
 

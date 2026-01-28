@@ -5,25 +5,30 @@ const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
-    atomctl,
     bool,
     clamps,
     coprocessor,
+    dcache,
     debug,
     density,
     dfpaccel,
     div32,
-    esp32s2,
-    esp32s3,
+    esp32s2ops,
+    esp32s3ops,
     exception,
     extendedl32r,
+    forced_atomics,
     fp,
     hifi3,
     highpriinterrupts,
+    highpriinterrupts_level3,
+    highpriinterrupts_level4,
+    highpriinterrupts_level5,
+    highpriinterrupts_level6,
+    highpriinterrupts_level7,
     interrupt,
     loop,
     mac16,
-    memctl,
     minmax,
     miscsr,
     mul16,
@@ -36,7 +41,9 @@ pub const Feature = enum {
     s32c1i,
     sext,
     threadptr,
-    timerint,
+    timers1,
+    timers2,
+    timers3,
     windowed,
 };
 
@@ -49,11 +56,6 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).@"enum".fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
-    result[@intFromEnum(Feature.atomctl)] = .{
-        .llvm_name = "atomctl",
-        .description = "Enable Xtensa ATOMCTL option",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
     result[@intFromEnum(Feature.bool)] = .{
         .llvm_name = "bool",
         .description = "Enable Xtensa Boolean extension",
@@ -67,6 +69,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.coprocessor)] = .{
         .llvm_name = "coprocessor",
         .description = "Enable Xtensa Coprocessor option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.dcache)] = .{
+        .llvm_name = "dcache",
+        .description = "Enable Xtensa Data Cache option",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.debug)] = .{
@@ -89,13 +96,13 @@ pub const all_features = blk: {
         .description = "Enable Xtensa Div32 option",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.esp32s2)] = .{
-        .llvm_name = "esp32s2",
+    result[@intFromEnum(Feature.esp32s2ops)] = .{
+        .llvm_name = "esp32s2ops",
         .description = "Support Xtensa esp32-s2 ISA extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.esp32s3)] = .{
-        .llvm_name = "esp32s3",
+    result[@intFromEnum(Feature.esp32s3ops)] = .{
+        .llvm_name = "esp32s3ops",
         .description = "Support Xtensa esp32-s3 ISA extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
@@ -107,6 +114,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.extendedl32r)] = .{
         .llvm_name = "extendedl32r",
         .description = "Enable Xtensa Extended L32R option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.forced_atomics)] = .{
+        .llvm_name = "forced-atomics",
+        .description = "Assume that lock-free native-width atomics are available",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fp)] = .{
@@ -124,6 +136,41 @@ pub const all_features = blk: {
         .description = "Enable Xtensa HighPriInterrupts option",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.highpriinterrupts_level3)] = .{
+        .llvm_name = "highpriinterrupts-level3",
+        .description = "Enable Xtensa HighPriInterrupts Level3",
+        .dependencies = featureSet(&[_]Feature{
+            .highpriinterrupts,
+        }),
+    };
+    result[@intFromEnum(Feature.highpriinterrupts_level4)] = .{
+        .llvm_name = "highpriinterrupts-level4",
+        .description = "Enable Xtensa HighPriInterrupts Level4",
+        .dependencies = featureSet(&[_]Feature{
+            .highpriinterrupts,
+        }),
+    };
+    result[@intFromEnum(Feature.highpriinterrupts_level5)] = .{
+        .llvm_name = "highpriinterrupts-level5",
+        .description = "Enable Xtensa HighPriInterrupts Level5",
+        .dependencies = featureSet(&[_]Feature{
+            .highpriinterrupts,
+        }),
+    };
+    result[@intFromEnum(Feature.highpriinterrupts_level6)] = .{
+        .llvm_name = "highpriinterrupts-level6",
+        .description = "Enable Xtensa HighPriInterrupts Level6",
+        .dependencies = featureSet(&[_]Feature{
+            .highpriinterrupts,
+        }),
+    };
+    result[@intFromEnum(Feature.highpriinterrupts_level7)] = .{
+        .llvm_name = "highpriinterrupts-level7",
+        .description = "Enable Xtensa HighPriInterrupts Level7",
+        .dependencies = featureSet(&[_]Feature{
+            .highpriinterrupts,
+        }),
+    };
     result[@intFromEnum(Feature.interrupt)] = .{
         .llvm_name = "interrupt",
         .description = "Enable Xtensa Interrupt option",
@@ -137,11 +184,6 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.mac16)] = .{
         .llvm_name = "mac16",
         .description = "Enable Xtensa MAC16 instructions",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.memctl)] = .{
-        .llvm_name = "memctl",
-        .description = "Enable Xtensa MEMCTL option",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.minmax)] = .{
@@ -204,9 +246,19 @@ pub const all_features = blk: {
         .description = "Enable Xtensa THREADPTR option",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.timerint)] = .{
-        .llvm_name = "timerint",
-        .description = "Enable Xtensa Timer Interrupt option",
+    result[@intFromEnum(Feature.timers1)] = .{
+        .llvm_name = "timers1",
+        .description = "Enable Xtensa Timers 1",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.timers2)] = .{
+        .llvm_name = "timers2",
+        .description = "Enable Xtensa Timers 2",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.timers3)] = .{
+        .llvm_name = "timers3",
+        .description = "Enable Xtensa Timers 3",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.windowed)] = .{
@@ -227,9 +279,9 @@ pub const cpu = struct {
         .name = "cnl",
         .llvm_name = "cnl",
         .features = featureSet(&[_]Feature{
-            .atomctl,
             .bool,
             .coprocessor,
+            .dcache,
             .debug,
             .density,
             .div32,
@@ -239,7 +291,6 @@ pub const cpu = struct {
             .highpriinterrupts,
             .interrupt,
             .loop,
-            .memctl,
             .miscsr,
             .mul32,
             .mul32high,
@@ -250,7 +301,7 @@ pub const cpu = struct {
             .s32c1i,
             .sext,
             .threadptr,
-            .timerint,
+            .timers1,
             .windowed,
         }),
     };
@@ -258,21 +309,20 @@ pub const cpu = struct {
         .name = "esp32",
         .llvm_name = "esp32",
         .features = featureSet(&[_]Feature{
-            .atomctl,
             .bool,
             .clamps,
             .coprocessor,
+            .dcache,
             .debug,
             .density,
             .dfpaccel,
             .div32,
             .exception,
             .fp,
-            .highpriinterrupts,
+            .highpriinterrupts_level7,
             .interrupt,
             .loop,
             .mac16,
-            .memctl,
             .minmax,
             .miscsr,
             .mul16,
@@ -285,7 +335,7 @@ pub const cpu = struct {
             .s32c1i,
             .sext,
             .threadptr,
-            .timerint,
+            .timers3,
             .windowed,
         }),
     };
@@ -295,14 +345,14 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .clamps,
             .coprocessor,
+            .dcache,
             .debug,
             .density,
             .div32,
-            .esp32s2,
+            .esp32s2ops,
             .exception,
-            .highpriinterrupts,
+            .highpriinterrupts_level7,
             .interrupt,
-            .memctl,
             .minmax,
             .miscsr,
             .mul16,
@@ -314,7 +364,7 @@ pub const cpu = struct {
             .rvector,
             .sext,
             .threadptr,
-            .timerint,
+            .timers3,
             .windowed,
         }),
     };
@@ -322,21 +372,20 @@ pub const cpu = struct {
         .name = "esp32s3",
         .llvm_name = "esp32s3",
         .features = featureSet(&[_]Feature{
-            .atomctl,
             .bool,
             .clamps,
             .coprocessor,
+            .dcache,
             .debug,
             .density,
             .div32,
-            .esp32s3,
+            .esp32s3ops,
             .exception,
             .fp,
-            .highpriinterrupts,
+            .highpriinterrupts_level7,
             .interrupt,
             .loop,
             .mac16,
-            .memctl,
             .minmax,
             .miscsr,
             .mul16,
@@ -349,7 +398,7 @@ pub const cpu = struct {
             .s32c1i,
             .sext,
             .threadptr,
-            .timerint,
+            .timers3,
             .windowed,
         }),
     };
@@ -361,7 +410,7 @@ pub const cpu = struct {
             .density,
             .exception,
             .extendedl32r,
-            .highpriinterrupts,
+            .highpriinterrupts_level3,
             .interrupt,
             .mul16,
             .mul32,
@@ -369,7 +418,7 @@ pub const cpu = struct {
             .prid,
             .regprotect,
             .rvector,
-            .timerint,
+            .timers1,
         }),
     };
     pub const generic: CpuModel = .{

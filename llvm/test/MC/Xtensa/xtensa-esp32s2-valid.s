@@ -1,4 +1,4 @@
-# RUN: llvm-mc %s -triple=xtensa  -mattr=+esp32s2 -show-encoding \
+# RUN: llvm-mc %s -triple=xtensa  -mattr=+esp32s2ops -show-encoding \
 # RUN:     | FileCheck -check-prefixes=CHECK,CHECK-INST %s
 
 .align	4
@@ -19,3 +19,4 @@ set_bit_gpio_out 18
 # CHECK-INST:  wr_mask_gpio_out	a3, a2
 # CHECK: encoding: [0x20,0x23,0x06]
 wr_mask_gpio_out	a3, a2
+

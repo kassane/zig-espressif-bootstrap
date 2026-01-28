@@ -20,7 +20,7 @@ pub const secret_seed_length = Cipher.key_length;
 
 /// The seed must be uniform, secret and `secret_seed_length` bytes long.
 pub fn init(secret_seed: [secret_seed_length]u8) Self {
-    var self = Self{ .state = undefined, .offset = 0 };
+    var self: Self = .{ .state = undefined, .offset = 0 };
     Cipher.stream(&self.state, 0, secret_seed, nonce);
     return self;
 }

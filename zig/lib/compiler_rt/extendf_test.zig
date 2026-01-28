@@ -110,6 +110,8 @@ test "extenddfxf2" {
 }
 
 test "extenddftf2" {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isPowerPC()) return error.SkipZigTest;
+
     // qNaN
     try test__extenddftf2(makeQNaN64(), 0x7fff800000000000, 0x0);
 

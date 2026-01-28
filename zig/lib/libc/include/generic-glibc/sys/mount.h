@@ -1,5 +1,5 @@
 /* Header file for mounting/unmount Linux filesystems.
-   Copyright (C) 1996-2025 Free Software Foundation, Inc.
+   Copyright (C) 1996-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -121,7 +121,7 @@ enum
   MS_ACTIVE = 1 << 30,
 #define MS_ACTIVE	MS_ACTIVE
 #undef MS_NOUSER
-  MS_NOUSER = 1 << 31
+  MS_NOUSER = 1U << 31
 #define MS_NOUSER	MS_NOUSER
 };
 

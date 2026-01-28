@@ -8,11 +8,11 @@
 
 #include "EspBareMetal.h"
 
-#include "CommonArgs.h"
 #include "Gnu.h"
 #include "clang/Driver/InputInfo.h"
 
 #include "Arch/RISCV.h"
+#include "clang/Driver/CommonArgs.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/DriverDiagnostic.h"
@@ -71,6 +71,14 @@ EspBareMetal::EspBareMetal(const Driver &D, const llvm::Triple &Triple,
   }
 }
 
+ToolChain::UnwindLibType
+EspBareMetal::GetUnwindLibType(const llvm::opt::ArgList &Args) const {
+  if (getTriple().isRISCV())
+    return ToolChain::UNW_CompilerRT;
+
+  return ToolChain::UNW_Libgcc;
+}
+
 void EspBareMetal::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
                                              ArgStringList &CC1Args) const {
   if (DriverArgs.hasArg(options::OPT_nostdinc) ||
@@ -103,7 +111,6 @@ void EspBareMetal::AddCXXStdlibLibArgs(const ArgList &Args,
     if (Args.hasArg(options::OPT_fexperimental_library))
       CmdArgs.push_back("-lc++experimental");
     CmdArgs.push_back("-lc++abi");
-    CmdArgs.push_back("-lunwind");
     break;
   case ToolChain::CST_Libstdcxx:
     CmdArgs.push_back("-lstdc++");
@@ -226,17 +233,18 @@ void baremetal::esp::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   // TODO: add C++ includes and libs if compiling C++.
 
+  if (ToolChain.ShouldLinkCXXStdlib(Args)) {
+    ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
+    CmdArgs.push_back("-lm");
+  }
+
   if (!Args.hasArg(options::OPT_nostdlib) &&
       !Args.hasArg(options::OPT_nodefaultlibs)) {
-    if (ToolChain.ShouldLinkCXXStdlib(Args))
-      ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
-    CmdArgs.push_back("-lm");
-    CmdArgs.push_back("--start-group");
+    // libc should be before compiler-rt (specified via abs path) otherwise ld complains on undefined refs in it
     CmdArgs.push_back("-lc");
-    CmdArgs.push_back("-lgloss");
+    // to support configuration scripts check which tries to run compiler with minimal args list
     CmdArgs.push_back("-lnosys");
-    CmdArgs.push_back("--end-group");
-    ToolChain.AddLinkRuntimeLib(Args, CmdArgs);
+    AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
   }
 
   C.addCommand(std::make_unique<Command>(
@@ -266,9 +274,6 @@ void baremetal::esp::Assembler::ConstructJob(Compilation &C, const JobAction &JA
     if (!A->getOption().matches(options::OPT_g0))
       CmdArgs.push_back("-g");
 
-  if (Args.getLastArg(options::OPT_mtext_section_literals))
-    CmdArgs.push_back("--text-section-literals");
-
   if (Args.hasFlag(options::OPT_fverbose_asm, options::OPT_fno_verbose_asm,
                    false))
     CmdArgs.push_back("-fverbose-asm");
@@ -282,7 +287,7 @@ void baremetal::esp::Assembler::ConstructJob(Compilation &C, const JobAction &JA
   if (TC.getTriple().getArch() == llvm::Triple::xtensa) {
     StringRef cpu = Args.getLastArgValue(options::OPT_mcpu_EQ, "esp32");
     // xtensa-esp32-elf
-    AsmPrefix = TC.getTriple().getArchName().str() + "-" + cpu.str() + "-" + 
+    AsmPrefix = TC.getTriple().getArchName().str() + "-" + cpu.str() + "-" +
               TC.getTriple().getEnvironmentName().str();
   } else {
     // riscv32-esp-elf
@@ -294,8 +299,8 @@ void baremetal::esp::Assembler::ConstructJob(Compilation &C, const JobAction &JA
       Args.AddAllArgs(CmdArgs, options::OPT_mabi_EQ);
     else
       CmdArgs.push_back("-mabi=ilp32");
-    AsmPrefix = TC.getTriple().getArchName().str() + "-" + 
-              TC.getTriple().getVendorName().str() + "-" + 
+    AsmPrefix = TC.getTriple().getArchName().str() + "-" +
+              TC.getTriple().getVendorName().str() + "-" +
               TC.getTriple().getEnvironmentName().str();
   }
   SmallString<128> Asm(AsmPrefix + "-" + getShortName());

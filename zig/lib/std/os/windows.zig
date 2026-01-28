@@ -5,12 +5,14 @@
 //!   slices as well as APIs which accept null-terminated WTF16LE byte buffers.
 
 const builtin = @import("builtin");
+const native_arch = builtin.cpu.arch;
+
 const std = @import("../std.zig");
+const Io = std.Io;
 const mem = std.mem;
 const assert = std.debug.assert;
 const math = std.math;
 const maxInt = std.math.maxInt;
-const native_arch = builtin.cpu.arch;
 const UnexpectedError = std.posix.UnexpectedError;
 
 test {
@@ -26,9 +28,2344 @@ pub const ws2_32 = @import("windows/ws2_32.zig");
 pub const crypt32 = @import("windows/crypt32.zig");
 pub const nls = @import("windows/nls.zig");
 
-pub const self_process_handle = @as(HANDLE, @ptrFromInt(maxInt(usize)));
+pub const current_process: HANDLE = @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))));
 
-const Self = @This();
+pub const FILE = struct {
+    // ref: km/ntddk.h
+
+    pub const END_OF_FILE_INFORMATION = extern struct {
+        EndOfFile: LARGE_INTEGER,
+    };
+
+    pub const ALIGNMENT_INFORMATION = extern struct {
+        AlignmentRequirement: ULONG,
+    };
+
+    pub const NAME_INFORMATION = extern struct {
+        FileNameLength: ULONG,
+        FileName: [1]WCHAR,
+    };
+
+    pub const DISPOSITION = packed struct(ULONG) {
+        DELETE: bool = false,
+        POSIX_SEMANTICS: bool = false,
+        FORCE_IMAGE_SECTION_CHECK: bool = false,
+        ON_CLOSE: bool = false,
+        IGNORE_READONLY_ATTRIBUTE: bool = false,
+        Reserved5: u27 = 0,
+
+        pub const DO_NOT_DELETE: DISPOSITION = .{};
+
+        pub const INFORMATION = extern struct {
+            DeleteFile: BOOLEAN,
+
+            pub const EX = extern struct {
+                Flags: DISPOSITION,
+            };
+        };
+    };
+
+    pub const FS_VOLUME_INFORMATION = extern struct {
+        VolumeCreationTime: LARGE_INTEGER,
+        VolumeSerialNumber: ULONG,
+        VolumeLabelLength: ULONG,
+        SupportsObjects: BOOLEAN,
+        VolumeLabel: [0]WCHAR,
+
+        pub fn getVolumeLabel(fvi: *const FS_VOLUME_INFORMATION) []const WCHAR {
+            return (&fvi).ptr[0..@divExact(fvi.VolumeLabelLength, @sizeOf(WCHAR))];
+        }
+    };
+
+    // ref: km/ntifs.h
+
+    pub const PIPE = struct {
+        /// Define the `NamedPipeType` flags for `NtCreateNamedPipeFile`
+        pub const TYPE = packed struct(ULONG) {
+            TYPE: enum(u1) {
+                BYTE_STREAM = 0b0,
+                MESSAGE = 0b1,
+            } = .BYTE_STREAM,
+            REMOTE_CLIENTS: enum(u1) {
+                ACCEPT = 0b0,
+                REJECT = 0b1,
+            } = .ACCEPT,
+            Reserved2: u30 = 0,
+
+            pub const VALID_MASK: TYPE = .{
+                .TYPE = .MESSAGE,
+                .REMOTE_CLIENTS = .REJECT,
+            };
+        };
+
+        /// Define the `CompletionMode` flags for `NtCreateNamedPipeFile`
+        pub const COMPLETION_MODE = packed struct(ULONG) {
+            OPERATION: enum(u1) {
+                QUEUE = 0b0,
+                COMPLETE = 0b1,
+            } = .QUEUE,
+            Reserved1: u31 = 0,
+        };
+
+        /// Define the `ReadMode` flags for `NtCreateNamedPipeFile`
+        pub const READ_MODE = packed struct(ULONG) {
+            MODE: enum(u1) {
+                BYTE_STREAM = 0b0,
+                MESSAGE = 0b1,
+            },
+            Reserved1: u31 = 0,
+        };
+
+        /// Define the `NamedPipeConfiguration` flags for `NtQueryInformationFile`
+        pub const CONFIGURATION = enum(ULONG) {
+            INBOUND = 0x00000000,
+            OUTBOUND = 0x00000001,
+            FULL_DUPLEX = 0x00000002,
+        };
+
+        /// Define the `NamedPipeState` flags for `NtQueryInformationFile`
+        pub const STATE = enum(ULONG) {
+            DISCONNECTED = 0x00000001,
+            LISTENING = 0x00000002,
+            CONNECTED = 0x00000003,
+            CLOSING = 0x00000004,
+        };
+
+        /// Define the `NamedPipeEnd` flags for `NtQueryInformationFile`
+        pub const END = enum(ULONG) {
+            CLIENT = 0x00000000,
+            SERVER = 0x00000001,
+        };
+
+        pub const INFORMATION = extern struct {
+            ReadMode: READ_MODE,
+            CompletionMode: COMPLETION_MODE,
+        };
+
+        pub const LOCAL_INFORMATION = extern struct {
+            NamedPipeType: TYPE,
+            NamedPipeConfiguration: CONFIGURATION,
+            MaximumInstances: ULONG,
+            CurrentInstances: ULONG,
+            InboundQuota: ULONG,
+            ReadDataAvailable: ULONG,
+            OutboundQuota: ULONG,
+            WriteQuotaAvailable: ULONG,
+            NamedPipeState: STATE,
+            NamedPipeEnd: END,
+        };
+
+        pub const REMOTE_INFORMATION = extern struct {
+            CollectDataTime: LARGE_INTEGER,
+            MaximumCollectionCount: ULONG,
+        };
+
+        pub const WAIT_FOR_BUFFER = extern struct {
+            Timeout: LARGE_INTEGER,
+            NameLength: ULONG,
+            TimeoutSpecified: BOOLEAN,
+            Name: [PATH_MAX_WIDE]WCHAR,
+
+            pub const WAIT_FOREVER: LARGE_INTEGER = std.math.minInt(LARGE_INTEGER);
+
+            pub fn init(opts: struct {
+                Timeout: ?LARGE_INTEGER = null,
+                Name: []const WCHAR,
+            }) WAIT_FOR_BUFFER {
+                var fpwfb: WAIT_FOR_BUFFER = .{
+                    .Timeout = opts.Timeout orelse undefined,
+                    .NameLength = @intCast(@sizeOf(WCHAR) * opts.Name.len),
+                    .TimeoutSpecified = @intFromBool(opts.Timeout != null),
+                    .Name = undefined,
+                };
+                @memcpy(fpwfb.Name[0..opts.Name.len], opts.Name);
+                return fpwfb;
+            }
+
+            pub fn getName(fpwfb: *const WAIT_FOR_BUFFER) []const WCHAR {
+                return fpwfb.Name[0..@divExact(fpwfb.NameLength, @sizeOf(WCHAR))];
+            }
+
+            pub fn toBuffer(fpwfb: *const WAIT_FOR_BUFFER) []const u8 {
+                const start: [*]const u8 = @ptrCast(fpwfb);
+                return start[0 .. @offsetOf(WAIT_FOR_BUFFER, "Name") + fpwfb.NameLength];
+            }
+        };
+    };
+
+    pub const ALL_INFORMATION = extern struct {
+        BasicInformation: BASIC_INFORMATION,
+        StandardInformation: STANDARD_INFORMATION,
+        InternalInformation: INTERNAL_INFORMATION,
+        EaInformation: EA_INFORMATION,
+        AccessInformation: ACCESS_INFORMATION,
+        PositionInformation: POSITION_INFORMATION,
+        ModeInformation: MODE.INFORMATION,
+        AlignmentInformation: ALIGNMENT_INFORMATION,
+        NameInformation: NAME_INFORMATION,
+    };
+
+    pub const INTERNAL_INFORMATION = extern struct {
+        IndexNumber: LARGE_INTEGER,
+    };
+
+    pub const EA_INFORMATION = extern struct {
+        EaSize: ULONG,
+    };
+
+    pub const ACCESS_INFORMATION = extern struct {
+        AccessFlags: ACCESS_MASK,
+    };
+
+    /// This is not separated into RENAME_INFORMATION and RENAME_INFORMATION_EX because
+    /// the only difference is the `Flags` type (BOOLEAN before _EX, ULONG in the _EX),
+    /// which doesn't affect the struct layout--the offset of RootDirectory is the same
+    /// regardless.
+    pub const RENAME_INFORMATION = extern struct {
+        Flags: FLAGS,
+        RootDirectory: ?HANDLE,
+        FileNameLength: ULONG,
+        FileName: [PATH_MAX_WIDE]WCHAR,
+
+        pub fn init(opts: struct {
+            Flags: FLAGS = .{},
+            RootDirectory: ?HANDLE = null,
+            FileName: []const WCHAR,
+        }) RENAME_INFORMATION {
+            var fri: RENAME_INFORMATION = .{
+                .Flags = opts.Flags,
+                .RootDirectory = opts.RootDirectory,
+                .FileNameLength = @intCast(@sizeOf(WCHAR) * opts.FileName.len),
+                .FileName = undefined,
+            };
+            @memcpy(fri.FileName[0..opts.FileName.len], opts.FileName);
+            return fri;
+        }
+
+        pub const FLAGS = packed struct(ULONG) {
+            REPLACE_IF_EXISTS: bool = false,
+            POSIX_SEMANTICS: bool = false,
+            SUPPRESS_PIN_STATE_INHERITANCE: bool = false,
+            SUPPRESS_STORAGE_RESERVE_INHERITANCE: bool = false,
+            AVAILABLE_SPACE: enum(u2) {
+                NO_PRESERVE = 0b00,
+                NO_INCREASE = 0b01,
+                NO_DECREASE = 0b10,
+                PRESERVE = 0b11,
+            } = .NO_PRESERVE,
+            IGNORE_READONLY_ATTRIBUTE: bool = false,
+            RESIZE_SR: enum(u2) {
+                NO_FORCE = 0b00,
+                FORCE_TARGET = 0b01,
+                FORCE_SOURCE = 0b10,
+                FORCE = 0b11,
+            } = .NO_FORCE,
+            Reserved9: u23 = 0,
+        };
+
+        pub fn getFileName(ri: *const RENAME_INFORMATION) []const WCHAR {
+            return ri.FileName[0..@divExact(ri.FileNameLength, @sizeOf(WCHAR))];
+        }
+
+        pub fn toBuffer(fri: *RENAME_INFORMATION) []u8 {
+            const start: [*]u8 = @ptrCast(fri);
+            // The ABI size of the documented struct is 24 bytes, and attempting to use any size
+            // less than that will trigger INFO_LENGTH_MISMATCH, so enforce a minimum in cases where,
+            // for example, FileNameLength is 1 so only 22 bytes are technically needed.
+            const size = @max(24, @offsetOf(RENAME_INFORMATION, "FileName") + fri.FileNameLength);
+            return start[0..size];
+        }
+    };
+
+    // ref: km/wdm.h
+
+    pub const INFORMATION_CLASS = enum(c_int) {
+        Directory = 1,
+        FullDirectory = 2,
+        BothDirectory = 3,
+        Basic = 4,
+        Standard = 5,
+        Internal = 6,
+        Ea = 7,
+        Access = 8,
+        Name = 9,
+        Rename = 10,
+        Link = 11,
+        Names = 12,
+        Disposition = 13,
+        Position = 14,
+        FullEa = 15,
+        Mode = 16,
+        Alignment = 17,
+        All = 18,
+        Allocation = 19,
+        EndOfFile = 20,
+        AlternateName = 21,
+        Stream = 22,
+        Pipe = 23,
+        PipeLocal = 24,
+        PipeRemote = 25,
+        MailslotQuery = 26,
+        MailslotSet = 27,
+        Compression = 28,
+        ObjectId = 29,
+        Completion = 30,
+        MoveCluster = 31,
+        Quota = 32,
+        ReparsePoint = 33,
+        NetworkOpen = 34,
+        AttributeTag = 35,
+        Tracking = 36,
+        IdBothDirectory = 37,
+        IdFullDirectory = 38,
+        ValidDataLength = 39,
+        ShortName = 40,
+        IoCompletionNotification = 41,
+        IoStatusBlockRange = 42,
+        IoPriorityHint = 43,
+        SfioReserve = 44,
+        SfioVolume = 45,
+        HardLink = 46,
+        ProcessIdsUsingFile = 47,
+        NormalizedName = 48,
+        NetworkPhysicalName = 49,
+        IdGlobalTxDirectory = 50,
+        IsRemoteDevice = 51,
+        Unused = 52,
+        NumaNode = 53,
+        StandardLink = 54,
+        RemoteProtocol = 55,
+        RenameBypassAccessCheck = 56,
+        LinkBypassAccessCheck = 57,
+        VolumeName = 58,
+        Id = 59,
+        IdExtdDirectory = 60,
+        ReplaceCompletion = 61,
+        HardLinkFullId = 62,
+        IdExtdBothDirectory = 63,
+        DispositionEx = 64,
+        RenameEx = 65,
+        RenameExBypassAccessCheck = 66,
+        DesiredStorageClass = 67,
+        Stat = 68,
+        MemoryPartition = 69,
+        StatLx = 70,
+        CaseSensitive = 71,
+        LinkEx = 72,
+        LinkExBypassAccessCheck = 73,
+        StorageReserveId = 74,
+        CaseSensitiveForceAccessCheck = 75,
+        KnownFolder = 76,
+        StatBasic = 77,
+        Id64ExtdDirectory = 78,
+        Id64ExtdBothDirectory = 79,
+        IdAllExtdDirectory = 80,
+        IdAllExtdBothDirectory = 81,
+        StreamReservation = 82,
+        MupProvider = 83,
+
+        pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".fields.len;
+    };
+
+    pub const BASIC_INFORMATION = extern struct {
+        CreationTime: LARGE_INTEGER,
+        LastAccessTime: LARGE_INTEGER,
+        LastWriteTime: LARGE_INTEGER,
+        ChangeTime: LARGE_INTEGER,
+        FileAttributes: ATTRIBUTE,
+    };
+
+    pub const STANDARD_INFORMATION = extern struct {
+        AllocationSize: LARGE_INTEGER,
+        EndOfFile: LARGE_INTEGER,
+        NumberOfLinks: ULONG,
+        DeletePending: BOOLEAN,
+        Directory: BOOLEAN,
+    };
+
+    pub const POSITION_INFORMATION = extern struct {
+        CurrentByteOffset: LARGE_INTEGER,
+    };
+
+    pub const FS_DEVICE_INFORMATION = extern struct {
+        DeviceType: DEVICE_TYPE,
+        Characteristics: ULONG,
+    };
+
+    pub const USE_FILE_POINTER_POSITION = -2;
+
+    // ref: um/WinBase.h
+
+    pub const ATTRIBUTE_TAG_INFO = extern struct {
+        FileAttributes: DWORD,
+        ReparseTag: IO_REPARSE_TAG,
+    };
+
+    // ref: um/winnt.h
+
+    pub const SHARE = packed struct(ULONG) {
+        /// The file can be opened for read access by other threads.
+        READ: bool = false,
+        /// The file can be opened for write access by other threads.
+        WRITE: bool = false,
+        /// The file can be opened for delete access by other threads.
+        DELETE: bool = false,
+        Reserved3: u29 = 0,
+
+        pub const VALID_FLAGS: SHARE = .{
+            .READ = true,
+            .WRITE = true,
+            .DELETE = true,
+        };
+    };
+
+    pub const ATTRIBUTE = packed struct(ULONG) {
+        /// The file is read only. Applications can read the file, but cannot write to or delete it.
+        READONLY: bool = false,
+        /// The file is hidden. Do not include it in an ordinary directory listing.
+        HIDDEN: bool = false,
+        /// The file is part of or used exclusively by an operating system.
+        SYSTEM: bool = false,
+        Reserved3: u1 = 0,
+        DIRECTORY: bool = false,
+        /// The file should be archived. Applications use this attribute to mark files for backup or removal.
+        ARCHIVE: bool = false,
+        DEVICE: bool = false,
+        /// The file does not have other attributes set. This attribute is valid only if used alone.
+        NORMAL: bool = false,
+        /// The file is being used for temporary storage.
+        TEMPORARY: bool = false,
+        SPARSE_FILE: bool = false,
+        REPARSE_POINT: bool = false,
+        COMPRESSED: bool = false,
+        /// The data of a file is not immediately available. This attribute indicates that file data is physically moved to offline storage.
+        /// This attribute is used by Remote Storage, the hierarchical storage management software. Applications should not arbitrarily change this attribute.
+        OFFLINE: bool = false,
+        NOT_CONTENT_INDEXED: bool = false,
+        /// The file or directory is encrypted. For a file, this means that all data in the file is encrypted. For a directory, this means that encryption is
+        /// the default for newly created files and subdirectories. For more information, see File Encryption.
+        ///
+        /// This flag has no effect if `SYSTEM` is also specified.
+        ///
+        /// This flag is not supported on Home, Home Premium, Starter, or ARM editions of Windows.
+        ENCRYPTED: bool = false,
+        INTEGRITY_STREAM: bool = false,
+        VIRTUAL: bool = false,
+        NO_SCRUB_DATA: bool = false,
+        EA_or_RECALL_ON_OPEN: bool = false,
+        PINNED: bool = false,
+        UNPINNED: bool = false,
+        Reserved21: u1 = 0,
+        RECALL_ON_DATA_ACCESS: bool = false,
+        Reserved23: u6 = 0,
+        STRICTLY_SEQUENTIAL: bool = false,
+        Reserved30: u2 = 0,
+    };
+
+    // ref: um/winternl.h
+
+    /// Define the create disposition values
+    pub const CREATE_DISPOSITION = enum(ULONG) {
+        /// If the file already exists, replace it with the given file. If it does not, create the given file.
+        SUPERSEDE = 0x00000000,
+        /// If the file already exists, open it instead of creating a new file.
+        /// If it does not, fail the request and do not create a new file.
+        OPEN = 0x00000001,
+        /// If the file already exists, fail the request and do not create or
+        /// open the given file. If it does not, create the given file.
+        CREATE = 0x00000002,
+        /// If the file already exists, open it. If it does not, create the given file.
+        OPEN_IF = 0x00000003,
+        /// If the file already exists, open it and overwrite it. If it does not, fail the request.
+        OVERWRITE = 0x00000004,
+        /// If the file already exists, open it and overwrite it. If it does not, create the given file.
+        OVERWRITE_IF = 0x00000005,
+
+        pub const MAXIMUM_DISPOSITION: CREATE_DISPOSITION = .OVERWRITE_IF;
+    };
+
+    /// Define the create/open option flags
+    pub const MODE = packed struct(ULONG) {
+        /// The file being created or opened is a directory file. With this
+        /// flag, the CreateDisposition parameter must be set to `.CREATE`,
+        /// `.FILE_OPEN`, or `.OPEN_IF`. With this flag, other compatible
+        /// CreateOptions flags include only the following: `SYNCHRONOUS_IO`,
+        /// `WRITE_THROUGH`, `OPEN_FOR_BACKUP_INTENT`, and `OPEN_BY_FILE_ID`.
+        DIRECTORY_FILE: bool = false,
+        /// Applications that write data to the file must actually transfer the
+        /// data into the file before any requested write operation is
+        /// considered complete. This flag is automatically set if the
+        /// CreateOptions flag `NO_INTERMEDIATE_BUFFERING` is set.
+        WRITE_THROUGH: bool = false,
+        /// All accesses to the file are sequential.
+        SEQUENTIAL_ONLY: bool = false,
+        /// The file cannot be cached or buffered in a driver's internal
+        /// buffers. This flag is incompatible with the DesiredAccess
+        /// `FILE_APPEND_DATA` flag.
+        NO_INTERMEDIATE_BUFFERING: bool = false,
+        IO: enum(u2) {
+            /// All operations on the file are performed asynchronously.
+            ASYNCHRONOUS = 0b00,
+            /// All operations on the file are performed synchronously. Any
+            /// wait on behalf of the caller is subject to premature
+            /// termination from alerts. This flag also causes the I/O system
+            /// to maintain the file position context. If this flag is set, the
+            /// DesiredAccess `SYNCHRONIZE` flag also must be set.
+            SYNCHRONOUS_ALERT = 0b01,
+            /// All operations on the file are performed synchronously. Waits
+            /// in the system to synchronize I/O queuing and completion are not
+            /// subject to alerts. This flag also causes the I/O system to
+            /// maintain the file position context. If this flag is set, the
+            /// DesiredAccess `SYNCHRONIZE` flag also must be set.
+            SYNCHRONOUS_NONALERT = 0b10,
+            _,
+
+            pub const VALID_FLAGS: @This() = @enumFromInt(0b11);
+        } = .ASYNCHRONOUS,
+        /// The file being opened must not be a directory file or this call
+        /// fails. The file object being opened can represent a data file, a
+        /// logical, virtual, or physical device, or a volume.
+        NON_DIRECTORY_FILE: bool = false,
+        /// Create a tree connection for this file in order to open it over the
+        /// network. This flag is not used by device and intermediate drivers.
+        CREATE_TREE_CONNECTION: bool = false,
+        /// Complete this operation immediately with an alternate success code
+        /// of `STATUS_OPLOCK_BREAK_IN_PROGRESS` if the target file is
+        /// oplocked, rather than blocking the caller's thread. If the file is
+        /// oplocked, another caller already has access to the file. This flag
+        /// is not used by device and intermediate drivers.
+        COMPLETE_IF_OPLOCKED: bool = false,
+        /// If the extended attributes on an existing file being opened
+        /// indicate that the caller must understand EAs to properly interpret
+        /// the file, fail this request because the caller does not understand
+        /// how to deal with EAs. This flag is irrelevant for device and
+        /// intermediate drivers.
+        NO_EA_KNOWLEDGE: bool = false,
+        OPEN_REMOTE_INSTANCE: bool = false,
+        /// Accesses to the file can be random, so no sequential read-ahead
+        /// operations should be performed on the file by FSDs or the system.
+        RANDOM_ACCESS: bool = false,
+        /// Delete the file when the last handle to it is passed to `NtClose`.
+        /// If this flag is set, the `DELETE` flag must be set in the
+        /// DesiredAccess parameter.
+        DELETE_ON_CLOSE: bool = false,
+        /// The file name that is specified by the `ObjectAttributes` parameter
+        /// includes the 8-byte file reference number for the file. This number
+        /// is assigned by and specific to the particular file system. If the
+        /// file is a reparse point, the file name will also include the name
+        /// of a device. Note that the FAT file system does not support this
+        /// flag. This flag is not used by device and intermediate drivers.
+        OPEN_BY_FILE_ID: bool = false,
+        /// The file is being opened for backup intent. Therefore, the system
+        /// should check for certain access rights and grant the caller the
+        /// appropriate access to the file before checking the DesiredAccess
+        /// parameter against the file's security descriptor. This flag not
+        /// used by device and intermediate drivers.
+        OPEN_FOR_BACKUP_INTENT: bool = false,
+        /// Suppress inheritance of `FILE_ATTRIBUTE.COMPRESSED` from the parent
+        /// directory. This allows creation of a non-compressed file in a
+        /// directory that is marked compressed.
+        NO_COMPRESSION: bool = false,
+        /// The file is being opened and an opportunistic lock on the file is
+        /// being requested as a single atomic operation. The file system
+        /// checks for oplocks before it performs the create operation and will
+        /// fail the create with a return code of STATUS_CANNOT_BREAK_OPLOCK if
+        /// the result would be to break an existing oplock. For more
+        /// information, see the Remarks section.
+        ///
+        /// Windows Server 2008, Windows Vista, Windows Server 2003 and Windows
+        /// XP:  This flag is not supported.
+        ///
+        /// This flag is supported on the following file systems: NTFS, FAT,
+        /// and exFAT.
+        OPEN_REQUIRING_OPLOCK: bool = false,
+        Reserved17: u3 = 0,
+        /// This flag allows an application to request a filter opportunistic
+        /// lock to prevent other applications from getting share violations.
+        /// If there are already open handles, the create request will fail
+        /// with STATUS_OPLOCK_NOT_GRANTED. For more information, see the
+        /// Remarks section.
+        RESERVE_OPFILTER: bool = false,
+        /// Open a file with a reparse point and bypass normal reparse point
+        /// processing for the file. For more information, see the Remarks
+        /// section.
+        OPEN_REPARSE_POINT: bool = false,
+        /// Instructs any filters that perform offline storage or
+        /// virtualization to not recall the contents of the file as a result
+        /// of this open.
+        OPEN_NO_RECALL: bool = false,
+        /// This flag instructs the file system to capture the user associated
+        /// with the calling thread. Any subsequent calls to
+        /// `FltQueryVolumeInformation` or `ZwQueryVolumeInformationFile` using
+        /// the returned handle will assume the captured user, rather than the
+        /// calling user at the time, for purposes of computing the free space
+        /// available to the caller. This applies to the following
+        /// FsInformationClass values: `FileFsSizeInformation`,
+        /// `FileFsFullSizeInformation`, and `FileFsFullSizeInformationEx`.
+        OPEN_FOR_FREE_SPACE_QUERY: bool = false,
+        Reserved24: u8 = 0,
+
+        pub const VALID_OPTION_FLAGS: MODE = .{
+            .DIRECTORY_FILE = true,
+            .WRITE_THROUGH = true,
+            .SEQUENTIAL_ONLY = true,
+            .NO_INTERMEDIATE_BUFFERING = true,
+            .IO = .VALID_FLAGS,
+            .NON_DIRECTORY_FILE = true,
+            .CREATE_TREE_CONNECTION = true,
+            .COMPLETE_IF_OPLOCKED = true,
+            .NO_EA_KNOWLEDGE = true,
+            .OPEN_REMOTE_INSTANCE = true,
+            .RANDOM_ACCESS = true,
+            .DELETE_ON_CLOSE = true,
+            .OPEN_BY_FILE_ID = true,
+            .OPEN_FOR_BACKUP_INTENT = true,
+            .NO_COMPRESSION = true,
+            .OPEN_REQUIRING_OPLOCK = true,
+            .Reserved17 = 0b111,
+            .RESERVE_OPFILTER = true,
+            .OPEN_REPARSE_POINT = true,
+            .OPEN_NO_RECALL = true,
+            .OPEN_FOR_FREE_SPACE_QUERY = true,
+        };
+
+        pub const VALID_PIPE_OPTION_FLAGS: MODE = .{
+            .WRITE_THROUGH = true,
+            .IO = .VALID_FLAGS,
+        };
+
+        pub const VALID_MAILSLOT_OPTION_FLAGS: MODE = .{
+            .WRITE_THROUGH = true,
+            .IO = .VALID_FLAGS,
+        };
+
+        pub const VALID_SET_OPTION_FLAGS: MODE = .{
+            .WRITE_THROUGH = true,
+            .SEQUENTIAL_ONLY = true,
+            .IO = .VALID_FLAGS,
+        };
+
+        // ref: km/ntifs.h
+
+        pub const INFORMATION = extern struct {
+            /// The set of flags that specify the mode in which the file can be
+            /// accessed. These flags are a subset of `MODE`.
+            Mode: MODE,
+        };
+    };
+};
+
+// ref: km/ntddk.h
+
+pub const PROCESSINFOCLASS = enum(c_int) {
+    BasicInformation = 0,
+    QuotaLimits = 1,
+    IoCounters = 2,
+    VmCounters = 3,
+    Times = 4,
+    BasePriority = 5,
+    RaisePriority = 6,
+    DebugPort = 7,
+    ExceptionPort = 8,
+    AccessToken = 9,
+    LdtInformation = 10,
+    LdtSize = 11,
+    DefaultHardErrorMode = 12,
+    IoPortHandlers = 13,
+    PooledUsageAndLimits = 14,
+    WorkingSetWatch = 15,
+    UserModeIOPL = 16,
+    EnableAlignmentFaultFixup = 17,
+    PriorityClass = 18,
+    Wx86Information = 19,
+    HandleCount = 20,
+    AffinityMask = 21,
+    PriorityBoost = 22,
+    DeviceMap = 23,
+    SessionInformation = 24,
+    ForegroundInformation = 25,
+    Wow64Information = 26,
+    ImageFileName = 27,
+    LUIDDeviceMapsEnabled = 28,
+    BreakOnTermination = 29,
+    DebugObjectHandle = 30,
+    DebugFlags = 31,
+    HandleTracing = 32,
+    IoPriority = 33,
+    ExecuteFlags = 34,
+    TlsInformation = 35,
+    Cookie = 36,
+    ImageInformation = 37,
+    CycleTime = 38,
+    PagePriority = 39,
+    InstrumentationCallback = 40,
+    ThreadStackAllocation = 41,
+    WorkingSetWatchEx = 42,
+    ImageFileNameWin32 = 43,
+    ImageFileMapping = 44,
+    AffinityUpdateMode = 45,
+    MemoryAllocationMode = 46,
+    GroupInformation = 47,
+    TokenVirtualizationEnabled = 48,
+    OwnerInformation = 49,
+    WindowInformation = 50,
+    HandleInformation = 51,
+    MitigationPolicy = 52,
+    DynamicFunctionTableInformation = 53,
+    HandleCheckingMode = 54,
+    KeepAliveCount = 55,
+    RevokeFileHandles = 56,
+    WorkingSetControl = 57,
+    HandleTable = 58,
+    CheckStackExtentsMode = 59,
+    CommandLineInformation = 60,
+    ProtectionInformation = 61,
+    MemoryExhaustion = 62,
+    FaultInformation = 63,
+    TelemetryIdInformation = 64,
+    CommitReleaseInformation = 65,
+    Reserved1Information = 66,
+    Reserved2Information = 67,
+    SubsystemProcess = 68,
+    InPrivate = 70,
+    RaiseUMExceptionOnInvalidHandleClose = 71,
+    SubsystemInformation = 75,
+    Win32kSyscallFilterInformation = 79,
+    EnergyTrackingState = 82,
+    NetworkIoCounters = 114,
+    _,
+
+    pub const Max: @typeInfo(@This()).@"enum".tag_type = 117;
+};
+
+pub const THREADINFOCLASS = enum(c_int) {
+    BasicInformation = 0,
+    Times = 1,
+    Priority = 2,
+    BasePriority = 3,
+    AffinityMask = 4,
+    ImpersonationToken = 5,
+    DescriptorTableEntry = 6,
+    EnableAlignmentFaultFixup = 7,
+    EventPair_Reusable = 8,
+    QuerySetWin32StartAddress = 9,
+    ZeroTlsCell = 10,
+    PerformanceCount = 11,
+    AmILastThread = 12,
+    IdealProcessor = 13,
+    PriorityBoost = 14,
+    SetTlsArrayAddress = 15,
+    IsIoPending = 16,
+    // Windows 2000+ from here
+    HideFromDebugger = 17,
+    // Windows XP+ from here
+    BreakOnTermination = 18,
+    SwitchLegacyState = 19,
+    IsTerminated = 20,
+    // Windows Vista+ from here
+    LastSystemCall = 21,
+    IoPriority = 22,
+    CycleTime = 23,
+    PagePriority = 24,
+    ActualBasePriority = 25,
+    TebInformation = 26,
+    CSwitchMon = 27,
+    // Windows 7+ from here
+    CSwitchPmu = 28,
+    Wow64Context = 29,
+    GroupInformation = 30,
+    UmsInformation = 31,
+    CounterProfiling = 32,
+    IdealProcessorEx = 33,
+    // Windows 8+ from here
+    CpuAccountingInformation = 34,
+    // Windows 8.1+ from here
+    SuspendCount = 35,
+    // Windows 10+ from here
+    HeterogeneousCpuPolicy = 36,
+    ContainerId = 37,
+    NameInformation = 38,
+    SelectedCpuSets = 39,
+    SystemThreadInformation = 40,
+    ActualGroupAffinity = 41,
+    DynamicCodePolicyInfo = 42,
+    SubsystemInformation = 45,
+
+    pub const Max: @typeInfo(@This()).@"enum".tag_type = 60;
+};
+
+// ref: km/ntifs.h
+
+pub const HEAP = opaque {
+    pub const FLAGS = packed struct(u8) {
+        /// Serialized access is not used when the heap functions access this heap. This option
+        /// applies to all subsequent heap function calls. Alternatively, you can specify this
+        /// option on individual heap function calls.
+        ///
+        /// The low-fragmentation heap (LFH) cannot be enabled for a heap created with this option.
+        ///
+        /// A heap created with this option cannot be locked.
+        NO_SERIALIZE: bool = false,
+        /// Specifies that the heap is growable. Must be specified if `HeapBase` is `NULL`.
+        GROWABLE: bool = false,
+        /// The system raises an exception to indicate failure (for example, an out-of-memory
+        /// condition) for calls to `HeapAlloc` and `HeapReAlloc` instead of returning `NULL`.
+        ///
+        /// To ensure that exceptions are generated for all calls to an allocation function, specify
+        /// `GENERATE_EXCEPTIONS` in the call to `HeapCreate`. In this case, it is not necessary to
+        /// additionally specify `GENERATE_EXCEPTIONS` in the allocation function calls.
+        GENERATE_EXCEPTIONS: bool = false,
+        /// The allocated memory will be initialized to zero. Otherwise, the memory is not
+        /// initialized to zero.
+        ZERO_MEMORY: bool = false,
+        REALLOC_IN_PLACE_ONLY: bool = false,
+        TAIL_CHECKING_ENABLED: bool = false,
+        FREE_CHECKING_ENABLED: bool = false,
+        DISABLE_COALESCE_ON_FREE: bool = false,
+
+        pub const CLASS = enum(u4) {
+            /// process heap
+            PROCESS,
+            /// private heap
+            PRIVATE,
+            /// Kernel Heap
+            KERNEL,
+            /// GDI heap
+            GDI,
+            /// User heap
+            USER,
+            /// Console heap
+            CONSOLE,
+            /// User Desktop heap
+            USER_DESKTOP,
+            /// Csrss Shared heap
+            CSRSS_SHARED,
+            /// Csr Port heap
+            CSR_PORT,
+            _,
+
+            pub const MASK: CLASS = @enumFromInt(maxInt(@typeInfo(CLASS).@"enum".tag_type));
+        };
+
+        pub const CREATE = packed struct(ULONG) {
+            COMMON: FLAGS = .{},
+            SEGMENT_HEAP: bool = false,
+            /// Only applies to segment heap.  Applies pointer obfuscation which is
+            /// generally excessive and unnecessary but is necessary for certain insecure
+            /// heaps in win32k.
+            ///
+            /// Specifying HEAP_CREATE_HARDENED prevents the heap from using locks as
+            /// pointers would potentially be exposed in heap metadata lock variables.
+            /// Callers are therefore responsible for synchronizing access to hardened heaps.
+            HARDENED: bool = false,
+            Reserved10: u2 = 0,
+            CLASS: CLASS = @enumFromInt(0),
+            /// Create heap with 16 byte alignment (obsolete)
+            ALIGN_16: bool = false,
+            /// Create heap call tracing enabled (obsolete)
+            ENABLE_TRACING: bool = false,
+            /// Create heap with executable pages
+            ///
+            /// All memory blocks that are allocated from this heap allow code execution, if the
+            /// hardware enforces data execution prevention. Use this flag heap in applications that
+            /// run code from the heap. If `ENABLE_EXECUTE` is not specified and an application
+            /// attempts to run code from a protected page, the application receives an exception
+            /// with the status code `STATUS_ACCESS_VIOLATION`.
+            ENABLE_EXECUTE: bool = false,
+            Reserved19: u13 = 0,
+
+            pub const VALID_MASK: CREATE = .{
+                .COMMON = .{
+                    .NO_SERIALIZE = true,
+                    .GROWABLE = true,
+                    .GENERATE_EXCEPTIONS = true,
+                    .ZERO_MEMORY = true,
+                    .REALLOC_IN_PLACE_ONLY = true,
+                    .TAIL_CHECKING_ENABLED = true,
+                    .FREE_CHECKING_ENABLED = true,
+                    .DISABLE_COALESCE_ON_FREE = true,
+                },
+                .CLASS = .MASK,
+                .ALIGN_16 = true,
+                .ENABLE_TRACING = true,
+                .ENABLE_EXECUTE = true,
+                .SEGMENT_HEAP = true,
+                .HARDENED = true,
+            };
+        };
+
+        pub const ALLOCATION = packed struct(ULONG) {
+            COMMON: FLAGS = .{},
+            SETTABLE_USER: packed struct(u4) {
+                VALUE: u1 = 0,
+                FLAGS: packed struct(u3) {
+                    FLAG1: bool = false,
+                    FLAG2: bool = false,
+                    FLAG3: bool = false,
+                } = .{},
+            } = .{},
+            CLASS: CLASS = @enumFromInt(0),
+            Reserved16: u2 = 0,
+            TAG: u12 = 0,
+            Reserved30: u2 = 0,
+        };
+    };
+
+    pub const RTL_PARAMETERS = extern struct {
+        Length: ULONG,
+        SegmentReserve: SIZE_T,
+        SegmentCommit: SIZE_T,
+        DeCommitFreeBlockThreshold: SIZE_T,
+        DeCommitTotalFreeThreshold: SIZE_T,
+        MaximumAllocationSize: SIZE_T,
+        VirtualMemoryThreshold: SIZE_T,
+        InitialCommit: SIZE_T,
+        InitialReserve: SIZE_T,
+        CommitRoutine: *const COMMIT_ROUTINE,
+        Reserved: [2]SIZE_T = @splat(0),
+
+        pub const COMMIT_ROUTINE = fn (
+            Base: PVOID,
+            CommitAddress: *PVOID,
+            CommitSize: *SIZE_T,
+        ) callconv(.winapi) NTSTATUS;
+
+        pub const SEGMENT = extern struct {
+            Version: VERSION,
+            Size: USHORT,
+            Flags: FLG,
+            MemorySource: MEMORY_SOURCE,
+            Reserved: [4]SIZE_T,
+
+            pub const VERSION = enum(USHORT) {
+                CURRENT = 3,
+                _,
+            };
+
+            pub const FLG = packed struct(ULONG) {
+                USE_PAGE_HEAP: bool = false,
+                NO_LFH: bool = false,
+                Reserved2: u30 = 0,
+
+                pub const VALID_FLAGS: FLG = .{
+                    .USE_PAGE_HEAP = true,
+                    .NO_LFH = true,
+                };
+            };
+
+            pub const MEMORY_SOURCE = extern struct {
+                Flags: ULONG,
+                MemoryTypeMask: TYPE,
+                NumaNode: ULONG,
+                u: extern union {
+                    PartitionHandle: HANDLE,
+                    Callbacks: *const VA_CALLBACKS,
+                },
+                Reserved: [2]SIZE_T = @splat(0),
+
+                pub const TYPE = enum(ULONG) {
+                    Paged,
+                    NonPaged,
+                    @"64KPage",
+                    LargePage,
+                    HugePage,
+                    Custom,
+                    _,
+
+                    pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".fields.len;
+                };
+
+                pub const VA_CALLBACKS = extern struct {
+                    CallbackContext: HANDLE,
+                    AllocateVirtualMemory: *const ALLOCATE_VIRTUAL_MEMORY_EX_CALLBACK,
+                    FreeVirtualMemory: *const FREE_VIRTUAL_MEMORY_EX_CALLBACK,
+                    QueryVirtualMemory: *const QUERY_VIRTUAL_MEMORY_CALLBACK,
+
+                    pub const ALLOCATE_VIRTUAL_MEMORY_EX_CALLBACK = fn (
+                        CallbackContext: HANDLE,
+                        BaseAddress: *PVOID,
+                        RegionSize: *SIZE_T,
+                        AllocationType: ULONG,
+                        PageProtection: ULONG,
+                        ExtendedParameters: ?[*]MEM.EXTENDED_PARAMETER,
+                        ExtendedParameterCount: ULONG,
+                    ) callconv(.c) NTSTATUS;
+
+                    pub const FREE_VIRTUAL_MEMORY_EX_CALLBACK = fn (
+                        CallbackContext: HANDLE,
+                        ProcessHandle: HANDLE,
+                        BaseAddress: *PVOID,
+                        RegionSize: *SIZE_T,
+                        FreeType: ULONG,
+                    ) callconv(.c) NTSTATUS;
+
+                    pub const QUERY_VIRTUAL_MEMORY_CALLBACK = fn (
+                        CallbackContext: HANDLE,
+                        ProcessHandle: HANDLE,
+                        BaseAddress: *PVOID,
+                        MemoryInformationClass: MEMORY_INFO_CLASS,
+                        MemoryInformation: PVOID,
+                        MemoryInformationLength: SIZE_T,
+                        ReturnLength: ?*SIZE_T,
+                    ) callconv(.c) NTSTATUS;
+
+                    pub const MEMORY_INFO_CLASS = enum(c_int) {
+                        Basic,
+                        _,
+                    };
+                };
+            };
+        };
+    };
+};
+
+pub const CTL_CODE = packed struct(ULONG) {
+    Method: METHOD,
+    Function: u12,
+    Access: FILE_ACCESS,
+    DeviceType: FILE_DEVICE,
+
+    pub const METHOD = enum(u2) {
+        BUFFERED = 0,
+        IN_DIRECT = 1,
+        OUT_DIRECT = 2,
+        NEITHER = 3,
+    };
+
+    pub const FILE_ACCESS = packed struct(u2) {
+        READ: bool = false,
+        WRITE: bool = false,
+
+        pub const ANY: FILE_ACCESS = .{ .READ = false, .WRITE = false };
+        pub const SPECIAL = ANY;
+    };
+
+    pub const FILE_DEVICE = enum(u16) {
+        BEEP = 0x00000001,
+        CD_ROM = 0x00000002,
+        CD_ROM_FILE_SYSTEM = 0x00000003,
+        CONTROLLER = 0x00000004,
+        DATALINK = 0x00000005,
+        DFS = 0x00000006,
+        DISK = 0x00000007,
+        DISK_FILE_SYSTEM = 0x00000008,
+        FILE_SYSTEM = 0x00000009,
+        INPORT_PORT = 0x0000000a,
+        KEYBOARD = 0x0000000b,
+        MAILSLOT = 0x0000000c,
+        MIDI_IN = 0x0000000d,
+        MIDI_OUT = 0x0000000e,
+        MOUSE = 0x0000000f,
+        MULTI_UNC_PROVIDER = 0x00000010,
+        NAMED_PIPE = 0x00000011,
+        NETWORK = 0x00000012,
+        NETWORK_BROWSER = 0x00000013,
+        NETWORK_FILE_SYSTEM = 0x00000014,
+        NULL = 0x00000015,
+        PARALLEL_PORT = 0x00000016,
+        PHYSICAL_NETCARD = 0x00000017,
+        PRINTER = 0x00000018,
+        SCANNER = 0x00000019,
+        SERIAL_MOUSE_PORT = 0x0000001a,
+        SERIAL_PORT = 0x0000001b,
+        SCREEN = 0x0000001c,
+        SOUND = 0x0000001d,
+        STREAMS = 0x0000001e,
+        TAPE = 0x0000001f,
+        TAPE_FILE_SYSTEM = 0x00000020,
+        TRANSPORT = 0x00000021,
+        UNKNOWN = 0x00000022,
+        VIDEO = 0x00000023,
+        VIRTUAL_DISK = 0x00000024,
+        WAVE_IN = 0x00000025,
+        WAVE_OUT = 0x00000026,
+        @"8042_PORT" = 0x00000027,
+        NETWORK_REDIRECTOR = 0x00000028,
+        BATTERY = 0x00000029,
+        BUS_EXTENDER = 0x0000002a,
+        MODEM = 0x0000002b,
+        VDM = 0x0000002c,
+        MASS_STORAGE = 0x0000002d,
+        SMB = 0x0000002e,
+        KS = 0x0000002f,
+        CHANGER = 0x00000030,
+        SMARTCARD = 0x00000031,
+        ACPI = 0x00000032,
+        DVD = 0x00000033,
+        FULLSCREEN_VIDEO = 0x00000034,
+        DFS_FILE_SYSTEM = 0x00000035,
+        DFS_VOLUME = 0x00000036,
+        SERENUM = 0x00000037,
+        TERMSRV = 0x00000038,
+        KSEC = 0x00000039,
+        FIPS = 0x0000003A,
+        INFINIBAND = 0x0000003B,
+        VMBUS = 0x0000003E,
+        CRYPT_PROVIDER = 0x0000003F,
+        WPD = 0x00000040,
+        BLUETOOTH = 0x00000041,
+        MT_COMPOSITE = 0x00000042,
+        MT_TRANSPORT = 0x00000043,
+        BIOMETRIC = 0x00000044,
+        PMI = 0x00000045,
+        EHSTOR = 0x00000046,
+        DEVAPI = 0x00000047,
+        GPIO = 0x00000048,
+        USBEX = 0x00000049,
+        CONSOLE = 0x00000050,
+        NFP = 0x00000051,
+        SYSENV = 0x00000052,
+        VIRTUAL_BLOCK = 0x00000053,
+        POINT_OF_SERVICE = 0x00000054,
+        STORAGE_REPLICATION = 0x00000055,
+        TRUST_ENV = 0x00000056,
+        UCM = 0x00000057,
+        UCMTCPCI = 0x00000058,
+        PERSISTENT_MEMORY = 0x00000059,
+        NVDIMM = 0x0000005a,
+        HOLOGRAPHIC = 0x0000005b,
+        SDFXHCI = 0x0000005c,
+        UCMUCSI = 0x0000005d,
+        PRM = 0x0000005e,
+        EVENT_COLLECTOR = 0x0000005f,
+        USB4 = 0x00000060,
+        SOUNDWIRE = 0x00000061,
+
+        MOUNTMGRCONTROLTYPE = 'm',
+
+        _,
+    };
+};
+
+pub const IOCTL = struct {
+    pub const KSEC = struct {
+        pub const GEN_RANDOM: CTL_CODE = .{ .DeviceType = .KSEC, .Function = 2, .Method = .BUFFERED, .Access = .ANY };
+    };
+    pub const MOUNTMGR = struct {
+        pub const QUERY_POINTS: CTL_CODE = .{ .DeviceType = .MOUNTMGRCONTROLTYPE, .Function = 2, .Method = .BUFFERED, .Access = .ANY };
+        pub const QUERY_DOS_VOLUME_PATH: CTL_CODE = .{ .DeviceType = .MOUNTMGRCONTROLTYPE, .Function = 12, .Method = .BUFFERED, .Access = .ANY };
+    };
+};
+
+pub const FSCTL = struct {
+    pub const SET_REPARSE_POINT: CTL_CODE = .{ .DeviceType = .FILE_SYSTEM, .Function = 41, .Method = .BUFFERED, .Access = .SPECIAL };
+    pub const GET_REPARSE_POINT: CTL_CODE = .{ .DeviceType = .FILE_SYSTEM, .Function = 42, .Method = .BUFFERED, .Access = .ANY };
+
+    pub const PIPE = struct {
+        pub const ASSIGN_EVENT: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 0, .Method = .BUFFERED, .Access = .ANY };
+        pub const DISCONNECT: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 1, .Method = .BUFFERED, .Access = .ANY };
+        pub const LISTEN: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 2, .Method = .BUFFERED, .Access = .ANY };
+        pub const PEEK: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 3, .Method = .BUFFERED, .Access = .{ .READ = true } };
+        pub const QUERY_EVENT: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 4, .Method = .BUFFERED, .Access = .ANY };
+        pub const TRANSCEIVE: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 5, .Method = .NEITHER, .Access = .{ .READ = true, .WRITE = true } };
+        pub const WAIT: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 6, .Method = .BUFFERED, .Access = .ANY };
+        pub const IMPERSONATE: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 7, .Method = .BUFFERED, .Access = .ANY };
+        pub const SET_CLIENT_PROCESS: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 8, .Method = .BUFFERED, .Access = .ANY };
+        pub const QUERY_CLIENT_PROCESS: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 9, .Method = .BUFFERED, .Access = .ANY };
+        pub const GET_PIPE_ATTRIBUTE: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 10, .Method = .BUFFERED, .Access = .ANY };
+        pub const SET_PIPE_ATTRIBUTE: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 11, .Method = .BUFFERED, .Access = .ANY };
+        pub const GET_CONNECTION_ATTRIBUTE: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 12, .Method = .BUFFERED, .Access = .ANY };
+        pub const SET_CONNECTION_ATTRIBUTE: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 13, .Method = .BUFFERED, .Access = .ANY };
+        pub const GET_HANDLE_ATTRIBUTE: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 14, .Method = .BUFFERED, .Access = .ANY };
+        pub const SET_HANDLE_ATTRIBUTE: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 15, .Method = .BUFFERED, .Access = .ANY };
+        pub const FLUSH: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 16, .Method = .BUFFERED, .Access = .{ .WRITE = true } };
+
+        pub const INTERNAL_READ: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 2045, .Method = .BUFFERED, .Access = .{ .READ = true } };
+        pub const INTERNAL_WRITE: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 2046, .Method = .BUFFERED, .Access = .{ .WRITE = true } };
+        pub const INTERNAL_TRANSCEIVE: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 2047, .Method = .NEITHER, .Access = .{ .READ = true, .WRITE = true } };
+        pub const INTERNAL_READ_OVFLOW: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 2048, .Method = .BUFFERED, .Access = .{ .READ = true } };
+    };
+};
+
+pub const MAXIMUM_REPARSE_DATA_BUFFER_SIZE: ULONG = 16 * 1024;
+
+pub const IO_REPARSE_TAG = packed struct(ULONG) {
+    Value: u12,
+    Index: u4 = 0,
+    ReservedBits: u12 = 0,
+    /// Can have children if a directory.
+    IsDirectory: bool = false,
+    /// Represents another named entity in the system.
+    IsSurrogate: bool = false,
+    /// Must be `false` for non-Microsoft tags.
+    IsReserved: bool = false,
+    /// Owned by Microsoft.
+    IsMicrosoft: bool = false,
+
+    pub const RESERVED_INVALID: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .IsReserved = true, .Index = 0x8, .Value = 0x000 };
+    pub const MOUNT_POINT: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .IsSurrogate = true, .Value = 0x003 };
+    pub const HSM: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .IsReserved = true, .Value = 0x004 };
+    pub const DRIVE_EXTENDER: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x005 };
+    pub const HSM2: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x006 };
+    pub const SIS: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x007 };
+    pub const WIM: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x008 };
+    pub const CSV: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x009 };
+    pub const DFS: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x00A };
+    pub const FILTER_MANAGER: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x00B };
+    pub const SYMLINK: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .IsSurrogate = true, .Value = 0x00C };
+    pub const IIS_CACHE: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .IsSurrogate = true, .Value = 0x010 };
+    pub const DFSR: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x012 };
+    pub const DEDUP: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x013 };
+    pub const APPXSTRM: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .IsReserved = true, .Value = 0x014 };
+    pub const NFS: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x014 };
+    pub const FILE_PLACEHOLDER: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x015 };
+    pub const DFM: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x016 };
+    pub const WOF: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x017 };
+    pub inline fn WCI(index: u1) IO_REPARSE_TAG {
+        return .{ .IsMicrosoft = true, .IsDirectory = index == 0x1, .Index = index, .Value = 0x018 };
+    }
+    pub const GLOBAL_REPARSE: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .IsSurrogate = true, .Value = 0x0019 };
+    pub inline fn CLOUD(index: u4) IO_REPARSE_TAG {
+        return .{ .IsMicrosoft = true, .IsDirectory = true, .Index = index, .Value = 0x01A };
+    }
+    pub const APPEXECLINK: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x01B };
+    pub const PROJFS: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .IsDirectory = true, .Value = 0x01C };
+    pub const LX_SYMLINK: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .IsSurrogate = true, .Value = 0x01D };
+    pub const STORAGE_SYNC: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x01E };
+    pub const WCI_TOMBSTONE: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .IsSurrogate = true, .Value = 0x01F };
+    pub const UNHANDLED: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x020 };
+    pub const ONEDRIVE: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x021 };
+    pub const PROJFS_TOMBSTONE: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .IsSurrogate = true, .Value = 0x022 };
+    pub const AF_UNIX: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x023 };
+    pub const LX_FIFO: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x024 };
+    pub const LX_CHR: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x025 };
+    pub const LX_BLK: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .Value = 0x026 };
+    pub const LX_STORAGE_SYNC_FOLDER: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .IsDirectory = true, .Value = 0x027 };
+    pub inline fn WCI_LINK(index: u1) IO_REPARSE_TAG {
+        return .{ .IsMicrosoft = true, .IsSurrogate = true, .Index = index, .Value = 0x027 };
+    }
+    pub const DATALESS_CIM: IO_REPARSE_TAG = .{ .IsMicrosoft = true, .IsSurrogate = true, .Value = 0x28 };
+};
+
+// ref: km/wdm.h
+
+pub const ACCESS_MASK = packed struct(DWORD) {
+    SPECIFIC: Specific = .{ .bits = 0 },
+    STANDARD: Standard = .{},
+    Reserved21: u3 = 0,
+    ACCESS_SYSTEM_SECURITY: bool = false,
+    MAXIMUM_ALLOWED: bool = false,
+    Reserved26: u2 = 0,
+    GENERIC: Generic = .{},
+
+    pub const Specific = packed union {
+        bits: u16,
+
+        // ref: km/wdm.h
+
+        /// Define access rights to files and directories
+        FILE: File,
+        FILE_DIRECTORY: File.Directory,
+        FILE_PIPE: File.Pipe,
+        /// Registry Specific Access Rights.
+        KEY: Key,
+        /// Object Manager Object Type Specific Access Rights.
+        OBJECT_TYPE: ObjectType,
+        /// Object Manager Directory Specific Access Rights.
+        DIRECTORY: Directory,
+        /// Object Manager Symbolic Link Specific Access Rights.
+        SYMBOLIC_LINK: SymbolicLink,
+        /// Section Access Rights.
+        SECTION: Section,
+        /// Session Specific Access Rights.
+        SESSION: Session,
+        /// Process Specific Access Rights.
+        PROCESS: Process,
+        /// Thread Specific Access Rights.
+        THREAD: Thread,
+        /// Partition Specific Access Rights.
+        MEMORY_PARTITION: MemoryPartition,
+        /// Generic mappings for transaction manager rights.
+        TRANSACTIONMANAGER: TransactionManager,
+        /// Generic mappings for transaction rights.
+        TRANSACTION: Transaction,
+        /// Generic mappings for resource manager rights.
+        RESOURCEMANAGER: ResourceManager,
+        /// Generic mappings for enlistment rights.
+        ENLISTMENT: Enlistment,
+        /// Event Specific Access Rights.
+        EVENT: Event,
+        /// Semaphore Specific Access Rights.
+        SEMAPHORE: Semaphore,
+
+        // ref: km/ntifs.h
+
+        /// Token Specific Access Rights.
+        TOKEN: Token,
+
+        // um/winnt.h
+
+        /// Job Object Specific Access Rights.
+        JOB_OBJECT: JobObject,
+        /// Mutant Specific Access Rights.
+        MUTANT: Mutant,
+        /// Timer Specific Access Rights.
+        TIMER: Timer,
+        /// I/O Completion Specific Access Rights.
+        IO_COMPLETION: IoCompletion,
+
+        pub const File = packed struct(u16) {
+            READ_DATA: bool = false,
+            WRITE_DATA: bool = false,
+            APPEND_DATA: bool = false,
+            READ_EA: bool = false,
+            WRITE_EA: bool = false,
+            EXECUTE: bool = false,
+            Reserved6: u1 = 0,
+            READ_ATTRIBUTES: bool = false,
+            WRITE_ATTRIBUTES: bool = false,
+            Reserved9: u7 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .REQUIRED,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .FILE = .{
+                    .READ_DATA = true,
+                    .WRITE_DATA = true,
+                    .APPEND_DATA = true,
+                    .READ_EA = true,
+                    .WRITE_EA = true,
+                    .EXECUTE = true,
+                    .Reserved6 = maxInt(@FieldType(File, "Reserved6")),
+                    .READ_ATTRIBUTES = true,
+                    .WRITE_ATTRIBUTES = true,
+                } },
+            };
+
+            pub const GENERIC_READ: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .READ,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .FILE = .{
+                    .READ_DATA = true,
+                    .READ_ATTRIBUTES = true,
+                    .READ_EA = true,
+                } },
+            };
+
+            pub const GENERIC_WRITE: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .WRITE,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .FILE = .{
+                    .WRITE_DATA = true,
+                    .WRITE_ATTRIBUTES = true,
+                    .WRITE_EA = true,
+                    .APPEND_DATA = true,
+                } },
+            };
+
+            pub const GENERIC_EXECUTE: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .EXECUTE,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .FILE = .{
+                    .READ_ATTRIBUTES = true,
+                    .EXECUTE = true,
+                } },
+            };
+
+            pub const Directory = packed struct(u16) {
+                LIST: bool = false,
+                ADD_FILE: bool = false,
+                ADD_SUBDIRECTORY: bool = false,
+                READ_EA: bool = false,
+                WRITE_EA: bool = false,
+                TRAVERSE: bool = false,
+                DELETE_CHILD: bool = false,
+                READ_ATTRIBUTES: bool = false,
+                WRITE_ATTRIBUTES: bool = false,
+                Reserved9: u7 = 0,
+            };
+
+            pub const Pipe = packed struct(u16) {
+                READ_DATA: bool = false,
+                WRITE_DATA: bool = false,
+                CREATE_PIPE_INSTANCE: bool = false,
+                Reserved3: u4 = 0,
+                READ_ATTRIBUTES: bool = false,
+                WRITE_ATTRIBUTES: bool = false,
+                Reserved9: u7 = 0,
+            };
+        };
+
+        pub const Key = packed struct(u16) {
+            /// Required to query the values of a registry key.
+            QUERY_VALUE: bool = false,
+            /// Required to create, delete, or set a registry value.
+            SET_VALUE: bool = false,
+            /// Required to create a subkey of a registry key.
+            CREATE_SUB_KEY: bool = false,
+            /// Required to enumerate the subkeys of a registry key.
+            ENUMERATE_SUB_KEYS: bool = false,
+            /// Required to request change notifications for a registry key or for subkeys of a registry key.
+            NOTIFY: bool = false,
+            /// Reserved for system use.
+            CREATE_LINK: bool = false,
+            Reserved6: u2 = 0,
+            /// Indicates that an application on 64-bit Windows should operate on the 64-bit registry view.
+            /// This flag is ignored by 32-bit Windows.
+            WOW64_64KEY: bool = false,
+            /// Indicates that an application on 64-bit Windows should operate on the 32-bit registry view.
+            /// This flag is ignored by 32-bit Windows.
+            WOW64_32KEY: bool = false,
+            Reserved10: u6 = 0,
+
+            pub const WOW64_RES: ACCESS_MASK = .{
+                .SPECIFIC = .{ .KEY = .{
+                    .WOW64_32KEY = true,
+                    .WOW64_64KEY = true,
+                } },
+            };
+
+            /// Combines the STANDARD_RIGHTS_READ, KEY_QUERY_VALUE, KEY_ENUMERATE_SUB_KEYS, and KEY_NOTIFY values.
+            pub const READ: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .READ,
+                    .SYNCHRONIZE = false,
+                },
+                .SPECIFIC = .{ .KEY = .{
+                    .QUERY_VALUE = true,
+                    .ENUMERATE_SUB_KEYS = true,
+                    .NOTIFY = true,
+                } },
+            };
+
+            /// Combines the STANDARD_RIGHTS_WRITE, KEY_SET_VALUE, and KEY_CREATE_SUB_KEY access rights.
+            pub const WRITE: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .WRITE,
+                    .SYNCHRONIZE = false,
+                },
+                .SPECIFIC = .{ .KEY = .{
+                    .SET_VALUE = true,
+                    .CREATE_SUB_KEY = true,
+                } },
+            };
+
+            /// Equivalent to KEY_READ.
+            pub const EXECUTE = READ;
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .ALL,
+                    .SYNCHRONIZE = false,
+                },
+                .SPECIFIC = .{ .KEY = .{
+                    .QUERY_VALUE = true,
+                    .SET_VALUE = true,
+                    .CREATE_SUB_KEY = true,
+                    .ENUMERATE_SUB_KEYS = true,
+                    .NOTIFY = true,
+                    .CREATE_LINK = true,
+                } },
+            };
+        };
+
+        pub const ObjectType = packed struct(u16) {
+            CREATE: bool = false,
+            Reserved1: u15 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .REQUIRED },
+                .SPECIFIC = .{ .OBJECT_TYPE = .{
+                    .CREATE = true,
+                } },
+            };
+        };
+
+        pub const Directory = packed struct(u16) {
+            QUERY: bool = false,
+            TRAVERSE: bool = false,
+            CREATE_OBJECT: bool = false,
+            CREATE_SUBDIRECTORY: bool = false,
+            Reserved3: u12 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .REQUIRED },
+                .SPECIFIC = .{ .DIRECTORY = .{
+                    .QUERY = true,
+                    .TRAVERSE = true,
+                    .CREATE_OBJECT = true,
+                    .CREATE_SUBDIRECTORY = true,
+                } },
+            };
+        };
+
+        pub const SymbolicLink = packed struct(u16) {
+            QUERY: bool = false,
+            SET: bool = false,
+            Reserved2: u14 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .REQUIRED },
+                .SPECIFIC = .{ .SYMBOLIC_LINK = .{
+                    .QUERY = true,
+                } },
+            };
+
+            pub const ALL_ACCESS_EX: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .REQUIRED },
+                .SPECIFIC = .{ .SYMBOLIC_LINK = .{
+                    .QUERY = true,
+                    .SET = true,
+                    .Reserved2 = maxInt(@FieldType(SymbolicLink, "Reserved2")),
+                } },
+            };
+        };
+
+        pub const Section = packed struct(u16) {
+            QUERY: bool = false,
+            MAP_WRITE: bool = false,
+            MAP_READ: bool = false,
+            MAP_EXECUTE: bool = false,
+            EXTEND_SIZE: bool = false,
+            /// not included in `ALL_ACCESS`
+            MAP_EXECUTE_EXPLICIT: bool = false,
+            Reserved6: u10 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .REQUIRED },
+                .SPECIFIC = .{ .SECTION = .{
+                    .QUERY = true,
+                    .MAP_WRITE = true,
+                    .MAP_READ = true,
+                    .MAP_EXECUTE = true,
+                    .EXTEND_SIZE = true,
+                } },
+            };
+        };
+
+        pub const Session = packed struct(u16) {
+            QUERY_ACCESS: bool = false,
+            MODIFY_ACCESS: bool = false,
+            Reserved2: u14 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .REQUIRED },
+                .SPECIFIC = .{ .SESSION = .{
+                    .QUERY_ACCESS = true,
+                    .MODIFY_ACCESS = true,
+                } },
+            };
+        };
+
+        pub const Process = packed struct(u16) {
+            TERMINATE: bool = false,
+            CREATE_THREAD: bool = false,
+            SET_SESSIONID: bool = false,
+            VM_OPERATION: bool = false,
+            VM_READ: bool = false,
+            VM_WRITE: bool = false,
+            DUP_HANDLE: bool = false,
+            CREATE_PROCESS: bool = false,
+            SET_QUOTA: bool = false,
+            SET_INFORMATION: bool = false,
+            QUERY_INFORMATION: bool = false,
+            SUSPEND_RESUME: bool = false,
+            QUERY_LIMITED_INFORMATION: bool = false,
+            SET_LIMITED_INFORMATION: bool = false,
+            Reserved14: u2 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .REQUIRED,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .PROCESS = .{
+                    .TERMINATE = true,
+                    .CREATE_THREAD = true,
+                    .SET_SESSIONID = true,
+                    .VM_OPERATION = true,
+                    .VM_READ = true,
+                    .VM_WRITE = true,
+                    .DUP_HANDLE = true,
+                    .CREATE_PROCESS = true,
+                    .SET_QUOTA = true,
+                    .SET_INFORMATION = true,
+                    .QUERY_INFORMATION = true,
+                    .SUSPEND_RESUME = true,
+                    .QUERY_LIMITED_INFORMATION = true,
+                    .SET_LIMITED_INFORMATION = true,
+                    .Reserved14 = maxInt(@FieldType(Process, "Reserved14")),
+                } },
+            };
+        };
+
+        pub const Thread = packed struct(u16) {
+            TERMINATE: bool = false,
+            SUSPEND_RESUME: bool = false,
+            ALERT: bool = false,
+            GET_CONTEXT: bool = false,
+            SET_CONTEXT: bool = false,
+            SET_INFORMATION: bool = false,
+            QUERY_INFORMATION: bool = false,
+            SET_THREAD_TOKEN: bool = false,
+            IMPERSONATE: bool = false,
+            DIRECT_IMPERSONATION: bool = false,
+            SET_LIMITED_INFORMATION: bool = false,
+            QUERY_LIMITED_INFORMATION: bool = false,
+            RESUME: bool = false,
+            Reserved13: u3 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .REQUIRED,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .THREAD = .{
+                    .TERMINATE = true,
+                    .SUSPEND_RESUME = true,
+                    .ALERT = true,
+                    .GET_CONTEXT = true,
+                    .SET_CONTEXT = true,
+                    .SET_INFORMATION = true,
+                    .QUERY_INFORMATION = true,
+                    .SET_THREAD_TOKEN = true,
+                    .IMPERSONATE = true,
+                    .DIRECT_IMPERSONATION = true,
+                    .SET_LIMITED_INFORMATION = true,
+                    .QUERY_LIMITED_INFORMATION = true,
+                    .RESUME = true,
+                    .Reserved13 = maxInt(@FieldType(Thread, "Reserved13")),
+                } },
+            };
+        };
+
+        pub const MemoryPartition = packed struct(u16) {
+            QUERY_ACCESS: bool = false,
+            MODIFY_ACCESS: bool = false,
+            Required2: u14 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .REQUIRED,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .MEMORY_PARTITION = .{
+                    .QUERY_ACCESS = true,
+                    .MODIFY_ACCESS = true,
+                } },
+            };
+        };
+
+        pub const TransactionManager = packed struct(u16) {
+            QUERY_INFORMATION: bool = false,
+            SET_INFORMATION: bool = false,
+            RECOVER: bool = false,
+            RENAME: bool = false,
+            CREATE_RM: bool = false,
+            /// The following right is intended for DTC's use only; it will be deprecated, and no one else should take a dependency on it.
+            BIND_TRANSACTION: bool = false,
+            Reserved6: u10 = 0,
+
+            pub const GENERIC_READ: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .READ },
+                .SPECIFIC = .{ .TRANSACTIONMANAGER = .{
+                    .QUERY_INFORMATION = true,
+                } },
+            };
+
+            pub const GENERIC_WRITE: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .WRITE },
+                .SPECIFIC = .{ .TRANSACTIONMANAGER = .{
+                    .SET_INFORMATION = true,
+                    .RECOVER = true,
+                    .RENAME = true,
+                    .CREATE_RM = true,
+                } },
+            };
+
+            pub const GENERIC_EXECUTE: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .EXECUTE },
+                .SPECIFIC = .{ .TRANSACTIONMANAGER = .{} },
+            };
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .REQUIRED },
+                .SPECIFIC = .{ .TRANSACTIONMANAGER = .{
+                    .QUERY_INFORMATION = true,
+                    .SET_INFORMATION = true,
+                    .RECOVER = true,
+                    .RENAME = true,
+                    .CREATE_RM = true,
+                    .BIND_TRANSACTION = true,
+                } },
+            };
+        };
+
+        pub const Transaction = packed struct(u16) {
+            QUERY_INFORMATION: bool = false,
+            SET_INFORMATION: bool = false,
+            ENLIST: bool = false,
+            COMMIT: bool = false,
+            ROLLBACK: bool = false,
+            PROPAGATE: bool = false,
+            RIGHT_RESERVED1: bool = false,
+            Reserved7: u9 = 0,
+
+            pub const GENERIC_READ: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .READ,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .TRANSACTION = .{
+                    .QUERY_INFORMATION = true,
+                } },
+            };
+
+            pub const GENERIC_WRITE: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .WRITE,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .TRANSACTION = .{
+                    .SET_INFORMATION = true,
+                    .COMMIT = true,
+                    .ENLIST = true,
+                    .ROLLBACK = true,
+                    .PROPAGATE = true,
+                } },
+            };
+
+            pub const GENERIC_EXECUTE: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .EXECUTE,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .TRANSACTION = .{
+                    .COMMIT = true,
+                    .ROLLBACK = true,
+                } },
+            };
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .REQUIRED,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .TRANSACTION = .{
+                    .QUERY_INFORMATION = true,
+                    .SET_INFORMATION = true,
+                    .COMMIT = true,
+                    .ENLIST = true,
+                    .ROLLBACK = true,
+                    .PROPAGATE = true,
+                } },
+            };
+
+            pub const RESOURCE_MANAGER_RIGHTS: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .{
+                        .READ_CONTROL = true,
+                    },
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .TRANSACTION = .{
+                    .QUERY_INFORMATION = true,
+                    .SET_INFORMATION = true,
+                    .ENLIST = true,
+                    .ROLLBACK = true,
+                    .PROPAGATE = true,
+                } },
+            };
+        };
+
+        pub const ResourceManager = packed struct(u16) {
+            QUERY_INFORMATION: bool = false,
+            SET_INFORMATION: bool = false,
+            RECOVER: bool = false,
+            ENLIST: bool = false,
+            GET_NOTIFICATION: bool = false,
+            REGISTER_PROTOCOL: bool = false,
+            COMPLETE_PROPAGATION: bool = false,
+            Reserved7: u9 = 0,
+
+            pub const GENERIC_READ: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .READ,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .RESOURCEMANAGER = .{
+                    .QUERY_INFORMATION = true,
+                } },
+            };
+
+            pub const GENERIC_WRITE: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .WRITE,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .RESOURCEMANAGER = .{
+                    .SET_INFORMATION = true,
+                    .RECOVER = true,
+                    .ENLIST = true,
+                    .GET_NOTIFICATION = true,
+                    .REGISTER_PROTOCOL = true,
+                    .COMPLETE_PROPAGATION = true,
+                } },
+            };
+
+            pub const GENERIC_EXECUTE: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .EXECUTE,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .RESOURCEMANAGER = .{
+                    .RECOVER = true,
+                    .ENLIST = true,
+                    .GET_NOTIFICATION = true,
+                    .COMPLETE_PROPAGATION = true,
+                } },
+            };
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .REQUIRED,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .RESOURCEMANAGER = .{
+                    .QUERY_INFORMATION = true,
+                    .SET_INFORMATION = true,
+                    .RECOVER = true,
+                    .ENLIST = true,
+                    .GET_NOTIFICATION = true,
+                    .REGISTER_PROTOCOL = true,
+                    .COMPLETE_PROPAGATION = true,
+                } },
+            };
+        };
+
+        pub const Enlistment = packed struct(u16) {
+            QUERY_INFORMATION: bool = false,
+            SET_INFORMATION: bool = false,
+            RECOVER: bool = false,
+            SUBORDINATE_RIGHTS: bool = false,
+            SUPERIOR_RIGHTS: bool = false,
+            Reserved5: u11 = 0,
+
+            pub const GENERIC_READ: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .READ },
+                .SPECIFIC = .{ .ENLISTMENT = .{
+                    .QUERY_INFORMATION = true,
+                } },
+            };
+
+            pub const GENERIC_WRITE: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .WRITE },
+                .SPECIFIC = .{ .ENLISTMENT = .{
+                    .SET_INFORMATION = true,
+                    .RECOVER = true,
+                    .SUBORDINATE_RIGHTS = true,
+                    .SUPERIOR_RIGHTS = true,
+                } },
+            };
+
+            pub const GENERIC_EXECUTE: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .EXECUTE },
+                .SPECIFIC = .{ .ENLISTMENT = .{
+                    .RECOVER = true,
+                    .SUBORDINATE_RIGHTS = true,
+                    .SUPERIOR_RIGHTS = true,
+                } },
+            };
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .REQUIRED },
+                .SPECIFIC = .{ .ENLISTMENT = .{
+                    .QUERY_INFORMATION = true,
+                    .SET_INFORMATION = true,
+                    .RECOVER = true,
+                    .SUBORDINATE_RIGHTS = true,
+                    .SUPERIOR_RIGHTS = true,
+                } },
+            };
+        };
+
+        pub const Event = packed struct(u16) {
+            QUERY_STATE: bool = false,
+            MODIFY_STATE: bool = false,
+            Reserved2: u14 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .REQUIRED,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .EVENT = .{
+                    .QUERY_STATE = true,
+                    .MODIFY_STATE = true,
+                } },
+            };
+        };
+
+        pub const Semaphore = packed struct(u16) {
+            QUERY_STATE: bool = false,
+            MODIFY_STATE: bool = false,
+            Reserved2: u14 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .REQUIRED,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .SEMAPHORE = .{
+                    .QUERY_STATE = true,
+                    .MODIFY_STATE = true,
+                } },
+            };
+        };
+
+        pub const Token = packed struct(u16) {
+            ASSIGN_PRIMARY: bool = false,
+            DUPLICATE: bool = false,
+            IMPERSONATE: bool = false,
+            QUERY: bool = false,
+            QUERY_SOURCE: bool = false,
+            ADJUST_PRIVILEGES: bool = false,
+            ADJUST_GROUPS: bool = false,
+            ADJUST_DEFAULT: bool = false,
+            ADJUST_SESSIONID: bool = false,
+            Reserved9: u7 = 0,
+
+            pub const ALL_ACCESS_P: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .REQUIRED },
+                .SPECIFIC = .{ .TOKEN = .{
+                    .ASSIGN_PRIMARY = true,
+                    .DUPLICATE = true,
+                    .IMPERSONATE = true,
+                    .QUERY = true,
+                    .QUERY_SOURCE = true,
+                    .ADJUST_PRIVILEGES = true,
+                    .ADJUST_GROUPS = true,
+                    .ADJUST_DEFAULT = true,
+                } },
+            };
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .REQUIRED },
+                .SPECIFIC = .{ .TOKEN = .{
+                    .ASSIGN_PRIMARY = true,
+                    .DUPLICATE = true,
+                    .IMPERSONATE = true,
+                    .QUERY = true,
+                    .QUERY_SOURCE = true,
+                    .ADJUST_PRIVILEGES = true,
+                    .ADJUST_GROUPS = true,
+                    .ADJUST_DEFAULT = true,
+                    .ADJUST_SESSIONID = true,
+                } },
+            };
+
+            pub const READ: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .READ },
+                .SPECIFIC = .{ .TOKEN = .{
+                    .QUERY = true,
+                } },
+            };
+
+            pub const WRITE: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .WRITE },
+                .SPECIFIC = .{ .TOKEN = .{
+                    .ADJUST_PRIVILEGES = true,
+                    .ADJUST_GROUPS = true,
+                    .ADJUST_DEFAULT = true,
+                } },
+            };
+
+            pub const EXECUTE: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .EXECUTE },
+                .SPECIFIC = .{ .TOKEN = .{} },
+            };
+
+            pub const TRUST_CONSTRAINT_MASK: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .READ },
+                .SPECIFIC = .{ .TOKEN = .{
+                    .QUERY = true,
+                    .QUERY_SOURCE = true,
+                } },
+            };
+
+            pub const TRUST_ALLOWED_MASK: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .READ },
+                .SPECIFIC = .{ .TOKEN = .{
+                    .QUERY = true,
+                    .QUERY_SOURCE = true,
+                    .DUPLICATE = true,
+                    .IMPERSONATE = true,
+                } },
+            };
+        };
+
+        pub const JobObject = packed struct(u16) {
+            ASSIGN_PROCESS: bool = false,
+            SET_ATTRIBUTES: bool = false,
+            QUERY: bool = false,
+            TERMINATE: bool = false,
+            SET_SECURITY_ATTRIBUTES: bool = false,
+            IMPERSONATE: bool = false,
+            Reserved6: u10 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .REQUIRED,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .JOB_OBJECT = .{
+                    .ASSIGN_PROCESS = true,
+                    .SET_ATTRIBUTES = true,
+                    .QUERY = true,
+                    .TERMINATE = true,
+                    .SET_SECURITY_ATTRIBUTES = true,
+                    .IMPERSONATE = true,
+                } },
+            };
+        };
+
+        pub const Mutant = packed struct(u16) {
+            QUERY_STATE: bool = false,
+            Reserved1: u15 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .REQUIRED,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .MUTANT = .{
+                    .QUERY_STATE = true,
+                } },
+            };
+        };
+
+        pub const Timer = packed struct(u16) {
+            QUERY_STATE: bool = false,
+            MODIFY_STATE: bool = false,
+            Reserved2: u14 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{
+                    .RIGHTS = .REQUIRED,
+                    .SYNCHRONIZE = true,
+                },
+                .SPECIFIC = .{ .TIMER = .{
+                    .QUERY_STATE = true,
+                    .MODIFY_STATE = true,
+                } },
+            };
+        };
+
+        pub const IoCompletion = packed struct(u16) {
+            Reserved0: u1 = 0,
+            MODIFY_STATE: bool = false,
+            Reserved2: u14 = 0,
+
+            pub const ALL_ACCESS: ACCESS_MASK = .{
+                .STANDARD = .{ .RIGHTS = .REQUIRED, .SYNCHRONIZE = true },
+                .SPECIFIC = .{ .IO_COMPLETION = .{
+                    .Reserved0 = maxInt(@FieldType(IoCompletion, "Reserved0")),
+                    .MODIFY_STATE = true,
+                } },
+            };
+        };
+
+        pub const RIGHTS_ALL: Specific = .{ .bits = maxInt(@FieldType(Specific, "bits")) };
+    };
+
+    pub const Standard = packed struct(u5) {
+        RIGHTS: Rights = .{},
+        SYNCHRONIZE: bool = false,
+
+        pub const RIGHTS_ALL: Standard = .{
+            .RIGHTS = .ALL,
+            .SYNCHRONIZE = true,
+        };
+
+        pub const Rights = packed struct(u4) {
+            DELETE: bool = false,
+            READ_CONTROL: bool = false,
+            WRITE_DAC: bool = false,
+            WRITE_OWNER: bool = false,
+
+            pub const REQUIRED: Rights = .{
+                .DELETE = true,
+                .READ_CONTROL = true,
+                .WRITE_DAC = true,
+                .WRITE_OWNER = true,
+            };
+
+            pub const READ: Rights = .{
+                .READ_CONTROL = true,
+            };
+            pub const WRITE: Rights = .{
+                .READ_CONTROL = true,
+            };
+            pub const EXECUTE: Rights = .{
+                .READ_CONTROL = true,
+            };
+
+            pub const ALL = REQUIRED;
+        };
+    };
+
+    pub const Generic = packed struct(u4) {
+        ALL: bool = false,
+        EXECUTE: bool = false,
+        WRITE: bool = false,
+        READ: bool = false,
+    };
+};
+
+pub const DEVICE_TYPE = packed struct(ULONG) {
+    FileDevice: CTL_CODE.FILE_DEVICE,
+    Reserved16: u16 = 0,
+};
+
+pub const FS_INFORMATION_CLASS = enum(c_int) {
+    Volume = 1,
+    Label = 2,
+    Size = 3,
+    Device = 4,
+    Attribute = 5,
+    Control = 6,
+    FullSize = 7,
+    ObjectId = 8,
+    DriverPath = 9,
+    VolumeFlags = 10,
+    SectorSize = 11,
+    DataCopy = 12,
+    MetadataSize = 13,
+    FullSizeEx = 14,
+    Guid = 15,
+    _,
+
+    pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".fields.len;
+};
+
+pub const SECTION_INHERIT = enum(c_int) {
+    Share = 1,
+    Unmap = 2,
+};
+
+pub const PAGE = packed struct(ULONG) {
+    NOACCESS: bool = false,
+    READONLY: bool = false,
+    READWRITE: bool = false,
+    WRITECOPY: bool = false,
+
+    EXECUTE: bool = false,
+    EXECUTE_READ: bool = false,
+    EXECUTE_READWRITE: bool = false,
+    EXECUTE_WRITECOPY: bool = false,
+
+    GUARD: bool = false,
+    NOCACHE: bool = false,
+    WRITECOMBINE: bool = false,
+
+    GRAPHICS_NOACCESS: bool = false,
+    GRAPHICS_READONLY: bool = false,
+    GRAPHICS_READWRITE: bool = false,
+    GRAPHICS_EXECUTE: bool = false,
+    GRAPHICS_EXECUTE_READ: bool = false,
+    GRAPHICS_EXECUTE_READWRITE: bool = false,
+    GRAPHICS_COHERENT: bool = false,
+    GRAPHICS_NOCACHE: bool = false,
+
+    Reserved19: u12 = 0,
+
+    REVERT_TO_FILE_MAP: bool = false,
+
+    pub fn fromProtection(protection: std.process.MemoryProtection) ?PAGE {
+        // TODO https://github.com/ziglang/zig/issues/22214
+        return switch (@as(u3, @bitCast(protection))) {
+            0b000 => .{ .NOACCESS = true },
+            0b001 => .{ .READONLY = true },
+            0b010 => null,
+            0b011 => .{ .READWRITE = true },
+            0b100 => .{ .EXECUTE = true },
+            0b101 => .{ .EXECUTE_READ = true },
+            0b110 => null,
+            0b111 => .{ .EXECUTE_READWRITE = true },
+        };
+    }
+};
+
+pub const MEM = struct {
+    pub const ALLOCATE = packed struct(ULONG) {
+        Reserved0: u12 = 0,
+        COMMIT: bool = false,
+        RESERVE: bool = false,
+        REPLACE_PLACEHOLDER: bool = false,
+        Reserved15: u3 = 0,
+        RESERVE_PLACEHOLDER: bool = false,
+        RESET: bool = false,
+        TOP_DOWN: bool = false,
+        WRITE_WATCH: bool = false,
+        PHYSICAL: bool = false,
+        Reserved23: u1 = 0,
+        RESET_UNDO: bool = false,
+        Reserved25: u4 = 0,
+        LARGE_PAGES: bool = false,
+        Reserved30: u1 = 0,
+        @"4MB_PAGES": bool = false,
+
+        pub const @"64K_PAGES": ALLOCATE = .{
+            .LARGE_PAGES = true,
+            .PHYSICAL = true,
+        };
+    };
+
+    pub const FREE = packed struct(ULONG) {
+        COALESCE_PLACEHOLDERS: bool = false,
+        PRESERVE_PLACEHOLDER: bool = false,
+        Reserved2: u12 = 0,
+        DECOMMIT: bool = false,
+        RELEASE: bool = false,
+        FREE: bool = false,
+        Reserved17: u15 = 0,
+    };
+
+    pub const MAP = packed struct(ULONG) {
+        Reserved0: u13 = 0,
+        RESERVE: bool = false,
+        REPLACE_PLACEHOLDER: bool = false,
+        Reserved15: u14 = 0,
+        LARGE_PAGES: bool = false,
+        Reserved30: u2 = 0,
+    };
+
+    pub const UNMAP = packed struct(ULONG) {
+        WITH_TRANSIENT_BOOST: bool = false,
+        PRESERVE_PLACEHOLDER: bool = false,
+        Reserved2: u30 = 0,
+    };
+
+    pub const EXTENDED_PARAMETER = extern struct {
+        s: packed struct(ULONG64) {
+            Type: TYPE,
+            Reserved: u56,
+        },
+        u: extern union {
+            ULong64: ULONG64,
+            Pointer: PVOID,
+            Size: SIZE_T,
+            Handle: HANDLE,
+            ULong: ULONG,
+        },
+
+        pub const TYPE = enum(u8) {
+            InvalidType = 0,
+            AddressRequirements,
+            NumaNode,
+            PartitionHandle,
+            UserPhysicalHandle,
+            AttributeFlags,
+            ImageMachine,
+            _,
+
+            pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".fields.len;
+        };
+    };
+};
+
+pub const SEC = packed struct(ULONG) {
+    Reserved0: u17 = 0,
+    HUGE_PAGES: bool = false,
+    PARTITION_OWNER_HANDLE: bool = false,
+    @"64K_PAGES": bool = false,
+    Reserved19: u3 = 0,
+    FILE: bool = false,
+    IMAGE: bool = false,
+    PROTECTED_IMAGE: bool = false,
+    RESERVE: bool = false,
+    COMMIT: bool = false,
+    NOCACHE: bool = false,
+    Reserved29: u1 = 0,
+    WRITECOMBINE: bool = false,
+    LARGE_PAGES: bool = false,
+
+    pub const IMAGE_NO_EXECUTE: SEC = .{
+        .IMAGE = true,
+        .NOCACHE = true,
+    };
+};
+
+pub const ERESOURCE = opaque {};
+
+// ref: shared/ntdef.h
+
+pub const EVENT_TYPE = enum(c_int) {
+    Notification,
+    Synchronization,
+};
+
+pub const TIMER_TYPE = enum(c_int) {
+    Notification,
+    Synchronization,
+};
+
+pub const WAIT_TYPE = enum(c_int) {
+    All,
+    Any,
+};
+
+pub const LOGICAL = ULONG;
+
+pub const NTSTATUS = @import("windows/ntstatus.zig").NTSTATUS;
+
+// ref: um/heapapi.h
+
+pub fn GetProcessHeap() ?*HEAP {
+    return peb().ProcessHeap;
+}
+
+// ref: um/winternl.h
+
+pub const OBJECT_ATTRIBUTES = extern struct {
+    Length: ULONG,
+    RootDirectory: ?HANDLE,
+    ObjectName: ?*UNICODE_STRING,
+    Attributes: ATTRIBUTES,
+    SecurityDescriptor: ?*anyopaque,
+    SecurityQualityOfService: ?*anyopaque,
+
+    // Valid values for the Attributes field
+    pub const ATTRIBUTES = packed struct(ULONG) {
+        Reserved0: u1 = 0,
+        INHERIT: bool = false,
+        Reserved2: u2 = 0,
+        PERMANENT: bool = false,
+        EXCLUSIVE: bool = false,
+        /// If name-lookup code should ignore the case of the ObjectName member rather than performing an exact-match search.
+        CASE_INSENSITIVE: bool = true,
+        OPENIF: bool = false,
+        OPENLINK: bool = false,
+        KERNEL_HANDLE: bool = false,
+        FORCE_ACCESS_CHECK: bool = false,
+        IGNORE_IMPERSONATED_DEVICEMAP: bool = false,
+        DONT_REPARSE: bool = false,
+        Reserved13: u19 = 0,
+
+        pub const VALID_ATTRIBUTES: ATTRIBUTES = .{
+            .INHERIT = true,
+            .PERMANENT = true,
+            .EXCLUSIVE = true,
+            .CASE_INSENSITIVE = true,
+            .OPENIF = true,
+            .OPENLINK = true,
+            .KERNEL_HANDLE = true,
+            .FORCE_ACCESS_CHECK = true,
+            .IGNORE_IMPERSONATED_DEVICEMAP = true,
+            .DONT_REPARSE = true,
+        };
+    };
+};
+
+// ref none
 
 pub const OpenError = error{
     IsDir,
@@ -44,25 +2381,24 @@ pub const OpenError = error{
     NetworkNotFound,
     AntivirusInterference,
     BadPathName,
+    OperationCanceled,
 };
 
 pub const OpenFileOptions = struct {
     access_mask: ACCESS_MASK,
     dir: ?HANDLE = null,
     sa: ?*SECURITY_ATTRIBUTES = null,
-    share_access: ULONG = FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
-    creation: ULONG,
-    /// If true, tries to open path as a directory.
-    /// Defaults to false.
-    filter: Filter = .file_only,
+    share_access: FILE.SHARE = .VALID_FLAGS,
+    creation: FILE.CREATE_DISPOSITION,
+    filter: Filter = .non_directory_only,
     /// If false, tries to open path as a reparse point without dereferencing it.
     /// Defaults to true.
     follow_symlinks: bool = true,
 
     pub const Filter = enum {
         /// Causes `OpenFile` to return `error.IsDir` if the opened handle would be a directory.
-        file_only,
-        /// Causes `OpenFile` to return `error.NotDir` if the opened handle would be a file.
+        non_directory_only,
+        /// Causes `OpenFile` to return `error.NotDir` if the opened handle is not a directory.
         dir_only,
         /// `OpenFile` does not discriminate between opening files and directories.
         any,
@@ -70,42 +2406,32 @@ pub const OpenFileOptions = struct {
 };
 
 pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HANDLE {
-    if (mem.eql(u16, sub_path_w, &[_]u16{'.'}) and options.filter == .file_only) {
+    if (mem.eql(u16, sub_path_w, &[_]u16{'.'}) and options.filter == .non_directory_only) {
         return error.IsDir;
     }
-    if (mem.eql(u16, sub_path_w, &[_]u16{ '.', '.' }) and options.filter == .file_only) {
+    if (mem.eql(u16, sub_path_w, &[_]u16{ '.', '.' }) and options.filter == .non_directory_only) {
         return error.IsDir;
     }
 
     var result: HANDLE = undefined;
 
     const path_len_bytes = math.cast(u16, sub_path_w.len * 2) orelse return error.NameTooLong;
-    var nt_name = UNICODE_STRING{
+    var nt_name: UNICODE_STRING = .{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
         .Buffer = @constCast(sub_path_w.ptr),
     };
-    var attr = OBJECT_ATTRIBUTES{
+    const attr: OBJECT_ATTRIBUTES = .{
         .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(sub_path_w)) null else options.dir,
-        .Attributes = if (options.sa) |ptr| blk: { // Note we do not use OBJ_CASE_INSENSITIVE here.
-            const inherit: ULONG = if (ptr.bInheritHandle == TRUE) OBJ_INHERIT else 0;
-            break :blk inherit;
-        } else 0,
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(sub_path_w)) null else options.dir,
+        .Attributes = .{
+            .INHERIT = if (options.sa) |sa| sa.bInheritHandle != FALSE else false,
+        },
         .ObjectName = &nt_name,
         .SecurityDescriptor = if (options.sa) |ptr| ptr.lpSecurityDescriptor else null,
         .SecurityQualityOfService = null,
     };
     var io: IO_STATUS_BLOCK = undefined;
-    const blocking_flag: ULONG = FILE_SYNCHRONOUS_IO_NONALERT;
-    const file_or_dir_flag: ULONG = switch (options.filter) {
-        .file_only => FILE_NON_DIRECTORY_FILE,
-        .dir_only => FILE_DIRECTORY_FILE,
-        .any => 0,
-    };
-    // If we're not following symlinks, we need to ensure we don't pass in any synchronization flags such as FILE_SYNCHRONOUS_IO_NONALERT.
-    const flags: ULONG = if (options.follow_symlinks) file_or_dir_flag | blocking_flag else file_or_dir_flag | FILE_OPEN_REPARSE_POINT;
-
     while (true) {
         const rc = ntdll.NtCreateFile(
             &result,
@@ -113,10 +2439,15 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             &attr,
             &io,
             null,
-            FILE_ATTRIBUTE_NORMAL,
+            .{ .NORMAL = true },
             options.share_access,
             options.creation,
-            flags,
+            .{
+                .DIRECTORY_FILE = options.filter == .dir_only,
+                .NON_DIRECTORY_FILE = options.filter == .non_directory_only,
+                .IO = if (options.follow_symlinks) .SYNCHRONOUS_NONALERT else .ASYNCHRONOUS,
+                .OPEN_REPARSE_POINT = !options.follow_symlinks,
+            },
             null,
             0,
         );
@@ -146,10 +2477,11 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
                 // call has failed. There is not really a sane way to handle
                 // this other than retrying the creation after the OS finishes
                 // the deletion.
-                std.time.sleep(std.time.ns_per_ms);
+                _ = kernel32.SleepEx(1, TRUE);
                 continue;
             },
             .VIRUS_INFECTED, .VIRUS_DELETED => return error.AntivirusInterference,
+            .CANCELLED => return error.OperationCanceled,
             else => return unexpectedStatus(rc),
         }
     }
@@ -199,16 +2531,16 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
     const dev_handle = opt_dev_handle orelse blk: {
         const str = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\NamedPipe\\");
         const len: u16 = @truncate(str.len * @sizeOf(u16));
-        const name = UNICODE_STRING{
+        const name: UNICODE_STRING = .{
             .Length = len,
             .MaximumLength = len,
-            .Buffer = @constCast(@ptrCast(str)),
+            .Buffer = @ptrCast(@constCast(str)),
         };
-        const attrs = OBJECT_ATTRIBUTES{
+        const attrs: OBJECT_ATTRIBUTES = .{
             .ObjectName = @constCast(&name),
             .Length = @sizeOf(OBJECT_ATTRIBUTES),
             .RootDirectory = null,
-            .Attributes = 0,
+            .Attributes = .{},
             .SecurityDescriptor = null,
             .SecurityQualityOfService = null,
         };
@@ -217,14 +2549,17 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
         var handle: HANDLE = undefined;
         switch (ntdll.NtCreateFile(
             &handle,
-            GENERIC_READ | SYNCHRONIZE,
+            .{
+                .STANDARD = .{ .SYNCHRONIZE = true },
+                .GENERIC = .{ .READ = true },
+            },
             @constCast(&attrs),
             &iosb,
             null,
-            0,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            FILE_OPEN,
-            FILE_SYNCHRONOUS_IO_NONALERT,
+            .{},
+            .VALID_FLAGS,
+            .OPEN,
+            .{ .IO = .SYNCHRONOUS_NONALERT },
             null,
             0,
         )) {
@@ -240,16 +2575,15 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
         } else break :blk handle;
     };
 
-    const name = UNICODE_STRING{ .Buffer = null, .Length = 0, .MaximumLength = 0 };
-    var attrs = OBJECT_ATTRIBUTES{
+    const name: UNICODE_STRING = .{ .Buffer = null, .Length = 0, .MaximumLength = 0 };
+    var attrs: OBJECT_ATTRIBUTES = .{
         .ObjectName = @constCast(&name),
         .Length = @sizeOf(OBJECT_ATTRIBUTES),
         .RootDirectory = dev_handle,
-        .Attributes = OBJ_CASE_INSENSITIVE,
+        .Attributes = .{ .INHERIT = sattr.bInheritHandle != FALSE },
         .SecurityDescriptor = sattr.lpSecurityDescriptor,
         .SecurityQualityOfService = null,
     };
-    if (sattr.bInheritHandle != 0) attrs.Attributes |= OBJ_INHERIT;
 
     // 120 second relative timeout in 100ns units.
     const default_timeout: LARGE_INTEGER = (-120 * std.time.ns_per_s) / 100;
@@ -257,15 +2591,21 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
     var read: HANDLE = undefined;
     switch (ntdll.NtCreateNamedPipeFile(
         &read,
-        GENERIC_READ | FILE_WRITE_ATTRIBUTES | SYNCHRONIZE,
+        .{
+            .SPECIFIC = .{ .FILE_PIPE = .{
+                .WRITE_ATTRIBUTES = true,
+            } },
+            .STANDARD = .{ .SYNCHRONIZE = true },
+            .GENERIC = .{ .READ = true },
+        },
         &attrs,
         &iosb,
-        FILE_SHARE_READ | FILE_SHARE_WRITE,
-        FILE_CREATE,
-        FILE_SYNCHRONOUS_IO_NONALERT,
-        FILE_PIPE_BYTE_STREAM_TYPE,
-        FILE_PIPE_BYTE_STREAM_MODE,
-        FILE_PIPE_QUEUE_OPERATION,
+        .{ .READ = true, .WRITE = true },
+        .CREATE,
+        .{ .IO = .SYNCHRONOUS_NONALERT },
+        .{ .TYPE = .BYTE_STREAM },
+        .{ .MODE = .BYTE_STREAM },
+        .{ .OPERATION = .QUEUE },
         1,
         4096,
         4096,
@@ -283,14 +2623,23 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
     var write: HANDLE = undefined;
     switch (ntdll.NtCreateFile(
         &write,
-        GENERIC_WRITE | SYNCHRONIZE | FILE_READ_ATTRIBUTES,
+        .{
+            .SPECIFIC = .{ .FILE_PIPE = .{
+                .READ_ATTRIBUTES = true,
+            } },
+            .STANDARD = .{ .SYNCHRONIZE = true },
+            .GENERIC = .{ .WRITE = true },
+        },
         &attrs,
         &iosb,
         null,
-        0,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        FILE_OPEN,
-        FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
+        .{},
+        .VALID_FLAGS,
+        .OPEN,
+        .{
+            .IO = .SYNCHRONOUS_NONALERT,
+            .NON_DIRECTORY_FILE = true,
+        },
         null,
         0,
     )) {
@@ -304,87 +2653,49 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
     wr.* = write;
 }
 
-pub fn CreateEventEx(attributes: ?*SECURITY_ATTRIBUTES, name: []const u8, flags: DWORD, desired_access: DWORD) !HANDLE {
-    const nameW = try sliceToPrefixedFileW(null, name);
-    return CreateEventExW(attributes, nameW.span().ptr, flags, desired_access);
-}
-
-pub fn CreateEventExW(attributes: ?*SECURITY_ATTRIBUTES, nameW: ?LPCWSTR, flags: DWORD, desired_access: DWORD) !HANDLE {
-    const handle = kernel32.CreateEventExW(attributes, nameW, flags, desired_access);
-    if (handle) |h| {
-        return h;
-    } else {
-        switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-}
-
-pub const DeviceIoControlError = error{
-    AccessDenied,
-    /// The volume does not contain a recognized file system. File system
-    /// drivers might not be loaded, or the volume may be corrupt.
-    UnrecognizedVolume,
-    Unexpected,
-};
-
 /// A Zig wrapper around `NtDeviceIoControlFile` and `NtFsControlFile` syscalls.
 /// It implements similar behavior to `DeviceIoControl` and is meant to serve
 /// as a direct substitute for that call.
 /// TODO work out if we need to expose other arguments to the underlying syscalls.
 pub fn DeviceIoControl(
-    h: HANDLE,
-    ioControlCode: ULONG,
-    in: ?[]const u8,
-    out: ?[]u8,
-) DeviceIoControlError!void {
-    // Logic from: https://doxygen.reactos.org/d3/d74/deviceio_8c.html
-    const is_fsctl = (ioControlCode >> 16) == FILE_DEVICE_FILE_SYSTEM;
-
-    var io: IO_STATUS_BLOCK = undefined;
-    const in_ptr = if (in) |i| i.ptr else null;
-    const in_len = if (in) |i| @as(ULONG, @intCast(i.len)) else 0;
-    const out_ptr = if (out) |o| o.ptr else null;
-    const out_len = if (out) |o| @as(ULONG, @intCast(o.len)) else 0;
-
-    const rc = blk: {
-        if (is_fsctl) {
-            break :blk ntdll.NtFsControlFile(
-                h,
-                null,
-                null,
-                null,
-                &io,
-                ioControlCode,
-                in_ptr,
-                in_len,
-                out_ptr,
-                out_len,
-            );
-        } else {
-            break :blk ntdll.NtDeviceIoControlFile(
-                h,
-                null,
-                null,
-                null,
-                &io,
-                ioControlCode,
-                in_ptr,
-                in_len,
-                out_ptr,
-                out_len,
-            );
-        }
+    device: HANDLE,
+    io_control_code: CTL_CODE,
+    opts: struct {
+        event: ?HANDLE = null,
+        apc_routine: ?*const IO_APC_ROUTINE = null,
+        apc_context: ?*anyopaque = null,
+        io_status_block: ?*IO_STATUS_BLOCK = null,
+        in: []const u8 = &.{},
+        out: []u8 = &.{},
+    },
+) NTSTATUS {
+    var io_status_block: IO_STATUS_BLOCK = undefined;
+    return switch (io_control_code.DeviceType) {
+        .FILE_SYSTEM, .NAMED_PIPE => ntdll.NtFsControlFile(
+            device,
+            opts.event,
+            opts.apc_routine,
+            opts.apc_context,
+            opts.io_status_block orelse &io_status_block,
+            io_control_code,
+            if (opts.in.len > 0) opts.in.ptr else null,
+            @intCast(opts.in.len),
+            if (opts.out.len > 0) opts.out.ptr else null,
+            @intCast(opts.out.len),
+        ),
+        else => ntdll.NtDeviceIoControlFile(
+            device,
+            opts.event,
+            opts.apc_routine,
+            opts.apc_context,
+            opts.io_status_block orelse &io_status_block,
+            io_control_code,
+            if (opts.in.len > 0) opts.in.ptr else null,
+            @intCast(opts.in.len),
+            if (opts.out.len > 0) opts.out.ptr else null,
+            @intCast(opts.out.len),
+        ),
     };
-    switch (rc) {
-        .SUCCESS => {},
-        .PRIVILEGE_NOT_HELD => return error.AccessDenied,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .INVALID_DEVICE_REQUEST => return error.AccessDenied, // Not supported by the underlying filesystem
-        .INVALID_PARAMETER => unreachable,
-        .UNRECOGNIZED_VOLUME => return error.UnrecognizedVolume,
-        else => return unexpectedStatus(rc),
-    }
 }
 
 pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
@@ -405,28 +2716,6 @@ pub fn SetHandleInformation(h: HANDLE, mask: DWORD, flags: DWORD) SetHandleInfor
         switch (GetLastError()) {
             else => |err| return unexpectedError(err),
         }
-    }
-}
-
-pub const RtlGenRandomError = error{Unexpected};
-
-/// Call RtlGenRandom() instead of CryptGetRandom() on Windows
-/// https://github.com/rust-lang-nursery/rand/issues/111
-/// https://bugzilla.mozilla.org/show_bug.cgi?id=504270
-pub fn RtlGenRandom(output: []u8) RtlGenRandomError!void {
-    var total_read: usize = 0;
-    var buff: []u8 = output[0..];
-    const max_read_size: ULONG = maxInt(ULONG);
-
-    while (total_read < output.len) {
-        const to_read: ULONG = @min(buff.len, max_read_size);
-
-        if (advapi32.RtlGenRandom(buff.ptr, to_read) == 0) {
-            return unexpectedError(GetLastError());
-        }
-
-        total_read += to_read;
-        buff = buff[to_read..];
     }
 }
 
@@ -515,7 +2804,7 @@ pub fn PostQueuedCompletionStatus(
 pub const GetQueuedCompletionStatusResult = enum {
     Normal,
     Aborted,
-    Cancelled,
+    Canceled,
     EOF,
     Timeout,
 };
@@ -536,7 +2825,7 @@ pub fn GetQueuedCompletionStatus(
     ) == FALSE) {
         switch (GetLastError()) {
             .ABANDONED_WAIT_0 => return GetQueuedCompletionStatusResult.Aborted,
-            .OPERATION_ABORTED => return GetQueuedCompletionStatusResult.Cancelled,
+            .OPERATION_ABORTED => return GetQueuedCompletionStatusResult.Canceled,
             .HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
             .WAIT_TIMEOUT => return GetQueuedCompletionStatusResult.Timeout,
             else => |err| {
@@ -552,7 +2841,7 @@ pub fn GetQueuedCompletionStatus(
 
 pub const GetQueuedCompletionStatusError = error{
     Aborted,
-    Cancelled,
+    Canceled,
     EOF,
     Timeout,
 } || UnexpectedError;
@@ -577,7 +2866,7 @@ pub fn GetQueuedCompletionStatusEx(
     if (success == FALSE) {
         return switch (GetLastError()) {
             .ABANDONED_WAIT_0 => error.Aborted,
-            .OPERATION_ABORTED => error.Cancelled,
+            .OPERATION_ABORTED => error.Canceled,
             .HANDLE_EOF => error.EOF,
             .WAIT_TIMEOUT => error.Timeout,
             else => |err| unexpectedError(err),
@@ -591,149 +2880,13 @@ pub fn CloseHandle(hObject: HANDLE) void {
     assert(ntdll.NtClose(hObject) == .SUCCESS);
 }
 
-pub fn FindClose(hFindFile: HANDLE) void {
-    assert(kernel32.FindClose(hFindFile) != 0);
-}
-
-pub const ReadFileError = error{
-    BrokenPipe,
-    /// The specified network name is no longer available.
-    ConnectionResetByPeer,
-    OperationAborted,
-    /// Unable to read file due to lock.
-    LockViolation,
-    Unexpected,
-};
-
-/// If buffer's length exceeds what a Windows DWORD integer can hold, it will be broken into
-/// multiple non-atomic reads.
-pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usize {
-    while (true) {
-        const want_read_count: DWORD = @min(@as(DWORD, maxInt(DWORD)), buffer.len);
-        var amt_read: DWORD = undefined;
-        var overlapped_data: OVERLAPPED = undefined;
-        const overlapped: ?*OVERLAPPED = if (offset) |off| blk: {
-            overlapped_data = .{
-                .Internal = 0,
-                .InternalHigh = 0,
-                .DUMMYUNIONNAME = .{
-                    .DUMMYSTRUCTNAME = .{
-                        .Offset = @as(u32, @truncate(off)),
-                        .OffsetHigh = @as(u32, @truncate(off >> 32)),
-                    },
-                },
-                .hEvent = null,
-            };
-            break :blk &overlapped_data;
-        } else null;
-        if (kernel32.ReadFile(in_hFile, buffer.ptr, want_read_count, &amt_read, overlapped) == 0) {
-            switch (GetLastError()) {
-                .IO_PENDING => unreachable,
-                .OPERATION_ABORTED => continue,
-                .BROKEN_PIPE => return 0,
-                .HANDLE_EOF => return 0,
-                .NETNAME_DELETED => return error.ConnectionResetByPeer,
-                .LOCK_VIOLATION => return error.LockViolation,
-                else => |err| return unexpectedError(err),
-            }
-        }
-        return amt_read;
-    }
-}
-
-pub const WriteFileError = error{
-    SystemResources,
-    OperationAborted,
-    BrokenPipe,
-    NotOpenForWriting,
-    /// The process cannot access the file because another process has locked
-    /// a portion of the file.
-    LockViolation,
-    /// The specified network name is no longer available.
-    ConnectionResetByPeer,
-    Unexpected,
-};
-
-pub fn WriteFile(
-    handle: HANDLE,
-    bytes: []const u8,
-    offset: ?u64,
-) WriteFileError!usize {
-    var bytes_written: DWORD = undefined;
-    var overlapped_data: OVERLAPPED = undefined;
-    const overlapped: ?*OVERLAPPED = if (offset) |off| blk: {
-        overlapped_data = .{
-            .Internal = 0,
-            .InternalHigh = 0,
-            .DUMMYUNIONNAME = .{
-                .DUMMYSTRUCTNAME = .{
-                    .Offset = @truncate(off),
-                    .OffsetHigh = @truncate(off >> 32),
-                },
-            },
-            .hEvent = null,
-        };
-        break :blk &overlapped_data;
-    } else null;
-    const adjusted_len = math.cast(u32, bytes.len) orelse maxInt(u32);
-    if (kernel32.WriteFile(handle, bytes.ptr, adjusted_len, &bytes_written, overlapped) == 0) {
-        switch (GetLastError()) {
-            .INVALID_USER_BUFFER => return error.SystemResources,
-            .NOT_ENOUGH_MEMORY => return error.SystemResources,
-            .OPERATION_ABORTED => return error.OperationAborted,
-            .NOT_ENOUGH_QUOTA => return error.SystemResources,
-            .IO_PENDING => unreachable,
-            .NO_DATA => return error.BrokenPipe,
-            .INVALID_HANDLE => return error.NotOpenForWriting,
-            .LOCK_VIOLATION => return error.LockViolation,
-            .NETNAME_DELETED => return error.ConnectionResetByPeer,
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return bytes_written;
-}
-
-pub const SetCurrentDirectoryError = error{
-    NameTooLong,
-    FileNotFound,
-    NotDir,
-    AccessDenied,
-    NoDevice,
-    BadPathName,
-    Unexpected,
-};
-
-pub fn SetCurrentDirectory(path_name: []const u16) SetCurrentDirectoryError!void {
-    const path_len_bytes = math.cast(u16, path_name.len * 2) orelse return error.NameTooLong;
-
-    var nt_name = UNICODE_STRING{
-        .Length = path_len_bytes,
-        .MaximumLength = path_len_bytes,
-        .Buffer = @constCast(path_name.ptr),
-    };
-
-    const rc = ntdll.RtlSetCurrentDirectory_U(&nt_name);
-    switch (rc) {
-        .SUCCESS => {},
-        .OBJECT_NAME_INVALID => return error.BadPathName,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NO_MEDIA_IN_DEVICE => return error.NoDevice,
-        .INVALID_PARAMETER => unreachable,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .NOT_A_DIRECTORY => return error.NotDir,
-        else => return unexpectedStatus(rc),
-    }
-}
-
 pub const GetCurrentDirectoryError = error{
     NameTooLong,
     Unexpected,
 };
 
 /// The result is a slice of `buffer`, indexed from 0.
-/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
     var wtf16le_buf: [PATH_MAX_WIDE:0]u16 = undefined;
     const result = kernel32.GetCurrentDirectoryW(wtf16le_buf.len + 1, &wtf16le_buf);
@@ -763,9 +2916,6 @@ pub const CreateSymbolicLinkError = error{
     NoDevice,
     NetworkNotFound,
     BadPathName,
-    /// The volume does not contain a recognized file system. File system
-    /// drivers might not be loaded, or the volume may be corrupt.
-    UnrecognizedVolume,
     Unexpected,
 };
 
@@ -782,7 +2932,7 @@ pub fn CreateSymbolicLink(
     is_directory: bool,
 ) CreateSymbolicLinkError!void {
     const SYMLINK_DATA = extern struct {
-        ReparseTag: ULONG,
+        ReparseTag: IO_REPARSE_TAG,
         ReparseDataLength: USHORT,
         Reserved: USHORT,
         SubstituteNameOffset: USHORT,
@@ -793,10 +2943,13 @@ pub fn CreateSymbolicLink(
     };
 
     const symlink_handle = OpenFile(sym_link_path, .{
-        .access_mask = SYNCHRONIZE | GENERIC_READ | GENERIC_WRITE,
+        .access_mask = .{
+            .STANDARD = .{ .SYNCHRONIZE = true },
+            .GENERIC = .{ .WRITE = true, .READ = true },
+        },
         .dir = dir,
-        .creation = FILE_CREATE,
-        .filter = if (is_directory) .dir_only else .file_only,
+        .creation = .CREATE,
+        .filter = if (is_directory) .dir_only else .non_directory_only,
     }) catch |err| switch (err) {
         error.IsDir => return error.PathAlreadyExists,
         error.NotDir => return error.Unexpected,
@@ -818,8 +2971,11 @@ pub fn CreateSymbolicLink(
     // https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createsymboliclinkw
     var is_target_absolute = false;
     const final_target_path = target_path: {
-        switch (getNamespacePrefix(u16, target_path)) {
-            .none => switch (getUnprefixedPathType(u16, target_path)) {
+        if (hasCommonNtPrefix(u16, target_path)) {
+            // Already an NT path, no need to do anything to it
+            break :target_path target_path;
+        } else {
+            switch (std.fs.path.getWin32PathType(u16, target_path)) {
                 // Rooted paths need to avoid getting put through wToPrefixedFileW
                 // (and they are treated as relative in this context)
                 // Note: It seems that rooted paths in symbolic links are relative to
@@ -829,16 +2985,13 @@ pub fn CreateSymbolicLink(
                 //       the C:\ drive.
                 .rooted => break :target_path target_path,
                 // Keep relative paths relative, but anything else needs to get NT-prefixed.
-                else => if (!std.fs.path.isAbsoluteWindowsWTF16(target_path))
+                else => if (!std.fs.path.isAbsoluteWindowsWtf16(target_path))
                     break :target_path target_path,
-            },
-            // Already an NT path, no need to do anything to it
-            .nt => break :target_path target_path,
-            else => {},
+            }
         }
         var prefixed_target_path = try wToPrefixedFileW(dir, target_path);
         // We do this after prefixing to ensure that drive-relative paths are treated as absolute
-        is_target_absolute = std.fs.path.isAbsoluteWindowsWTF16(prefixed_target_path.span());
+        is_target_absolute = std.fs.path.isAbsoluteWindowsWtf16(prefixed_target_path.span());
         break :target_path prefixed_target_path.span();
     };
 
@@ -846,9 +2999,9 @@ pub fn CreateSymbolicLink(
     var buffer: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
     const buf_len = @sizeOf(SYMLINK_DATA) + final_target_path.len * 4;
     const header_len = @sizeOf(ULONG) + @sizeOf(USHORT) * 2;
-    const target_is_absolute = std.fs.path.isAbsoluteWindowsWTF16(final_target_path);
-    const symlink_data = SYMLINK_DATA{
-        .ReparseTag = IO_REPARSE_TAG_SYMLINK,
+    const target_is_absolute = std.fs.path.isAbsoluteWindowsWtf16(final_target_path);
+    const symlink_data: SYMLINK_DATA = .{
+        .ReparseTag = .SYMLINK,
         .ReparseDataLength = @intCast(buf_len - header_len),
         .Reserved = 0,
         .SubstituteNameOffset = @intCast(final_target_path.len * 2),
@@ -862,7 +3015,14 @@ pub fn CreateSymbolicLink(
     @memcpy(buffer[@sizeOf(SYMLINK_DATA)..][0 .. final_target_path.len * 2], @as([*]const u8, @ptrCast(final_target_path)));
     const paths_start = @sizeOf(SYMLINK_DATA) + final_target_path.len * 2;
     @memcpy(buffer[paths_start..][0 .. final_target_path.len * 2], @as([*]const u8, @ptrCast(final_target_path)));
-    _ = try DeviceIoControl(symlink_handle, FSCTL_SET_REPARSE_POINT, buffer[0..buf_len], null);
+    const rc = DeviceIoControl(symlink_handle, FSCTL.SET_REPARSE_POINT, .{ .in = buffer[0..buf_len] });
+    switch (rc) {
+        .SUCCESS => {},
+        .PRIVILEGE_NOT_HELD => return error.AccessDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .INVALID_DEVICE_REQUEST => return error.AccessDenied, // Not supported by the underlying filesystem
+        else => return unexpectedStatus(rc),
+    }
 }
 
 pub const ReadLinkError = error{
@@ -871,107 +3031,80 @@ pub const ReadLinkError = error{
     AccessDenied,
     Unexpected,
     NameTooLong,
+    BadPathName,
+    AntivirusInterference,
     UnsupportedReparsePointType,
+    NotLink,
+    OperationCanceled,
 };
 
-pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
-    // Here, we use `NtCreateFile` to shave off one syscall if we were to use `OpenFile` wrapper.
-    // With the latter, we'd need to call `NtCreateFile` twice, once for file symlink, and if that
-    // failed, again for dir symlink. Omitting any mention of file/dir flags makes it possible
-    // to open the symlink there and then.
-    const path_len_bytes = math.cast(u16, sub_path_w.len * 2) orelse return error.NameTooLong;
-    var nt_name = UNICODE_STRING{
-        .Length = path_len_bytes,
-        .MaximumLength = path_len_bytes,
-        .Buffer = @constCast(sub_path_w.ptr),
+/// `sub_path_w` will never be accessed after `out_buffer` has been written to, so it
+/// is safe to reuse a single buffer for both.
+pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u16) ReadLinkError![]u16 {
+    const result_handle = OpenFile(sub_path_w, .{
+        .access_mask = .{
+            .SPECIFIC = .{ .FILE = .{
+                .READ_ATTRIBUTES = true,
+            } },
+            .STANDARD = .{ .SYNCHRONIZE = true },
+        },
+        .dir = dir,
+        .creation = .OPEN,
+        .follow_symlinks = false,
+        .filter = .any,
+    }) catch |err| switch (err) {
+        error.IsDir, error.NotDir => return error.Unexpected, // filter = .any
+        error.PathAlreadyExists => return error.Unexpected, // FILE_OPEN
+        error.WouldBlock => return error.Unexpected,
+        error.NoDevice => return error.FileNotFound,
+        error.PipeBusy => return error.AccessDenied,
+        else => |e| return e,
     };
-    var attr = OBJECT_ATTRIBUTES{
-        .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(sub_path_w)) null else dir,
-        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-        .ObjectName = &nt_name,
-        .SecurityDescriptor = null,
-        .SecurityQualityOfService = null,
-    };
-    var result_handle: HANDLE = undefined;
-    var io: IO_STATUS_BLOCK = undefined;
-
-    const rc = ntdll.NtCreateFile(
-        &result_handle,
-        FILE_READ_ATTRIBUTES | SYNCHRONIZE,
-        &attr,
-        &io,
-        null,
-        FILE_ATTRIBUTE_NORMAL,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        FILE_OPEN,
-        FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
-        null,
-        0,
-    );
-    switch (rc) {
-        .SUCCESS => {},
-        .OBJECT_NAME_INVALID => unreachable,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NO_MEDIA_IN_DEVICE => return error.FileNotFound,
-        .BAD_NETWORK_PATH => return error.NetworkNotFound, // \\server was not found
-        .BAD_NETWORK_NAME => return error.NetworkNotFound, // \\server was found but \\server\share wasn't
-        .INVALID_PARAMETER => unreachable,
-        .SHARING_VIOLATION => return error.AccessDenied,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .PIPE_BUSY => return error.AccessDenied,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .OBJECT_NAME_COLLISION => unreachable,
-        .FILE_IS_A_DIRECTORY => unreachable,
-        else => return unexpectedStatus(rc),
-    }
     defer CloseHandle(result_handle);
 
     var reparse_buf: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 align(@alignOf(REPARSE_DATA_BUFFER)) = undefined;
-    _ = DeviceIoControl(result_handle, FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..]) catch |err| switch (err) {
-        error.AccessDenied => return error.Unexpected,
-        error.UnrecognizedVolume => return error.Unexpected,
-        else => |e| return e,
-    };
+    const rc = DeviceIoControl(result_handle, FSCTL.GET_REPARSE_POINT, .{ .out = reparse_buf[0..] });
+    switch (rc) {
+        .SUCCESS => {},
+        .CANCELLED => return error.OperationCanceled,
+        .NOT_A_REPARSE_POINT => return error.NotLink,
+        else => return unexpectedStatus(rc),
+    }
 
     const reparse_struct: *const REPARSE_DATA_BUFFER = @ptrCast(@alignCast(&reparse_buf[0]));
-    switch (reparse_struct.ReparseTag) {
-        IO_REPARSE_TAG_SYMLINK => {
+    const IoReparseTagInt = @typeInfo(IO_REPARSE_TAG).@"struct".backing_integer.?;
+    switch (@as(IoReparseTagInt, @bitCast(reparse_struct.ReparseTag))) {
+        @as(IoReparseTagInt, @bitCast(IO_REPARSE_TAG.SYMLINK)) => {
             const buf: *const SYMBOLIC_LINK_REPARSE_BUFFER = @ptrCast(@alignCast(&reparse_struct.DataBuffer[0]));
             const offset = buf.SubstituteNameOffset >> 1;
             const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
             const is_relative = buf.Flags & SYMLINK_FLAG_RELATIVE != 0;
-            return parseReadlinkPath(path_buf[offset..][0..len], is_relative, out_buffer);
+            return parseReadLinkPath(path_buf[offset..][0..len], is_relative, out_buffer);
         },
-        IO_REPARSE_TAG_MOUNT_POINT => {
+        @as(IoReparseTagInt, @bitCast(IO_REPARSE_TAG.MOUNT_POINT)) => {
             const buf: *const MOUNT_POINT_REPARSE_BUFFER = @ptrCast(@alignCast(&reparse_struct.DataBuffer[0]));
             const offset = buf.SubstituteNameOffset >> 1;
             const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
-            return parseReadlinkPath(path_buf[offset..][0..len], false, out_buffer);
+            return parseReadLinkPath(path_buf[offset..][0..len], false, out_buffer);
         },
-        else => |value| {
-            std.debug.print("unsupported symlink type: {}", .{value});
-            return error.UnsupportedReparsePointType;
-        },
+        else => return error.UnsupportedReparsePointType,
     }
 }
 
-/// Asserts that there is enough space is `out_buffer`.
-/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u8 {
-    const win32_namespace_path = path: {
-        if (is_relative) break :path path;
-        const win32_path = ntToWin32Namespace(path) catch |err| switch (err) {
-            error.NameTooLong => unreachable,
-            error.NotNtPath => break :path path,
+fn parseReadLinkPath(path: []const u16, is_relative: bool, out_buffer: []u16) error{NameTooLong}![]u16 {
+    path: {
+        if (is_relative) break :path;
+        return ntToWin32Namespace(path, out_buffer) catch |err| switch (err) {
+            error.NameTooLong => |e| return e,
+            error.NotNtPath => break :path,
         };
-        break :path win32_path.span();
-    };
-    const out_len = std.unicode.wtf16LeToWtf8(out_buffer, win32_namespace_path);
-    return out_buffer[0..out_len];
+    }
+    if (out_buffer.len < path.len) return error.NameTooLong;
+    const dest = out_buffer[0..path.len];
+    @memcpy(dest, path);
+    return dest;
 }
 
 pub const DeleteFileError = error{
@@ -993,13 +3126,8 @@ pub const DeleteFileOptions = struct {
 };
 
 pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFileError!void {
-    const create_options_flags: ULONG = if (options.remove_dir)
-        FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT
-    else
-        FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT; // would we ever want to delete the target instead?
-
     const path_len_bytes = @as(u16, @intCast(sub_path_w.len * 2));
-    var nt_name = UNICODE_STRING{
+    var nt_name: UNICODE_STRING = .{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
         // The Windows API makes this mutable, but it will not mutate here.
@@ -1015,26 +3143,32 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         return error.FileBusy;
     }
 
-    var attr = OBJECT_ATTRIBUTES{
-        .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(sub_path_w)) null else options.dir,
-        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-        .ObjectName = &nt_name,
-        .SecurityDescriptor = null,
-        .SecurityQualityOfService = null,
-    };
     var io: IO_STATUS_BLOCK = undefined;
     var tmp_handle: HANDLE = undefined;
     var rc = ntdll.NtCreateFile(
         &tmp_handle,
-        SYNCHRONIZE | DELETE,
-        &attr,
+        .{ .STANDARD = .{
+            .RIGHTS = .{ .DELETE = true },
+            .SYNCHRONIZE = true,
+        } },
+        &.{
+            .Length = @sizeOf(OBJECT_ATTRIBUTES),
+            .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(sub_path_w)) null else options.dir,
+            .Attributes = .{},
+            .ObjectName = &nt_name,
+            .SecurityDescriptor = null,
+            .SecurityQualityOfService = null,
+        },
         &io,
         null,
-        0,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        FILE_OPEN,
-        create_options_flags,
+        .{},
+        .VALID_FLAGS,
+        .OPEN,
+        .{
+            .DIRECTORY_FILE = options.remove_dir,
+            .NON_DIRECTORY_FILE = !options.remove_dir,
+            .OPEN_REPARSE_POINT = true, // would we ever want to delete the target instead?
+        },
         null,
         0,
     );
@@ -1055,48 +3189,57 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     }
     defer CloseHandle(tmp_handle);
 
-    // FileDispositionInformationEx (and therefore FILE_DISPOSITION_POSIX_SEMANTICS and FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE)
-    // are only supported on NTFS filesystems, so the version check on its own is only a partial solution. To support non-NTFS filesystems
-    // like FAT32, we need to fallback to FileDispositionInformation if the usage of FileDispositionInformationEx gives
-    // us INVALID_PARAMETER.
-    // The same reasoning for win10_rs5 as in os.renameatW() applies (FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5).
-    var need_fallback = true;
-    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs5)) {
+    // FileDispositionInformationEx has varying levels of support:
+    // - FILE_DISPOSITION_INFORMATION_EX requires >= win10_rs1
+    //   (INVALID_INFO_CLASS is returned if not supported)
+    // - Requires the NTFS filesystem
+    //   (on filesystems like FAT32, INVALID_PARAMETER is returned)
+    // - FILE_DISPOSITION_POSIX_SEMANTICS requires >= win10_rs1
+    // - FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5
+    //   (NOT_SUPPORTED is returned if a flag is unsupported)
+    //
+    // The strategy here is just to try using FileDispositionInformationEx and fall back to
+    // FileDispositionInformation if the return value lets us know that some aspect of it is not supported.
+    const need_fallback = need_fallback: {
         // Deletion with posix semantics if the filesystem supports it.
-        var info = FILE_DISPOSITION_INFORMATION_EX{
-            .Flags = FILE_DISPOSITION_DELETE |
-                FILE_DISPOSITION_POSIX_SEMANTICS |
-                FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE,
-        };
-
+        var info: FILE.DISPOSITION.INFORMATION.EX = .{ .Flags = .{
+            .DELETE = true,
+            .POSIX_SEMANTICS = true,
+            .IGNORE_READONLY_ATTRIBUTE = true,
+        } };
         rc = ntdll.NtSetInformationFile(
             tmp_handle,
             &io,
             &info,
-            @sizeOf(FILE_DISPOSITION_INFORMATION_EX),
-            .FileDispositionInformationEx,
+            @sizeOf(FILE.DISPOSITION.INFORMATION.EX),
+            .DispositionEx,
         );
         switch (rc) {
             .SUCCESS => return,
-            // INVALID_PARAMETER here means that the filesystem does not support FileDispositionInformationEx
-            .INVALID_PARAMETER => {},
+            // The filesystem does not support FileDispositionInformationEx
+            .INVALID_PARAMETER,
+            // The operating system does not support FileDispositionInformationEx
+            .INVALID_INFO_CLASS,
+            // The operating system does not support one of the flags
+            .NOT_SUPPORTED,
+            => break :need_fallback true,
             // For all other statuses, fall down to the switch below to handle them.
-            else => need_fallback = false,
+            else => break :need_fallback false,
         }
-    }
+    };
+
     if (need_fallback) {
         // Deletion with file pending semantics, which requires waiting or moving
         // files to get them removed (from here).
-        var file_dispo = FILE_DISPOSITION_INFORMATION{
+        var file_dispo: FILE.DISPOSITION.INFORMATION = .{
             .DeleteFile = TRUE,
         };
-
         rc = ntdll.NtSetInformationFile(
             tmp_handle,
             &io,
             &file_dispo,
-            @sizeOf(FILE_DISPOSITION_INFORMATION),
-            .FileDispositionInformation,
+            @sizeOf(FILE.DISPOSITION.INFORMATION),
+            .Disposition,
         );
     }
     switch (rc) {
@@ -1110,21 +3253,126 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     }
 }
 
-pub const MoveFileError = error{ FileNotFound, AccessDenied, Unexpected };
+pub const RenameError = error{
+    IsDir,
+    NotDir,
+    FileNotFound,
+    NoDevice,
+    AccessDenied,
+    PipeBusy,
+    PathAlreadyExists,
+    Unexpected,
+    NameTooLong,
+    NetworkNotFound,
+    AntivirusInterference,
+    BadPathName,
+    CrossDevice,
+} || UnexpectedError;
 
-pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) (MoveFileError || Wtf8ToPrefixedFileWError)!void {
-    const old_path_w = try sliceToPrefixedFileW(null, old_path);
-    const new_path_w = try sliceToPrefixedFileW(null, new_path);
-    return MoveFileExW(old_path_w.span().ptr, new_path_w.span().ptr, flags);
-}
+pub fn RenameFile(
+    /// May only be `null` if `old_path_w` is a fully-qualified absolute path.
+    old_dir_fd: ?HANDLE,
+    old_path_w: []const u16,
+    /// May only be `null` if `new_path_w` is a fully-qualified absolute path,
+    /// or if the file is not being moved to a different directory.
+    new_dir_fd: ?HANDLE,
+    new_path_w: []const u16,
+    replace_if_exists: bool,
+) RenameError!void {
+    const src_fd = OpenFile(old_path_w, .{
+        .dir = old_dir_fd,
+        .access_mask = .{
+            .STANDARD = .{
+                .RIGHTS = .{ .DELETE = true },
+                .SYNCHRONIZE = true,
+            },
+            .GENERIC = .{ .WRITE = true },
+        },
+        .creation = .OPEN,
+        .filter = .any, // This function is supposed to rename both files and directories.
+        .follow_symlinks = false,
+    }) catch |err| switch (err) {
+        error.WouldBlock => unreachable, // Not possible without `.share_access_nonblocking = true`.
+        else => |e| return e,
+    };
+    defer CloseHandle(src_fd);
 
-pub fn MoveFileExW(old_path: [*:0]const u16, new_path: [*:0]const u16, flags: DWORD) MoveFileError!void {
-    if (kernel32.MoveFileExW(old_path, new_path, flags) == 0) {
-        switch (GetLastError()) {
-            .FILE_NOT_FOUND => return error.FileNotFound,
-            .ACCESS_DENIED => return error.AccessDenied,
-            else => |err| return unexpectedError(err),
+    var rc: NTSTATUS = undefined;
+    // FileRenameInformationEx has varying levels of support:
+    // - FILE_RENAME_INFORMATION_EX requires >= win10_rs1
+    //   (INVALID_INFO_CLASS is returned if not supported)
+    // - Requires the NTFS filesystem
+    //   (on filesystems like FAT32, INVALID_PARAMETER is returned)
+    // - FILE_RENAME_POSIX_SEMANTICS requires >= win10_rs1
+    // - FILE_RENAME_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5
+    //   (NOT_SUPPORTED is returned if a flag is unsupported)
+    //
+    // The strategy here is just to try using FileRenameInformationEx and fall back to
+    // FileRenameInformation if the return value lets us know that some aspect of it is not supported.
+    const need_fallback = need_fallback: {
+        var rename_info: FILE.RENAME_INFORMATION = .init(.{
+            .Flags = .{
+                .REPLACE_IF_EXISTS = replace_if_exists,
+                .POSIX_SEMANTICS = true,
+                .IGNORE_READONLY_ATTRIBUTE = true,
+            },
+            .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(new_path_w)) null else new_dir_fd,
+            .FileName = new_path_w,
+        });
+        var io_status_block: IO_STATUS_BLOCK = undefined;
+        const rename_info_buf = rename_info.toBuffer();
+        rc = ntdll.NtSetInformationFile(
+            src_fd,
+            &io_status_block,
+            rename_info_buf.ptr,
+            @intCast(rename_info_buf.len), // already checked for error.NameTooLong
+            .RenameEx,
+        );
+        switch (rc) {
+            .SUCCESS => return,
+            // The filesystem does not support FileDispositionInformationEx
+            .INVALID_PARAMETER,
+            // The operating system does not support FileDispositionInformationEx
+            .INVALID_INFO_CLASS,
+            // The operating system does not support one of the flags
+            .NOT_SUPPORTED,
+            => break :need_fallback true,
+            // For all other statuses, fall down to the switch below to handle them.
+            else => break :need_fallback false,
         }
+    };
+
+    if (need_fallback) {
+        var rename_info: FILE.RENAME_INFORMATION = .init(.{
+            .Flags = .{ .REPLACE_IF_EXISTS = replace_if_exists },
+            .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(new_path_w)) null else new_dir_fd,
+            .FileName = new_path_w,
+        });
+        var io_status_block: IO_STATUS_BLOCK = undefined;
+        const rename_info_buf = rename_info.toBuffer();
+        rc = ntdll.NtSetInformationFile(
+            src_fd,
+            &io_status_block,
+            rename_info_buf.ptr,
+            @intCast(rename_info_buf.len), // already checked for error.NameTooLong
+            .Rename,
+        );
+    }
+
+    switch (rc) {
+        .SUCCESS => {},
+        .INVALID_HANDLE => unreachable,
+        .INVALID_PARAMETER => unreachable,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .NOT_SAME_DEVICE => return error.CrossDevice,
+        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+        .DIRECTORY_NOT_EMPTY => return error.PathAlreadyExists,
+        .FILE_IS_A_DIRECTORY => return error.IsDir,
+        .NOT_A_DIRECTORY => return error.NotDir,
+        else => return unexpectedStatus(rc),
     }
 }
 
@@ -1143,60 +3391,6 @@ pub fn GetStdHandle(handle_id: DWORD) GetStdHandleError!HANDLE {
     return handle;
 }
 
-pub const SetFilePointerError = error{Unexpected};
-
-/// The SetFilePointerEx function with the `dwMoveMethod` parameter set to `FILE_BEGIN`.
-pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!void {
-    // "The starting point is zero or the beginning of the file. If [FILE_BEGIN]
-    // is specified, then the liDistanceToMove parameter is interpreted as an unsigned value."
-    // https://docs.microsoft.com/en-us/windows/desktop/api/fileapi/nf-fileapi-setfilepointerex
-    const ipos = @as(LARGE_INTEGER, @bitCast(offset));
-    if (kernel32.SetFilePointerEx(handle, ipos, null, FILE_BEGIN) == 0) {
-        switch (GetLastError()) {
-            .INVALID_PARAMETER => unreachable,
-            .INVALID_HANDLE => unreachable,
-            else => |err| return unexpectedError(err),
-        }
-    }
-}
-
-/// The SetFilePointerEx function with the `dwMoveMethod` parameter set to `FILE_CURRENT`.
-pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError!void {
-    if (kernel32.SetFilePointerEx(handle, offset, null, FILE_CURRENT) == 0) {
-        switch (GetLastError()) {
-            .INVALID_PARAMETER => unreachable,
-            .INVALID_HANDLE => unreachable,
-            else => |err| return unexpectedError(err),
-        }
-    }
-}
-
-/// The SetFilePointerEx function with the `dwMoveMethod` parameter set to `FILE_END`.
-pub fn SetFilePointerEx_END(handle: HANDLE, offset: i64) SetFilePointerError!void {
-    if (kernel32.SetFilePointerEx(handle, offset, null, FILE_END) == 0) {
-        switch (GetLastError()) {
-            .INVALID_PARAMETER => unreachable,
-            .INVALID_HANDLE => unreachable,
-            else => |err| return unexpectedError(err),
-        }
-    }
-}
-
-/// The SetFilePointerEx function with parameters to get the current offset.
-pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
-    var result: LARGE_INTEGER = undefined;
-    if (kernel32.SetFilePointerEx(handle, 0, &result, FILE_CURRENT) == 0) {
-        switch (GetLastError()) {
-            .INVALID_PARAMETER => unreachable,
-            .INVALID_HANDLE => unreachable,
-            else => |err| return unexpectedError(err),
-        }
-    }
-    // Based on the docs for FILE_BEGIN, it seems that the returned signed integer
-    // should be interpreted as an unsigned integer.
-    return @as(u64, @bitCast(result));
-}
-
 pub const QueryObjectNameError = error{
     AccessDenied,
     InvalidHandle,
@@ -1209,7 +3403,7 @@ pub fn QueryObjectName(handle: HANDLE, out_buffer: []u16) QueryObjectNameError![
 
     const info = @as(*OBJECT_NAME_INFORMATION, @ptrCast(out_buffer_aligned));
     // buffer size is specified in bytes
-    const out_buffer_len = std.math.cast(ULONG, out_buffer_aligned.len * 2) orelse std.math.maxInt(ULONG);
+    const out_buffer_len = std.math.cast(ULONG, out_buffer_aligned.len * 2) orelse maxInt(ULONG);
     // last argument would return the length required for full_buffer, not exposed here
     return switch (ntdll.NtQueryObject(handle, .ObjectNameInformation, info, out_buffer_len, null)) {
         .SUCCESS => blk: {
@@ -1236,7 +3430,7 @@ test QueryObjectName {
     //any file will do; canonicalization works on NTFS junctions and symlinks, hardlinks remain separate paths.
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const handle = tmp.dir.fd;
+    const handle = tmp.dir.handle;
     var out_buffer: [PATH_MAX_WIDE]u16 = undefined;
 
     const result_path = try QueryObjectName(handle, &out_buffer);
@@ -1249,7 +3443,6 @@ test QueryObjectName {
 
 pub const GetFinalPathNameByHandleError = error{
     AccessDenied,
-    BadPathName,
     FileNotFound,
     NameTooLong,
     /// The volume does not contain a recognized file system. File system
@@ -1274,6 +3467,8 @@ pub const GetFinalPathNameByHandleFormat = struct {
 /// NT or DOS volume name (e.g., `\Device\HarddiskVolume0\foo.txt` versus `C:\foo.txt`).
 /// If DOS volume name format is selected, note that this function does *not* prepend
 /// `\\?\` prefix to the resultant path.
+///
+/// TODO move this function into std.Io.Threaded and add cancelation checks
 pub fn GetFinalPathNameByHandle(
     hFile: HANDLE,
     fmt: GetFinalPathNameByHandleFormat,
@@ -1293,16 +3488,29 @@ pub fn GetFinalPathNameByHandle(
         },
         .Dos => {
             // parse the string to separate volume path from file path
-            const expected_prefix = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\");
+            const device_prefix = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\");
 
-            // TODO find out if a path can start with something besides `\Device\<volume name>`,
-            // and if we need to handle it differently
-            // (i.e. how to determine the start and end of the volume name in that case)
-            if (!mem.eql(u16, expected_prefix, final_path[0..expected_prefix.len])) return error.Unexpected;
+            // We aren't entirely sure of the structure of the path returned by
+            // QueryObjectName in all contexts/environments.
+            // This code is written to cover the various cases that have
+            // been encountered and solved appropriately. But note that there's
+            // no easy way to verify that they have all been tackled!
+            // (Unless you, the reader knows of one then please do action that!)
+            if (!mem.startsWith(u16, final_path, device_prefix)) {
+                // Wine seems to return NT namespaced paths starting with \??\ from QueryObjectName
+                // (e.g. `\??\Z:\some\path\to\a\file.txt`), in which case we can just strip the
+                // prefix to turn it into an absolute path.
+                // https://github.com/ziglang/zig/issues/26029
+                // https://bugs.winehq.org/show_bug.cgi?id=39569
+                return ntToWin32Namespace(final_path, out_buffer) catch |err| switch (err) {
+                    error.NotNtPath => return error.Unexpected,
+                    error.NameTooLong => |e| return e,
+                };
+            }
 
-            const file_path_begin_index = mem.indexOfPos(u16, final_path, expected_prefix.len, &[_]u16{'\\'}) orelse unreachable;
+            const file_path_begin_index = mem.findPos(u16, final_path, device_prefix.len, &[_]u16{'\\'}) orelse unreachable;
             const volume_name_u16 = final_path[0..file_path_begin_index];
-            const device_name_u16 = volume_name_u16[expected_prefix.len..];
+            const device_name_u16 = volume_name_u16[device_prefix.len..];
             const file_name_u16 = final_path[file_path_begin_index..];
 
             // MUP is Multiple UNC Provider, and indicates that the path is a UNC
@@ -1310,7 +3518,7 @@ pub fn GetFinalPathNameByHandle(
             // dropping the \Device\Mup\ and making sure the path begins with \\
             if (mem.eql(u16, device_name_u16, std.unicode.utf8ToUtf16LeStringLiteral("Mup"))) {
                 out_buffer[0] = '\\';
-                mem.copyForwards(u16, out_buffer[1..][0..file_name_u16.len], file_name_u16);
+                @memmove(out_buffer[1..][0..file_name_u16.len], file_name_u16);
                 return out_buffer[0 .. 1 + file_name_u16.len];
             }
 
@@ -1328,9 +3536,8 @@ pub fn GetFinalPathNameByHandle(
             // This is the NT namespaced version of \\.\MountPointManager
             const mgmt_path_u16 = std.unicode.utf8ToUtf16LeStringLiteral("\\??\\MountPointManager");
             const mgmt_handle = OpenFile(mgmt_path_u16, .{
-                .access_mask = SYNCHRONIZE,
-                .share_access = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                .creation = FILE_OPEN,
+                .access_mask = .{ .STANDARD = .{ .SYNCHRONIZE = true } },
+                .creation = .OPEN,
             }) catch |err| switch (err) {
                 error.IsDir => return error.Unexpected,
                 error.NotDir => return error.Unexpected,
@@ -1341,6 +3548,8 @@ pub fn GetFinalPathNameByHandle(
                 error.WouldBlock => return error.Unexpected,
                 error.NetworkNotFound => return error.Unexpected,
                 error.AntivirusInterference => return error.Unexpected,
+                error.BadPathName => return error.Unexpected,
+                error.OperationCanceled => @panic("TODO: better integrate cancelation"),
                 else => |e| return e,
             };
             defer CloseHandle(mgmt_handle);
@@ -1350,10 +3559,14 @@ pub fn GetFinalPathNameByHandle(
             input_struct.DeviceNameLength = @intCast(volume_name_u16.len * 2);
             @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..][0 .. volume_name_u16.len * 2], @as([*]const u8, @ptrCast(volume_name_u16.ptr)));
 
-            DeviceIoControl(mgmt_handle, IOCTL_MOUNTMGR_QUERY_POINTS, &input_buf, &output_buf) catch |err| switch (err) {
-                error.AccessDenied => return error.Unexpected,
-                else => |e| return e,
-            };
+            {
+                const rc = DeviceIoControl(mgmt_handle, IOCTL.MOUNTMGR.QUERY_POINTS, .{ .in = &input_buf, .out = &output_buf });
+                switch (rc) {
+                    .SUCCESS => {},
+                    .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+                    else => return unexpectedStatus(rc),
+                }
+            }
             const mount_points_struct: *const MOUNTMGR_MOUNT_POINTS = @ptrCast(&output_buf[0]);
 
             const mount_points = @as(
@@ -1378,13 +3591,11 @@ pub fn GetFinalPathNameByHandle(
                     if (out_buffer.len < drive_letter.len + file_name_u16.len) return error.NameTooLong;
 
                     @memcpy(out_buffer[0..drive_letter.len], drive_letter);
-                    mem.copyForwards(u16, out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
+                    @memmove(out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
                     const total_len = drive_letter.len + file_name_u16.len;
 
                     // Validate that DOS does not contain any spurious nul bytes.
-                    if (mem.indexOfScalar(u16, out_buffer[0..total_len], 0)) |_| {
-                        return error.BadPathName;
-                    }
+                    assert(mem.findScalar(u16, out_buffer[0..total_len], 0) == null);
 
                     return out_buffer[0..total_len];
                 } else if (mountmgrIsVolumeName(symlink)) {
@@ -1405,10 +3616,12 @@ pub fn GetFinalPathNameByHandle(
                     vol_input_struct.DeviceNameLength = @intCast(symlink.len * 2);
                     @memcpy(@as([*]WCHAR, &vol_input_struct.DeviceName)[0..symlink.len], symlink);
 
-                    DeviceIoControl(mgmt_handle, IOCTL_MOUNTMGR_QUERY_DOS_VOLUME_PATH, &vol_input_buf, &vol_output_buf) catch |err| switch (err) {
-                        error.AccessDenied => return error.Unexpected,
-                        else => |e| return e,
-                    };
+                    const rc = DeviceIoControl(mgmt_handle, IOCTL.MOUNTMGR.QUERY_DOS_VOLUME_PATH, .{ .in = &vol_input_buf, .out = &vol_output_buf });
+                    switch (rc) {
+                        .SUCCESS => {},
+                        .UNRECOGNIZED_VOLUME => return error.UnrecognizedVolume,
+                        else => return unexpectedStatus(rc),
+                    }
                     const volume_paths_struct: *const MOUNTMGR_VOLUME_PATHS = @ptrCast(&vol_output_buf[0]);
                     const volume_path = std.mem.sliceTo(@as(
                         [*]const u16,
@@ -1427,19 +3640,12 @@ pub fn GetFinalPathNameByHandle(
                     // to copy backwards. We also need to do this before copying the volume path because
                     // it could overwrite the file_name_u16 memory.
                     const file_name_dest = out_buffer[volume_path.len..][0..file_name_u16.len];
-                    const file_name_byte_offset = @intFromPtr(file_name_u16.ptr) - @intFromPtr(out_buffer.ptr);
-                    const file_name_index = file_name_byte_offset / @sizeOf(u16);
-                    if (volume_path.len > file_name_index)
-                        mem.copyBackwards(u16, file_name_dest, file_name_u16)
-                    else
-                        mem.copyForwards(u16, file_name_dest, file_name_u16);
+                    @memmove(file_name_dest, file_name_u16);
                     @memcpy(out_buffer[0..volume_path.len], volume_path);
                     const total_len = volume_path.len + file_name_u16.len;
 
                     // Validate that DOS does not contain any spurious nul bytes.
-                    if (mem.indexOfScalar(u16, out_buffer[0..total_len], 0)) |_| {
-                        return error.BadPathName;
-                    }
+                    assert(mem.findScalar(u16, out_buffer[0..total_len], 0) == null);
 
                     return out_buffer[0..total_len];
                 }
@@ -1486,7 +3692,7 @@ test GetFinalPathNameByHandle {
     //any file will do
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const handle = tmp.dir.fd;
+    const handle = tmp.dir.handle;
     var buffer: [PATH_MAX_WIDE]u16 = undefined;
 
     //check with sufficient size
@@ -1513,155 +3719,6 @@ pub fn GetFileSizeEx(hFile: HANDLE) GetFileSizeError!u64 {
         }
     }
     return @as(u64, @bitCast(file_size));
-}
-
-pub const GetFileAttributesError = error{
-    FileNotFound,
-    PermissionDenied,
-    Unexpected,
-};
-
-pub fn GetFileAttributes(filename: []const u8) (GetFileAttributesError || Wtf8ToPrefixedFileWError)!DWORD {
-    const filename_w = try sliceToPrefixedFileW(null, filename);
-    return GetFileAttributesW(filename_w.span().ptr);
-}
-
-pub fn GetFileAttributesW(lpFileName: [*:0]const u16) GetFileAttributesError!DWORD {
-    const rc = kernel32.GetFileAttributesW(lpFileName);
-    if (rc == INVALID_FILE_ATTRIBUTES) {
-        switch (GetLastError()) {
-            .FILE_NOT_FOUND => return error.FileNotFound,
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            .ACCESS_DENIED => return error.PermissionDenied,
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return rc;
-}
-
-pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
-    var wsadata: ws2_32.WSADATA = undefined;
-    return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
-        0 => wsadata,
-        else => |err_int| switch (@as(ws2_32.WinsockError, @enumFromInt(@as(u16, @intCast(err_int))))) {
-            .WSASYSNOTREADY => return error.SystemNotAvailable,
-            .WSAVERNOTSUPPORTED => return error.VersionNotSupported,
-            .WSAEINPROGRESS => return error.BlockingOperationInProgress,
-            .WSAEPROCLIM => return error.ProcessFdQuotaExceeded,
-            else => |err| return unexpectedWSAError(err),
-        },
-    };
-}
-
-pub fn WSACleanup() !void {
-    return switch (ws2_32.WSACleanup()) {
-        0 => {},
-        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
-            .WSANOTINITIALISED => return error.NotInitialized,
-            .WSAENETDOWN => return error.NetworkNotAvailable,
-            .WSAEINPROGRESS => return error.BlockingOperationInProgress,
-            else => |err| return unexpectedWSAError(err),
-        },
-        else => unreachable,
-    };
-}
-
-var wsa_startup_mutex: std.Thread.Mutex = .{};
-
-pub fn callWSAStartup() !void {
-    wsa_startup_mutex.lock();
-    defer wsa_startup_mutex.unlock();
-
-    // Here we could use a flag to prevent multiple threads to prevent
-    // multiple calls to WSAStartup, but it doesn't matter. We're globally
-    // leaking the resource intentionally, and the mutex already prevents
-    // data races within the WSAStartup function.
-    _ = WSAStartup(2, 2) catch |err| switch (err) {
-        error.SystemNotAvailable => return error.SystemResources,
-        error.VersionNotSupported => return error.Unexpected,
-        error.BlockingOperationInProgress => return error.Unexpected,
-        error.ProcessFdQuotaExceeded => return error.ProcessFdQuotaExceeded,
-        error.Unexpected => return error.Unexpected,
-    };
-}
-
-/// Microsoft requires WSAStartup to be called to initialize, or else
-/// WSASocketW will return WSANOTINITIALISED.
-/// Since this is a standard library, we do not have the luxury of
-/// putting initialization code anywhere, because we would not want
-/// to pay the cost of calling WSAStartup if there ended up being no
-/// networking. Also, if Zig code is used as a library, Zig is not in
-/// charge of the start code, and we couldn't put in any initialization
-/// code even if we wanted to.
-/// The documentation for WSAStartup mentions that there must be a
-/// matching WSACleanup call. It is not possible for the Zig Standard
-/// Library to honor this for the same reason - there is nowhere to put
-/// deinitialization code.
-/// So, API users of the zig std lib have two options:
-///  * (recommended) The simple, cross-platform way: just call `WSASocketW`
-///    and don't worry about it. Zig will call WSAStartup() in a thread-safe
-///    manner and never deinitialize networking. This is ideal for an
-///    application which has the capability to do networking.
-///  * The getting-your-hands-dirty way: call `WSAStartup()` before doing
-///    networking, so that the error handling code for WSANOTINITIALISED never
-///    gets run, which then allows the application or library to call `WSACleanup()`.
-///    This could make sense for a library, which has init and deinit
-///    functions for the whole library's lifetime.
-pub fn WSASocketW(
-    af: i32,
-    socket_type: i32,
-    protocol: i32,
-    protocolInfo: ?*ws2_32.WSAPROTOCOL_INFOW,
-    g: ws2_32.GROUP,
-    dwFlags: DWORD,
-) !ws2_32.SOCKET {
-    var first = true;
-    while (true) {
-        const rc = ws2_32.WSASocketW(af, socket_type, protocol, protocolInfo, g, dwFlags);
-        if (rc == ws2_32.INVALID_SOCKET) {
-            switch (ws2_32.WSAGetLastError()) {
-                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-                .WSAEMFILE => return error.ProcessFdQuotaExceeded,
-                .WSAENOBUFS => return error.SystemResources,
-                .WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
-                .WSANOTINITIALISED => {
-                    if (!first) return error.Unexpected;
-                    first = false;
-                    try callWSAStartup();
-                    continue;
-                },
-                else => |err| return unexpectedWSAError(err),
-            }
-        }
-        return rc;
-    }
-}
-
-pub fn bind(s: ws2_32.SOCKET, name: *const ws2_32.sockaddr, namelen: ws2_32.socklen_t) i32 {
-    return ws2_32.bind(s, name, @as(i32, @intCast(namelen)));
-}
-
-pub fn listen(s: ws2_32.SOCKET, backlog: u31) i32 {
-    return ws2_32.listen(s, backlog);
-}
-
-pub fn closesocket(s: ws2_32.SOCKET) !void {
-    switch (ws2_32.closesocket(s)) {
-        0 => {},
-        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
-            else => |err| return unexpectedWSAError(err),
-        },
-        else => unreachable,
-    }
-}
-
-pub fn accept(s: ws2_32.SOCKET, name: ?*ws2_32.sockaddr, namelen: ?*ws2_32.socklen_t) ws2_32.SOCKET {
-    assert((name == null) == (namelen == null));
-    return ws2_32.accept(s, name, @as(?*i32, @ptrCast(namelen)));
-}
-
-pub fn getsockname(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.socklen_t) i32 {
-    return ws2_32.getsockname(s, name, @as(*i32, @ptrCast(namelen)));
 }
 
 pub fn getpeername(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.socklen_t) i32 {
@@ -1747,76 +3804,37 @@ pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) Ge
     return buf_ptr[0..rc :0];
 }
 
-pub const TerminateProcessError = error{ PermissionDenied, Unexpected };
-
-pub fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) TerminateProcessError!void {
-    if (kernel32.TerminateProcess(hProcess, uExitCode) == 0) {
-        switch (GetLastError()) {
-            Win32Error.ACCESS_DENIED => return error.PermissionDenied,
-            else => |err| return unexpectedError(err),
-        }
-    }
-}
-
-pub const VirtualAllocError = error{Unexpected};
-
-pub fn VirtualAlloc(addr: ?LPVOID, size: usize, alloc_type: DWORD, flProtect: DWORD) VirtualAllocError!LPVOID {
-    return kernel32.VirtualAlloc(addr, size, alloc_type, flProtect) orelse {
-        switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    };
-}
-
-pub fn VirtualFree(lpAddress: ?LPVOID, dwSize: usize, dwFreeType: DWORD) void {
-    assert(kernel32.VirtualFree(lpAddress, dwSize, dwFreeType) != 0);
-}
-
-pub const VirtualProtectError = error{
-    InvalidAddress,
+pub const NtAllocateVirtualMemoryError = error{
+    AccessDenied,
+    InvalidParameter,
+    NoMemory,
     Unexpected,
 };
 
-pub fn VirtualProtect(lpAddress: ?LPVOID, dwSize: SIZE_T, flNewProtect: DWORD, lpflOldProtect: *DWORD) VirtualProtectError!void {
-    // ntdll takes an extra level of indirection here
-    var addr = lpAddress;
-    var size = dwSize;
-    switch (ntdll.NtProtectVirtualMemory(self_process_handle, &addr, &size, flNewProtect, lpflOldProtect)) {
-        .SUCCESS => {},
-        .INVALID_ADDRESS => return error.InvalidAddress,
-        else => |st| return unexpectedStatus(st),
-    }
+pub fn NtAllocateVirtualMemory(hProcess: HANDLE, addr: ?*PVOID, zero_bits: ULONG_PTR, size: ?*SIZE_T, alloc_type: ULONG, protect: ULONG) NtAllocateVirtualMemoryError!void {
+    return switch (ntdll.NtAllocateVirtualMemory(hProcess, addr, zero_bits, size, alloc_type, protect)) {
+        .SUCCESS => return,
+        .ACCESS_DENIED => NtAllocateVirtualMemoryError.AccessDenied,
+        .INVALID_PARAMETER => NtAllocateVirtualMemoryError.InvalidParameter,
+        .NO_MEMORY => NtAllocateVirtualMemoryError.NoMemory,
+        else => |st| unexpectedStatus(st),
+    };
 }
 
-pub fn VirtualProtectEx(handle: HANDLE, addr: ?LPVOID, size: SIZE_T, new_prot: DWORD) VirtualProtectError!DWORD {
-    var old_prot: DWORD = undefined;
-    var out_addr = addr;
-    var out_size = size;
-    switch (ntdll.NtProtectVirtualMemory(
-        handle,
-        &out_addr,
-        &out_size,
-        new_prot,
-        &old_prot,
-    )) {
-        .SUCCESS => return old_prot,
-        .INVALID_ADDRESS => return error.InvalidAddress,
-        // TODO: map errors
-        else => |rc| return unexpectedStatus(rc),
-    }
-}
+pub const NtFreeVirtualMemoryError = error{
+    AccessDenied,
+    InvalidParameter,
+    Unexpected,
+};
 
-pub const VirtualQueryError = error{Unexpected};
-
-pub fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) VirtualQueryError!SIZE_T {
-    const rc = kernel32.VirtualQuery(lpAddress, lpBuffer, dwLength);
-    if (rc == 0) {
-        switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-
-    return rc;
+pub fn NtFreeVirtualMemory(hProcess: HANDLE, addr: ?*PVOID, size: *SIZE_T, free_type: ULONG) NtFreeVirtualMemoryError!void {
+    // TODO: If the return value is .INVALID_PAGE_PROTECTION, call RtlFlushSecureMemoryCache and try again.
+    return switch (ntdll.NtFreeVirtualMemory(hProcess, addr, size, free_type)) {
+        .SUCCESS => return,
+        .ACCESS_DENIED => NtFreeVirtualMemoryError.AccessDenied,
+        .INVALID_PARAMETER => NtFreeVirtualMemoryError.InvalidParameter,
+        else => NtFreeVirtualMemoryError.Unexpected,
+    };
 }
 
 pub const SetConsoleTextAttributeError = error{Unexpected};
@@ -1851,39 +3869,50 @@ pub fn SetFileCompletionNotificationModes(handle: HANDLE, flags: UCHAR) !void {
     }
 }
 
-pub const GetEnvironmentStringsError = error{OutOfMemory};
-
-pub fn GetEnvironmentStringsW() GetEnvironmentStringsError![*:0]u16 {
-    return kernel32.GetEnvironmentStringsW() orelse return error.OutOfMemory;
-}
-
-pub fn FreeEnvironmentStringsW(penv: [*:0]u16) void {
-    assert(kernel32.FreeEnvironmentStringsW(penv) != 0);
-}
-
-pub const GetEnvironmentVariableError = error{
-    EnvironmentVariableNotFound,
-    Unexpected,
-};
-
-pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: [*]u16, nSize: DWORD) GetEnvironmentVariableError!DWORD {
-    const rc = kernel32.GetEnvironmentVariableW(lpName, lpBuffer, nSize);
-    if (rc == 0) {
-        switch (GetLastError()) {
-            .ENVVAR_NOT_FOUND => return error.EnvironmentVariableNotFound,
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return rc;
-}
-
 pub const CreateProcessError = error{
     FileNotFound,
     AccessDenied,
     InvalidName,
     NameTooLong,
     InvalidExe,
+    SystemResources,
+    FileBusy,
     Unexpected,
+};
+
+pub const CreateProcessFlags = packed struct(u32) {
+    debug_process: bool = false,
+    debug_only_this_process: bool = false,
+    create_suspended: bool = false,
+    detached_process: bool = false,
+    create_new_console: bool = false,
+    normal_priority_class: bool = false,
+    idle_priority_class: bool = false,
+    high_priority_class: bool = false,
+    realtime_priority_class: bool = false,
+    create_new_process_group: bool = false,
+    create_unicode_environment: bool = false,
+    create_separate_wow_vdm: bool = false,
+    create_shared_wow_vdm: bool = false,
+    create_forcedos: bool = false,
+    below_normal_priority_class: bool = false,
+    above_normal_priority_class: bool = false,
+    inherit_parent_affinity: bool = false,
+    inherit_caller_priority: bool = false,
+    create_protected_process: bool = false,
+    extended_startupinfo_present: bool = false,
+    process_mode_background_begin: bool = false,
+    process_mode_background_end: bool = false,
+    create_secure_process: bool = false,
+    _reserved: bool = false,
+    create_breakaway_from_job: bool = false,
+    create_preserve_code_authz_level: bool = false,
+    create_default_error_mode: bool = false,
+    create_no_window: bool = false,
+    profile_user: bool = false,
+    profile_kernel: bool = false,
+    profile_server: bool = false,
+    create_ignore_system_default: bool = false,
 };
 
 pub fn CreateProcessW(
@@ -1892,8 +3921,8 @@ pub fn CreateProcessW(
     lpProcessAttributes: ?*SECURITY_ATTRIBUTES,
     lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
     bInheritHandles: BOOL,
-    dwCreationFlags: DWORD,
-    lpEnvironment: ?*anyopaque,
+    dwCreationFlags: CreateProcessFlags,
+    lpEnvironment: ?[*:0]u16,
     lpCurrentDirectory: ?LPCWSTR,
     lpStartupInfo: *STARTUPINFOW,
     lpProcessInformation: *PROCESS_INFORMATION,
@@ -1913,10 +3942,12 @@ pub fn CreateProcessW(
         switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
+            .DIRECTORY => return error.FileNotFound,
             .ACCESS_DENIED => return error.AccessDenied,
             .INVALID_PARAMETER => unreachable,
             .INVALID_NAME => return error.InvalidName,
             .FILENAME_EXCED_RANGE => return error.NameTooLong,
+            .SHARING_VIOLATION => return error.FileBusy,
             // These are all the system errors that are mapped to ENOEXEC by
             // the undocumented _dosmaperr (old CRT) or __acrt_errno_map_os_error
             // (newer CRT) functions. Their code can be found in crt/src/dosmap.c (old SDK)
@@ -1941,6 +3972,7 @@ pub fn CreateProcessW(
             // when calling CreateProcessW on a plain text file with a .exe extension
             .EXE_MACHINE_TYPE_MISMATCH,
             => return error.InvalidExe,
+            .COMMITMENT_LIMIT => return error.SystemResources,
             else => |err| return unexpectedError(err),
         }
     }
@@ -2016,80 +4048,6 @@ pub fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter
     assert(kernel32.InitOnceExecuteOnce(InitOnce, InitFn, Parameter, Context) != 0);
 }
 
-pub const SetFileTimeError = error{Unexpected};
-
-pub fn SetFileTime(
-    hFile: HANDLE,
-    lpCreationTime: ?*const FILETIME,
-    lpLastAccessTime: ?*const FILETIME,
-    lpLastWriteTime: ?*const FILETIME,
-) SetFileTimeError!void {
-    const rc = kernel32.SetFileTime(hFile, lpCreationTime, lpLastAccessTime, lpLastWriteTime);
-    if (rc == 0) {
-        switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-}
-
-pub const LockFileError = error{
-    SystemResources,
-    WouldBlock,
-} || UnexpectedError;
-
-pub fn LockFile(
-    FileHandle: HANDLE,
-    Event: ?HANDLE,
-    ApcRoutine: ?*IO_APC_ROUTINE,
-    ApcContext: ?*anyopaque,
-    IoStatusBlock: *IO_STATUS_BLOCK,
-    ByteOffset: *const LARGE_INTEGER,
-    Length: *const LARGE_INTEGER,
-    Key: ?*ULONG,
-    FailImmediately: BOOLEAN,
-    ExclusiveLock: BOOLEAN,
-) !void {
-    const rc = ntdll.NtLockFile(
-        FileHandle,
-        Event,
-        ApcRoutine,
-        ApcContext,
-        IoStatusBlock,
-        ByteOffset,
-        Length,
-        Key,
-        FailImmediately,
-        ExclusiveLock,
-    );
-    switch (rc) {
-        .SUCCESS => return,
-        .INSUFFICIENT_RESOURCES => return error.SystemResources,
-        .LOCK_NOT_GRANTED => return error.WouldBlock,
-        .ACCESS_VIOLATION => unreachable, // bad io_status_block pointer
-        else => return unexpectedStatus(rc),
-    }
-}
-
-pub const UnlockFileError = error{
-    RangeNotLocked,
-} || UnexpectedError;
-
-pub fn UnlockFile(
-    FileHandle: HANDLE,
-    IoStatusBlock: *IO_STATUS_BLOCK,
-    ByteOffset: *const LARGE_INTEGER,
-    Length: *const LARGE_INTEGER,
-    Key: ?*ULONG,
-) !void {
-    const rc = ntdll.NtUnlockFile(FileHandle, IoStatusBlock, ByteOffset, Length, Key);
-    switch (rc) {
-        .SUCCESS => return,
-        .RANGE_NOT_LOCKED => return error.RangeNotLocked,
-        .ACCESS_VIOLATION => unreachable, // bad io_status_block pointer
-        else => return unexpectedStatus(rc),
-    }
-}
-
 /// This is a workaround for the C backend until zig has the ability to put
 /// C code in inline assembly.
 extern fn zig_thumb_windows_teb() callconv(.c) *anyopaque;
@@ -2140,25 +4098,25 @@ pub fn peb() *PEB {
 /// Universal Time (UTC).
 /// This function returns the number of nanoseconds since the canonical epoch,
 /// which is the POSIX one (Jan 01, 1970 AD).
-pub fn fromSysTime(hns: i64) i128 {
+pub fn fromSysTime(hns: i64) Io.Timestamp {
     const adjusted_epoch: i128 = hns + std.time.epoch.windows * (std.time.ns_per_s / 100);
-    return adjusted_epoch * 100;
+    return .fromNanoseconds(@intCast(adjusted_epoch * 100));
 }
 
-pub fn toSysTime(ns: i128) i64 {
-    const hns = @divFloor(ns, 100);
+pub fn toSysTime(ns: Io.Timestamp) i64 {
+    const hns = @divFloor(ns.nanoseconds, 100);
     return @as(i64, @intCast(hns)) - std.time.epoch.windows * (std.time.ns_per_s / 100);
 }
 
-pub fn fileTimeToNanoSeconds(ft: FILETIME) i128 {
+pub fn fileTimeToNanoSeconds(ft: FILETIME) Io.Timestamp {
     const hns = (@as(i64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
     return fromSysTime(hns);
 }
 
 /// Converts a number of nanoseconds since the POSIX epoch to a Windows FILETIME.
-pub fn nanoSecondsToFileTime(ns: i128) FILETIME {
+pub fn nanoSecondsToFileTime(ns: Io.Timestamp) FILETIME {
     const adjusted: u64 = @bitCast(toSysTime(ns));
-    return FILETIME{
+    return .{
         .dwHighDateTime = @as(u32, @truncate(adjusted >> 32)),
         .dwLowDateTime = @as(u32, @truncate(adjusted)),
     };
@@ -2167,7 +4125,7 @@ pub fn nanoSecondsToFileTime(ns: i128) FILETIME {
 /// Compares two WTF16 strings using the equivalent functionality of
 /// `RtlEqualUnicodeString` (with case insensitive comparison enabled).
 /// This function can be called on any target.
-pub fn eqlIgnoreCaseWTF16(a: []const u16, b: []const u16) bool {
+pub fn eqlIgnoreCaseWtf16(a: []const u16, b: []const u16) bool {
     if (@inComptime() or builtin.os.tag != .windows) {
         // This function compares the strings code unit by code unit (aka u16-to-u16),
         // so any length difference implies inequality. In other words, there's no possible
@@ -2190,13 +4148,13 @@ pub fn eqlIgnoreCaseWTF16(a: []const u16, b: []const u16) bool {
     // Use RtlEqualUnicodeString on Windows when not in comptime to avoid including a
     // redundant copy of the uppercase data.
     const a_bytes = @as(u16, @intCast(a.len * 2));
-    const a_string = UNICODE_STRING{
+    const a_string: UNICODE_STRING = .{
         .Length = a_bytes,
         .MaximumLength = a_bytes,
         .Buffer = @constCast(a.ptr),
     };
     const b_bytes = @as(u16, @intCast(b.len * 2));
-    const b_string = UNICODE_STRING{
+    const b_string: UNICODE_STRING = .{
         .Length = b_bytes,
         .MaximumLength = b_bytes,
         .Buffer = @constCast(b.ptr),
@@ -2228,7 +4186,7 @@ pub fn eqlIgnoreCaseWtf8(a: []const u8, b: []const u8) bool {
         const a_cp = a_wtf8_it.nextCodepoint() orelse break;
         const b_cp = b_wtf8_it.nextCodepoint() orelse return false;
 
-        if (a_cp <= std.math.maxInt(u16) and b_cp <= std.math.maxInt(u16)) {
+        if (a_cp <= maxInt(u16) and b_cp <= maxInt(u16)) {
             if (a_cp != b_cp and upcaseImpl(@intCast(a_cp)) != upcaseImpl(@intCast(b_cp))) {
                 return false;
             }
@@ -2244,19 +4202,19 @@ pub fn eqlIgnoreCaseWtf8(a: []const u8, b: []const u8) bool {
 
 fn testEqlIgnoreCase(comptime expect_eql: bool, comptime a: []const u8, comptime b: []const u8) !void {
     try std.testing.expectEqual(expect_eql, eqlIgnoreCaseWtf8(a, b));
-    try std.testing.expectEqual(expect_eql, eqlIgnoreCaseWTF16(
+    try std.testing.expectEqual(expect_eql, eqlIgnoreCaseWtf16(
         std.unicode.utf8ToUtf16LeStringLiteral(a),
         std.unicode.utf8ToUtf16LeStringLiteral(b),
     ));
 
     try comptime std.testing.expect(expect_eql == eqlIgnoreCaseWtf8(a, b));
-    try comptime std.testing.expect(expect_eql == eqlIgnoreCaseWTF16(
+    try comptime std.testing.expect(expect_eql == eqlIgnoreCaseWtf16(
         std.unicode.utf8ToUtf16LeStringLiteral(a),
         std.unicode.utf8ToUtf16LeStringLiteral(b),
     ));
 }
 
-test "eqlIgnoreCaseWTF16/Wtf8" {
+test "eqlIgnoreCaseWtf16/Wtf8" {
     try testEqlIgnoreCase(true, "\x01 a B Λ ɐ", "\x01 A b λ Ɐ");
     // does not do case-insensitive comparison for codepoints >= U+10000
     try testEqlIgnoreCase(false, "𐓏", "𐓷");
@@ -2280,7 +4238,7 @@ pub const RemoveDotDirsError = error{TooManyParentDirs};
 ///    2) all repeating back slashes have been collapsed
 ///    3) the path is a relative one (does not start with a back slash)
 pub fn removeDotDirsSanitized(comptime T: type, path: []T) RemoveDotDirsError!usize {
-    std.debug.assert(path.len == 0 or path[0] != '\\');
+    assert(path.len == 0 or path[0] != '\\');
 
     var write_idx: usize = 0;
     var read_idx: usize = 0;
@@ -2296,7 +4254,7 @@ pub fn removeDotDirsSanitized(comptime T: type, path: []T) RemoveDotDirsError!us
             }
             if (after_dot == '.' and (read_idx + 2 == path.len or path[read_idx + 2] == '\\')) {
                 if (write_idx == 0) return error.TooManyParentDirs;
-                std.debug.assert(write_idx >= 2);
+                assert(write_idx >= 2);
                 write_idx -= 1;
                 while (true) {
                     write_idx -= 1;
@@ -2346,20 +4304,22 @@ pub fn normalizePath(comptime T: type, path: []T) RemoveDotDirsError!usize {
     return prefix_len + try removeDotDirsSanitized(T, path[prefix_len..new_len]);
 }
 
-pub const Wtf8ToPrefixedFileWError = error{InvalidWtf8} || Wtf16ToPrefixedFileWError;
+pub const Wtf8ToPrefixedFileWError = Wtf16ToPrefixedFileWError;
 
 /// Same as `sliceToPrefixedFileW` but accepts a pointer
 /// to a null-terminated WTF-8 encoded path.
-/// https://simonsapin.github.io/wtf-8/
+/// https://wtf-8.codeberg.page/
 pub fn cStrToPrefixedFileW(dir: ?HANDLE, s: [*:0]const u8) Wtf8ToPrefixedFileWError!PathSpace {
     return sliceToPrefixedFileW(dir, mem.sliceTo(s, 0));
 }
 
 /// Same as `wToPrefixedFileW` but accepts a WTF-8 encoded path.
-/// https://simonsapin.github.io/wtf-8/
+/// https://wtf-8.codeberg.page/
 pub fn sliceToPrefixedFileW(dir: ?HANDLE, path: []const u8) Wtf8ToPrefixedFileWError!PathSpace {
     var temp_path: PathSpace = undefined;
-    temp_path.len = try std.unicode.wtf8ToWtf16Le(&temp_path.data, path);
+    temp_path.len = std.unicode.wtf8ToWtf16Le(&temp_path.data, path) catch |err| switch (err) {
+        error.InvalidWtf8 => return error.BadPathName,
+    };
     temp_path.data[temp_path.len] = 0;
     return wToPrefixedFileW(dir, temp_path.span());
 }
@@ -2385,158 +4345,188 @@ pub const Wtf16ToPrefixedFileWError = error{
 /// - . and space are not stripped from the end of relative paths (potential TODO)
 pub fn wToPrefixedFileW(dir: ?HANDLE, path: [:0]const u16) Wtf16ToPrefixedFileWError!PathSpace {
     const nt_prefix = [_]u16{ '\\', '?', '?', '\\' };
-    switch (getNamespacePrefix(u16, path)) {
-        // TODO: Figure out a way to design an API that can avoid the copy for .nt,
+    if (hasCommonNtPrefix(u16, path)) {
+        // TODO: Figure out a way to design an API that can avoid the copy for NT,
         //       since it is always returned fully unmodified.
-        .nt, .verbatim => {
-            var path_space: PathSpace = undefined;
-            path_space.data[0..nt_prefix.len].* = nt_prefix;
-            const len_after_prefix = path.len - nt_prefix.len;
-            @memcpy(path_space.data[nt_prefix.len..][0..len_after_prefix], path[nt_prefix.len..]);
-            path_space.len = path.len;
-            path_space.data[path_space.len] = 0;
-            return path_space;
-        },
-        .local_device, .fake_verbatim => {
-            var path_space: PathSpace = undefined;
-            const path_byte_len = ntdll.RtlGetFullPathName_U(
-                path.ptr,
-                path_space.data.len * 2,
-                &path_space.data,
-                null,
-            );
-            if (path_byte_len == 0) {
-                // TODO: This may not be the right error
-                return error.BadPathName;
-            } else if (path_byte_len / 2 > path_space.data.len) {
-                return error.NameTooLong;
-            }
-            path_space.len = path_byte_len / 2;
-            // Both prefixes will be normalized but retained, so all
-            // we need to do now is replace them with the NT prefix
-            path_space.data[0..nt_prefix.len].* = nt_prefix;
-            return path_space;
-        },
-        .none => {
-            const path_type = getUnprefixedPathType(u16, path);
-            var path_space: PathSpace = undefined;
-            relative: {
-                if (path_type == .relative) {
-                    // TODO: Handle special case device names like COM1, AUX, NUL, CONIN$, CONOUT$, etc.
-                    //       See https://googleprojectzero.blogspot.com/2016/02/the-definitive-guide-on-win32-to-nt.html
-
-                    // TODO: Potentially strip all trailing . and space characters from the
-                    //       end of the path. This is something that both RtlDosPathNameToNtPathName_U
-                    //       and RtlGetFullPathName_U do. Technically, trailing . and spaces
-                    //       are allowed, but such paths may not interact well with Windows (i.e.
-                    //       files with these paths can't be deleted from explorer.exe, etc).
-                    //       This could be something that normalizePath may want to do.
-
-                    @memcpy(path_space.data[0..path.len], path);
-                    // Try to normalize, but if we get too many parent directories,
-                    // then we need to start over and use RtlGetFullPathName_U instead.
-                    path_space.len = normalizePath(u16, path_space.data[0..path.len]) catch |err| switch (err) {
-                        error.TooManyParentDirs => break :relative,
-                    };
+        var path_space: PathSpace = undefined;
+        path_space.data[0..nt_prefix.len].* = nt_prefix;
+        const len_after_prefix = path.len - nt_prefix.len;
+        @memcpy(path_space.data[nt_prefix.len..][0..len_after_prefix], path[nt_prefix.len..]);
+        path_space.len = path.len;
+        path_space.data[path_space.len] = 0;
+        return path_space;
+    } else {
+        const path_type = std.fs.path.getWin32PathType(u16, path);
+        var path_space: PathSpace = undefined;
+        if (path_type == .local_device) {
+            switch (getLocalDevicePathType(u16, path)) {
+                .verbatim => {
+                    path_space.data[0..nt_prefix.len].* = nt_prefix;
+                    const len_after_prefix = path.len - nt_prefix.len;
+                    @memcpy(path_space.data[nt_prefix.len..][0..len_after_prefix], path[nt_prefix.len..]);
+                    path_space.len = path.len;
                     path_space.data[path_space.len] = 0;
                     return path_space;
-                }
+                },
+                .local_device, .fake_verbatim => {
+                    const path_byte_len = ntdll.RtlGetFullPathName_U(
+                        path.ptr,
+                        path_space.data.len * 2,
+                        &path_space.data,
+                        null,
+                    );
+                    if (path_byte_len == 0) {
+                        // TODO: This may not be the right error
+                        return error.BadPathName;
+                    } else if (path_byte_len / 2 > path_space.data.len) {
+                        return error.NameTooLong;
+                    }
+                    path_space.len = path_byte_len / 2;
+                    // Both prefixes will be normalized but retained, so all
+                    // we need to do now is replace them with the NT prefix
+                    path_space.data[0..nt_prefix.len].* = nt_prefix;
+                    return path_space;
+                },
             }
-            // We now know we are going to return an absolute NT path, so
-            // we can unconditionally prefix it with the NT prefix.
-            path_space.data[0..nt_prefix.len].* = nt_prefix;
-            if (path_type == .root_local_device) {
-                // `\\.` and `\\?` always get converted to `\??\` exactly, so
-                // we can just stop here
-                path_space.len = nt_prefix.len;
+        }
+        relative: {
+            if (path_type == .relative) {
+                // TODO: Handle special case device names like COM1, AUX, NUL, CONIN$, CONOUT$, etc.
+                //       See https://googleprojectzero.blogspot.com/2016/02/the-definitive-guide-on-win32-to-nt.html
+
+                // TODO: Potentially strip all trailing . and space characters from the
+                //       end of the path. This is something that both RtlDosPathNameToNtPathName_U
+                //       and RtlGetFullPathName_U do. Technically, trailing . and spaces
+                //       are allowed, but such paths may not interact well with Windows (i.e.
+                //       files with these paths can't be deleted from explorer.exe, etc).
+                //       This could be something that normalizePath may want to do.
+
+                @memcpy(path_space.data[0..path.len], path);
+                // Try to normalize, but if we get too many parent directories,
+                // then we need to start over and use RtlGetFullPathName_U instead.
+                path_space.len = normalizePath(u16, path_space.data[0..path.len]) catch |err| switch (err) {
+                    error.TooManyParentDirs => break :relative,
+                };
                 path_space.data[path_space.len] = 0;
                 return path_space;
             }
-            const path_buf_offset = switch (path_type) {
-                // UNC paths will always start with `\\`. However, we want to
-                // end up with something like `\??\UNC\server\share`, so to get
-                // RtlGetFullPathName to write into the spot we want the `server`
-                // part to end up, we need to provide an offset such that
-                // the `\\` part gets written where the `C\` of `UNC\` will be
-                // in the final NT path.
-                .unc_absolute => nt_prefix.len + 2,
-                else => nt_prefix.len,
+        }
+        // We now know we are going to return an absolute NT path, so
+        // we can unconditionally prefix it with the NT prefix.
+        path_space.data[0..nt_prefix.len].* = nt_prefix;
+        if (path_type == .root_local_device) {
+            // `\\.` and `\\?` always get converted to `\??\` exactly, so
+            // we can just stop here
+            path_space.len = nt_prefix.len;
+            path_space.data[path_space.len] = 0;
+            return path_space;
+        }
+        const path_buf_offset = switch (path_type) {
+            // UNC paths will always start with `\\`. However, we want to
+            // end up with something like `\??\UNC\server\share`, so to get
+            // RtlGetFullPathName to write into the spot we want the `server`
+            // part to end up, we need to provide an offset such that
+            // the `\\` part gets written where the `C\` of `UNC\` will be
+            // in the final NT path.
+            .unc_absolute => nt_prefix.len + 2,
+            else => nt_prefix.len,
+        };
+        const buf_len: u32 = @intCast(path_space.data.len - path_buf_offset);
+        const path_to_get: [:0]const u16 = path_to_get: {
+            // If dir is null, then we don't need to bother with GetFinalPathNameByHandle because
+            // RtlGetFullPathName_U will resolve relative paths against the CWD for us.
+            if (path_type != .relative or dir == null) {
+                break :path_to_get path;
+            }
+            // We can also skip GetFinalPathNameByHandle if the handle matches
+            // the handle returned by Io.Dir.cwd()
+            if (dir.? == Io.Dir.cwd().handle) {
+                break :path_to_get path;
+            }
+            // At this point, we know we have a relative path that had too many
+            // `..` components to be resolved by normalizePath, so we need to
+            // convert it into an absolute path and let RtlGetFullPathName_U
+            // canonicalize it. We do this by getting the path of the `dir`
+            // and appending the relative path to it.
+            var dir_path_buf: [PATH_MAX_WIDE:0]u16 = undefined;
+            const dir_path = GetFinalPathNameByHandle(dir.?, .{}, &dir_path_buf) catch |err| switch (err) {
+                // This mapping is not correct; it is actually expected
+                // that calling GetFinalPathNameByHandle might return
+                // error.UnrecognizedVolume, and in fact has been observed
+                // in the wild. The problem is that wToPrefixedFileW was
+                // never intended to make *any* OS syscall APIs. It's only
+                // supposed to convert a string to one that is eligible to
+                // be used in the ntdll syscalls.
+                //
+                // To solve this, this function needs to no longer call
+                // GetFinalPathNameByHandle under any conditions, or the
+                // calling function needs to get reworked to not need to
+                // call this function.
+                //
+                // This may involve making breaking API changes.
+                error.UnrecognizedVolume => return error.Unexpected,
+                else => |e| return e,
             };
-            const buf_len: u32 = @intCast(path_space.data.len - path_buf_offset);
-            const path_to_get: [:0]const u16 = path_to_get: {
-                // If dir is null, then we don't need to bother with GetFinalPathNameByHandle because
-                // RtlGetFullPathName_U will resolve relative paths against the CWD for us.
-                if (path_type != .relative or dir == null) {
-                    break :path_to_get path;
-                }
-                // We can also skip GetFinalPathNameByHandle if the handle matches
-                // the handle returned by fs.cwd()
-                if (dir.? == std.fs.cwd().fd) {
-                    break :path_to_get path;
-                }
-                // At this point, we know we have a relative path that had too many
-                // `..` components to be resolved by normalizePath, so we need to
-                // convert it into an absolute path and let RtlGetFullPathName_U
-                // canonicalize it. We do this by getting the path of the `dir`
-                // and appending the relative path to it.
-                var dir_path_buf: [PATH_MAX_WIDE:0]u16 = undefined;
-                const dir_path = GetFinalPathNameByHandle(dir.?, .{}, &dir_path_buf) catch |err| switch (err) {
-                    // This mapping is not correct; it is actually expected
-                    // that calling GetFinalPathNameByHandle might return
-                    // error.UnrecognizedVolume, and in fact has been observed
-                    // in the wild. The problem is that wToPrefixedFileW was
-                    // never intended to make *any* OS syscall APIs. It's only
-                    // supposed to convert a string to one that is eligible to
-                    // be used in the ntdll syscalls.
-                    //
-                    // To solve this, this function needs to no longer call
-                    // GetFinalPathNameByHandle under any conditions, or the
-                    // calling function needs to get reworked to not need to
-                    // call this function.
-                    //
-                    // This may involve making breaking API changes.
-                    error.UnrecognizedVolume => return error.Unexpected,
-                    else => |e| return e,
-                };
-                if (dir_path.len + 1 + path.len > PATH_MAX_WIDE) {
-                    return error.NameTooLong;
-                }
-                // We don't have to worry about potentially doubling up path separators
-                // here since RtlGetFullPathName_U will handle canonicalizing it.
-                dir_path_buf[dir_path.len] = '\\';
-                @memcpy(dir_path_buf[dir_path.len + 1 ..][0..path.len], path);
-                const full_len = dir_path.len + 1 + path.len;
-                dir_path_buf[full_len] = 0;
-                break :path_to_get dir_path_buf[0..full_len :0];
-            };
-            const path_byte_len = ntdll.RtlGetFullPathName_U(
-                path_to_get.ptr,
-                buf_len * 2,
-                path_space.data[path_buf_offset..].ptr,
-                null,
-            );
-            if (path_byte_len == 0) {
-                // TODO: This may not be the right error
-                return error.BadPathName;
-            } else if (path_byte_len / 2 > buf_len) {
+            if (dir_path.len + 1 + path.len > PATH_MAX_WIDE) {
                 return error.NameTooLong;
             }
-            path_space.len = path_buf_offset + (path_byte_len / 2);
-            if (path_type == .unc_absolute) {
-                // Now add in the UNC, the `C` should overwrite the first `\` of the
-                // FullPathName, ultimately resulting in `\??\UNC\<the rest of the path>`
-                std.debug.assert(path_space.data[path_buf_offset] == '\\');
-                std.debug.assert(path_space.data[path_buf_offset + 1] == '\\');
-                const unc = [_]u16{ 'U', 'N', 'C' };
-                path_space.data[nt_prefix.len..][0..unc.len].* = unc;
-            }
-            return path_space;
-        },
+            // We don't have to worry about potentially doubling up path separators
+            // here since RtlGetFullPathName_U will handle canonicalizing it.
+            dir_path_buf[dir_path.len] = '\\';
+            @memcpy(dir_path_buf[dir_path.len + 1 ..][0..path.len], path);
+            const full_len = dir_path.len + 1 + path.len;
+            dir_path_buf[full_len] = 0;
+            break :path_to_get dir_path_buf[0..full_len :0];
+        };
+        const path_byte_len = ntdll.RtlGetFullPathName_U(
+            path_to_get.ptr,
+            buf_len * 2,
+            path_space.data[path_buf_offset..].ptr,
+            null,
+        );
+        if (path_byte_len == 0) {
+            // TODO: This may not be the right error
+            return error.BadPathName;
+        } else if (path_byte_len / 2 > buf_len) {
+            return error.NameTooLong;
+        }
+        path_space.len = path_buf_offset + (path_byte_len / 2);
+        if (path_type == .unc_absolute) {
+            // Now add in the UNC, the `C` should overwrite the first `\` of the
+            // FullPathName, ultimately resulting in `\??\UNC\<the rest of the path>`
+            assert(path_space.data[path_buf_offset] == '\\');
+            assert(path_space.data[path_buf_offset + 1] == '\\');
+            const unc = [_]u16{ 'U', 'N', 'C' };
+            path_space.data[nt_prefix.len..][0..unc.len].* = unc;
+        }
+        return path_space;
     }
 }
 
-pub const NamespacePrefix = enum {
-    none,
+/// Returns true if the path starts with `\??\`, which is indicative of an NT path
+/// but is not enough to fully distinguish between NT paths and Win32 paths, as
+/// `\??\` is not actually a distinct prefix but rather the path to a special virtual
+/// folder in the Object Manager.
+///
+/// For example, `\Device\HarddiskVolume2` and `\DosDevices\C:` are also NT paths but
+/// cannot be distinguished as such by their prefix.
+///
+/// So, inferring whether a path is an NT path or a Win32 path is usually a mistake;
+/// that information should instead be known ahead-of-time.
+///
+/// If `T` is `u16`, then `path` should be encoded as WTF-16LE.
+pub fn hasCommonNtPrefix(comptime T: type, path: []const T) bool {
+    // Must be exactly \??\, forward slashes are not allowed
+    const expected_wtf8_prefix = "\\??\\";
+    const expected_prefix = switch (T) {
+        u8 => expected_wtf8_prefix,
+        u16 => std.unicode.wtf8ToWtf16LeStringLiteral(expected_wtf8_prefix),
+        else => @compileError("unsupported type: " ++ @typeName(T)),
+    };
+    return mem.startsWith(T, path, expected_prefix);
+}
+
+const LocalDevicePathType = enum {
     /// `\\.\` (path separators can be `\` or `/`)
     local_device,
     /// `\\?\`
@@ -2549,107 +4539,24 @@ pub const NamespacePrefix = enum {
     /// it will become `\??\C:\foo` [it will be canonicalized and the //?/ won't
     /// be treated as part of the final path])
     fake_verbatim,
-    /// `\??\`
-    nt,
 };
 
-/// If `T` is `u16`, then `path` should be encoded as WTF-16LE.
-pub fn getNamespacePrefix(comptime T: type, path: []const T) NamespacePrefix {
-    if (path.len < 4) return .none;
-    var all_backslash = switch (mem.littleToNative(T, path[0])) {
-        '\\' => true,
-        '/' => false,
-        else => return .none,
-    };
-    all_backslash = all_backslash and switch (mem.littleToNative(T, path[3])) {
-        '\\' => true,
-        '/' => false,
-        else => return .none,
-    };
-    switch (mem.littleToNative(T, path[1])) {
-        '?' => if (mem.littleToNative(T, path[2]) == '?' and all_backslash) return .nt else return .none,
-        '\\' => {},
-        '/' => all_backslash = false,
-        else => return .none,
-    }
-    return switch (mem.littleToNative(T, path[2])) {
-        '?' => if (all_backslash) .verbatim else .fake_verbatim,
-        '.' => .local_device,
-        else => .none,
-    };
-}
-
-test getNamespacePrefix {
-    try std.testing.expectEqual(NamespacePrefix.none, getNamespacePrefix(u8, ""));
-    try std.testing.expectEqual(NamespacePrefix.nt, getNamespacePrefix(u8, "\\??\\"));
-    try std.testing.expectEqual(NamespacePrefix.none, getNamespacePrefix(u8, "/??/"));
-    try std.testing.expectEqual(NamespacePrefix.none, getNamespacePrefix(u8, "/??\\"));
-    try std.testing.expectEqual(NamespacePrefix.none, getNamespacePrefix(u8, "\\?\\\\"));
-    try std.testing.expectEqual(NamespacePrefix.local_device, getNamespacePrefix(u8, "\\\\.\\"));
-    try std.testing.expectEqual(NamespacePrefix.local_device, getNamespacePrefix(u8, "\\\\./"));
-    try std.testing.expectEqual(NamespacePrefix.local_device, getNamespacePrefix(u8, "/\\./"));
-    try std.testing.expectEqual(NamespacePrefix.local_device, getNamespacePrefix(u8, "//./"));
-    try std.testing.expectEqual(NamespacePrefix.none, getNamespacePrefix(u8, "/.//"));
-    try std.testing.expectEqual(NamespacePrefix.verbatim, getNamespacePrefix(u8, "\\\\?\\"));
-    try std.testing.expectEqual(NamespacePrefix.fake_verbatim, getNamespacePrefix(u8, "\\/?\\"));
-    try std.testing.expectEqual(NamespacePrefix.fake_verbatim, getNamespacePrefix(u8, "\\/?/"));
-    try std.testing.expectEqual(NamespacePrefix.fake_verbatim, getNamespacePrefix(u8, "//?/"));
-}
-
-pub const UnprefixedPathType = enum {
-    unc_absolute,
-    drive_absolute,
-    drive_relative,
-    rooted,
-    relative,
-    root_local_device,
-};
-
-/// Get the path type of a path that is known to not have any namespace prefixes
-/// (`\\?\`, `\\.\`, `\??\`).
-/// If `T` is `u16`, then `path` should be encoded as WTF-16LE.
-pub fn getUnprefixedPathType(comptime T: type, path: []const T) UnprefixedPathType {
-    if (path.len < 1) return .relative;
-
+/// Only relevant for Win32 -> NT path conversion.
+/// Asserts `path` is of type `std.fs.path.Win32PathType.local_device`.
+fn getLocalDevicePathType(comptime T: type, path: []const T) LocalDevicePathType {
     if (std.debug.runtime_safety) {
-        std.debug.assert(getNamespacePrefix(T, path) == .none);
+        assert(std.fs.path.getWin32PathType(T, path) == .local_device);
     }
 
-    const windows_path = std.fs.path.PathType.windows;
-    if (windows_path.isSep(T, mem.littleToNative(T, path[0]))) {
-        // \x
-        if (path.len < 2 or !windows_path.isSep(T, mem.littleToNative(T, path[1]))) return .rooted;
-        // exactly \\. or \\? with nothing trailing
-        if (path.len == 3 and (mem.littleToNative(T, path[2]) == '.' or mem.littleToNative(T, path[2]) == '?')) return .root_local_device;
-        // \\x
-        return .unc_absolute;
-    } else {
-        // x
-        if (path.len < 2 or mem.littleToNative(T, path[1]) != ':') return .relative;
-        // x:\
-        if (path.len > 2 and windows_path.isSep(T, mem.littleToNative(T, path[2]))) return .drive_absolute;
-        // x:
-        return .drive_relative;
-    }
-}
-
-test getUnprefixedPathType {
-    try std.testing.expectEqual(UnprefixedPathType.relative, getUnprefixedPathType(u8, ""));
-    try std.testing.expectEqual(UnprefixedPathType.relative, getUnprefixedPathType(u8, "x"));
-    try std.testing.expectEqual(UnprefixedPathType.relative, getUnprefixedPathType(u8, "x\\"));
-    try std.testing.expectEqual(UnprefixedPathType.root_local_device, getUnprefixedPathType(u8, "//."));
-    try std.testing.expectEqual(UnprefixedPathType.root_local_device, getUnprefixedPathType(u8, "/\\?"));
-    try std.testing.expectEqual(UnprefixedPathType.root_local_device, getUnprefixedPathType(u8, "\\\\?"));
-    try std.testing.expectEqual(UnprefixedPathType.unc_absolute, getUnprefixedPathType(u8, "\\\\x"));
-    try std.testing.expectEqual(UnprefixedPathType.unc_absolute, getUnprefixedPathType(u8, "//x"));
-    try std.testing.expectEqual(UnprefixedPathType.rooted, getUnprefixedPathType(u8, "\\x"));
-    try std.testing.expectEqual(UnprefixedPathType.rooted, getUnprefixedPathType(u8, "/"));
-    try std.testing.expectEqual(UnprefixedPathType.drive_relative, getUnprefixedPathType(u8, "x:"));
-    try std.testing.expectEqual(UnprefixedPathType.drive_relative, getUnprefixedPathType(u8, "x:abc"));
-    try std.testing.expectEqual(UnprefixedPathType.drive_relative, getUnprefixedPathType(u8, "x:a/b/c"));
-    try std.testing.expectEqual(UnprefixedPathType.drive_absolute, getUnprefixedPathType(u8, "x:\\"));
-    try std.testing.expectEqual(UnprefixedPathType.drive_absolute, getUnprefixedPathType(u8, "x:\\abc"));
-    try std.testing.expectEqual(UnprefixedPathType.drive_absolute, getUnprefixedPathType(u8, "x:/a/b/c"));
+    const backslash = mem.nativeToLittle(T, '\\');
+    const all_backslash = path[0] == backslash and
+        path[1] == backslash and
+        path[3] == backslash;
+    return switch (path[2]) {
+        mem.nativeToLittle(T, '?') => if (all_backslash) .verbatim else .fake_verbatim,
+        mem.nativeToLittle(T, '.') => .local_device,
+        else => unreachable,
+    };
 }
 
 /// Similar to `RtlNtPathNameToDosPathName` but does not do any heap allocation.
@@ -2662,107 +4569,46 @@ test getUnprefixedPathType {
 /// https://github.com/reactos/reactos/blob/master/modules/rostests/apitests/ntdll/RtlNtPathNameToDosPathName.c
 ///
 /// `path` should be encoded as WTF-16LE.
-pub fn ntToWin32Namespace(path: []const u16) !PathSpace {
+///
+/// Supports in-place modification (`path` and `out` may refer to the same slice).
+pub fn ntToWin32Namespace(path: []const u16, out: []u16) error{ NameTooLong, NotNtPath }![]u16 {
     if (path.len > PATH_MAX_WIDE) return error.NameTooLong;
+    if (!hasCommonNtPrefix(u16, path)) return error.NotNtPath;
 
-    var path_space: PathSpace = undefined;
-    const namespace_prefix = getNamespacePrefix(u16, path);
-    switch (namespace_prefix) {
-        .nt => {
-            var dest_index: usize = 0;
-            var after_prefix = path[4..]; // after the `\??\`
-            // The prefix \??\UNC\ means this is a UNC path, in which case the
-            // `\??\UNC\` should be replaced by `\\` (two backslashes)
-            // TODO: the "UNC" should technically be matched case-insensitively, but
-            //       it's unlikely to matter since most/all paths passed into this
-            //       function will have come from the OS meaning it should have
-            //       the 'canonical' uppercase UNC.
-            const is_unc = after_prefix.len >= 4 and
-                std.mem.eql(u16, after_prefix[0..3], std.unicode.utf8ToUtf16LeStringLiteral("UNC")) and
-                std.fs.path.PathType.windows.isSep(u16, std.mem.littleToNative(u16, after_prefix[3]));
-            if (is_unc) {
-                path_space.data[0] = comptime std.mem.nativeToLittle(u16, '\\');
-                dest_index += 1;
-                // We want to include the last `\` of `\??\UNC\`
-                after_prefix = path[7..];
-            }
-            @memcpy(path_space.data[dest_index..][0..after_prefix.len], after_prefix);
-            path_space.len = dest_index + after_prefix.len;
-            path_space.data[path_space.len] = 0;
-            return path_space;
-        },
-        else => return error.NotNtPath,
+    var dest_index: usize = 0;
+    var after_prefix = path[4..]; // after the `\??\`
+    // The prefix \??\UNC\ means this is a UNC path, in which case the
+    // `\??\UNC\` should be replaced by `\\` (two backslashes)
+    const is_unc = after_prefix.len >= 4 and
+        eqlIgnoreCaseWtf16(after_prefix[0..3], std.unicode.utf8ToUtf16LeStringLiteral("UNC")) and
+        std.fs.path.PathType.windows.isSep(u16, after_prefix[3]);
+    const win32_len = path.len - @as(usize, if (is_unc) 6 else 4);
+    if (out.len < win32_len) return error.NameTooLong;
+    if (is_unc) {
+        out[0] = comptime std.mem.nativeToLittle(u16, '\\');
+        dest_index += 1;
+        // We want to include the last `\` of `\??\UNC\`
+        after_prefix = path[7..];
     }
+    @memmove(out[dest_index..][0..after_prefix.len], after_prefix);
+    return out[0..win32_len];
 }
 
 test ntToWin32Namespace {
     const L = std.unicode.utf8ToUtf16LeStringLiteral;
 
-    try testNtToWin32Namespace(L("UNC"), L("\\??\\UNC"));
-    try testNtToWin32Namespace(L("\\\\"), L("\\??\\UNC\\"));
-    try testNtToWin32Namespace(L("\\\\path1"), L("\\??\\UNC\\path1"));
-    try testNtToWin32Namespace(L("\\\\path1\\path2"), L("\\??\\UNC\\path1\\path2"));
+    var mutable_unc_path_buf = L("\\??\\UNC\\path1\\path2").*;
+    try std.testing.expectEqualSlices(u16, L("\\\\path1\\path2"), try ntToWin32Namespace(&mutable_unc_path_buf, &mutable_unc_path_buf));
 
-    try testNtToWin32Namespace(L(""), L("\\??\\"));
-    try testNtToWin32Namespace(L("C:"), L("\\??\\C:"));
-    try testNtToWin32Namespace(L("C:\\"), L("\\??\\C:\\"));
-    try testNtToWin32Namespace(L("C:\\test"), L("\\??\\C:\\test"));
-    try testNtToWin32Namespace(L("C:\\test\\"), L("\\??\\C:\\test\\"));
+    var mutable_path_buf = L("\\??\\C:\\test\\").*;
+    try std.testing.expectEqualSlices(u16, L("C:\\test\\"), try ntToWin32Namespace(&mutable_path_buf, &mutable_path_buf));
 
-    try std.testing.expectError(error.NotNtPath, ntToWin32Namespace(L("foo")));
-    try std.testing.expectError(error.NotNtPath, ntToWin32Namespace(L("C:\\test")));
-    try std.testing.expectError(error.NotNtPath, ntToWin32Namespace(L("\\\\.\\test")));
-}
-
-fn testNtToWin32Namespace(expected: []const u16, path: []const u16) !void {
-    const converted = try ntToWin32Namespace(path);
-    try std.testing.expectEqualSlices(u16, expected, converted.span());
-}
-
-fn getFullPathNameW(path: [*:0]const u16, out: []u16) !usize {
-    const result = kernel32.GetFullPathNameW(path, @as(u32, @intCast(out.len)), out.ptr, null);
-    if (result == 0) {
-        switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return result;
+    var too_small_buf: [6]u16 = undefined;
+    try std.testing.expectError(error.NameTooLong, ntToWin32Namespace(L("\\??\\C:\\test"), &too_small_buf));
 }
 
 inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {
     return (s << 10) | p;
-}
-
-/// Loads a Winsock extension function in runtime specified by a GUID.
-pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid: GUID) !T {
-    var function: T = undefined;
-    var num_bytes: DWORD = undefined;
-
-    const rc = ws2_32.WSAIoctl(
-        sock,
-        ws2_32.SIO_GET_EXTENSION_FUNCTION_POINTER,
-        &guid,
-        @sizeOf(GUID),
-        @as(?*anyopaque, @ptrFromInt(@intFromPtr(&function))),
-        @sizeOf(T),
-        &num_bytes,
-        null,
-        null,
-    );
-
-    if (rc == ws2_32.SOCKET_ERROR) {
-        return switch (ws2_32.WSAGetLastError()) {
-            .WSAEOPNOTSUPP => error.OperationNotSupported,
-            .WSAENOTSOCK => error.FileDescriptorNotASocket,
-            else => |err| unexpectedWSAError(err),
-        };
-    }
-
-    if (num_bytes != @sizeOf(T)) {
-        return error.ShortRead;
-    }
-
-    return function;
 }
 
 /// Call this when you made a windows DLL call or something that does SetLastError
@@ -2780,11 +4626,10 @@ pub fn unexpectedError(err: Win32Error) UnexpectedError {
             buf_wstr.len,
             null,
         );
-        std.debug.print("error.Unexpected: GetLastError({}): {}\n", .{
-            @intFromEnum(err),
-            std.unicode.fmtUtf16Le(buf_wstr[0..len]),
+        std.debug.print("error.Unexpected: GetLastError({d}): {f}\n", .{
+            err, std.unicode.fmtUtf16Le(buf_wstr[0..len]),
         });
-        std.debug.dumpCurrentStackTrace(@returnAddress());
+        std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
     }
     return error.Unexpected;
 }
@@ -2797,14 +4642,36 @@ pub fn unexpectedWSAError(err: ws2_32.WinsockError) UnexpectedError {
 /// and you get an unexpected status.
 pub fn unexpectedStatus(status: NTSTATUS) UnexpectedError {
     if (std.posix.unexpected_error_tracing) {
-        std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@intFromEnum(status)});
-        std.debug.dumpCurrentStackTrace(@returnAddress());
+        std.debug.print("error.Unexpected NTSTATUS=0x{x} ({s})\n", .{
+            @intFromEnum(status),
+            std.enums.tagName(NTSTATUS, status) orelse "<unnamed>",
+        });
+        std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
     }
     return error.Unexpected;
 }
 
+pub fn statusBug(status: NTSTATUS) UnexpectedError {
+    switch (builtin.mode) {
+        .Debug => std.debug.panic("programmer bug caused syscall status: 0x{x} ({s})", .{
+            @intFromEnum(status),
+            std.enums.tagName(NTSTATUS, status) orelse "<unnamed>",
+        }),
+        else => return error.Unexpected,
+    }
+}
+
+pub fn errorBug(err: Win32Error) UnexpectedError {
+    switch (builtin.mode) {
+        .Debug => std.debug.panic("programmer bug caused syscall error: 0x{x} ({s})", .{
+            @intFromEnum(err),
+            std.enums.tagName(Win32Error, err) orelse "<unnamed>",
+        }),
+        else => return error.Unexpected,
+    }
+}
+
 pub const Win32Error = @import("windows/win32error.zig").Win32Error;
-pub const NTSTATUS = @import("windows/ntstatus.zig").NTSTATUS;
 pub const LANG = @import("windows/lang.zig");
 pub const SUBLANG = @import("windows/sublang.zig");
 
@@ -2816,9 +4683,6 @@ pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
-
-/// Deprecated; use `std.builtin.CallingConvention.winapi` instead.
-pub const WINAPI: std.builtin.CallingConvention = .winapi;
 
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
@@ -2888,217 +4752,9 @@ pub const PCTSTR = @compileError("Deprecated: choose between `PCSTR` or `PCWSTR`
 pub const TRUE = 1;
 pub const FALSE = 0;
 
-pub const DEVICE_TYPE = ULONG;
-pub const FILE_DEVICE_BEEP: DEVICE_TYPE = 0x0001;
-pub const FILE_DEVICE_CD_ROM: DEVICE_TYPE = 0x0002;
-pub const FILE_DEVICE_CD_ROM_FILE_SYSTEM: DEVICE_TYPE = 0x0003;
-pub const FILE_DEVICE_CONTROLLER: DEVICE_TYPE = 0x0004;
-pub const FILE_DEVICE_DATALINK: DEVICE_TYPE = 0x0005;
-pub const FILE_DEVICE_DFS: DEVICE_TYPE = 0x0006;
-pub const FILE_DEVICE_DISK: DEVICE_TYPE = 0x0007;
-pub const FILE_DEVICE_DISK_FILE_SYSTEM: DEVICE_TYPE = 0x0008;
-pub const FILE_DEVICE_FILE_SYSTEM: DEVICE_TYPE = 0x0009;
-pub const FILE_DEVICE_INPORT_PORT: DEVICE_TYPE = 0x000a;
-pub const FILE_DEVICE_KEYBOARD: DEVICE_TYPE = 0x000b;
-pub const FILE_DEVICE_MAILSLOT: DEVICE_TYPE = 0x000c;
-pub const FILE_DEVICE_MIDI_IN: DEVICE_TYPE = 0x000d;
-pub const FILE_DEVICE_MIDI_OUT: DEVICE_TYPE = 0x000e;
-pub const FILE_DEVICE_MOUSE: DEVICE_TYPE = 0x000f;
-pub const FILE_DEVICE_MULTI_UNC_PROVIDER: DEVICE_TYPE = 0x0010;
-pub const FILE_DEVICE_NAMED_PIPE: DEVICE_TYPE = 0x0011;
-pub const FILE_DEVICE_NETWORK: DEVICE_TYPE = 0x0012;
-pub const FILE_DEVICE_NETWORK_BROWSER: DEVICE_TYPE = 0x0013;
-pub const FILE_DEVICE_NETWORK_FILE_SYSTEM: DEVICE_TYPE = 0x0014;
-pub const FILE_DEVICE_NULL: DEVICE_TYPE = 0x0015;
-pub const FILE_DEVICE_PARALLEL_PORT: DEVICE_TYPE = 0x0016;
-pub const FILE_DEVICE_PHYSICAL_NETCARD: DEVICE_TYPE = 0x0017;
-pub const FILE_DEVICE_PRINTER: DEVICE_TYPE = 0x0018;
-pub const FILE_DEVICE_SCANNER: DEVICE_TYPE = 0x0019;
-pub const FILE_DEVICE_SERIAL_MOUSE_PORT: DEVICE_TYPE = 0x001a;
-pub const FILE_DEVICE_SERIAL_PORT: DEVICE_TYPE = 0x001b;
-pub const FILE_DEVICE_SCREEN: DEVICE_TYPE = 0x001c;
-pub const FILE_DEVICE_SOUND: DEVICE_TYPE = 0x001d;
-pub const FILE_DEVICE_STREAMS: DEVICE_TYPE = 0x001e;
-pub const FILE_DEVICE_TAPE: DEVICE_TYPE = 0x001f;
-pub const FILE_DEVICE_TAPE_FILE_SYSTEM: DEVICE_TYPE = 0x0020;
-pub const FILE_DEVICE_TRANSPORT: DEVICE_TYPE = 0x0021;
-pub const FILE_DEVICE_UNKNOWN: DEVICE_TYPE = 0x0022;
-pub const FILE_DEVICE_VIDEO: DEVICE_TYPE = 0x0023;
-pub const FILE_DEVICE_VIRTUAL_DISK: DEVICE_TYPE = 0x0024;
-pub const FILE_DEVICE_WAVE_IN: DEVICE_TYPE = 0x0025;
-pub const FILE_DEVICE_WAVE_OUT: DEVICE_TYPE = 0x0026;
-pub const FILE_DEVICE_8042_PORT: DEVICE_TYPE = 0x0027;
-pub const FILE_DEVICE_NETWORK_REDIRECTOR: DEVICE_TYPE = 0x0028;
-pub const FILE_DEVICE_BATTERY: DEVICE_TYPE = 0x0029;
-pub const FILE_DEVICE_BUS_EXTENDER: DEVICE_TYPE = 0x002a;
-pub const FILE_DEVICE_MODEM: DEVICE_TYPE = 0x002b;
-pub const FILE_DEVICE_VDM: DEVICE_TYPE = 0x002c;
-pub const FILE_DEVICE_MASS_STORAGE: DEVICE_TYPE = 0x002d;
-pub const FILE_DEVICE_SMB: DEVICE_TYPE = 0x002e;
-pub const FILE_DEVICE_KS: DEVICE_TYPE = 0x002f;
-pub const FILE_DEVICE_CHANGER: DEVICE_TYPE = 0x0030;
-pub const FILE_DEVICE_SMARTCARD: DEVICE_TYPE = 0x0031;
-pub const FILE_DEVICE_ACPI: DEVICE_TYPE = 0x0032;
-pub const FILE_DEVICE_DVD: DEVICE_TYPE = 0x0033;
-pub const FILE_DEVICE_FULLSCREEN_VIDEO: DEVICE_TYPE = 0x0034;
-pub const FILE_DEVICE_DFS_FILE_SYSTEM: DEVICE_TYPE = 0x0035;
-pub const FILE_DEVICE_DFS_VOLUME: DEVICE_TYPE = 0x0036;
-pub const FILE_DEVICE_SERENUM: DEVICE_TYPE = 0x0037;
-pub const FILE_DEVICE_TERMSRV: DEVICE_TYPE = 0x0038;
-pub const FILE_DEVICE_KSEC: DEVICE_TYPE = 0x0039;
-pub const FILE_DEVICE_FIPS: DEVICE_TYPE = 0x003a;
-pub const FILE_DEVICE_INFINIBAND: DEVICE_TYPE = 0x003b;
-// TODO: missing values?
-pub const FILE_DEVICE_VMBUS: DEVICE_TYPE = 0x003e;
-pub const FILE_DEVICE_CRYPT_PROVIDER: DEVICE_TYPE = 0x003f;
-pub const FILE_DEVICE_WPD: DEVICE_TYPE = 0x0040;
-pub const FILE_DEVICE_BLUETOOTH: DEVICE_TYPE = 0x0041;
-pub const FILE_DEVICE_MT_COMPOSITE: DEVICE_TYPE = 0x0042;
-pub const FILE_DEVICE_MT_TRANSPORT: DEVICE_TYPE = 0x0043;
-pub const FILE_DEVICE_BIOMETRIC: DEVICE_TYPE = 0x0044;
-pub const FILE_DEVICE_PMI: DEVICE_TYPE = 0x0045;
-pub const FILE_DEVICE_EHSTOR: DEVICE_TYPE = 0x0046;
-pub const FILE_DEVICE_DEVAPI: DEVICE_TYPE = 0x0047;
-pub const FILE_DEVICE_GPIO: DEVICE_TYPE = 0x0048;
-pub const FILE_DEVICE_USBEX: DEVICE_TYPE = 0x0049;
-pub const FILE_DEVICE_CONSOLE: DEVICE_TYPE = 0x0050;
-pub const FILE_DEVICE_NFP: DEVICE_TYPE = 0x0051;
-pub const FILE_DEVICE_SYSENV: DEVICE_TYPE = 0x0052;
-pub const FILE_DEVICE_VIRTUAL_BLOCK: DEVICE_TYPE = 0x0053;
-pub const FILE_DEVICE_POINT_OF_SERVICE: DEVICE_TYPE = 0x0054;
-pub const FILE_DEVICE_STORAGE_REPLICATION: DEVICE_TYPE = 0x0055;
-pub const FILE_DEVICE_TRUST_ENV: DEVICE_TYPE = 0x0056;
-pub const FILE_DEVICE_UCM: DEVICE_TYPE = 0x0057;
-pub const FILE_DEVICE_UCMTCPCI: DEVICE_TYPE = 0x0058;
-pub const FILE_DEVICE_PERSISTENT_MEMORY: DEVICE_TYPE = 0x0059;
-pub const FILE_DEVICE_NVDIMM: DEVICE_TYPE = 0x005a;
-pub const FILE_DEVICE_HOLOGRAPHIC: DEVICE_TYPE = 0x005b;
-pub const FILE_DEVICE_SDFXHCI: DEVICE_TYPE = 0x005c;
+pub const INVALID_HANDLE_VALUE: HANDLE = @ptrFromInt(maxInt(usize));
 
-/// https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/buffer-descriptions-for-i-o-control-codes
-pub const TransferType = enum(u2) {
-    METHOD_BUFFERED = 0,
-    METHOD_IN_DIRECT = 1,
-    METHOD_OUT_DIRECT = 2,
-    METHOD_NEITHER = 3,
-};
-
-pub const FILE_ANY_ACCESS = 0;
-pub const FILE_READ_ACCESS = 1;
-pub const FILE_WRITE_ACCESS = 2;
-
-/// https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/defining-i-o-control-codes
-pub fn CTL_CODE(deviceType: u16, function: u12, method: TransferType, access: u2) DWORD {
-    return (@as(DWORD, deviceType) << 16) |
-        (@as(DWORD, access) << 14) |
-        (@as(DWORD, function) << 2) |
-        @intFromEnum(method);
-}
-
-pub const INVALID_HANDLE_VALUE = @as(HANDLE, @ptrFromInt(maxInt(usize)));
-
-pub const INVALID_FILE_ATTRIBUTES = @as(DWORD, maxInt(DWORD));
-
-pub const FILE_ALL_INFORMATION = extern struct {
-    BasicInformation: FILE_BASIC_INFORMATION,
-    StandardInformation: FILE_STANDARD_INFORMATION,
-    InternalInformation: FILE_INTERNAL_INFORMATION,
-    EaInformation: FILE_EA_INFORMATION,
-    AccessInformation: FILE_ACCESS_INFORMATION,
-    PositionInformation: FILE_POSITION_INFORMATION,
-    ModeInformation: FILE_MODE_INFORMATION,
-    AlignmentInformation: FILE_ALIGNMENT_INFORMATION,
-    NameInformation: FILE_NAME_INFORMATION,
-};
-
-pub const FILE_BASIC_INFORMATION = extern struct {
-    CreationTime: LARGE_INTEGER,
-    LastAccessTime: LARGE_INTEGER,
-    LastWriteTime: LARGE_INTEGER,
-    ChangeTime: LARGE_INTEGER,
-    FileAttributes: ULONG,
-};
-
-pub const FILE_STANDARD_INFORMATION = extern struct {
-    AllocationSize: LARGE_INTEGER,
-    EndOfFile: LARGE_INTEGER,
-    NumberOfLinks: ULONG,
-    DeletePending: BOOLEAN,
-    Directory: BOOLEAN,
-};
-
-pub const FILE_INTERNAL_INFORMATION = extern struct {
-    IndexNumber: LARGE_INTEGER,
-};
-
-pub const FILE_EA_INFORMATION = extern struct {
-    EaSize: ULONG,
-};
-
-pub const FILE_ACCESS_INFORMATION = extern struct {
-    AccessFlags: ACCESS_MASK,
-};
-
-pub const FILE_POSITION_INFORMATION = extern struct {
-    CurrentByteOffset: LARGE_INTEGER,
-};
-
-pub const FILE_END_OF_FILE_INFORMATION = extern struct {
-    EndOfFile: LARGE_INTEGER,
-};
-
-pub const FILE_MODE_INFORMATION = extern struct {
-    Mode: ULONG,
-};
-
-pub const FILE_ALIGNMENT_INFORMATION = extern struct {
-    AlignmentRequirement: ULONG,
-};
-
-pub const FILE_NAME_INFORMATION = extern struct {
-    FileNameLength: ULONG,
-    FileName: [1]WCHAR,
-};
-
-pub const FILE_DISPOSITION_INFORMATION_EX = extern struct {
-    /// combination of FILE_DISPOSITION_* flags
-    Flags: ULONG,
-};
-
-const FILE_DISPOSITION_DO_NOT_DELETE: ULONG = 0x00000000;
-const FILE_DISPOSITION_DELETE: ULONG = 0x00000001;
-const FILE_DISPOSITION_POSIX_SEMANTICS: ULONG = 0x00000002;
-const FILE_DISPOSITION_FORCE_IMAGE_SECTION_CHECK: ULONG = 0x00000004;
-const FILE_DISPOSITION_ON_CLOSE: ULONG = 0x00000008;
-const FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE: ULONG = 0x00000010;
-
-// FILE_RENAME_INFORMATION.Flags
-pub const FILE_RENAME_REPLACE_IF_EXISTS = 0x00000001;
-pub const FILE_RENAME_POSIX_SEMANTICS = 0x00000002;
-pub const FILE_RENAME_SUPPRESS_PIN_STATE_INHERITANCE = 0x00000004;
-pub const FILE_RENAME_SUPPRESS_STORAGE_RESERVE_INHERITANCE = 0x00000008;
-pub const FILE_RENAME_NO_INCREASE_AVAILABLE_SPACE = 0x00000010;
-pub const FILE_RENAME_NO_DECREASE_AVAILABLE_SPACE = 0x00000020;
-pub const FILE_RENAME_PRESERVE_AVAILABLE_SPACE = 0x00000030;
-pub const FILE_RENAME_IGNORE_READONLY_ATTRIBUTE = 0x00000040;
-pub const FILE_RENAME_FORCE_RESIZE_TARGET_SR = 0x00000080;
-pub const FILE_RENAME_FORCE_RESIZE_SOURCE_SR = 0x00000100;
-pub const FILE_RENAME_FORCE_RESIZE_SR = 0x00000180;
-
-pub const FILE_RENAME_INFORMATION = extern struct {
-    Flags: BOOLEAN,
-    RootDirectory: ?HANDLE,
-    FileNameLength: ULONG,
-    FileName: [1]WCHAR,
-};
-
-// FileRenameInformationEx (since .win10_rs1)
-pub const FILE_RENAME_INFORMATION_EX = extern struct {
-    Flags: ULONG,
-    RootDirectory: ?HANDLE,
-    FileNameLength: ULONG,
-    FileName: [1]WCHAR,
-};
+pub const INVALID_FILE_ATTRIBUTES: DWORD = maxInt(DWORD);
 
 pub const IO_STATUS_BLOCK = extern struct {
     // "DUMMYUNIONNAME" expands to "u"
@@ -3107,130 +4763,6 @@ pub const IO_STATUS_BLOCK = extern struct {
         Pointer: ?*anyopaque,
     },
     Information: ULONG_PTR,
-};
-
-pub const FILE_INFORMATION_CLASS = enum(c_int) {
-    FileDirectoryInformation = 1,
-    FileFullDirectoryInformation,
-    FileBothDirectoryInformation,
-    FileBasicInformation,
-    FileStandardInformation,
-    FileInternalInformation,
-    FileEaInformation,
-    FileAccessInformation,
-    FileNameInformation,
-    FileRenameInformation,
-    FileLinkInformation,
-    FileNamesInformation,
-    FileDispositionInformation,
-    FilePositionInformation,
-    FileFullEaInformation,
-    FileModeInformation,
-    FileAlignmentInformation,
-    FileAllInformation,
-    FileAllocationInformation,
-    FileEndOfFileInformation,
-    FileAlternateNameInformation,
-    FileStreamInformation,
-    FilePipeInformation,
-    FilePipeLocalInformation,
-    FilePipeRemoteInformation,
-    FileMailslotQueryInformation,
-    FileMailslotSetInformation,
-    FileCompressionInformation,
-    FileObjectIdInformation,
-    FileCompletionInformation,
-    FileMoveClusterInformation,
-    FileQuotaInformation,
-    FileReparsePointInformation,
-    FileNetworkOpenInformation,
-    FileAttributeTagInformation,
-    FileTrackingInformation,
-    FileIdBothDirectoryInformation,
-    FileIdFullDirectoryInformation,
-    FileValidDataLengthInformation,
-    FileShortNameInformation,
-    FileIoCompletionNotificationInformation,
-    FileIoStatusBlockRangeInformation,
-    FileIoPriorityHintInformation,
-    FileSfioReserveInformation,
-    FileSfioVolumeInformation,
-    FileHardLinkInformation,
-    FileProcessIdsUsingFileInformation,
-    FileNormalizedNameInformation,
-    FileNetworkPhysicalNameInformation,
-    FileIdGlobalTxDirectoryInformation,
-    FileIsRemoteDeviceInformation,
-    FileUnusedInformation,
-    FileNumaNodeInformation,
-    FileStandardLinkInformation,
-    FileRemoteProtocolInformation,
-    FileRenameInformationBypassAccessCheck,
-    FileLinkInformationBypassAccessCheck,
-    FileVolumeNameInformation,
-    FileIdInformation,
-    FileIdExtdDirectoryInformation,
-    FileReplaceCompletionInformation,
-    FileHardLinkFullIdInformation,
-    FileIdExtdBothDirectoryInformation,
-    FileDispositionInformationEx,
-    FileRenameInformationEx,
-    FileRenameInformationExBypassAccessCheck,
-    FileDesiredStorageClassInformation,
-    FileStatInformation,
-    FileMemoryPartitionInformation,
-    FileStatLxInformation,
-    FileCaseSensitiveInformation,
-    FileLinkInformationEx,
-    FileLinkInformationExBypassAccessCheck,
-    FileStorageReserveIdInformation,
-    FileCaseSensitiveInformationForceAccessCheck,
-    FileMaximumInformation,
-};
-
-pub const FILE_ATTRIBUTE_TAG_INFO = extern struct {
-    FileAttributes: DWORD,
-    ReparseTag: DWORD,
-};
-
-/// "If this bit is set, the file or directory represents another named entity in the system."
-/// https://learn.microsoft.com/en-us/windows/win32/fileio/reparse-point-tags
-pub const reparse_tag_name_surrogate_bit = 0x20000000;
-
-pub const FILE_DISPOSITION_INFORMATION = extern struct {
-    DeleteFile: BOOLEAN,
-};
-
-pub const FILE_FS_DEVICE_INFORMATION = extern struct {
-    DeviceType: DEVICE_TYPE,
-    Characteristics: ULONG,
-};
-
-pub const FILE_FS_VOLUME_INFORMATION = extern struct {
-    VolumeCreationTime: LARGE_INTEGER,
-    VolumeSerialNumber: ULONG,
-    VolumeLabelLength: ULONG,
-    SupportsObjects: BOOLEAN,
-    // Flexible array member
-    VolumeLabel: [1]WCHAR,
-};
-
-pub const FS_INFORMATION_CLASS = enum(c_int) {
-    FileFsVolumeInformation = 1,
-    FileFsLabelInformation,
-    FileFsSizeInformation,
-    FileFsDeviceInformation,
-    FileFsAttributeInformation,
-    FileFsControlInformation,
-    FileFsFullSizeInformation,
-    FileFsObjectIdInformation,
-    FileFsDriverPathInformation,
-    FileFsVolumeFlagsInformation,
-    FileFsSectorSizeInformation,
-    FileFsDataCopyInformation,
-    FileFsMetadataSizeInformation,
-    FileFsFullSizeInformationEx,
-    FileFsMaximumInformation,
 };
 
 pub const OVERLAPPED = extern struct {
@@ -3334,128 +4866,15 @@ pub const PIPE_READMODE_MESSAGE = 0x00000002;
 pub const PIPE_WAIT = 0x00000000;
 pub const PIPE_NOWAIT = 0x00000001;
 
-pub const GENERIC_READ = 0x80000000;
-pub const GENERIC_WRITE = 0x40000000;
-pub const GENERIC_EXECUTE = 0x20000000;
-pub const GENERIC_ALL = 0x10000000;
-
-pub const FILE_SHARE_DELETE = 0x00000004;
-pub const FILE_SHARE_READ = 0x00000001;
-pub const FILE_SHARE_WRITE = 0x00000002;
-
-pub const DELETE = 0x00010000;
-pub const READ_CONTROL = 0x00020000;
-pub const WRITE_DAC = 0x00040000;
-pub const WRITE_OWNER = 0x00080000;
-pub const SYNCHRONIZE = 0x00100000;
-pub const STANDARD_RIGHTS_READ = READ_CONTROL;
-pub const STANDARD_RIGHTS_WRITE = READ_CONTROL;
-pub const STANDARD_RIGHTS_EXECUTE = READ_CONTROL;
-pub const STANDARD_RIGHTS_REQUIRED = DELETE | READ_CONTROL | WRITE_DAC | WRITE_OWNER;
-pub const MAXIMUM_ALLOWED = 0x02000000;
-
-// disposition for NtCreateFile
-pub const FILE_SUPERSEDE = 0;
-pub const FILE_OPEN = 1;
-pub const FILE_CREATE = 2;
-pub const FILE_OPEN_IF = 3;
-pub const FILE_OVERWRITE = 4;
-pub const FILE_OVERWRITE_IF = 5;
-pub const FILE_MAXIMUM_DISPOSITION = 5;
-
-// flags for NtCreateFile and NtOpenFile
-pub const FILE_READ_DATA = 0x00000001;
-pub const FILE_LIST_DIRECTORY = 0x00000001;
-pub const FILE_WRITE_DATA = 0x00000002;
-pub const FILE_ADD_FILE = 0x00000002;
-pub const FILE_APPEND_DATA = 0x00000004;
-pub const FILE_ADD_SUBDIRECTORY = 0x00000004;
-pub const FILE_CREATE_PIPE_INSTANCE = 0x00000004;
-pub const FILE_READ_EA = 0x00000008;
-pub const FILE_WRITE_EA = 0x00000010;
-pub const FILE_EXECUTE = 0x00000020;
-pub const FILE_TRAVERSE = 0x00000020;
-pub const FILE_DELETE_CHILD = 0x00000040;
-pub const FILE_READ_ATTRIBUTES = 0x00000080;
-pub const FILE_WRITE_ATTRIBUTES = 0x00000100;
-
-pub const FILE_DIRECTORY_FILE = 0x00000001;
-pub const FILE_WRITE_THROUGH = 0x00000002;
-pub const FILE_SEQUENTIAL_ONLY = 0x00000004;
-pub const FILE_NO_INTERMEDIATE_BUFFERING = 0x00000008;
-pub const FILE_SYNCHRONOUS_IO_ALERT = 0x00000010;
-pub const FILE_SYNCHRONOUS_IO_NONALERT = 0x00000020;
-pub const FILE_NON_DIRECTORY_FILE = 0x00000040;
-pub const FILE_CREATE_TREE_CONNECTION = 0x00000080;
-pub const FILE_COMPLETE_IF_OPLOCKED = 0x00000100;
-pub const FILE_NO_EA_KNOWLEDGE = 0x00000200;
-pub const FILE_OPEN_FOR_RECOVERY = 0x00000400;
-pub const FILE_RANDOM_ACCESS = 0x00000800;
-pub const FILE_DELETE_ON_CLOSE = 0x00001000;
-pub const FILE_OPEN_BY_FILE_ID = 0x00002000;
-pub const FILE_OPEN_FOR_BACKUP_INTENT = 0x00004000;
-pub const FILE_NO_COMPRESSION = 0x00008000;
-pub const FILE_RESERVE_OPFILTER = 0x00100000;
-pub const FILE_OPEN_REPARSE_POINT = 0x00200000;
-pub const FILE_OPEN_OFFLINE_FILE = 0x00400000;
-pub const FILE_OPEN_FOR_FREE_SPACE_QUERY = 0x00800000;
-
 pub const CREATE_ALWAYS = 2;
 pub const CREATE_NEW = 1;
 pub const OPEN_ALWAYS = 4;
 pub const OPEN_EXISTING = 3;
 pub const TRUNCATE_EXISTING = 5;
 
-pub const FILE_ATTRIBUTE_ARCHIVE = 0x20;
-pub const FILE_ATTRIBUTE_COMPRESSED = 0x800;
-pub const FILE_ATTRIBUTE_DEVICE = 0x40;
-pub const FILE_ATTRIBUTE_DIRECTORY = 0x10;
-pub const FILE_ATTRIBUTE_ENCRYPTED = 0x4000;
-pub const FILE_ATTRIBUTE_HIDDEN = 0x2;
-pub const FILE_ATTRIBUTE_INTEGRITY_STREAM = 0x8000;
-pub const FILE_ATTRIBUTE_NORMAL = 0x80;
-pub const FILE_ATTRIBUTE_NOT_CONTENT_INDEXED = 0x2000;
-pub const FILE_ATTRIBUTE_NO_SCRUB_DATA = 0x20000;
-pub const FILE_ATTRIBUTE_OFFLINE = 0x1000;
-pub const FILE_ATTRIBUTE_READONLY = 0x1;
-pub const FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS = 0x400000;
-pub const FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x40000;
-pub const FILE_ATTRIBUTE_REPARSE_POINT = 0x400;
-pub const FILE_ATTRIBUTE_SPARSE_FILE = 0x200;
-pub const FILE_ATTRIBUTE_SYSTEM = 0x4;
-pub const FILE_ATTRIBUTE_TEMPORARY = 0x100;
-pub const FILE_ATTRIBUTE_VIRTUAL = 0x10000;
-
-pub const FILE_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | 0x1ff;
-pub const FILE_GENERIC_READ = STANDARD_RIGHTS_READ | FILE_READ_DATA | FILE_READ_ATTRIBUTES | FILE_READ_EA | SYNCHRONIZE;
-pub const FILE_GENERIC_WRITE = STANDARD_RIGHTS_WRITE | FILE_WRITE_DATA | FILE_WRITE_ATTRIBUTES | FILE_WRITE_EA | FILE_APPEND_DATA | SYNCHRONIZE;
-pub const FILE_GENERIC_EXECUTE = STANDARD_RIGHTS_EXECUTE | FILE_READ_ATTRIBUTES | FILE_EXECUTE | SYNCHRONIZE;
-
-// Flags for NtCreateNamedPipeFile
-// NamedPipeType
-pub const FILE_PIPE_BYTE_STREAM_TYPE = 0x0;
-pub const FILE_PIPE_MESSAGE_TYPE = 0x1;
-pub const FILE_PIPE_ACCEPT_REMOTE_CLIENTS = 0x0;
-pub const FILE_PIPE_REJECT_REMOTE_CLIENTS = 0x2;
-pub const FILE_PIPE_TYPE_VALID_MASK = 0x3;
-// CompletionMode
-pub const FILE_PIPE_QUEUE_OPERATION = 0x0;
-pub const FILE_PIPE_COMPLETE_OPERATION = 0x1;
-// ReadMode
-pub const FILE_PIPE_BYTE_STREAM_MODE = 0x0;
-pub const FILE_PIPE_MESSAGE_MODE = 0x1;
-
 // flags for CreateEvent
 pub const CREATE_EVENT_INITIAL_SET = 0x00000002;
 pub const CREATE_EVENT_MANUAL_RESET = 0x00000001;
-
-pub const EVENT_ALL_ACCESS = 0x1F0003;
-pub const EVENT_MODIFY_STATE = 0x0002;
-
-// MEMORY_BASIC_INFORMATION.Type flags for VirtualQuery
-pub const MEM_IMAGE = 0x1000000;
-pub const MEM_MAPPED = 0x40000;
-pub const MEM_PRIVATE = 0x20000;
 
 pub const PROCESS_INFORMATION = extern struct {
     hProcess: HANDLE,
@@ -3523,43 +4942,6 @@ pub const MOVEFILE_WRITE_THROUGH = 8;
 pub const FILE_BEGIN = 0;
 pub const FILE_CURRENT = 1;
 pub const FILE_END = 2;
-
-pub const HEAP_CREATE_ENABLE_EXECUTE = 0x00040000;
-pub const HEAP_REALLOC_IN_PLACE_ONLY = 0x00000010;
-pub const HEAP_GENERATE_EXCEPTIONS = 0x00000004;
-pub const HEAP_NO_SERIALIZE = 0x00000001;
-
-// AllocationType values
-pub const MEM_COMMIT = 0x1000;
-pub const MEM_RESERVE = 0x2000;
-pub const MEM_FREE = 0x10000;
-pub const MEM_RESET = 0x80000;
-pub const MEM_RESET_UNDO = 0x1000000;
-pub const MEM_LARGE_PAGES = 0x20000000;
-pub const MEM_PHYSICAL = 0x400000;
-pub const MEM_TOP_DOWN = 0x100000;
-pub const MEM_WRITE_WATCH = 0x200000;
-
-// Protect values
-pub const PAGE_EXECUTE = 0x10;
-pub const PAGE_EXECUTE_READ = 0x20;
-pub const PAGE_EXECUTE_READWRITE = 0x40;
-pub const PAGE_EXECUTE_WRITECOPY = 0x80;
-pub const PAGE_NOACCESS = 0x01;
-pub const PAGE_READONLY = 0x02;
-pub const PAGE_READWRITE = 0x04;
-pub const PAGE_WRITECOPY = 0x08;
-pub const PAGE_TARGETS_INVALID = 0x40000000;
-pub const PAGE_TARGETS_NO_UPDATE = 0x40000000; // Same as PAGE_TARGETS_INVALID
-pub const PAGE_GUARD = 0x100;
-pub const PAGE_NOCACHE = 0x200;
-pub const PAGE_WRITECOMBINE = 0x400;
-
-// FreeType values
-pub const MEM_COALESCE_PLACEHOLDERS = 0x1;
-pub const MEM_RESERVE_PLACEHOLDERS = 0x2;
-pub const MEM_DECOMMIT = 0x4000;
-pub const MEM_RELEASE = 0x8000;
 
 pub const PTHREAD_START_ROUTINE = *const fn (LPVOID) callconv(.winapi) DWORD;
 pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
@@ -3744,37 +5126,7 @@ pub const PIMAGE_TLS_CALLBACK = ?*const fn (PVOID, DWORD, PVOID) callconv(.winap
 pub const PROV_RSA_FULL = 1;
 
 pub const REGSAM = ACCESS_MASK;
-pub const ACCESS_MASK = DWORD;
 pub const LSTATUS = LONG;
-
-pub const SECTION_INHERIT = enum(c_int) {
-    ViewShare = 0,
-    ViewUnmap = 1,
-};
-
-pub const SECTION_QUERY = 0x0001;
-pub const SECTION_MAP_WRITE = 0x0002;
-pub const SECTION_MAP_READ = 0x0004;
-pub const SECTION_MAP_EXECUTE = 0x0008;
-pub const SECTION_EXTEND_SIZE = 0x0010;
-pub const SECTION_ALL_ACCESS =
-    STANDARD_RIGHTS_REQUIRED |
-    SECTION_QUERY |
-    SECTION_MAP_WRITE |
-    SECTION_MAP_READ |
-    SECTION_MAP_EXECUTE |
-    SECTION_EXTEND_SIZE;
-
-pub const SEC_64K_PAGES = 0x80000;
-pub const SEC_FILE = 0x800000;
-pub const SEC_IMAGE = 0x1000000;
-pub const SEC_PROTECTED_IMAGE = 0x2000000;
-pub const SEC_RESERVE = 0x4000000;
-pub const SEC_COMMIT = 0x8000000;
-pub const SEC_IMAGE_NO_EXECUTE = SEC_IMAGE | SEC_NOCACHE;
-pub const SEC_NOCACHE = 0x10000000;
-pub const SEC_WRITECOMBINE = 0x40000000;
-pub const SEC_LARGE_PAGES = 0x80000000;
 
 pub const HKEY = *opaque {};
 
@@ -3788,34 +5140,6 @@ pub const HKEY_PERFORMANCE_NLSTEXT: HKEY = @ptrFromInt(0x80000060);
 pub const HKEY_CURRENT_CONFIG: HKEY = @ptrFromInt(0x80000005);
 pub const HKEY_DYN_DATA: HKEY = @ptrFromInt(0x80000006);
 pub const HKEY_CURRENT_USER_LOCAL_SETTINGS: HKEY = @ptrFromInt(0x80000007);
-
-/// Combines the STANDARD_RIGHTS_REQUIRED, KEY_QUERY_VALUE, KEY_SET_VALUE, KEY_CREATE_SUB_KEY,
-/// KEY_ENUMERATE_SUB_KEYS, KEY_NOTIFY, and KEY_CREATE_LINK access rights.
-pub const KEY_ALL_ACCESS = 0xF003F;
-/// Reserved for system use.
-pub const KEY_CREATE_LINK = 0x0020;
-/// Required to create a subkey of a registry key.
-pub const KEY_CREATE_SUB_KEY = 0x0004;
-/// Required to enumerate the subkeys of a registry key.
-pub const KEY_ENUMERATE_SUB_KEYS = 0x0008;
-/// Equivalent to KEY_READ.
-pub const KEY_EXECUTE = 0x20019;
-/// Required to request change notifications for a registry key or for subkeys of a registry key.
-pub const KEY_NOTIFY = 0x0010;
-/// Required to query the values of a registry key.
-pub const KEY_QUERY_VALUE = 0x0001;
-/// Combines the STANDARD_RIGHTS_READ, KEY_QUERY_VALUE, KEY_ENUMERATE_SUB_KEYS, and KEY_NOTIFY values.
-pub const KEY_READ = 0x20019;
-/// Required to create, delete, or set a registry value.
-pub const KEY_SET_VALUE = 0x0002;
-/// Indicates that an application on 64-bit Windows should operate on the 32-bit registry view.
-/// This flag is ignored by 32-bit Windows.
-pub const KEY_WOW64_32KEY = 0x0200;
-/// Indicates that an application on 64-bit Windows should operate on the 64-bit registry view.
-/// This flag is ignored by 32-bit Windows.
-pub const KEY_WOW64_64KEY = 0x0100;
-/// Combines the STANDARD_RIGHTS_WRITE, KEY_SET_VALUE, and KEY_CREATE_SUB_KEY access rights.
-pub const KEY_WRITE = 0x20006;
 
 /// Open symbolic link.
 pub const REG_OPTION_OPEN_LINK: DWORD = 0x8;
@@ -4163,8 +5487,8 @@ pub const CONTEXT = switch (native_arch) {
         SegSs: DWORD,
         ExtendedRegisters: [512]BYTE,
 
-        pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
-            return .{ .bp = ctx.Ebp, .ip = ctx.Eip };
+        pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize, sp: usize } {
+            return .{ .bp = ctx.Ebp, .ip = ctx.Eip, .sp = ctx.Esp };
         }
     },
     .x86_64 => extern struct {
@@ -4467,14 +5791,14 @@ pub const EXCEPTION_DISPOSITION = i32;
 pub const EXCEPTION_ROUTINE = *const fn (
     ExceptionRecord: ?*EXCEPTION_RECORD,
     EstablisherFrame: PVOID,
-    ContextRecord: *(Self.CONTEXT),
+    ContextRecord: *CONTEXT,
     DispatcherContext: PVOID,
 ) callconv(.winapi) EXCEPTION_DISPOSITION;
 
 pub const UNWIND_HISTORY_TABLE_SIZE = 12;
 pub const UNWIND_HISTORY_TABLE_ENTRY = extern struct {
     ImageBase: ULONG64,
-    FunctionEntry: *Self.RUNTIME_FUNCTION,
+    FunctionEntry: *RUNTIME_FUNCTION,
 };
 
 pub const UNWIND_HISTORY_TABLE = extern struct {
@@ -4492,24 +5816,6 @@ pub const UNW_FLAG_NHANDLER = 0x0;
 pub const UNW_FLAG_EHANDLER = 0x1;
 pub const UNW_FLAG_UHANDLER = 0x2;
 pub const UNW_FLAG_CHAININFO = 0x4;
-
-pub const OBJECT_ATTRIBUTES = extern struct {
-    Length: ULONG,
-    RootDirectory: ?HANDLE,
-    ObjectName: *UNICODE_STRING,
-    Attributes: ULONG,
-    SecurityDescriptor: ?*anyopaque,
-    SecurityQualityOfService: ?*anyopaque,
-};
-
-pub const OBJ_INHERIT = 0x00000002;
-pub const OBJ_PERMANENT = 0x00000010;
-pub const OBJ_EXCLUSIVE = 0x00000020;
-pub const OBJ_CASE_INSENSITIVE = 0x00000040;
-pub const OBJ_OPENIF = 0x00000080;
-pub const OBJ_OPENLINK = 0x00000100;
-pub const OBJ_KERNEL_HANDLE = 0x00000200;
-pub const OBJ_VALID_ATTRIBUTES = 0x000003F2;
 
 pub const UNICODE_STRING = extern struct {
     Length: c_ushort,
@@ -4557,25 +5863,28 @@ pub const TEB = extern struct {
 };
 
 comptime {
-    // Offsets taken from WinDbg info and Geoff Chappell[1] (RIP)
-    // [1]: https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/pebteb/teb/index.htm
-    assert(@offsetOf(TEB, "NtTib") == 0x00);
-    if (@sizeOf(usize) == 4) {
-        assert(@offsetOf(TEB, "EnvironmentPointer") == 0x1C);
-        assert(@offsetOf(TEB, "ClientId") == 0x20);
-        assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x28);
-        assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x2C);
-        assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x30);
-        assert(@offsetOf(TEB, "LastErrorValue") == 0x34);
-        assert(@offsetOf(TEB, "TlsSlots") == 0xe10);
-    } else if (@sizeOf(usize) == 8) {
-        assert(@offsetOf(TEB, "EnvironmentPointer") == 0x38);
-        assert(@offsetOf(TEB, "ClientId") == 0x40);
-        assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x50);
-        assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x58);
-        assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x60);
-        assert(@offsetOf(TEB, "LastErrorValue") == 0x68);
-        assert(@offsetOf(TEB, "TlsSlots") == 0x1480);
+    // XXX: Without this check we cannot use `std.Io.Writer` on 16-bit platforms. `std.fmt.bufPrint` will hit the unreachable in `PEB.GdiHandleBuffer` without this guard.
+    if (builtin.os.tag == .windows) {
+        // Offsets taken from WinDbg info and Geoff Chappell[1] (RIP)
+        // [1]: https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/pebteb/teb/index.htm
+        assert(@offsetOf(TEB, "NtTib") == 0x00);
+        if (@sizeOf(usize) == 4) {
+            assert(@offsetOf(TEB, "EnvironmentPointer") == 0x1C);
+            assert(@offsetOf(TEB, "ClientId") == 0x20);
+            assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x28);
+            assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x2C);
+            assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x30);
+            assert(@offsetOf(TEB, "LastErrorValue") == 0x34);
+            assert(@offsetOf(TEB, "TlsSlots") == 0xe10);
+        } else if (@sizeOf(usize) == 8) {
+            assert(@offsetOf(TEB, "EnvironmentPointer") == 0x38);
+            assert(@offsetOf(TEB, "ClientId") == 0x40);
+            assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x50);
+            assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x58);
+            assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x60);
+            assert(@offsetOf(TEB, "LastErrorValue") == 0x68);
+            assert(@offsetOf(TEB, "TlsSlots") == 0x1480);
+        }
     }
 }
 
@@ -4615,7 +5924,7 @@ pub const PEB = extern struct {
     Ldr: *PEB_LDR_DATA,
     ProcessParameters: *RTL_USER_PROCESS_PARAMETERS,
     SubSystemData: PVOID,
-    ProcessHeap: HANDLE,
+    ProcessHeap: ?*HEAP,
 
     // Versions: 5.1+
     FastPebLock: *RTL_CRITICAL_SECTION,
@@ -4821,6 +6130,10 @@ pub const RTL_USER_PROCESS_PARAMETERS = extern struct {
     DllPath: UNICODE_STRING,
     ImagePathName: UNICODE_STRING,
     CommandLine: UNICODE_STRING,
+    /// Points to a NUL-terminated sequence of NUL-terminated
+    /// WTF-16 LE encoded `name=value` sequences.
+    /// Example using string literal syntax:
+    /// `"NAME=value\x00foo=bar\x00\x00"`
     Environment: [*:0]WCHAR,
     dwX: ULONG,
     dwY: ULONG,
@@ -4856,7 +6169,7 @@ pub const FILE_DIRECTORY_INFORMATION = extern struct {
     ChangeTime: LARGE_INTEGER,
     EndOfFile: LARGE_INTEGER,
     AllocationSize: LARGE_INTEGER,
-    FileAttributes: ULONG,
+    FileAttributes: FILE.ATTRIBUTE,
     FileNameLength: ULONG,
     FileName: [1]WCHAR,
 };
@@ -4870,7 +6183,7 @@ pub const FILE_BOTH_DIR_INFORMATION = extern struct {
     ChangeTime: LARGE_INTEGER,
     EndOfFile: LARGE_INTEGER,
     AllocationSize: LARGE_INTEGER,
-    FileAttributes: ULONG,
+    FileAttributes: FILE.ATTRIBUTE,
     FileNameLength: ULONG,
     EaSize: ULONG,
     ShortNameLength: CHAR,
@@ -4899,7 +6212,7 @@ pub fn FileInformationIterator(comptime FileInformationType: type) type {
     };
 }
 
-pub const IO_APC_ROUTINE = *const fn (PVOID, *IO_STATUS_BLOCK, ULONG) callconv(.winapi) void;
+pub const IO_APC_ROUTINE = fn (?*anyopaque, *IO_STATUS_BLOCK, ULONG) callconv(.winapi) void;
 
 pub const CURDIR = extern struct {
     DosPath: UNICODE_STRING,
@@ -4968,7 +6281,7 @@ pub const GetProcessMemoryInfoError = error{
 
 pub fn GetProcessMemoryInfo(hProcess: HANDLE) GetProcessMemoryInfoError!VM_COUNTERS {
     var vmc: VM_COUNTERS = undefined;
-    const rc = ntdll.NtQueryInformationProcess(hProcess, .ProcessVmCounters, &vmc, @sizeOf(VM_COUNTERS), null);
+    const rc = ntdll.NtQueryInformationProcess(hProcess, .VmCounters, &vmc, @sizeOf(VM_COUNTERS), null);
     switch (rc) {
         .SUCCESS => return vmc,
         .ACCESS_DENIED => return error.AccessDenied,
@@ -5023,7 +6336,7 @@ pub const OSVERSIONINFOW = extern struct {
 pub const RTL_OSVERSIONINFOW = OSVERSIONINFOW;
 
 pub const REPARSE_DATA_BUFFER = extern struct {
-    ReparseTag: ULONG,
+    ReparseTag: IO_REPARSE_TAG,
     ReparseDataLength: USHORT,
     Reserved: USHORT,
     DataBuffer: [1]UCHAR,
@@ -5043,17 +6356,10 @@ pub const MOUNT_POINT_REPARSE_BUFFER = extern struct {
     PrintNameLength: USHORT,
     PathBuffer: [1]WCHAR,
 };
-pub const MAXIMUM_REPARSE_DATA_BUFFER_SIZE: ULONG = 16 * 1024;
-pub const FSCTL_SET_REPARSE_POINT: DWORD = 0x900a4;
-pub const FSCTL_GET_REPARSE_POINT: DWORD = 0x900a8;
-pub const IO_REPARSE_TAG_SYMLINK: ULONG = 0xa000000c;
-pub const IO_REPARSE_TAG_MOUNT_POINT: ULONG = 0xa0000003;
 pub const SYMLINK_FLAG_RELATIVE: ULONG = 0x1;
 
 pub const SYMBOLIC_LINK_FLAG_DIRECTORY: DWORD = 0x1;
 pub const SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE: DWORD = 0x2;
-
-pub const MOUNTMGRCONTROLTYPE = 0x0000006D;
 
 pub const MOUNTMGR_MOUNT_POINT = extern struct {
     SymbolicLinkNameOffset: ULONG,
@@ -5071,7 +6377,6 @@ pub const MOUNTMGR_MOUNT_POINTS = extern struct {
     NumberOfMountPoints: ULONG,
     MountPoints: [1]MOUNTMGR_MOUNT_POINT,
 };
-pub const IOCTL_MOUNTMGR_QUERY_POINTS = CTL_CODE(MOUNTMGRCONTROLTYPE, 2, .METHOD_BUFFERED, FILE_ANY_ACCESS);
 
 pub const MOUNTMGR_TARGET_NAME = extern struct {
     DeviceNameLength: USHORT,
@@ -5081,7 +6386,6 @@ pub const MOUNTMGR_VOLUME_PATHS = extern struct {
     MultiSzLength: ULONG,
     MultiSz: [1]WCHAR,
 };
-pub const IOCTL_MOUNTMGR_QUERY_DOS_VOLUME_PATH = CTL_CODE(MOUNTMGRCONTROLTYPE, 12, .METHOD_BUFFERED, FILE_ANY_ACCESS);
 
 pub const OBJECT_INFORMATION_CLASS = enum(c_int) {
     ObjectBasicInformation = 0,
@@ -5246,6 +6550,9 @@ pub const PF = enum(DWORD) {
 
     /// This ARM processor implements the ARM v8.3 JavaScript conversion (JSCVT) instructions.
     ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE = 44,
+
+    /// This Arm processor implements the Arm v8.3 LRCPC instructions (for example, LDAPR). Note that certain Arm v8.2 CPUs may optionally support the LRCPC instructions.
+    ARM_V83_LRCPC_INSTRUCTIONS_AVAILABLE,
 };
 
 pub const MAX_WOW64_SHARED_ENTRIES = 16;
@@ -5470,113 +6777,6 @@ pub const SYSTEM_BASIC_INFORMATION = extern struct {
     NumberOfProcessors: UCHAR,
 };
 
-pub const THREADINFOCLASS = enum(c_int) {
-    ThreadBasicInformation,
-    ThreadTimes,
-    ThreadPriority,
-    ThreadBasePriority,
-    ThreadAffinityMask,
-    ThreadImpersonationToken,
-    ThreadDescriptorTableEntry,
-    ThreadEnableAlignmentFaultFixup,
-    ThreadEventPair_Reusable,
-    ThreadQuerySetWin32StartAddress,
-    ThreadZeroTlsCell,
-    ThreadPerformanceCount,
-    ThreadAmILastThread,
-    ThreadIdealProcessor,
-    ThreadPriorityBoost,
-    ThreadSetTlsArrayAddress,
-    ThreadIsIoPending,
-    // Windows 2000+ from here
-    ThreadHideFromDebugger,
-    // Windows XP+ from here
-    ThreadBreakOnTermination,
-    ThreadSwitchLegacyState,
-    ThreadIsTerminated,
-    // Windows Vista+ from here
-    ThreadLastSystemCall,
-    ThreadIoPriority,
-    ThreadCycleTime,
-    ThreadPagePriority,
-    ThreadActualBasePriority,
-    ThreadTebInformation,
-    ThreadCSwitchMon,
-    // Windows 7+ from here
-    ThreadCSwitchPmu,
-    ThreadWow64Context,
-    ThreadGroupInformation,
-    ThreadUmsInformation,
-    ThreadCounterProfiling,
-    ThreadIdealProcessorEx,
-    // Windows 8+ from here
-    ThreadCpuAccountingInformation,
-    // Windows 8.1+ from here
-    ThreadSuspendCount,
-    // Windows 10+ from here
-    ThreadHeterogeneousCpuPolicy,
-    ThreadContainerId,
-    ThreadNameInformation,
-    ThreadSelectedCpuSets,
-    ThreadSystemThreadInformation,
-    ThreadActualGroupAffinity,
-};
-
-pub const PROCESSINFOCLASS = enum(c_int) {
-    ProcessBasicInformation,
-    ProcessQuotaLimits,
-    ProcessIoCounters,
-    ProcessVmCounters,
-    ProcessTimes,
-    ProcessBasePriority,
-    ProcessRaisePriority,
-    ProcessDebugPort,
-    ProcessExceptionPort,
-    ProcessAccessToken,
-    ProcessLdtInformation,
-    ProcessLdtSize,
-    ProcessDefaultHardErrorMode,
-    ProcessIoPortHandlers,
-    ProcessPooledUsageAndLimits,
-    ProcessWorkingSetWatch,
-    ProcessUserModeIOPL,
-    ProcessEnableAlignmentFaultFixup,
-    ProcessPriorityClass,
-    ProcessWx86Information,
-    ProcessHandleCount,
-    ProcessAffinityMask,
-    ProcessPriorityBoost,
-    ProcessDeviceMap,
-    ProcessSessionInformation,
-    ProcessForegroundInformation,
-    ProcessWow64Information,
-    ProcessImageFileName,
-    ProcessLUIDDeviceMapsEnabled,
-    ProcessBreakOnTermination,
-    ProcessDebugObjectHandle,
-    ProcessDebugFlags,
-    ProcessHandleTracing,
-    ProcessIoPriority,
-    ProcessExecuteFlags,
-    ProcessTlsInformation,
-    ProcessCookie,
-    ProcessImageInformation,
-    ProcessCycleTime,
-    ProcessPagePriority,
-    ProcessInstrumentationCallback,
-    ProcessThreadStackAllocation,
-    ProcessWorkingSetWatchEx,
-    ProcessImageFileNameWin32,
-    ProcessImageFileMapping,
-    ProcessAffinityUpdateMode,
-    ProcessMemoryAllocationMode,
-    ProcessGroupInformation,
-    ProcessTokenVirtualizationEnabled,
-    ProcessConsoleHostProcess,
-    ProcessWindowInformation,
-    MaxProcessInfoClass,
-};
-
 pub const PROCESS_BASIC_INFORMATION = extern struct {
     ExitStatus: NTSTATUS,
     PebBaseAddress: *PEB,
@@ -5632,7 +6832,7 @@ pub fn ProcessBaseAddress(handle: HANDLE) ProcessBaseAddressError!HMODULE {
     var nread: DWORD = 0;
     const rc = ntdll.NtQueryInformationProcess(
         handle,
-        .ProcessBasicInformation,
+        .BasicInformation,
         &info,
         @sizeOf(PROCESS_BASIC_INFORMATION),
         &nread,
@@ -5649,4 +6849,17 @@ pub fn ProcessBaseAddress(handle: HANDLE) ProcessBaseAddressError!HMODULE {
     const peb_out = try ReadProcessMemory(handle, info.PebBaseAddress, &peb_buf);
     const ppeb: *const PEB = @ptrCast(@alignCast(peb_out.ptr));
     return ppeb.ImageBaseAddress;
+}
+
+pub fn wtf8ToWtf16Le(wtf16le: []u16, wtf8: []const u8) error{ BadPathName, NameTooLong }!usize {
+    // Each u8 in UTF-8/WTF-8 correlates to at most one u16 in UTF-16LE/WTF-16LE.
+    if (wtf16le.len < wtf8.len) {
+        const utf16_len = std.unicode.calcUtf16LeLenImpl(wtf8, .can_encode_surrogate_half) catch
+            return error.BadPathName;
+        if (utf16_len > wtf16le.len)
+            return error.NameTooLong;
+    }
+    return std.unicode.wtf8ToWtf16Le(wtf16le, wtf8) catch |err| switch (err) {
+        error.InvalidWtf8 => return error.BadPathName,
+    };
 }

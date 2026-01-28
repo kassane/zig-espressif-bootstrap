@@ -1,6 +1,6 @@
 /* Set flags signalling availability of kernel features based on given
    kernel version number.
-   Copyright (C) 1999-2025 Free Software Foundation, Inc.
+   Copyright (C) 1999-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -53,6 +53,10 @@
    some architectures lack futex_atomic_cmpxchg_inatomic in some
    configurations).  */
 #define __ASSUME_SET_ROBUST_LIST	1
+
+/* The termios2 interface was introduced across all architectures except
+   Alpha in kernel 2.6.22. */
+#define __ASSUME_TERMIOS2	1
 
 /* Support for various CLOEXEC and NONBLOCK flags was added in
    2.6.27.  */
@@ -256,5 +260,10 @@
 #else
 # define __ASSUME_FCHMODAT2 0
 #endif
+
+/* The mseal system call was introduced across all architectures in Linux 6.10
+   (although only supported on 64-bit CPUs).  */
+/* zig patch: don't assume kernel version */
+#define __ASSUME_MSEAL 0
 
 #endif /* kernel-features.h */

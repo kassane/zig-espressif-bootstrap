@@ -1,15 +1,13 @@
 //! The engines provided here should be initialized from an external source.
-//! For a thread-local cryptographically secure pseudo random number generator,
-//! use `std.crypto.random`.
 //! Be sure to use a CSPRNG when required, otherwise using a normal PRNG will
 //! be faster and use substantially less stack space.
+const Random = @This();
 
 const std = @import("std.zig");
 const math = std.math;
 const mem = std.mem;
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
-const Random = @This();
 
 /// Fast unbiased random numbers.
 pub const DefaultPrng = Xoshiro256;
@@ -28,12 +26,29 @@ pub const Sfc64 = @import("Random/Sfc64.zig");
 pub const RomuTrio = @import("Random/RomuTrio.zig");
 pub const SplitMix64 = @import("Random/SplitMix64.zig");
 pub const ziggurat = @import("Random/ziggurat.zig");
+pub const lcg = @import("Random/lcg.zig");
 
 /// Any comparison of this field may result in illegal behavior, since it may be set to
 /// `undefined` in cases where the random implementation does not have any associated
 /// state.
 ptr: *anyopaque,
 fillFn: *const fn (ptr: *anyopaque, buf: []u8) void,
+
+pub const IoSource = struct {
+    io: std.Io,
+
+    pub fn interface(this: *const @This()) std.Random {
+        return .{
+            .ptr = @constCast(this),
+            .fillFn = fill,
+        };
+    }
+
+    fn fill(ptr: *anyopaque, buffer: []u8) void {
+        const this: *const @This() = @ptrCast(@alignCast(ptr));
+        this.io.random(buffer);
+    }
+};
 
 pub fn init(pointer: anytype, comptime fillFn: fn (ptr: @TypeOf(pointer), buf: []u8) void) Random {
     const Ptr = @TypeOf(pointer);
@@ -56,6 +71,12 @@ pub fn init(pointer: anytype, comptime fillFn: fn (ptr: @TypeOf(pointer), buf: [
 /// Read random bytes into the specified buffer until full.
 pub fn bytes(r: Random, buf: []u8) void {
     r.fillFn(r.ptr, buf);
+}
+
+pub fn array(r: Random, comptime E: type, comptime N: usize) [N]E {
+    var result: [N]E = undefined;
+    bytes(r, &result);
+    return result;
 }
 
 pub fn boolean(r: Random) bool {

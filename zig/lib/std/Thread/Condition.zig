@@ -107,12 +107,30 @@ pub fn broadcast(self: *Condition) void {
     self.impl.wake(.all);
 }
 
-const Impl = if (builtin.single_threaded)
-    SingleThreadedImpl
-else if (builtin.os.tag == .windows)
-    WindowsImpl
-else
-    FutexImpl;
+const Impl = Impl: {
+    if (builtin.single_threaded) break :Impl SingleThreadedImpl;
+    if (builtin.os.tag == .windows) break :Impl WindowsImpl;
+
+    if (builtin.os.tag.isDarwin() or
+        builtin.target.os.tag == .linux or
+        builtin.target.os.tag == .freebsd or
+        builtin.target.os.tag == .openbsd or
+        builtin.target.os.tag == .dragonfly or
+        builtin.target.cpu.arch.isWasm())
+    {
+        // Futex is the system's synchronization primitive; use that.
+        break :Impl FutexImpl;
+    }
+
+    if (std.Thread.use_pthreads) {
+        // This system doesn't have a futex primitive, so `std.Thread.Futex` is using `PosixImpl`,
+        // which implements futex *on top of* pthread mutexes and conditions. Therefore, instead
+        // of going through that long inefficient path, just use pthread condition variable directly.
+        break :Impl PosixImpl;
+    }
+
+    break :Impl FutexImpl;
+};
 
 const Notify = enum {
     one, // wake up only one thread
@@ -123,14 +141,9 @@ const SingleThreadedImpl = struct {
     fn wait(self: *Impl, mutex: *Mutex, timeout: ?u64) error{Timeout}!void {
         _ = self;
         _ = mutex;
-
         // There are no other threads to wake us up.
         // So if we wait without a timeout we would never wake up.
-        const timeout_ns = timeout orelse {
-            unreachable; // deadlock detected
-        };
-
-        std.time.sleep(timeout_ns);
+        assert(timeout != null); // Deadlock detected.
         return error.Timeout;
     }
 
@@ -185,8 +198,8 @@ const WindowsImpl = struct {
 
     fn wake(self: *Impl, comptime notify: Notify) void {
         switch (notify) {
-            .one => os.windows.kernel32.WakeConditionVariable(&self.condition),
-            .all => os.windows.kernel32.WakeAllConditionVariable(&self.condition),
+            .one => os.windows.ntdll.RtlWakeConditionVariable(&self.condition),
+            .all => os.windows.ntdll.RtlWakeAllConditionVariable(&self.condition),
         }
     }
 };
@@ -296,6 +309,41 @@ const FutexImpl = struct {
     }
 };
 
+const PosixImpl = struct {
+    cond: std.c.pthread_cond_t = .{},
+
+    fn wait(self: *Impl, mutex: *Mutex, timeout: ?u64) error{Timeout}!void {
+        if (builtin.mode == .Debug) {
+            mutex.impl.locking_thread.store(0, .unordered);
+        }
+        defer if (builtin.mode == .Debug) {
+            mutex.impl.locking_thread.store(std.Thread.getCurrentId(), .unordered);
+        };
+
+        const mtx = if (builtin.mode == .Debug) &mutex.impl.impl.mutex else &mutex.impl.mutex;
+
+        if (timeout) |t| {
+            switch (std.c.pthread_cond_timedwait(&self.cond, mtx, &.{
+                .sec = @intCast(@divFloor(t, std.time.ns_per_s)),
+                .nsec = @intCast(@mod(t, std.time.ns_per_s)),
+            })) {
+                .SUCCESS => return,
+                .TIMEDOUT => return error.Timeout,
+                else => unreachable,
+            }
+        }
+
+        assert(std.c.pthread_cond_wait(&self.cond, mtx) == .SUCCESS);
+    }
+
+    fn wake(self: *Impl, comptime notify: Notify) void {
+        assert(switch (notify) {
+            .one => std.c.pthread_cond_signal(&self.cond),
+            .all => std.c.pthread_cond_broadcast(&self.cond),
+        } == .SUCCESS);
+    }
+};
+
 test "smoke test" {
     var mutex = Mutex{};
     var cond = Condition{};
@@ -323,6 +371,8 @@ test "wait and signal" {
         return error.SkipZigTest;
     }
 
+    const io = testing.io;
+
     const num_threads = 4;
 
     const MultiWait = struct {
@@ -348,7 +398,7 @@ test "wait and signal" {
     }
 
     while (true) {
-        std.time.sleep(100 * std.time.ns_per_ms);
+        try std.Io.Clock.Duration.sleep(.{ .clock = .awake, .raw = .fromMilliseconds(100) }, io);
 
         multi_wait.mutex.lock();
         defer multi_wait.mutex.unlock();
@@ -367,6 +417,8 @@ test signal {
     if (builtin.single_threaded) {
         return error.SkipZigTest;
     }
+
+    const io = testing.io;
 
     const num_threads = 4;
 
@@ -405,7 +457,7 @@ test signal {
     }
 
     while (true) {
-        std.time.sleep(10 * std.time.ns_per_ms);
+        try std.Io.Clock.Duration.sleep(.{ .clock = .awake, .raw = .fromMilliseconds(10) }, io);
 
         signal_test.mutex.lock();
         defer signal_test.mutex.unlock();

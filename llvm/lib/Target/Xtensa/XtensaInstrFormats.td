@@ -220,7 +220,6 @@ class EE_Inst32<dag outs, dag ins, string asmstr, list<dag> pattern,
                     InstrItinClass itin = NoItinerary>
   : XtensaInst<4, outs, ins, asmstr, pattern, itin> {
   field bits<32> Inst;
-  field bits<32> SoftFail = 0;
   let DecoderNamespace = "ESP32S3";
 }
 

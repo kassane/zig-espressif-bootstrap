@@ -1,7 +1,9 @@
-const std = @import("std");
-const mem = std.mem;
 const builtin = @import("builtin");
 const is_windows = builtin.os.tag == .windows;
+
+const std = @import("std");
+const Io = std.Io;
+const mem = std.std.mem;
 
 fn readFileFake(entries: []const Filesystem.Entry, path: []const u8, buf: []u8) ?[]const u8 {
     @branchHint(.cold);
@@ -55,8 +57,8 @@ fn existsFake(entries: []const Filesystem.Entry, path: []const u8) bool {
     return false;
 }
 
-fn canExecutePosix(path: []const u8) bool {
-    std.posix.access(path, std.posix.X_OK) catch return false;
+fn canExecutePosix(io: Io, path: []const u8) bool {
+    Io.Dir.accessAbsolute(io, path, .{ .execute = true }) catch return false;
     // Todo: ensure path is not a directory
     return true;
 }
@@ -96,7 +98,7 @@ fn findProgramByNamePosix(name: []const u8, path: ?[]const u8, buf: []u8) ?[]con
 }
 
 pub const Filesystem = union(enum) {
-    real: void,
+    real: std.Io.Dir,
     fake: []const Entry,
 
     const Entry = struct {
@@ -121,7 +123,7 @@ pub const Filesystem = union(enum) {
             base: []const u8,
             i: usize = 0,
 
-            fn next(self: *@This()) !?std.fs.Dir.Entry {
+            fn next(self: *@This()) !?std.Io.Dir.Entry {
                 while (self.i < self.entries.len) {
                     const entry = self.entries[self.i];
                     self.i += 1;
@@ -130,7 +132,7 @@ pub const Filesystem = union(enum) {
                         const remaining = entry.path[self.base.len + 1 ..];
                         if (std.mem.indexOfScalar(u8, remaining, std.fs.path.sep) != null) continue;
                         const extension = std.fs.path.extension(remaining);
-                        const kind: std.fs.Dir.Entry.Kind = if (extension.len == 0) .directory else .file;
+                        const kind: std.Io.Dir.Entry.Kind = if (extension.len == 0) .directory else .file;
                         return .{ .name = remaining, .kind = kind };
                     }
                 }
@@ -140,7 +142,7 @@ pub const Filesystem = union(enum) {
     };
 
     const Dir = union(enum) {
-        dir: std.fs.Dir,
+        dir: std.Io.Dir,
         fake: FakeDir,
 
         pub fn iterate(self: Dir) Iterator {
@@ -150,19 +152,19 @@ pub const Filesystem = union(enum) {
             };
         }
 
-        pub fn close(self: *Dir) void {
+        pub fn close(self: *Dir, io: Io) void {
             switch (self.*) {
-                .dir => |*d| d.close(),
+                .dir => |*d| d.close(io),
                 .fake => {},
             }
         }
     };
 
     const Iterator = union(enum) {
-        iterator: std.fs.Dir.Iterator,
+        iterator: std.Io.Dir.Iterator,
         fake: FakeDir.Iterator,
 
-        pub fn next(self: *Iterator) std.fs.Dir.Iterator.Error!?std.fs.Dir.Entry {
+        pub fn next(self: *Iterator) std.Io.Dir.Iterator.Error!?std.Io.Dir.Entry {
             return switch (self.*) {
                 .iterator => |*it| it.next(),
                 .fake => |*it| it.next(),
@@ -170,10 +172,10 @@ pub const Filesystem = union(enum) {
         }
     };
 
-    pub fn exists(fs: Filesystem, path: []const u8) bool {
+    pub fn exists(fs: Filesystem, io: Io, path: []const u8) bool {
         switch (fs) {
-            .real => {
-                std.fs.cwd().access(path, .{}) catch return false;
+            .real => |cwd| {
+                cwd.access(io, path, .{}) catch return false;
                 return true;
             },
             .fake => |paths| return existsFake(paths, path),
@@ -208,11 +210,11 @@ pub const Filesystem = union(enum) {
     /// Read the file at `path` into `buf`.
     /// Returns null if any errors are encountered
     /// Otherwise returns a slice of `buf`. If the file is larger than `buf` partial contents are returned
-    pub fn readFile(fs: Filesystem, path: []const u8, buf: []u8) ?[]const u8 {
+    pub fn readFile(fs: Filesystem, io: Io, path: []const u8, buf: []u8) ?[]const u8 {
         return switch (fs) {
-            .real => {
-                const file = std.fs.cwd().openFile(path, .{}) catch return null;
-                defer file.close();
+            .real => |cwd| {
+                const file = cwd.openFile(io, path, .{}) catch return null;
+                defer file.close(io);
 
                 const bytes_read = file.readAll(buf) catch return null;
                 return buf[0..bytes_read];
@@ -221,9 +223,9 @@ pub const Filesystem = union(enum) {
         };
     }
 
-    pub fn openDir(fs: Filesystem, dir_name: []const u8) std.fs.Dir.OpenError!Dir {
+    pub fn openDir(fs: Filesystem, io: Io, dir_name: []const u8) std.Io.Dir.OpenError!Dir {
         return switch (fs) {
-            .real => .{ .dir = try std.fs.cwd().openDir(dir_name, .{ .access_sub_paths = false, .iterate = true }) },
+            .real => |cwd| .{ .dir = try cwd.openDir(io, dir_name, .{ .access_sub_paths = false, .iterate = true }) },
             .fake => |entries| .{ .fake = .{ .entries = entries, .path = dir_name } },
         };
     }

@@ -10,8 +10,6 @@ const math = std.math;
 const expect = std.testing.expect;
 const common = @import("common.zig");
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__fmah, .{ .name = "__fmah", .linkage = common.linkage, .visibility = common.visibility });
     @export(&fmaf, .{ .name = "fmaf", .linkage = common.linkage, .visibility = common.visibility });
@@ -203,7 +201,7 @@ fn add_adjusted(a: f64, b: f64) f64 {
         if (uhii & 1 == 0) {
             // hibits += copysign(1.0, sum.hi, sum.lo)
             const uloi: u64 = @bitCast(sum.lo);
-            uhii += 1 - ((uhii ^ uloi) >> 62);
+            uhii = uhii + 1 - ((uhii ^ uloi) >> 62);
             sum.hi = @bitCast(uhii);
         }
     }
@@ -217,7 +215,7 @@ fn add_and_denorm(a: f64, b: f64, scale: i32) f64 {
         const bits_lost = -@as(i32, @intCast((uhii >> 52) & 0x7FF)) - scale + 1;
         if ((bits_lost != 1) == (uhii & 1 != 0)) {
             const uloi: u64 = @bitCast(sum.lo);
-            uhii += 1 - (((uhii ^ uloi) >> 62) & 2);
+            uhii = uhii + 1 - (((uhii ^ uloi) >> 62) & 2);
             sum.hi = @bitCast(uhii);
         }
     }
@@ -259,7 +257,7 @@ fn add_adjusted128(a: f128, b: f128) f128 {
         if (uhii & 1 == 0) {
             // hibits += copysign(1.0, sum.hi, sum.lo)
             const uloi: u128 = @bitCast(sum.lo);
-            uhii += 1 - ((uhii ^ uloi) >> 126);
+            uhii = uhii + 1 - ((uhii ^ uloi) >> 126);
             sum.hi = @bitCast(uhii);
         }
     }
@@ -284,7 +282,7 @@ fn add_and_denorm128(a: f128, b: f128, scale: i32) f128 {
         const bits_lost = -@as(i32, @intCast((uhii >> 112) & 0x7FFF)) - scale + 1;
         if ((bits_lost != 1) == (uhii & 1 != 0)) {
             const uloi: u128 = @bitCast(sum.lo);
-            uhii += 1 - (((uhii ^ uloi) >> 126) & 2);
+            uhii = uhii + 1 - (((uhii ^ uloi) >> 126) & 2);
             sum.hi = @bitCast(uhii);
         }
     }

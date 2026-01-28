@@ -1,4 +1,5 @@
 #target=x86_64-linux-selfhosted
+#target=x86_64-windows-selfhosted
 #target=x86_64-linux-cbe
 #target=x86_64-windows-cbe
 #update=non-inline version
@@ -7,9 +8,10 @@ pub fn main() !void {
     try foo();
 }
 fn foo() !void {
-    try std.io.getStdOut().writer().writeAll("Hello, World!\n");
+    try std.Io.File.stdout().writeStreamingAll(io, "Hello, World!\n");
 }
 const std = @import("std");
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_stdout="Hello, World!\n"
 
 #update=make function inline
@@ -18,9 +20,10 @@ pub fn main() !void {
     try foo();
 }
 inline fn foo() !void {
-    try std.io.getStdOut().writer().writeAll("Hello, World!\n");
+    try std.Io.File.stdout().writeStreamingAll(io, "Hello, World!\n");
 }
 const std = @import("std");
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_stdout="Hello, World!\n"
 
 #update=change string
@@ -29,7 +32,8 @@ pub fn main() !void {
     try foo();
 }
 inline fn foo() !void {
-    try std.io.getStdOut().writer().writeAll("Hello, `inline` World!\n");
+    try std.Io.File.stdout().writeStreamingAll(io, "Hello, `inline` World!\n");
 }
 const std = @import("std");
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_stdout="Hello, `inline` World!\n"

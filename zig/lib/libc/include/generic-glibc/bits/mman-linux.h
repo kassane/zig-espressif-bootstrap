@@ -1,5 +1,5 @@
 /* Definitions for POSIX memory map interface.  Linux generic version.
-   Copyright (C) 2001-2025 Free Software Foundation, Inc.
+   Copyright (C) 2001-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -113,6 +113,8 @@
 				    locked pages too.  */
 # define MADV_COLLAPSE    25	/* Synchronous hugepage collapse.  */
 # define MADV_HWPOISON	  100	/* Poison a page for testing.  */
+# define MADV_GUARD_INSTALL 102 /* Fatal signal on access to range */
+# define MADV_GUARD_REMOVE 103  /* Unguard range */
 #endif
 
 /* The POSIX people had to invent similar names for the same things.  */

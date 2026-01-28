@@ -1,4 +1,4 @@
-/* Copyright (C) 1992-2025 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -15,12 +15,10 @@
    License along with the GNU C Library.  If not, see
    <https://www.gnu.org/licenses/>.  */
 
+#include <isarev.h>
 #include <sgidefs.h>
 #include <sysdeps/unix/sysdep.h>
 
-#ifndef __mips_isa_rev
-# define __mips_isa_rev 0
-#endif
 
 #ifdef __ASSEMBLER__
 

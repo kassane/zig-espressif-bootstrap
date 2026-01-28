@@ -1,22 +1,17 @@
 pub const ArrayHashMap = array_hash_map.ArrayHashMap;
 pub const ArrayHashMapUnmanaged = array_hash_map.ArrayHashMapUnmanaged;
-pub const ArrayList = @import("array_list.zig").ArrayList;
-pub const ArrayListAligned = @import("array_list.zig").ArrayListAligned;
-pub const ArrayListAlignedUnmanaged = @import("array_list.zig").ArrayListAlignedUnmanaged;
-pub const ArrayListUnmanaged = @import("array_list.zig").ArrayListUnmanaged;
 pub const AutoArrayHashMap = array_hash_map.AutoArrayHashMap;
 pub const AutoArrayHashMapUnmanaged = array_hash_map.AutoArrayHashMapUnmanaged;
 pub const AutoHashMap = hash_map.AutoHashMap;
 pub const AutoHashMapUnmanaged = hash_map.AutoHashMapUnmanaged;
 pub const BitStack = @import("BitStack.zig");
-pub const BoundedArray = @import("bounded_array.zig").BoundedArray;
-pub const BoundedArrayAligned = @import("bounded_array.zig").BoundedArrayAligned;
 pub const Build = @import("Build.zig");
 pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 pub const StaticStringMap = static_string_map.StaticStringMap;
 pub const StaticStringMapWithEql = static_string_map.StaticStringMapWithEql;
-pub const DoublyLinkedList = @import("linked_list.zig").DoublyLinkedList;
+pub const Deque = @import("deque.zig").Deque;
+pub const DoublyLinkedList = @import("DoublyLinkedList.zig");
 pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const DynamicBitSet = bit_set.DynamicBitSet;
 pub const DynamicBitSetUnmanaged = bit_set.DynamicBitSetUnmanaged;
@@ -25,15 +20,14 @@ pub const EnumMap = enums.EnumMap;
 pub const EnumSet = enums.EnumSet;
 pub const HashMap = hash_map.HashMap;
 pub const HashMapUnmanaged = hash_map.HashMapUnmanaged;
+pub const Io = @import("Io.zig");
 pub const MultiArrayList = @import("multi_array_list.zig").MultiArrayList;
 pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
 pub const PriorityDequeue = @import("priority_dequeue.zig").PriorityDequeue;
 pub const Progress = @import("Progress.zig");
 pub const Random = @import("Random.zig");
-pub const RingBuffer = @import("RingBuffer.zig");
-pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SemanticVersion = @import("SemanticVersion.zig");
-pub const SinglyLinkedList = @import("linked_list.zig").SinglyLinkedList;
+pub const SinglyLinkedList = @import("SinglyLinkedList.zig");
 pub const StaticBitSet = bit_set.StaticBitSet;
 pub const StringHashMap = hash_map.StringHashMap;
 pub const StringHashMapUnmanaged = hash_map.StringHashMapUnmanaged;
@@ -44,6 +38,24 @@ pub const Thread = @import("Thread.zig");
 pub const Treap = @import("treap.zig").Treap;
 pub const Tz = tz.Tz;
 pub const Uri = @import("Uri.zig");
+
+/// A contiguous, growable list of items in memory. This is a wrapper around a
+/// slice of `T` values.
+///
+/// The same allocator must be used throughout its entire lifetime. Initialize
+/// directly with `empty` or `initCapacity`, and deinitialize with `deinit` or
+/// `toOwnedSlice`.
+pub fn ArrayList(comptime T: type) type {
+    return array_list.Aligned(T, null);
+}
+pub const array_list = @import("array_list.zig");
+
+/// Deprecated; use `array_list.Aligned`.
+pub const ArrayListAligned = array_list.Aligned;
+/// Deprecated; use `array_list.Aligned`.
+pub const ArrayListAlignedUnmanaged = array_list.Aligned;
+/// Deprecated; use `ArrayList`.
+pub const ArrayListUnmanaged = ArrayList;
 
 pub const array_hash_map = @import("array_hash_map.zig");
 pub const atomic = @import("atomic.zig");
@@ -59,7 +71,6 @@ pub const debug = @import("debug.zig");
 pub const dwarf = @import("dwarf.zig");
 pub const elf = @import("elf.zig");
 pub const enums = @import("enums.zig");
-pub const fifo = @import("fifo.zig");
 pub const fmt = @import("fmt.zig");
 pub const fs = @import("fs.zig");
 pub const gpu = @import("gpu.zig");
@@ -67,7 +78,6 @@ pub const hash = @import("hash.zig");
 pub const hash_map = @import("hash_map.zig");
 pub const heap = @import("heap.zig");
 pub const http = @import("http.zig");
-pub const io = @import("io.zig");
 pub const json = @import("json.zig");
 pub const leb = @import("leb128.zig");
 pub const log = @import("log.zig");
@@ -75,10 +85,10 @@ pub const macho = @import("macho.zig");
 pub const math = @import("math.zig");
 pub const mem = @import("mem.zig");
 pub const meta = @import("meta.zig");
-pub const net = @import("net.zig");
 pub const os = @import("os.zig");
 pub const once = @import("once.zig").once;
 pub const pdb = @import("pdb.zig");
+pub const pie = @import("pie.zig");
 pub const posix = @import("posix.zig");
 pub const process = @import("process.zig");
 pub const sort = @import("sort.zig");
@@ -98,14 +108,21 @@ pub const start = @import("start.zig");
 
 const root = @import("root");
 
-/// Stdlib-wide options that can be overridden by the root file.
+/// Compile-time known settings overridable by the root source file.
 pub const options: Options = if (@hasDecl(root, "std_options")) root.std_options else .{};
 
 pub const Options = struct {
     enable_segfault_handler: bool = debug.default_enable_segfault_handler,
 
-    /// Function used to implement `std.fs.cwd` for WASI.
-    wasiCwd: fn () os.wasi.fd_t = fs.defaultWasiCwd,
+    /// If set, `std.start` and `std.Thread` will configure an per-thread alternative signal stack
+    /// of this size. Importantly, if `enable_segfault_handler` is set, the segfault handler will
+    /// use this alternative stack, meaning it can still print stack traces even if a segmentation
+    /// fault is caused by a stack overflow.
+    ///
+    /// On POSIX targets, the signal stack is configured using 'sigaltstack(2)'.
+    ///
+    /// On Windows, this value is currently ignored.
+    signal_stack_size: ?u64 = 1 << 18, // 1<<17 observed to be sufficient for stack tracing with self-hosted x86_64 backend
 
     /// The current log level.
     log_level: log.Level = log.default_level,
@@ -114,10 +131,12 @@ pub const Options = struct {
 
     logFn: fn (
         comptime message_level: log.Level,
-        comptime scope: @TypeOf(.enum_literal),
+        comptime scope: @EnumLiteral(),
         comptime format: []const u8,
         args: anytype,
     ) void = log.defaultLog,
+
+    logTerminalMode: fn () Io.Terminal.Mode = log.defaultTerminalMode,
 
     /// Overrides `std.heap.page_size_min`.
     page_size_min: ?usize = null,
@@ -127,25 +146,6 @@ pub const Options = struct {
     queryPageSize: fn () usize = heap.defaultQueryPageSize,
 
     fmt_max_depth: usize = fmt.default_max_depth,
-
-    cryptoRandomSeed: fn (buffer: []u8) void = @import("crypto/tlcsprng.zig").defaultRandomSeed,
-
-    crypto_always_getrandom: bool = false,
-
-    crypto_fork_safety: bool = true,
-
-    /// By default Zig disables SIGPIPE by setting a "no-op" handler for it.  Set this option
-    /// to `true` to prevent that.
-    ///
-    /// Note that we use a "no-op" handler instead of SIG_IGN because it will not be inherited by
-    /// any child process.
-    ///
-    /// SIGPIPE is triggered when a process attempts to write to a broken pipe. By default, SIGPIPE
-    /// will terminate the process instead of exiting.  It doesn't trigger the panic handler so in many
-    /// cases it's unclear why the process was terminated.  By capturing SIGPIPE instead, functions that
-    /// write to broken pipes will return the EPIPE error (error.BrokenPipe) and the program can handle
-    /// it like any other error.
-    keep_sigpipe: bool = false,
 
     /// By default, std.http.Client will support HTTPS connections.  Set this option to `true` to
     /// disable TLS support.
@@ -160,6 +160,54 @@ pub const Options = struct {
     http_enable_ssl_key_log_file: bool = @import("builtin").mode == .Debug,
 
     side_channels_mitigations: crypto.SideChannelsMitigations = crypto.default_side_channels_mitigations,
+
+    /// Whether to allow capturing and writing stack traces. This affects the following functions:
+    /// * `debug.captureCurrentStackTrace`
+    /// * `debug.writeCurrentStackTrace`
+    /// * `debug.dumpCurrentStackTrace`
+    /// * `debug.writeStackTrace`
+    /// * `debug.dumpStackTrace`
+    ///
+    /// Stack traces can generally be collected and printed when debug info is stripped, but are
+    /// often less useful since they usually cannot be mapped to source locations and/or have bad
+    /// source locations. The stack tracing logic can also be quite large, which may be undesirable,
+    /// particularly in ReleaseSmall.
+    ///
+    /// If this is `false`, then captured stack traces will always be empty, and attempts to write
+    /// stack traces will just print an error to the relevant `Io.Writer` and return.
+    allow_stack_tracing: bool = !@import("builtin").strip_debug_info,
+
+    /// TODO This is a separate decl instead of a field as a workaround around
+    /// compilation errors due to zig not being lazy enough.
+    pub const elf_debug_info_search_paths: ?fn (exe_path: []const u8) switch (@import("builtin").object_format) {
+        .elf => debug.ElfFile.DebugInfoSearchPaths,
+        else => void,
+    } = if (@hasDecl(root, "std_options_elf_debug_info_search_paths"))
+        root.std_options_elf_debug_info_search_paths
+    else
+        null;
+
+    pub const debug_threaded_io: ?*Io.Threaded = if (@hasDecl(root, "std_options_debug_threaded_io"))
+        root.std_options_debug_threaded_io
+    else
+        Io.Threaded.global_single_threaded;
+
+    /// The `Io` instance that `std.debug` uses for `std.debug.print`,
+    /// capturing stack traces, loading debug info, finding the executable's
+    /// own path, and environment variables that affect terminal mode
+    /// detection. The default is to use statically initialized singleton that
+    /// is independent from the application's `Io` instance in order to make
+    /// debugging more straightforward. For example, while debugging an `Io`
+    /// implementation based on coroutines, one likely wants `std.debug.print`
+    /// to directly write to stderr without trying to interact with the code
+    /// being debugged.
+    pub const debug_io: Io = if (@hasDecl(root, "std_options_debug_io")) root.std_options_debug_io else debug_threaded_io.?.ioBasic();
+
+    /// Overrides `std.Io.File.Permissions`.
+    pub const FilePermissions: ?type = if (@hasDecl(root, "std_options_FilePermissions")) root.std_options_FilePermissions else null;
+
+    /// Overrides `std.Io.Dir.cwd`.
+    pub const cwd: ?fn () Io.Dir = if (@hasDecl(root, "std_options_cwd")) root.std_options_cwd else null;
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that

@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const intFromFloat = @import("./int_from_float.zig").intFromFloat;
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_ppc_abi) {
         @export(&__fixtfsi, .{ .name = "__fixkfsi", .linkage = common.linkage, .visibility = common.visibility });

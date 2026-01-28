@@ -1,20 +1,22 @@
-const std = @import("std");
-const assert = std.debug.assert;
 const builtin = @import("builtin");
+const native_endian = builtin.target.cpu.arch.endian();
+
+const std = @import("std");
+const Io = std.Io;
+const assert = std.debug.assert;
 const log = std.log.scoped(.macho);
 const macho = std.macho;
 const mem = std.mem;
-const native_endian = builtin.target.cpu.arch.endian();
 
 const MachO = @import("../MachO.zig");
 
-pub fn readFatHeader(file: std.fs.File) !macho.fat_header {
-    return readFatHeaderGeneric(macho.fat_header, file, 0);
+pub fn readFatHeader(io: Io, file: Io.File) !macho.fat_header {
+    return readFatHeaderGeneric(io, macho.fat_header, file, 0);
 }
 
-fn readFatHeaderGeneric(comptime Hdr: type, file: std.fs.File, offset: usize) !Hdr {
+fn readFatHeaderGeneric(io: Io, comptime Hdr: type, file: Io.File, offset: usize) !Hdr {
     var buffer: [@sizeOf(Hdr)]u8 = undefined;
-    const nread = try file.preadAll(&buffer, offset);
+    const nread = try file.readPositionalAll(io, &buffer, offset);
     if (nread != buffer.len) return error.InputOutput;
     var hdr = @as(*align(1) const Hdr, @ptrCast(&buffer)).*;
     mem.byteSwapAllFields(Hdr, &hdr);
@@ -27,12 +29,12 @@ pub const Arch = struct {
     size: u32,
 };
 
-pub fn parseArchs(file: std.fs.File, fat_header: macho.fat_header, out: *[2]Arch) ![]const Arch {
+pub fn parseArchs(io: Io, file: Io.File, fat_header: macho.fat_header, out: *[2]Arch) ![]const Arch {
     var count: usize = 0;
     var fat_arch_index: u32 = 0;
     while (fat_arch_index < fat_header.nfat_arch and count < out.len) : (fat_arch_index += 1) {
         const offset = @sizeOf(macho.fat_header) + @sizeOf(macho.fat_arch) * fat_arch_index;
-        const fat_arch = try readFatHeaderGeneric(macho.fat_arch, file, offset);
+        const fat_arch = try readFatHeaderGeneric(io, macho.fat_arch, file, offset);
         // If we come across an architecture that we do not know how to handle, that's
         // fine because we can keep looking for one that might match.
         const arch: std.Target.Cpu.Arch = switch (fat_arch.cputype) {

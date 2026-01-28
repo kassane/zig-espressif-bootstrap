@@ -1,17 +1,8 @@
-const Tag = @Type(.{
-    .@"enum" = .{
-        .tag_type = undefined,
-        .fields = &.{},
-        .decls = &.{},
-        .is_exhaustive = false,
-    },
-});
+const Tag = @Enum(undefined, .exhaustive, &.{}, &.{});
 export fn entry() void {
     _ = @as(Tag, @enumFromInt(0));
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :1:20: error: use of undefined value here causes undefined behavior
+// :1:19: error: use of undefined value here causes illegal behavior

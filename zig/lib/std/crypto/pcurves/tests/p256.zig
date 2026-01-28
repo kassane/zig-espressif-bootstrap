@@ -5,8 +5,9 @@ const testing = std.testing;
 const P256 = @import("../p256.zig").P256;
 
 test "p256 ECDH key exchange" {
-    const dha = P256.scalar.random(.little);
-    const dhb = P256.scalar.random(.little);
+    const io = testing.io;
+    const dha = P256.scalar.random(io, .little);
+    const dhb = P256.scalar.random(io, .little);
     const dhA = try P256.basePoint.mul(dha, .little);
     const dhB = try P256.basePoint.mul(dhb, .little);
     const shareda = try dhA.mul(dhb, .little);
@@ -66,28 +67,32 @@ test "p256 test vectors - doubling" {
 }
 
 test "p256 compressed sec1 encoding/decoding" {
-    const p = P256.random();
+    const io = testing.io;
+    const p = P256.random(io);
     const s = p.toCompressedSec1();
     const q = try P256.fromSec1(&s);
     try testing.expect(p.equivalent(q));
 }
 
 test "p256 uncompressed sec1 encoding/decoding" {
-    const p = P256.random();
+    const io = testing.io;
+    const p = P256.random(io);
     const s = p.toUncompressedSec1();
     const q = try P256.fromSec1(&s);
     try testing.expect(p.equivalent(q));
 }
 
 test "p256 public key is the neutral element" {
+    const io = testing.io;
     const n = P256.scalar.Scalar.zero.toBytes(.little);
-    const p = P256.random();
+    const p = P256.random(io);
     try testing.expectError(error.IdentityElement, p.mul(n, .little));
 }
 
 test "p256 public key is the neutral element (public verification)" {
+    const io = testing.io;
     const n = P256.scalar.Scalar.zero.toBytes(.little);
-    const p = P256.random();
+    const p = P256.random(io);
     try testing.expectError(error.IdentityElement, p.mulPublic(n, .little));
 }
 

@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../std.zig");
 const math = std.math;
 const expect = std.testing.expect;
@@ -92,10 +93,12 @@ const hypot_test_cases = .{
 };
 
 test hypot {
+    if (builtin.cpu.arch.isPowerPC() and builtin.mode != .Debug) return error.SkipZigTest; // https://github.com/llvm/llvm-project/issues/171869
     try expect(hypot(0.3, 0.4) == 0.5);
 }
 
 test "hypot.correct" {
+    if (builtin.cpu.arch.isPowerPC() and builtin.mode != .Debug) return error.SkipZigTest; // https://github.com/llvm/llvm-project/issues/171869
     inline for (.{ f16, f32, f64, f128 }) |T| {
         inline for (hypot_test_cases) |v| {
             const a: T, const b: T, const c: T = v;
@@ -105,6 +108,7 @@ test "hypot.correct" {
 }
 
 test "hypot.precise" {
+    if (builtin.cpu.arch.isPowerPC() and builtin.mode != .Debug) return error.SkipZigTest; // https://github.com/llvm/llvm-project/issues/171869
     inline for (.{ f16, f32, f64 }) |T| { // f128 seems to be 5 ulp
         inline for (hypot_test_cases) |v| {
             const a: T, const b: T, const c: T = v;
@@ -114,6 +118,7 @@ test "hypot.precise" {
 }
 
 test "hypot.special" {
+    if (builtin.cpu.arch.isPowerPC() and builtin.mode != .Debug) return error.SkipZigTest; // https://github.com/llvm/llvm-project/issues/171869
     @setEvalBranchQuota(2000);
     inline for (.{ f16, f32, f64, f128 }) |T| {
         try expect(math.isNan(hypot(nan(T), 0.0)));

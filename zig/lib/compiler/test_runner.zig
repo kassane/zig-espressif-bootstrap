@@ -2,24 +2,34 @@
 const builtin = @import("builtin");
 
 const std = @import("std");
-const io = std.io;
+const Io = std.Io;
+const fatal = std.process.fatal;
 const testing = std.testing;
 const assert = std.debug.assert;
+const fuzz_abi = std.Build.abi.fuzz;
 
 pub const std_options: std.Options = .{
     .logFn = log,
 };
 
 var log_err_count: usize = 0;
+var fba: std.heap.FixedBufferAllocator = .init(&fba_buffer);
 var fba_buffer: [8192]u8 = undefined;
-var fba = std.heap.FixedBufferAllocator.init(&fba_buffer);
+var stdin_buffer: [4096]u8 = undefined;
+var stdout_buffer: [4096]u8 = undefined;
+const runner_threaded_io: Io = Io.Threaded.global_single_threaded.ioBasic();
 
-const crippled = switch (builtin.zig_backend) {
-    .stage2_riscv64 => true,
+/// Keep in sync with logic in `std.Build.addRunArtifact` which decides whether
+/// the test runner will communicate with the build runner via `std.zig.Server`.
+const need_simple = switch (builtin.zig_backend) {
+    .stage2_aarch64,
+    .stage2_powerpc,
+    .stage2_riscv64,
+    => true,
     else => false,
 };
 
-pub fn main() void {
+pub fn main(init: std.process.Init.Minimal) void {
     @disableInstrumentation();
 
     if (builtin.cpu.arch.isSpirV()) {
@@ -27,12 +37,11 @@ pub fn main() void {
         return;
     }
 
-    if (crippled) {
-        return mainSimple() catch @panic("test failure\n");
+    if (need_simple) {
+        return mainSimple() catch @panic("test failure");
     }
 
-    const args = std.process.argsAlloc(fba.allocator()) catch
-        @panic("unable to parse command line args");
+    const args = init.args.toSlice(fba.allocator()) catch @panic("unable to parse command line args");
 
     var listen = false;
     var opt_cache_dir: ?[]const u8 = null;
@@ -50,32 +59,36 @@ pub fn main() void {
         }
     }
 
-    fba.reset();
     if (builtin.fuzz) {
         const cache_dir = opt_cache_dir orelse @panic("missing --cache-dir=[path] argument");
-        fuzzer_init(FuzzerSlice.fromSlice(cache_dir));
+        fuzz_abi.fuzzer_init(.fromSlice(cache_dir));
     }
 
     if (listen) {
-        return mainServer() catch @panic("internal test runner failure");
+        return mainServer(init) catch @panic("internal test runner failure");
     } else {
-        return mainTerminal();
+        return mainTerminal(init);
     }
 }
 
-fn mainServer() !void {
+fn mainServer(init: std.process.Init.Minimal) !void {
     @disableInstrumentation();
+    var stdin_reader = Io.File.stdin().readerStreaming(runner_threaded_io, &stdin_buffer);
+    var stdout_writer = Io.File.stdout().writerStreaming(runner_threaded_io, &stdout_buffer);
     var server = try std.zig.Server.init(.{
-        .gpa = fba.allocator(),
-        .in = std.io.getStdIn(),
-        .out = std.io.getStdOut(),
+        .in = &stdin_reader.interface,
+        .out = &stdout_writer.interface,
         .zig_version = builtin.zig_version_string,
     });
-    defer server.deinit();
 
     if (builtin.fuzz) {
-        const coverage_id = fuzzer_coverage_id();
-        try server.serveU64Message(.coverage_id, coverage_id);
+        const coverage = fuzz_abi.fuzzer_coverage();
+        try server.serveCoverageIdMessage(
+            coverage.id,
+            coverage.runs,
+            coverage.unique,
+            coverage.seen,
+        );
     }
 
     while (true) {
@@ -90,7 +103,7 @@ fn mainServer() !void {
                     @panic("internal test runner memory leak");
                 };
 
-                var string_bytes: std.ArrayListUnmanaged(u8) = .empty;
+                var string_bytes: std.ArrayList(u8) = .empty;
                 defer string_bytes.deinit(testing.allocator);
                 try string_bytes.append(testing.allocator, 0); // Reserve 0 for null.
 
@@ -101,7 +114,7 @@ fn mainServer() !void {
                 defer testing.allocator.free(expected_panic_msgs);
 
                 for (test_fns, names, expected_panic_msgs) |test_fn, *name, *expected_panic_msg| {
-                    name.* = @as(u32, @intCast(string_bytes.items.len));
+                    name.* = @intCast(string_bytes.items.len);
                     try string_bytes.ensureUnusedCapacity(testing.allocator, test_fn.name.len + 1);
                     string_bytes.appendSliceAssumeCapacity(test_fn.name);
                     string_bytes.appendAssumeCapacity(0);
@@ -116,58 +129,85 @@ fn mainServer() !void {
             },
 
             .run_test => {
+                testing.environ = init.environ;
                 testing.allocator_instance = .{};
+                testing.io_instance = .init(testing.allocator, .{
+                    .argv0 = .init(init.args),
+                    .environ = init.environ,
+                });
                 log_err_count = 0;
                 const index = try server.receiveBody_u32();
                 const test_fn = builtin.test_functions[index];
-                var fail = false;
-                var skip = false;
                 is_fuzz_test = false;
-                test_fn.func() catch |err| switch (err) {
-                    error.SkipZigTest => skip = true,
-                    else => {
-                        fail = true;
+
+                // let the build server know we're starting the test now
+                try server.serveStringMessage(.test_started, &.{});
+
+                const TestResults = std.zig.Server.Message.TestResults;
+                const status: TestResults.Status = if (test_fn.func()) |v| s: {
+                    v;
+                    break :s .pass;
+                } else |err| switch (err) {
+                    error.SkipZigTest => .skip,
+                    else => s: {
                         if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
+                            std.debug.dumpStackTrace(trace);
                         }
+                        break :s .fail;
                     },
                 };
-                const leak = testing.allocator_instance.deinit() == .leak;
+                testing.io_instance.deinit();
+                const leak_count = testing.allocator_instance.detectLeaks();
+                testing.allocator_instance.deinitWithoutLeakChecks();
                 try server.serveTestResults(.{
                     .index = index,
                     .flags = .{
-                        .fail = fail,
-                        .skip = skip,
-                        .leak = leak,
+                        .status = status,
                         .fuzz = is_fuzz_test,
                         .log_err_count = std.math.lossyCast(
-                            @FieldType(std.zig.Server.Message.TestResults.Flags, "log_err_count"),
+                            @FieldType(TestResults.Flags, "log_err_count"),
                             log_err_count,
+                        ),
+                        .leak_count = std.math.lossyCast(
+                            @FieldType(TestResults.Flags, "leak_count"),
+                            leak_count,
                         ),
                     },
                 });
             },
             .start_fuzzing => {
+                // This ensures that this code won't be analyzed and hence reference fuzzer symbols
+                // since they are not present.
                 if (!builtin.fuzz) unreachable;
+
                 const index = try server.receiveBody_u32();
+                const mode: fuzz_abi.LimitKind = @enumFromInt(try server.receiveBody_u8());
+                const amount_or_instance = try server.receiveBody_u64();
+
                 const test_fn = builtin.test_functions[index];
                 const entry_addr = @intFromPtr(test_fn.func);
-                try server.serveU64Message(.fuzz_start_addr, entry_addr);
+
+                try server.serveU64Message(.fuzz_start_addr, fuzz_abi.fuzzer_unslide_address(entry_addr));
                 defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
                 is_fuzz_test = false;
-                fuzzer_set_name(test_fn.name.ptr, test_fn.name.len);
+                fuzz_test_index = index;
+                fuzz_mode = mode;
+                fuzz_amount_or_instance = amount_or_instance;
+
                 test_fn.func() catch |err| switch (err) {
                     error.SkipZigTest => return,
                     else => {
                         if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
+                            std.debug.dumpStackTrace(trace);
                         }
-                        std.debug.print("failed with error.{s}\n", .{@errorName(err)});
+                        std.debug.print("failed with error.{t}\n", .{err});
                         std.process.exit(1);
                     },
                 };
                 if (!is_fuzz_test) @panic("missed call to std.testing.fuzz");
                 if (log_err_count != 0) @panic("error logs detected");
+                assert(mode != .forever);
+                std.process.exit(0);
             },
 
             else => {
@@ -178,33 +218,34 @@ fn mainServer() !void {
     }
 }
 
-fn mainTerminal() void {
+fn mainTerminal(init: std.process.Init.Minimal) void {
     @disableInstrumentation();
+    if (builtin.fuzz) @panic("fuzz test requires server");
+
     const test_fn_list = builtin.test_functions;
     var ok_count: usize = 0;
     var skip_count: usize = 0;
     var fail_count: usize = 0;
     var fuzz_count: usize = 0;
-    const root_node = if (builtin.fuzz) std.Progress.Node.none else std.Progress.start(.{
+    const root_node = if (builtin.fuzz) std.Progress.Node.none else std.Progress.start(runner_threaded_io, .{
         .root_name = "Test",
         .estimated_total_items = test_fn_list.len,
     });
-    const have_tty = std.io.getStdErr().isTty();
-
-    var async_frame_buffer: []align(builtin.target.stackAlignment()) u8 = undefined;
-    // TODO this is on the next line (using `undefined` above) because otherwise zig incorrectly
-    // ignores the alignment of the slice.
-    async_frame_buffer = &[_]u8{};
+    const have_tty = Io.File.stderr().isTty(runner_threaded_io) catch unreachable;
 
     var leaks: usize = 0;
     for (test_fn_list, 0..) |test_fn, i| {
         testing.allocator_instance = .{};
+        testing.io_instance = .init(testing.allocator, .{
+            .argv0 = .init(init.args),
+            .environ = init.environ,
+        });
         defer {
-            if (testing.allocator_instance.deinit() == .leak) {
-                leaks += 1;
-            }
+            testing.io_instance.deinit();
+            if (testing.allocator_instance.deinit() == .leak) leaks += 1;
         }
         testing.log_level = .warn;
+        testing.environ = init.environ;
 
         const test_node = root_node.start(test_fn.name, 0);
         if (!have_tty) {
@@ -228,14 +269,14 @@ fn mainTerminal() void {
             else => {
                 fail_count += 1;
                 if (have_tty) {
-                    std.debug.print("{d}/{d} {s}...FAIL ({s})\n", .{
-                        i + 1, test_fn_list.len, test_fn.name, @errorName(err),
+                    std.debug.print("{d}/{d} {s}...FAIL ({t})\n", .{
+                        i + 1, test_fn_list.len, test_fn.name, err,
                     });
                 } else {
-                    std.debug.print("FAIL ({s})\n", .{@errorName(err)});
+                    std.debug.print("FAIL ({t})\n", .{err});
                 }
                 if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
+                    std.debug.dumpStackTrace(trace);
                 }
                 test_node.end();
             },
@@ -264,7 +305,7 @@ fn mainTerminal() void {
 
 pub fn log(
     comptime message_level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -284,74 +325,57 @@ pub fn log(
 /// work-in-progress backends can handle it.
 pub fn mainSimple() anyerror!void {
     @disableInstrumentation();
-    // is the backend capable of printing to stderr?
+    // is the backend capable of calling `Io.File.writeAll`?
+    const enable_write = switch (builtin.zig_backend) {
+        .stage2_aarch64, .stage2_riscv64 => true,
+        else => false,
+    };
+    // is the backend capable of calling `Io.Writer.print`?
     const enable_print = switch (builtin.zig_backend) {
+        .stage2_aarch64, .stage2_riscv64 => true,
         else => false,
     };
-    // is the backend capable of using std.fmt.format to print a summary at the end?
-    const print_summary = switch (builtin.zig_backend) {
-        else => false,
-    };
+
+    testing.io_instance = .init(testing.allocator, .{});
 
     var passed: u64 = 0;
     var skipped: u64 = 0;
     var failed: u64 = 0;
 
     // we don't want to bring in File and Writer if the backend doesn't support it
-    const stderr = if (comptime enable_print) std.io.getStdErr() else {};
+    const stdout = if (enable_write) Io.File.stdout() else {};
 
     for (builtin.test_functions) |test_fn| {
+        if (enable_write) {
+            stdout.writeStreamingAll(runner_threaded_io, test_fn.name) catch {};
+            stdout.writeStreamingAll(runner_threaded_io, "... ") catch {};
+        }
         if (test_fn.func()) |_| {
-            if (enable_print) {
-                stderr.writeAll(test_fn.name) catch {};
-                stderr.writeAll("... ") catch {};
-                stderr.writeAll("PASS\n") catch {};
-            }
-        } else |err| if (enable_print) {
-            if (enable_print) {
-                stderr.writeAll(test_fn.name) catch {};
-                stderr.writeAll("... ") catch {};
-            }
+            if (enable_write) stdout.writeStreamingAll(runner_threaded_io, "PASS\n") catch {};
+        } else |err| {
             if (err != error.SkipZigTest) {
-                if (enable_print) stderr.writeAll("FAIL\n") catch {};
+                if (enable_write) stdout.writeStreamingAll(runner_threaded_io, "FAIL\n") catch {};
                 failed += 1;
-                if (!enable_print) return err;
+                if (!enable_write) return err;
                 continue;
             }
-            if (enable_print) stderr.writeAll("SKIP\n") catch {};
+            if (enable_write) stdout.writeStreamingAll(runner_threaded_io, "SKIP\n") catch {};
             skipped += 1;
             continue;
         }
         passed += 1;
     }
-    if (enable_print and print_summary) {
-        stderr.writer().print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
+    if (enable_print) {
+        var stdout_writer = stdout.writer(runner_threaded_io, &.{});
+        stdout_writer.interface.print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
     }
     if (failed != 0) std.process.exit(1);
 }
 
-const FuzzerSlice = extern struct {
-    ptr: [*]const u8,
-    len: usize,
-
-    /// Inline to avoid fuzzer instrumentation.
-    inline fn toSlice(s: FuzzerSlice) []const u8 {
-        return s.ptr[0..s.len];
-    }
-
-    /// Inline to avoid fuzzer instrumentation.
-    inline fn fromSlice(s: []const u8) FuzzerSlice {
-        return .{ .ptr = s.ptr, .len = s.len };
-    }
-};
-
 var is_fuzz_test: bool = undefined;
-
-extern fn fuzzer_set_name(name_ptr: [*]const u8, name_len: usize) void;
-extern fn fuzzer_init(cache_dir: FuzzerSlice) void;
-extern fn fuzzer_init_corpus_elem(input_ptr: [*]const u8, input_len: usize) void;
-extern fn fuzzer_start(testOne: *const fn ([*]const u8, usize) callconv(.c) void) void;
-extern fn fuzzer_coverage_id() u64;
+var fuzz_test_index: u32 = undefined;
+var fuzz_mode: fuzz_abi.LimitKind = undefined;
+var fuzz_amount_or_instance: u64 = undefined;
 
 pub fn fuzz(
     context: anytype,
@@ -364,7 +388,7 @@ pub fn fuzz(
 
     // Some compiler backends are not capable of handling fuzz testing yet but
     // we still want CI test coverage enabled.
-    if (crippled) return;
+    if (need_simple) return;
 
     // Smoke test to ensure the test did not use conditional compilation to
     // contradict itself by making it not actually be a fuzz test when the test
@@ -382,23 +406,27 @@ pub fn fuzz(
     const global = struct {
         var ctx: @TypeOf(context) = undefined;
 
-        fn fuzzer_one(input_ptr: [*]const u8, input_len: usize) callconv(.c) void {
+        fn test_one(input: fuzz_abi.Slice) callconv(.c) void {
             @disableInstrumentation();
             testing.allocator_instance = .{};
             defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
             log_err_count = 0;
-            testOne(ctx, input_ptr[0..input_len]) catch |err| switch (err) {
+            testOne(ctx, input.toSlice()) catch |err| switch (err) {
                 error.SkipZigTest => return,
                 else => {
-                    std.debug.lockStdErr();
-                    if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
-                    std.debug.print("failed with error.{s}\n", .{@errorName(err)});
+                    const stderr = std.debug.lockStderr(&.{}).terminal();
+                    p: {
+                        if (@errorReturnTrace()) |trace| {
+                            std.debug.writeStackTrace(trace, stderr) catch break :p;
+                        }
+                        stderr.writer.print("failed with error.{t}\n", .{err}) catch break :p;
+                    }
                     std.process.exit(1);
                 },
             };
             if (log_err_count != 0) {
-                std.debug.lockStdErr();
-                std.debug.print("error logs detected\n", .{});
+                const stderr = std.debug.lockStderr(&.{}).terminal();
+                stderr.writer.print("error logs detected\n", .{}) catch {};
                 std.process.exit(1);
             }
         }
@@ -408,10 +436,13 @@ pub fn fuzz(
         testing.allocator_instance = .{};
         defer testing.allocator_instance = prev_allocator_state;
 
-        for (options.corpus) |elem| fuzzer_init_corpus_elem(elem.ptr, elem.len);
-
         global.ctx = context;
-        fuzzer_start(&global.fuzzer_one);
+        fuzz_abi.fuzzer_init_test(&global.test_one, .fromSlice(builtin.test_functions[fuzz_test_index].name));
+
+        for (options.corpus) |elem|
+            fuzz_abi.fuzzer_new_input(.fromSlice(elem));
+
+        fuzz_abi.fuzzer_main(fuzz_mode, fuzz_amount_or_instance);
         return;
     }
 

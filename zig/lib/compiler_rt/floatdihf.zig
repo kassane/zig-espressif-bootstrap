@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const floatFromInt = @import("./float_from_int.zig").floatFromInt;
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__floatdihf, .{ .name = "__floatdihf", .linkage = common.linkage, .visibility = common.visibility });
 }

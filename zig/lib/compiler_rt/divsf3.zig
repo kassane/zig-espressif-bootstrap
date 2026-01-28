@@ -9,8 +9,6 @@ const arch = builtin.cpu.arch;
 const common = @import("common.zig");
 const normalize = common.normalize;
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_aeabi) {
         @export(&__aeabi_fdiv, .{ .name = "__aeabi_fdiv", .linkage = common.linkage, .visibility = common.visibility });

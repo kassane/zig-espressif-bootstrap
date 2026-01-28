@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const os = builtin.os.tag;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
 
 // Ported from llvm-project d32170dbd5b0d54436537b6b75beaf44324e0c28
 
@@ -38,10 +38,7 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
         .mips, .mipsel, .mips64, .mips64el => true,
         else => false,
     };
-    const riscv = switch (arch) {
-        .riscv32, .riscv64 => true,
-        else => false,
-    };
+    const riscv = arch.isRISCV();
     const powerpc64 = switch (arch) {
         .powerpc64, .powerpc64le => true,
         else => false,
@@ -51,7 +48,7 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
         else => false,
     };
     const apple = switch (os) {
-        .ios, .macos, .watchos, .tvos, .visionos => true,
+        .ios, .maccatalyst, .macos, .watchos, .tvos, .visionos => true,
         else => false,
     };
     if (x86) {
@@ -64,12 +61,13 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
         // exportIt();
     } else if (arm32 and !apple) {
         switch (os) {
-            .freebsd, .netbsd => {
-                var arg = arm_sync_icache_args{
+            // FreeBSD and NetBSD should be changed to do direct syscalls here...
+            .freebsd, .netbsd, .openbsd => {
+                var arg: arm_sync_icache_args = .{
                     .addr = start,
-                    .len = end - start,
+                    .size = end - start,
                 };
-                const result = sysarch(ARM_SYNC_ICACHE, @intFromPtr(&arg));
+                const result = sysarch(ARM_SYNC_ICACHE, &arg);
                 std.debug.assert(result == 0);
                 exportIt();
             },
@@ -81,14 +79,32 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
             else => {},
         }
     } else if (os == .linux and mips) {
-        const flags = 3; // ICACHE | DCACHE
-        const result = std.os.linux.syscall3(.cacheflush, start, end - start, flags);
+        const result = std.os.linux.syscall3(.cacheflush, start, end - start, ICACHE | DCACHE);
         std.debug.assert(result == 0);
         exportIt();
+    } else if (os == .netbsd and mips) {
+        // Replace with https://github.com/ziglang/zig/issues/23904 in the future.
+        const cfa: mips_cacheflush_args = .{
+            .addr = start,
+            .size = end - start,
+            .which = ICACHE | DCACHE,
+        };
+        asm volatile ("syscall"
+            :
+            : [_] "{$2}" (165), // nr = SYS_sysarch
+              [_] "{$4}" (MIPS_CACHEFLUSH), // op
+              [_] "{$5}" (&cfa), // args = &cfa
+            : .{ .r1 = true, .r2 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
+        exportIt();
     } else if (mips and os == .openbsd) {
-        // TODO
-        //cacheflush(start, (uintptr_t)end - (uintptr_t)start, BCACHE);
-        // exportIt();
+        const cfa: mips_cacheflush_args = .{
+            .addr = start,
+            .size = end - start,
+            .which = ICACHE | DCACHE,
+        };
+        const result = sysarch(MIPS_CACHEFLUSH, &cfa);
+        std.debug.assert(result == 0);
+        exportIt();
     } else if (os == .linux and riscv) {
         const result = std.os.linux.syscall3(.riscv_flush_icache, start, end - start, 0);
         std.debug.assert(result == 0);
@@ -96,11 +112,8 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
     } else if (arm64 and !apple) {
         // Get Cache Type Info.
         // TODO memoize this?
-        var ctr_el0: u64 = 0;
-        asm volatile (
-            \\mrs %[x], ctr_el0
-            \\
-            : [x] "=r" (ctr_el0),
+        const ctr_el0 = asm volatile ("mrs %[ctr_el0], ctr_el0"
+            : [ctr_el0] "=r" (-> u64),
         );
         // The DC and IC instructions must use 64-bit registers so we don't use
         // uintptr_t in case this runs in an IPL32 environment.
@@ -167,25 +180,36 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
         exportIt();
     } else if (os == .linux and loongarch) {
         // See: https://github.com/llvm/llvm-project/blob/cf54cae26b65fc3201eff7200ffb9b0c9e8f9a13/compiler-rt/lib/builtins/clear_cache.c#L94-L95
-        asm volatile (
-            \\ ibar 0
-        );
+        asm volatile ("ibar 0");
         exportIt();
     }
-}
 
-const linkage = if (builtin.is_test) std.builtin.GlobalLinkage.internal else std.builtin.GlobalLinkage.weak;
+    std.valgrind.discardTranslations(@as([*]u8, @ptrFromInt(start))[0 .. end - start]);
+}
 
 fn exportIt() void {
-    @export(&clear_cache, .{ .name = "__clear_cache", .linkage = linkage });
+    @export(&clear_cache, .{ .name = "__clear_cache", .linkage = common.linkage, .visibility = common.visibility });
 }
+
+// MIPS-only
+const ICACHE = 0x1;
+const DCACHE = 0x2;
 
 // Darwin-only
 extern fn sys_icache_invalidate(start: usize, len: usize) void;
+
 // BSD-only
-const arm_sync_icache_args = extern struct {
-    addr: usize, // Virtual start address
-    len: usize, // Region size
-};
 const ARM_SYNC_ICACHE = 0;
-extern "c" fn sysarch(number: i32, args: usize) i32;
+const arm_sync_icache_args = extern struct {
+    addr: usize,
+    size: usize,
+};
+
+const MIPS_CACHEFLUSH = 0;
+const mips_cacheflush_args = extern struct {
+    addr: usize,
+    size: usize,
+    which: c_uint,
+};
+
+extern fn sysarch(op: c_uint, args: *const anyopaque) c_int;

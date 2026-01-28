@@ -2,8 +2,6 @@ const builtin = @import("builtin");
 const common = @import("./common.zig");
 const intFromFloat = @import("./int_from_float.zig").intFromFloat;
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_windows_v2u64_abi) {
         @export(&__fixunstfti_windows_x86_64, .{ .name = "__fixunstfti", .linkage = common.linkage, .visibility = common.visibility });

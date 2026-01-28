@@ -1,8 +1,6 @@
 const std = @import("std");
 const common = @import("./common.zig");
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__extendxftf2, .{ .name = "__extendxftf2", .linkage = common.linkage, .visibility = common.visibility });
 }

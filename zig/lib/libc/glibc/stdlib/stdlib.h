@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2025 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2026 Free Software Foundation, Inc.
    Copyright The GNU Toolchain Authors.
    This file is part of the GNU C Library.
 
@@ -34,6 +34,10 @@
 __BEGIN_DECLS
 
 #define	_STDLIB_H	1
+
+#if __GLIBC_USE (ISOC23)
+# define __STDC_VERSION_STDLIB_H__ 202311L
+#endif
 
 #if (defined __USE_XOPEN || defined __USE_XOPEN2K8) && !defined _SYS_WAIT_H
 /* XPG requires a few symbols from <sys/wait.h> being defined.  */
@@ -686,6 +690,24 @@ extern void *realloc (void *__ptr, size_t __size)
 /* Free a block allocated by `malloc', `realloc' or `calloc'.  */
 extern void free (void *__ptr) __THROW;
 
+#if __GLIBC_USE(ISOC23)
+/* Free a block allocated by `malloc', `realloc' or `calloc' but not
+   `aligned_alloc', `memalign', `posix_memalign', `valloc' or
+   `pvalloc'. SIZE must be equal to the original requested size
+   provided to `malloc', `realloc' or `calloc'. For `calloc' SIZE is
+   NMEMB elements * SIZE bytes. It is forbidden to call `free_sized'
+   for allocations which the caller did not directly allocate but
+   must still deallocate, such as `strdup' or `strndup'. Instead
+   continue using `free` for these cases.  */
+extern void free_sized (void *__ptr, size_t __size) __THROW;
+
+/* Free a block allocated by `aligned_alloc', `memalign' or
+   `posix_memalign'. ALIGNMENT and SIZE must be the same as the values
+   provided to `aligned_alloc', `memalign' or `posix_memalign'.  */
+extern void free_aligned_sized (void *__ptr, size_t __alignment, size_t __size)
+     __THROW;
+#endif
+
 #ifdef __USE_MISC
 /* Re-allocate the previously allocated block in PTR, making the new
    block large enough for NMEMB elements of SIZE bytes each.  */
@@ -965,6 +987,12 @@ extern void *bsearch (const void *__key, const void *__base,
 # include <bits/stdlib-bsearch.h>
 #endif
 
+#if __GLIBC_USE (ISOC23) && defined __glibc_const_generic && !defined _LIBC
+# define bsearch(KEY, BASE, NMEMB, SIZE, COMPAR)			\
+  __glibc_const_generic (BASE, const void *,				\
+			 bsearch (KEY, BASE, NMEMB, SIZE, COMPAR))
+#endif
+
 /* Sort NMEMB elements of BASE, of SIZE bytes each,
    using COMPAR to perform the comparisons.  */
 extern void qsort (void *__base, size_t __nmemb, size_t __size,
@@ -985,6 +1013,12 @@ __extension__ extern long long int llabs (long long int __x)
      __THROW __attribute__ ((__const__)) __wur;
 #endif
 
+#if __GLIBC_USE (ISOC2Y)
+extern unsigned int uabs (int __x) __THROW __attribute__ ((__const__)) __wur;
+extern unsigned long int ulabs (long int __x) __THROW __attribute__ ((__const__)) __wur;
+__extension__ extern unsigned long long int ullabs (long long int __x)
+     __THROW __attribute__ ((__const__)) __wur;
+#endif
 
 /* Return the `div_t', `ldiv_t' or `lldiv_t' representation
    of the value of NUMER over DENOM. */
@@ -1150,6 +1184,19 @@ extern int getloadavg (double __loadavg[], int __nelem)
 /* Return the index into the active-logins file (utmp) for
    the controlling terminal.  */
 extern int ttyslot (void) __THROW;
+#endif
+
+#if __GLIBC_USE (ISOC23)
+# ifndef __cplusplus
+#  include <bits/types/once_flag.h>
+
+/* Call function __FUNC exactly once, even if invoked from several threads.
+   All calls must be made with the same __FLAGS object.  */
+extern void call_once (once_flag *__flag, void (*__func)(void));
+# endif /* !__cplusplus */
+
+/* Return the alignment of P.  */
+extern size_t memalignment (const void *__p);
 #endif
 
 #include <bits/stdlib-float.h>

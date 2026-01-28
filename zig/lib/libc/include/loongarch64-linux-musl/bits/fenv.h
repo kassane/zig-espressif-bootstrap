@@ -1,3 +1,7 @@
+#ifdef __loongarch_soft_float
+#define FE_ALL_EXCEPT 0
+#define FE_TONEAREST  0
+#else
 #define FE_INEXACT    0x010000
 #define FE_UNDERFLOW  0x020000
 #define FE_OVERFLOW   0x040000
@@ -10,6 +14,7 @@
 #define FE_TOWARDZERO 0x100
 #define FE_UPWARD     0x200
 #define FE_DOWNWARD   0x300
+#endif
 
 typedef unsigned fexcept_t;
 

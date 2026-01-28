@@ -7,18 +7,20 @@ TARGET="$1" # Example: riscv64-linux-gnu
 MCPU="$2"   # Examples: `baseline`, `native`, `generic+v7a`, or `arm1176jzf_s`
 
 ROOTDIR="$(pwd)"
-ZIG_VERSION="0.14.0-xtensa"
+ZIG_VERSION="0.16.0-xtensa-dev.2287+eb3f16db5"
 
 TARGET_OS_AND_ABI=${TARGET#*-} # Example: linux-gnu
 
 # Here we map the OS from the target triple to the value that CMake expects.
 TARGET_OS_CMAKE=${TARGET_OS_AND_ABI%-*} # Example: linux
 case $TARGET_OS_CMAKE in
-macos) TARGET_OS_CMAKE="Darwin" ;;
-freebsd) TARGET_OS_CMAKE="FreeBSD" ;;
-windows) TARGET_OS_CMAKE="Windows" ;;
-linux) TARGET_OS_CMAKE="Linux" ;;
-native) TARGET_OS_CMAKE="" ;;
+  macos*) TARGET_OS_CMAKE="Darwin";;
+  freebsd*) TARGET_OS_CMAKE="FreeBSD";;
+  netbsd*) TARGET_OS_CMAKE="NetBSD";;
+  openbsd*) TARGET_OS_CMAKE="OpenBSD";;
+  windows*) TARGET_OS_CMAKE="Windows";;
+  linux*) TARGET_OS_CMAKE="Linux";;
+  native) TARGET_OS_CMAKE="";;
 esac
 
 # First build the libraries for Zig to link against, as well as native `llvm-tblgen`.
@@ -35,7 +37,6 @@ cmake "$ROOTDIR/llvm" \
   -DLLVM_ENABLE_OCAMLDOC=OFF \
   -DLLVM_ENABLE_PLUGINS=OFF \
   -DLLVM_ENABLE_PROJECTS="lld;clang" \
-  -DLLVM_ENABLE_TERMINFO=OFF \
   -DLLVM_ENABLE_Z3_SOLVER=OFF \
   -DLLVM_ENABLE_ZSTD=OFF \
   -DLLVM_INCLUDE_UTILS=OFF \
@@ -53,8 +54,6 @@ cmake "$ROOTDIR/llvm" \
   -DCLANG_TOOL_CLANG_IMPORT_TEST_BUILD=OFF \
   -DCLANG_TOOL_CLANG_LINKER_WRAPPER_BUILD=OFF \
   -DCLANG_TOOL_C_INDEX_TEST_BUILD=OFF \
-  -DCLANG_TOOL_ARCMT_TEST_BUILD=OFF \
-  -DCLANG_TOOL_C_ARCMT_TEST_BUILD=OFF \
   -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=Xtensa \
   -DCLANG_TOOL_LIBCLANG_BUILD=OFF
 cmake --build . --target install
@@ -148,6 +147,7 @@ cmake "$ROOTDIR/llvm" \
   -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_ASM_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
+  -DCMAKE_LINK_DEPENDS_USE_LINKER=OFF \
   -DCMAKE_RC_COMPILER="$ROOTDIR/out/host/bin/llvm-rc" \
   -DCMAKE_AR="$ROOTDIR/out/host/bin/llvm-ar" \
   -DCMAKE_RANLIB="$ROOTDIR/out/host/bin/llvm-ranlib" \
@@ -160,7 +160,6 @@ cmake "$ROOTDIR/llvm" \
   -DLLVM_ENABLE_OCAMLDOC=OFF \
   -DLLVM_ENABLE_PLUGINS=OFF \
   -DLLVM_ENABLE_PROJECTS="lld;clang" \
-  -DLLVM_ENABLE_TERMINFO=OFF \
   -DLLVM_ENABLE_Z3_SOLVER=OFF \
   -DLLVM_ENABLE_ZLIB=FORCE_ON \
   -DLLVM_ENABLE_ZSTD=FORCE_ON \
@@ -183,14 +182,11 @@ cmake "$ROOTDIR/llvm" \
   -DCLANG_BUILD_TOOLS=OFF \
   -DCLANG_INCLUDE_DOCS=OFF \
   -DCLANG_INCLUDE_TESTS=OFF \
-  -DCLANG_ENABLE_ARCMT=ON \
+  -DCLANG_ENABLE_OBJC_REWRITER=ON \
   -DCLANG_TOOL_CLANG_IMPORT_TEST_BUILD=OFF \
   -DCLANG_TOOL_CLANG_LINKER_WRAPPER_BUILD=OFF \
   -DCLANG_TOOL_C_INDEX_TEST_BUILD=OFF \
-  -DCLANG_TOOL_ARCMT_TEST_BUILD=OFF \
-  -DCLANG_TOOL_C_ARCMT_TEST_BUILD=OFF \
   -DCLANG_TOOL_LIBCLANG_BUILD=OFF \
-  -DLIBCLANG_BUILD_STATIC=ON \
   -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=Xtensa \
   -DLLD_BUILD_TOOLS=OFF
 cmake --build . --target install

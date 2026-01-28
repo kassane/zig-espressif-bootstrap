@@ -3,13 +3,11 @@ const ObjCopy = @This();
 
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
-const File = std.fs.File;
+const File = std.Io.File;
 const InstallDir = std.Build.InstallDir;
 const Step = std.Build.Step;
 const elf = std.elf;
 const fs = std.fs;
-const io = std.io;
 const sort = std.sort;
 
 pub const base_id: Step.Id = .objcopy;
@@ -145,6 +143,7 @@ pub fn getOutputSeparatedDebug(objcopy: *const ObjCopy) ?std.Build.LazyPath {
 fn make(step: *Step, options: Step.MakeOptions) !void {
     const prog_node = options.progress_node;
     const b = step.owner;
+    const io = b.graph.io;
     const objcopy: *ObjCopy = @fieldParentPtr("step", step);
     try step.singleUnchangingWatchInput(objcopy.input_file);
 
@@ -178,11 +177,11 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const cache_path = "o" ++ fs.path.sep_str ++ digest;
     const full_dest_path = try b.cache_root.join(b.allocator, &.{ cache_path, objcopy.basename });
     const full_dest_path_debug = try b.cache_root.join(b.allocator, &.{ cache_path, b.fmt("{s}.debug", .{objcopy.basename}) });
-    b.cache_root.handle.makePath(cache_path) catch |err| {
+    b.cache_root.handle.createDirPath(io, cache_path) catch |err| {
         return step.fail("unable to make path {s}: {s}", .{ cache_path, @errorName(err) });
     };
 
-    var argv = std.ArrayList([]const u8).init(b.allocator);
+    var argv = std.array_list.Managed([]const u8).init(b.allocator);
     try argv.appendSlice(&.{ b.graph.zig_exe, "objcopy" });
 
     if (objcopy.only_section) |only_section| {
@@ -209,7 +208,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
     if (objcopy.add_section) |section| {
         try argv.append("--add-section");
-        try argv.appendSlice(&.{b.fmt("{s}={s}", .{ section.section_name, section.file_path.getPath(b) })});
+        try argv.appendSlice(&.{b.fmt("{s}={s}", .{ section.section_name, section.file_path.getPath2(b, step) })});
     }
     if (objcopy.set_section_alignment) |set_align| {
         try argv.append("--set-section-alignment");
@@ -236,7 +235,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     try argv.appendSlice(&.{ full_src_path, full_dest_path });
 
     try argv.append("--listen=-");
-    _ = try step.evalZigProcess(argv.items, prog_node, false);
+    _ = try step.evalZigProcess(argv.items, prog_node, false, options.web_server, options.gpa);
 
     objcopy.output_file.path = full_dest_path;
     if (objcopy.output_file_debug) |*file| file.path = full_dest_path_debug;

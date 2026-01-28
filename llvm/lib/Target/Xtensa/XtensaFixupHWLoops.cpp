@@ -227,21 +227,24 @@ bool XtensaFixupHwLoops::fixupLoopInstrs(MachineLoop *L) {
             DebugLoc DL = PII->getDebugLoc();
             unsigned OffsetLE = BlockInfo[PMBB->getNumber()].Offset;
 
-            // In most cases we expect that blocks in loop are ordered by such manner that block
-            // with LOOPSTART instruction preceeds block with LOOPEND instruction.
-            // But in some cases after transformations loop block which contains LOOPEND instruction
-            // maybe placed before LOOPSTART block during code generaion. We must handle such situation
-            // because "loop" instruction placed instead of LOOPSTART must have positive offset in the target
-            // field to the LOOPEND block.
-            // So, in such situation we add new LOOPEND block after the LOOPSTART block and create jump from old
-            // LOOPEND block to the new LOOPEND block adn set new LOOPEND block then as target for "loop" instruction
+            // In most cases we expect that blocks in loop are ordered by such
+            // manner that block with LOOPSTART instruction preceeds block with
+            // LOOPEND instruction. But in some cases after transformations loop
+            // block which contains LOOPEND instruction maybe placed before
+            // LOOPSTART block during code generaion. We must handle such
+            // situation because "loop" instruction placed instead of LOOPSTART
+            // must have positive offset in the target field to the LOOPEND
+            // block. So, in such situation we add new LOOPEND block after the
+            // LOOPSTART block and create jump from old LOOPEND block to the new
+            // LOOPEND block adn set new LOOPEND block then as target for "loop"
+            // instruction
             if (OffsetLE < LHOffset) {
               LoopEnd = MF->CreateMachineBasicBlock();
 
-              // If last block in the loop is whithin 256 byte offset from loop instruction
-              // then just place LOOPEND block after the last block.
+              // If last block in the loop is whithin 256 byte offset from loop
+              // instruction then just place LOOPEND block after the last block.
               if ((LastBlockOffset - LHOffset) < 256) {
-                //Insert after appropriate block
+                // Insert after appropriate block
                 MF->insert(++LastBlock->getIterator(), LoopEnd);
               } else {
                 // If loop is to large for hardware loop instructuin offset then
@@ -458,4 +461,3 @@ void XtensaFixupHwLoops::adjustBlockOffsets(MachineBasicBlock &Start) {
     PrevNum = Num;
   }
 }
-

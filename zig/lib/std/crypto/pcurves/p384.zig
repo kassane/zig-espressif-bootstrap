@@ -122,8 +122,8 @@ pub const P384 = struct {
     }
 
     /// Return a random point.
-    pub fn random() P384 {
-        const n = scalar.random(.little);
+    pub fn random(io: std.Io) P384 {
+        const n = scalar.random(io, .little);
         return basePoint.mul(n, .little) catch unreachable;
     }
 
@@ -470,6 +470,10 @@ pub const AffineCoordinates = struct {
 
     /// Identity element in affine coordinates.
     pub const identityElement = AffineCoordinates{ .x = P384.identityElement.x, .y = P384.identityElement.y };
+
+    pub fn neg(p: AffineCoordinates) AffineCoordinates {
+        return .{ .x = p.x, .y = p.y.neg() };
+    }
 
     fn cMov(p: *AffineCoordinates, a: AffineCoordinates, c: u1) void {
         p.x.cMov(a.x, c);

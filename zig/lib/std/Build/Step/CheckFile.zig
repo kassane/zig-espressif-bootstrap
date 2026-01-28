@@ -3,7 +3,9 @@
 //! TODO: generalize the code in std.testing.expectEqualStrings and make this
 //! CheckFile step produce those helpful diagnostics when there is not a match.
 const CheckFile = @This();
+
 const std = @import("std");
+const Io = std.Io;
 const Step = std.Build.Step;
 const fs = std.fs;
 const mem = std.mem;
@@ -49,18 +51,19 @@ pub fn setName(check_file: *CheckFile, name: []const u8) void {
 fn make(step: *Step, options: Step.MakeOptions) !void {
     _ = options;
     const b = step.owner;
+    const io = b.graph.io;
     const check_file: *CheckFile = @fieldParentPtr("step", step);
     try step.singleUnchangingWatchInput(check_file.source);
 
     const src_path = check_file.source.getPath2(b, step);
-    const contents = fs.cwd().readFileAlloc(b.allocator, src_path, check_file.max_bytes) catch |err| {
+    const contents = Io.Dir.cwd().readFileAlloc(io, src_path, b.allocator, .limited(check_file.max_bytes)) catch |err| {
         return step.fail("unable to read '{s}': {s}", .{
             src_path, @errorName(err),
         });
     };
 
     for (check_file.expected_matches) |expected_match| {
-        if (mem.indexOf(u8, contents, expected_match) == null) {
+        if (mem.find(u8, contents, expected_match) == null) {
             return step.fail(
                 \\
                 \\========= expected to find: ===================

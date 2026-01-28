@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2025 Free Software Foundation, Inc.
+/* Copyright (C) 2005-2026 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -150,15 +150,23 @@
     mov x8, SYS_ify (syscall_name);		\
     svc 0
 
+/* Clear ZA state of SME (ASM version).  */
+/* The __libc_arm_za_disable function has special calling convention
+   that allows to call it without stack manipulation and preserving
+   most of the registers.  */
+	.macro CALL_LIBC_ARM_ZA_DISABLE
+	cfi_remember_state
+	mov		x13, x30
+	cfi_register(x30, x13)
+	bl		__libc_arm_za_disable
+	mov		x30, x13
+	cfi_restore_state
+	.endm
+
 #else /* not __ASSEMBLER__ */
 
-# ifdef __LP64__
-#  define VDSO_NAME  "LINUX_2.6.39"
-#  define VDSO_HASH  123718537
-# else
-#  define VDSO_NAME  "LINUX_4.9"
-#  define VDSO_HASH  61765625
-# endif
+# define VDSO_NAME  "LINUX_2.6.39"
+# define VDSO_HASH  123718537
 
 /* List of system calls which are supported as vsyscalls.  */
 # define HAVE_CLOCK_GETRES64_VSYSCALL	"__kernel_clock_getres"
@@ -234,6 +242,32 @@
 
 #undef HAVE_INTERNAL_BRK_ADDR_SYMBOL
 #define HAVE_INTERNAL_BRK_ADDR_SYMBOL 1
+
+/* Clear ZA state of SME (C version).  */
+/* The __libc_arm_za_disable function has special calling convention
+   that allows to call it without stack manipulation and preserving
+   most of the registers.  */
+#define CALL_LIBC_ARM_ZA_DISABLE()			\
+({							\
+  unsigned long int __tmp;				\
+  asm volatile (					\
+  "	.cfi_remember_state\n"			\
+  "	mov		%0, x30\n"			\
+  "	.cfi_register x30, %0\n"      \
+  "	bl		__libc_arm_za_disable\n"	\
+  "	mov		x30, %0\n"			\
+  "	.cfi_restore_state\n"			\
+  : "=r" (__tmp)					\
+  :							\
+  : "x14", "x15", "x16", "x17", "x18", "memory" );	\
+})
+
+/* Do clear ZA state of SME before making normal clone syscall.  */
+#define INLINE_CLONE_SYSCALL(a0, a1, a2, a3, a4)	\
+({							\
+  CALL_LIBC_ARM_ZA_DISABLE ();				\
+  INLINE_SYSCALL_CALL (clone, a0, a1, a2, a3, a4);	\
+})
 
 #endif	/* __ASSEMBLER__ */
 

@@ -4,8 +4,6 @@ const mem = std.mem;
 const expect = std.testing.expect;
 const common = @import("common.zig");
 
-pub const panic = common.panic;
-
 const trig = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;

@@ -6,12 +6,9 @@ const testing = std.testing;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 const arch = builtin.cpu.arch;
-const is_test = builtin.is_test;
 const common = @import("common.zig");
 const udivmod = @import("udivmod.zig").udivmod;
 const __divti3 = @import("divti3.zig").__divti3;
-
-pub const panic = common.panic;
 
 comptime {
     @export(&__divmodti4, .{ .name = "__divmodti4", .linkage = common.linkage, .visibility = common.visibility });

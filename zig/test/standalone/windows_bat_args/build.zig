@@ -19,6 +19,22 @@ pub fn build(b: *std.Build) !void {
         }),
     });
 
+    const bat_files = b.addWriteFiles();
+    {
+        const echo_args_basename = "echo-args.exe";
+        const preamble = std.fmt.allocPrint(b.allocator,
+            \\@echo off
+            \\"{s}"
+        , .{echo_args_basename}) catch @panic("OOM");
+        // Trailing newline intentionally omitted above so we can add args.
+
+        _ = bat_files.add("args1.bat", std.mem.concat(b.allocator, u8, &.{ preamble, " %*" }) catch @panic("OOM"));
+        _ = bat_files.add("args2.bat", std.mem.concat(b.allocator, u8, &.{ preamble, " %1 %2 %3 %4 %5 %6 %7 %8 %9" }) catch @panic("OOM"));
+        _ = bat_files.add("args3.bat", std.mem.concat(b.allocator, u8, &.{ preamble, " \"%~1\" \"%~2\" \"%~3\" \"%~4\" \"%~5\" \"%~6\" \"%~7\" \"%~8\" \"%~9\"" }) catch @panic("OOM"));
+
+        _ = bat_files.addCopyFile(echo_args.getEmittedBin(), echo_args_basename);
+    }
+
     const test_exe = b.addExecutable(.{
         .name = "test",
         .root_module = b.createModule(.{
@@ -29,7 +45,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     const run = b.addRunArtifact(test_exe);
-    run.addArtifactArg(echo_args);
+    run.setCwd(bat_files.getDirectory());
     run.expectExitCode(0);
     run.skip_foreign_checks = true;
 
@@ -49,13 +65,13 @@ pub fn build(b: *std.Build) !void {
 
     const fuzz_seed = b.option(u64, "seed", "Seed to use for the PRNG (default: random)") orelse seed: {
         var buf: [8]u8 = undefined;
-        try std.posix.getrandom(&buf);
+        b.graph.io.random(&buf);
         break :seed std.mem.readInt(u64, &buf, builtin.cpu.arch.endian());
     };
     const fuzz_seed_arg = std.fmt.allocPrint(b.allocator, "{}", .{fuzz_seed}) catch @panic("oom");
 
     const fuzz_run = b.addRunArtifact(fuzz);
-    fuzz_run.addArtifactArg(echo_args);
+    fuzz_run.setCwd(bat_files.getDirectory());
     fuzz_run.addArgs(&.{ fuzz_iterations_arg, fuzz_seed_arg });
     fuzz_run.expectExitCode(0);
     fuzz_run.skip_foreign_checks = true;

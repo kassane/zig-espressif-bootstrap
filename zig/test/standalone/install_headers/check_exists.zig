@@ -2,17 +2,15 @@ const std = @import("std");
 
 /// Checks the existence of files relative to cwd.
 /// A path starting with ! should not exist.
-pub fn main() !void {
-    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_state.deinit();
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const io = init.io;
 
-    const arena = arena_state.allocator();
-
-    var arg_it = try std.process.argsWithAllocator(arena);
+    var arg_it = try init.minimal.args.iterateAllocator(arena);
     _ = arg_it.next();
 
-    const cwd = std.fs.cwd();
-    const cwd_realpath = try cwd.realpathAlloc(arena, ".");
+    const cwd = std.Io.Dir.cwd();
+    const cwd_realpath = try cwd.realPathFileAlloc(io, ".", arena);
 
     while (arg_it.next()) |file_path| {
         if (file_path.len > 0 and file_path[0] == '!') {
@@ -20,7 +18,7 @@ pub fn main() !void {
                 "exclusive file check '{s}{c}{s}' failed",
                 .{ cwd_realpath, std.fs.path.sep, file_path[1..] },
             );
-            if (std.fs.cwd().statFile(file_path[1..])) |_| {
+            if (cwd.statFile(io, file_path[1..], .{})) |_| {
                 return error.FileFound;
             } else |err| switch (err) {
                 error.FileNotFound => {},
@@ -31,7 +29,7 @@ pub fn main() !void {
                 "inclusive file check '{s}{c}{s}' failed",
                 .{ cwd_realpath, std.fs.path.sep, file_path },
             );
-            _ = try std.fs.cwd().statFile(file_path);
+            _ = try cwd.statFile(io, file_path, .{});
         }
     }
 }

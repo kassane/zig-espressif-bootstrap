@@ -1,29 +1,35 @@
 //! This API is non-allocating, non-fallible, thread-safe, and lock-free.
-
-const std = @import("std");
-const builtin = @import("builtin");
-const windows = std.os.windows;
-const testing = std.testing;
-const assert = std.debug.assert;
 const Progress = @This();
-const posix = std.posix;
+
+const builtin = @import("builtin");
 const is_big_endian = builtin.cpu.arch.endian() == .big;
 const is_windows = builtin.os.tag == .windows;
 
-/// `null` if the current node (and its children) should
-/// not print on update()
-terminal: std.fs.File,
+const std = @import("std");
+const Io = std.Io;
+const windows = std.os.windows;
+const testing = std.testing;
+const assert = std.debug.assert;
+const posix = std.posix;
+const Writer = std.Io.Writer;
+
+/// Currently this API only supports this value being set to stderr, which
+/// happens automatically inside `start`.
+terminal: Io.File,
+
+io: Io,
 
 terminal_mode: TerminalMode,
 
-update_thread: ?std.Thread,
+update_worker: ?Io.Future(void),
 
 /// Atomically set by SIGWINCH as well as the root done() function.
-redraw_event: std.Thread.ResetEvent,
+redraw_event: Io.Event,
 /// Indicates a request to shut down and reset global state.
 /// Accessed atomically.
 done: bool,
 need_clear: bool,
+status: Status,
 
 refresh_rate_ns: u64,
 initial_delay_ns: u64,
@@ -39,9 +45,37 @@ draw_buffer: []u8,
 /// CPU cache.
 node_parents: []Node.Parent,
 node_storage: []Node.Storage,
-node_freelist: []Node.OptionalIndex,
-node_freelist_first: Node.OptionalIndex,
+node_freelist_next: []Node.OptionalIndex,
+node_freelist: Freelist,
+/// This is the number of elements in node arrays which have been used so far. Nodes before this
+/// index are either active, or on the freelist. The remaining nodes are implicitly free. This
+/// value may at times temporarily exceed the node count.
 node_end_index: u32,
+
+start_failure: StartFailure,
+
+pub const Status = enum {
+    /// Indicates the application is progressing towards completion of a task.
+    /// Unless the application is interactive, this is the only status the
+    /// program will ever have!
+    working,
+    /// The application has completed an operation, and is now waiting for user
+    /// input rather than calling exit(0).
+    success,
+    /// The application encountered an error, and is now waiting for user input
+    /// rather than calling exit(1).
+    failure,
+    /// The application encountered at least one error, but is still working on
+    /// more tasks.
+    failure_working,
+};
+
+const Freelist = packed struct(u32) {
+    head: Node.OptionalIndex,
+    /// Whenever `node_freelist` is added to, this generation is incremented
+    /// to avoid ABA bugs when acquiring nodes. Wrapping arithmetic is used.
+    generation: u24,
+};
 
 pub const TerminalMode = union(enum) {
     off,
@@ -65,9 +99,9 @@ pub const Options = struct {
     /// Must be at least 200 bytes.
     draw_buffer: []u8 = &default_draw_buffer,
     /// How many nanoseconds between writing updates to the terminal.
-    refresh_rate_ns: u64 = 80 * std.time.ns_per_ms,
+    refresh_rate_ns: Io.Duration = .fromMilliseconds(80),
     /// How many nanoseconds to keep the output hidden
-    initial_delay_ns: u64 = 200 * std.time.ns_per_ms,
+    initial_delay_ns: Io.Duration = .fromMilliseconds(200),
     /// If provided, causes the progress item to have a denominator.
     /// 0 means unknown.
     estimated_total_items: usize = 0,
@@ -93,26 +127,26 @@ pub const Node = struct {
         name: [max_name_len]u8 align(@alignOf(usize)),
 
         /// Not thread-safe.
-        fn getIpcFd(s: Storage) ?posix.fd_t {
-            return if (s.estimated_total_count == std.math.maxInt(u32)) switch (@typeInfo(posix.fd_t)) {
+        fn getIpcFd(s: Storage) ?Io.File.Handle {
+            return if (s.estimated_total_count == std.math.maxInt(u32)) switch (@typeInfo(Io.File.Handle)) {
                 .int => @bitCast(s.completed_count),
                 .pointer => @ptrFromInt(s.completed_count),
-                else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
+                else => @compileError("unsupported fd_t of " ++ @typeName(Io.File.Handle)),
             } else null;
         }
 
         /// Thread-safe.
-        fn setIpcFd(s: *Storage, fd: posix.fd_t) void {
-            const integer: u32 = switch (@typeInfo(posix.fd_t)) {
+        fn setIpcFd(s: *Storage, fd: Io.File.Handle) void {
+            const integer: u32 = switch (@typeInfo(Io.File.Handle)) {
                 .int => @bitCast(fd),
                 .pointer => @intFromPtr(fd),
-                else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
+                else => @compileError("unsupported fd_t of " ++ @typeName(Io.File.Handle)),
             };
             // `estimated_total_count` max int indicates the special state that
             // causes `completed_count` to be treated as a file descriptor, so
             // the order here matters.
             @atomicStore(u32, &s.completed_count, integer, .monotonic);
-            @atomicStore(u32, &s.estimated_total_count, std.math.maxInt(u32), .release);
+            @atomicStore(u32, &s.estimated_total_count, std.math.maxInt(u32), .release); // synchronizes with acquire in `serialize`
         }
 
         /// Not thread-safe.
@@ -184,12 +218,24 @@ pub const Node = struct {
         const node_index = node.index.unwrap() orelse return Node.none;
         const parent = node_index.toParent();
 
-        const freelist_head = &global_progress.node_freelist_first;
-        var opt_free_index = @atomicLoad(Node.OptionalIndex, freelist_head, .seq_cst);
-        while (opt_free_index.unwrap()) |free_index| {
-            const freelist_ptr = freelistByIndex(free_index);
-            const next = @atomicLoad(Node.OptionalIndex, freelist_ptr, .seq_cst);
-            opt_free_index = @cmpxchgWeak(Node.OptionalIndex, freelist_head, opt_free_index, next, .seq_cst, .seq_cst) orelse {
+        const freelist = &global_progress.node_freelist;
+        var old_freelist = @atomicLoad(Freelist, freelist, .acquire); // acquire to ensure we have the correct "next" entry
+        while (old_freelist.head.unwrap()) |free_index| {
+            const next_ptr = freelistNextByIndex(free_index);
+            const new_freelist: Freelist = .{
+                .head = @atomicLoad(Node.OptionalIndex, next_ptr, .monotonic),
+                // We don't need to increment the generation when removing nodes from the free list,
+                // only when adding them. (This choice is arbitrary; the opposite would also work.)
+                .generation = old_freelist.generation,
+            };
+            old_freelist = @cmpxchgWeak(
+                Freelist,
+                freelist,
+                old_freelist,
+                new_freelist,
+                .acquire, // not theoretically necessary, but not allowed to be weaker than the failure order
+                .acquire, // ensure we have the correct `node_freelist_next` entry on the next iteration
+            ) orelse {
                 // We won the allocation race.
                 return init(free_index, parent, name, estimated_total_items);
             };
@@ -210,6 +256,28 @@ pub const Node = struct {
         const index = n.index.unwrap() orelse return;
         const storage = storageByIndex(index);
         _ = @atomicRmw(u32, &storage.completed_count, .Add, 1, .monotonic);
+    }
+
+    /// Thread-safe. Bytes after '0' in `new_name` are ignored.
+    pub fn setName(n: Node, new_name: []const u8) void {
+        const index = n.index.unwrap() orelse return;
+        const storage = storageByIndex(index);
+
+        const name_len = @min(max_name_len, std.mem.findScalar(u8, new_name, 0) orelse new_name.len);
+
+        copyAtomicStore(storage.name[0..name_len], new_name[0..name_len]);
+        if (name_len < storage.name.len)
+            @atomicStore(u8, &storage.name[name_len], 0, .monotonic);
+    }
+
+    /// Gets the name of this `Node`.
+    /// A pointer to this array can later be passed to `setName` to restore the name.
+    pub fn getName(n: Node) [max_name_len]u8 {
+        var dest: [max_name_len]u8 align(@alignOf(usize)) = undefined;
+        if (n.index.unwrap()) |index| {
+            copyAtomicLoad(&dest, &storageByIndex(index).name);
+        }
+        return dest;
     }
 
     /// Thread-safe.
@@ -243,25 +311,36 @@ pub const Node = struct {
         }
         const index = n.index.unwrap() orelse return;
         const parent_ptr = parentByIndex(index);
-        if (parent_ptr.unwrap()) |parent_index| {
+        if (@atomicLoad(Node.Parent, parent_ptr, .monotonic).unwrap()) |parent_index| {
             _ = @atomicRmw(u32, &storageByIndex(parent_index).completed_count, .Add, 1, .monotonic);
-            @atomicStore(Node.Parent, parent_ptr, .unused, .seq_cst);
+            @atomicStore(Node.Parent, parent_ptr, .unused, .monotonic);
 
-            const freelist_head = &global_progress.node_freelist_first;
-            var first = @atomicLoad(Node.OptionalIndex, freelist_head, .seq_cst);
+            const freelist = &global_progress.node_freelist;
+            var old_freelist = @atomicLoad(Freelist, freelist, .monotonic);
             while (true) {
-                @atomicStore(Node.OptionalIndex, freelistByIndex(index), first, .seq_cst);
-                first = @cmpxchgWeak(Node.OptionalIndex, freelist_head, first, index.toOptional(), .seq_cst, .seq_cst) orelse break;
+                @atomicStore(Node.OptionalIndex, freelistNextByIndex(index), old_freelist.head, .monotonic);
+                old_freelist = @cmpxchgWeak(
+                    Freelist,
+                    freelist,
+                    old_freelist,
+                    .{ .head = index.toOptional(), .generation = old_freelist.generation +% 1 },
+                    .release, // ensure a matching `start` sees the freelist link written above
+                    .monotonic, // our write above is irrelevant if we need to retry
+                ) orelse {
+                    // We won the race.
+                    return;
+                };
             }
         } else {
-            @atomicStore(bool, &global_progress.done, true, .seq_cst);
-            global_progress.redraw_event.set();
-            if (global_progress.update_thread) |thread| thread.join();
+            @atomicStore(bool, &global_progress.done, true, .monotonic);
+            const io = global_progress.io;
+            global_progress.redraw_event.set(io);
+            if (global_progress.update_worker) |*worker| worker.await(io);
         }
     }
 
     /// Posix-only. Used by `std.process.Child`. Thread-safe.
-    pub fn setIpcFd(node: Node, fd: posix.fd_t) void {
+    pub fn setIpcFd(node: Node, fd: Io.File.Handle) void {
         const index = node.index.unwrap() orelse return;
         assert(fd >= 0);
         assert(fd != posix.STDOUT_FILENO);
@@ -272,14 +351,14 @@ pub const Node = struct {
 
     /// Posix-only. Thread-safe. Assumes the node is storing an IPC file
     /// descriptor.
-    pub fn getIpcFd(node: Node) ?posix.fd_t {
+    pub fn getIpcFd(node: Node) ?Io.File.Handle {
         const index = node.index.unwrap() orelse return null;
         const storage = storageByIndex(index);
         const int = @atomicLoad(u32, &storage.completed_count, .monotonic);
-        return switch (@typeInfo(posix.fd_t)) {
+        return switch (@typeInfo(Io.File.Handle)) {
             .int => @bitCast(int),
             .pointer => @ptrFromInt(int),
-            else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
+            else => @compileError("unsupported fd_t of " ++ @typeName(Io.File.Handle)),
         };
     }
 
@@ -291,8 +370,8 @@ pub const Node = struct {
         return &global_progress.node_parents[@intFromEnum(index)];
     }
 
-    fn freelistByIndex(index: Node.Index) *Node.OptionalIndex {
-        return &global_progress.node_freelist[@intFromEnum(index)];
+    fn freelistNextByIndex(index: Node.Index) *Node.OptionalIndex {
+        return &global_progress.node_freelist_next[@intFromEnum(index)];
     }
 
     fn init(free_index: Index, parent: Parent, name: []const u8, estimated_total_items: usize) Node {
@@ -307,18 +386,21 @@ pub const Node = struct {
             @atomicStore(u8, &storage.name[name_len], 0, .monotonic);
 
         const parent_ptr = parentByIndex(free_index);
-        assert(parent_ptr.* == .unused);
-        @atomicStore(Node.Parent, parent_ptr, parent, .release);
+        if (std.debug.runtime_safety) {
+            assert(@atomicLoad(Node.Parent, parent_ptr, .monotonic) == .unused);
+        }
+        @atomicStore(Node.Parent, parent_ptr, parent, .monotonic);
 
         return .{ .index = free_index.toOptional() };
     }
 };
 
 var global_progress: Progress = .{
+    .io = undefined,
     .terminal = undefined,
     .terminal_mode = .off,
-    .update_thread = null,
-    .redraw_event = .{},
+    .update_worker = null,
+    .redraw_event = .unset,
     .refresh_rate_ns = undefined,
     .initial_delay_ns = undefined,
     .rows = 0,
@@ -326,18 +408,27 @@ var global_progress: Progress = .{
     .draw_buffer = undefined,
     .done = false,
     .need_clear = false,
+    .status = .working,
+    .start_failure = .unstarted,
 
     .node_parents = &node_parents_buffer,
     .node_storage = &node_storage_buffer,
-    .node_freelist = &node_freelist_buffer,
-    .node_freelist_first = .none,
+    .node_freelist_next = &node_freelist_next_buffer,
+    .node_freelist = .{ .head = .none, .generation = 0 },
     .node_end_index = 0,
+};
+
+pub const StartFailure = union(enum) {
+    unstarted,
+    spawn_ipc_worker: error{ConcurrencyUnavailable},
+    spawn_update_worker: error{ConcurrencyUnavailable},
+    parent_ipc: error{ UnsupportedOperation, UnrecognizedFormat },
 };
 
 const node_storage_buffer_len = 83;
 var node_parents_buffer: [node_storage_buffer_len]Node.Parent = undefined;
 var node_storage_buffer: [node_storage_buffer_len]Node.Storage = undefined;
-var node_freelist_buffer: [node_storage_buffer_len]Node.OptionalIndex = undefined;
+var node_freelist_next_buffer: [node_storage_buffer_len]Node.OptionalIndex = undefined;
 
 var default_draw_buffer: [4096]u8 = undefined;
 
@@ -351,6 +442,14 @@ pub const have_ipc = switch (builtin.os.tag) {
 const noop_impl = builtin.single_threaded or switch (builtin.os.tag) {
     .wasi, .freestanding => true,
     else => false,
+} or switch (builtin.zig_backend) {
+    else => false,
+};
+
+pub const ParentFileError = error{
+    UnsupportedOperation,
+    EnvironmentVariableMissing,
+    UnrecognizedFormat,
 };
 
 /// Initializes a global Progress instance.
@@ -358,7 +457,9 @@ const noop_impl = builtin.single_threaded or switch (builtin.os.tag) {
 /// Asserts there is only one global Progress instance.
 ///
 /// Call `Node.end` when done.
-pub fn start(options: Options) Node {
+///
+/// If an error occurs, `start_failure` will be populated.
+pub fn start(io: Io, options: Options) Node {
     // Ensure there is only 1 global Progress object.
     if (global_progress.node_end_index != 0) {
         debug_start_trace.dump();
@@ -373,36 +474,39 @@ pub fn start(options: Options) Node {
 
     assert(options.draw_buffer.len >= 200);
     global_progress.draw_buffer = options.draw_buffer;
-    global_progress.refresh_rate_ns = options.refresh_rate_ns;
-    global_progress.initial_delay_ns = options.initial_delay_ns;
+    global_progress.refresh_rate_ns = @intCast(options.refresh_rate_ns.toNanoseconds());
+    global_progress.initial_delay_ns = @intCast(options.initial_delay_ns.toNanoseconds());
 
     if (noop_impl)
         return Node.none;
 
-    if (std.process.parseEnvVarInt("ZIG_PROGRESS", u31, 10)) |ipc_fd| {
-        global_progress.update_thread = std.Thread.spawn(.{}, ipcThreadRun, .{
-            @as(posix.fd_t, switch (@typeInfo(posix.fd_t)) {
-                .int => ipc_fd,
-                .pointer => @ptrFromInt(ipc_fd),
-                else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
-            }),
-        }) catch |err| {
-            std.log.warn("failed to spawn IPC thread for communicating progress to parent: {s}", .{@errorName(err)});
+    global_progress.io = io;
+
+    if (io.vtable.progressParentFile(io.userdata)) |ipc_file| {
+        global_progress.update_worker = io.concurrent(ipcThreadRun, .{ io, ipc_file }) catch |err| {
+            global_progress.start_failure = .{ .spawn_ipc_worker = err };
             return Node.none;
         };
     } else |env_err| switch (env_err) {
-        error.EnvironmentVariableNotFound => {
+        error.EnvironmentVariableMissing => {
             if (options.disable_printing) {
                 return Node.none;
             }
-            const stderr = std.io.getStdErr();
+            const stderr: Io.File = .stderr();
             global_progress.terminal = stderr;
-            if (stderr.getOrEnableAnsiEscapeSupport()) {
+            if (stderr.enableAnsiEscapeCodes(io)) |_| {
                 global_progress.terminal_mode = .ansi_escape_codes;
-            } else if (is_windows and stderr.isTty()) {
-                global_progress.terminal_mode = TerminalMode{ .windows_api = .{
-                    .code_page = windows.kernel32.GetConsoleOutputCP(),
-                } };
+            } else |_| if (is_windows) {
+                if (stderr.isTty(io)) |is_tty| {
+                    if (is_tty) global_progress.terminal_mode = TerminalMode{ .windows_api = .{
+                        .code_page = windows.kernel32.GetConsoleOutputCP(),
+                    } };
+                } else |err| switch (err) {
+                    error.Canceled => {
+                        io.recancel();
+                        return Node.none;
+                    },
+                }
             }
 
             if (global_progress.terminal_mode == .off) {
@@ -410,27 +514,27 @@ pub fn start(options: Options) Node {
             }
 
             if (have_sigwinch) {
-                var act: posix.Sigaction = .{
+                const act: posix.Sigaction = .{
                     .handler = .{ .sigaction = handleSigWinch },
-                    .mask = posix.empty_sigset,
+                    .mask = posix.sigemptyset(),
                     .flags = (posix.SA.SIGINFO | posix.SA.RESTART),
                 };
-                posix.sigaction(posix.SIG.WINCH, &act, null);
+                posix.sigaction(.WINCH, &act, null);
             }
 
             if (switch (global_progress.terminal_mode) {
                 .off => unreachable, // handled a few lines above
-                .ansi_escape_codes => std.Thread.spawn(.{}, updateThreadRun, .{}),
-                .windows_api => if (is_windows) std.Thread.spawn(.{}, windowsApiUpdateThreadRun, .{}) else unreachable,
-            }) |thread| {
-                global_progress.update_thread = thread;
+                .ansi_escape_codes => io.concurrent(updateTask, .{io}),
+                .windows_api => if (is_windows) io.concurrent(windowsApiUpdateTask, .{io}) else unreachable,
+            }) |future| {
+                global_progress.update_worker = future;
             } else |err| {
-                std.log.warn("unable to spawn thread for printing progress to terminal: {s}", .{@errorName(err)});
+                global_progress.start_failure = .{ .spawn_update_worker = err };
                 return Node.none;
             }
         },
         else => |e| {
-            std.log.warn("invalid ZIG_PROGRESS file descriptor integer: {s}", .{@errorName(e)});
+            global_progress.start_failure = .{ .parent_ipc = e };
             return Node.none;
         },
     }
@@ -438,51 +542,63 @@ pub fn start(options: Options) Node {
     return root_node;
 }
 
+pub fn setStatus(new_status: Status) void {
+    if (noop_impl) return;
+    @atomicStore(Status, &global_progress.status, new_status, .monotonic);
+}
+
 /// Returns whether a resize is needed to learn the terminal size.
-fn wait(timeout_ns: u64) bool {
-    const resize_flag = if (global_progress.redraw_event.timedWait(timeout_ns)) |_|
-        true
-    else |err| switch (err) {
-        error.Timeout => false,
+fn wait(io: Io, timeout_ns: u64) bool {
+    const timeout: Io.Timeout = .{ .duration = .{
+        .clock = .awake,
+        .raw = .fromNanoseconds(timeout_ns),
+    } };
+    const resize_flag = if (global_progress.redraw_event.waitTimeout(io, timeout)) |_| true else |err| switch (err) {
+        error.Timeout, error.Canceled => false,
     };
     global_progress.redraw_event.reset();
     return resize_flag or (global_progress.cols == 0);
 }
 
-fn updateThreadRun() void {
+fn updateTask(io: Io) void {
     // Store this data in the thread so that it does not need to be part of the
     // linker data of the main executable.
     var serialized_buffer: Serialized.Buffer = undefined;
 
+    // In this function we bypass the wrapper code inside `Io.lockStderr` /
+    // `Io.tryLockStderr` in order to avoid clearing the terminal twice.
+    // We still want to go through the `Io` instance however in case it uses a
+    // task-switching mutex.
+
     {
-        const resize_flag = wait(global_progress.initial_delay_ns);
-        if (@atomicLoad(bool, &global_progress.done, .seq_cst)) return;
+        const resize_flag = wait(io, global_progress.initial_delay_ns);
+        if (@atomicLoad(bool, &global_progress.done, .monotonic)) return;
         maybeUpdateSize(resize_flag);
 
         const buffer, _ = computeRedraw(&serialized_buffer);
-        if (stderr_mutex.tryLock()) {
-            defer stderr_mutex.unlock();
-            write(buffer) catch return;
+        if (io.vtable.tryLockStderr(io.userdata, null) catch return) |locked_stderr| {
+            defer io.unlockStderr();
             global_progress.need_clear = true;
+            locked_stderr.file_writer.interface.writeAll(buffer) catch return;
         }
     }
 
     while (true) {
-        const resize_flag = wait(global_progress.refresh_rate_ns);
+        const resize_flag = wait(io, global_progress.refresh_rate_ns);
 
-        if (@atomicLoad(bool, &global_progress.done, .seq_cst)) {
-            stderr_mutex.lock();
-            defer stderr_mutex.unlock();
-            return clearWrittenWithEscapeCodes() catch {};
+        if (@atomicLoad(bool, &global_progress.done, .monotonic)) {
+            const stderr = io.vtable.lockStderr(io.userdata, null) catch return;
+            defer io.unlockStderr();
+            return clearWrittenWithEscapeCodes(stderr.file_writer) catch {};
         }
 
         maybeUpdateSize(resize_flag);
 
         const buffer, _ = computeRedraw(&serialized_buffer);
-        if (stderr_mutex.tryLock()) {
-            defer stderr_mutex.unlock();
-            write(buffer) catch return;
+        if (io.vtable.tryLockStderr(io.userdata, null) catch return) |locked_stderr| {
+            defer io.unlockStderr();
             global_progress.need_clear = true;
+            locked_stderr.file_writer.interface.writeAll(buffer) catch return;
         }
     }
 }
@@ -495,86 +611,77 @@ fn windowsApiWriteMarker() void {
     _ = windows.kernel32.WriteConsoleW(handle, &[_]u16{windows_api_start_marker}, 1, &num_chars_written, null);
 }
 
-fn windowsApiUpdateThreadRun() void {
+fn windowsApiUpdateTask(io: Io) void {
     var serialized_buffer: Serialized.Buffer = undefined;
 
+    // In this function we bypass the wrapper code inside `Io.lockStderr` /
+    // `Io.tryLockStderr` in order to avoid clearing the terminal twice.
+    // We still want to go through the `Io` instance however in case it uses a
+    // task-switching mutex.
+
     {
-        const resize_flag = wait(global_progress.initial_delay_ns);
-        if (@atomicLoad(bool, &global_progress.done, .seq_cst)) return;
+        const resize_flag = wait(io, global_progress.initial_delay_ns);
+        if (@atomicLoad(bool, &global_progress.done, .monotonic)) return;
         maybeUpdateSize(resize_flag);
 
         const buffer, const nl_n = computeRedraw(&serialized_buffer);
-        if (stderr_mutex.tryLock()) {
-            defer stderr_mutex.unlock();
+        if (io.vtable.tryLockStderr(io.userdata, null) catch return) |locked_stderr| {
+            defer io.unlockStderr();
             windowsApiWriteMarker();
-            write(buffer) catch return;
             global_progress.need_clear = true;
+            locked_stderr.file_writer.interface.writeAll(buffer) catch return;
             windowsApiMoveToMarker(nl_n) catch return;
         }
     }
 
     while (true) {
-        const resize_flag = wait(global_progress.refresh_rate_ns);
+        const resize_flag = wait(io, global_progress.refresh_rate_ns);
 
-        if (@atomicLoad(bool, &global_progress.done, .seq_cst)) {
-            stderr_mutex.lock();
-            defer stderr_mutex.unlock();
+        if (@atomicLoad(bool, &global_progress.done, .monotonic)) {
+            _ = io.vtable.lockStderr(io.userdata, null) catch return;
+            defer io.unlockStderr();
             return clearWrittenWindowsApi() catch {};
         }
 
         maybeUpdateSize(resize_flag);
 
         const buffer, const nl_n = computeRedraw(&serialized_buffer);
-        if (stderr_mutex.tryLock()) {
-            defer stderr_mutex.unlock();
+        if (io.vtable.tryLockStderr(io.userdata, null) catch return) |locked_stderr| {
+            defer io.unlockStderr();
             clearWrittenWindowsApi() catch return;
             windowsApiWriteMarker();
-            write(buffer) catch return;
             global_progress.need_clear = true;
+            locked_stderr.file_writer.interface.writeAll(buffer) catch return;
             windowsApiMoveToMarker(nl_n) catch return;
         }
     }
 }
 
-/// Allows the caller to freely write to stderr until `unlockStdErr` is called.
-///
-/// During the lock, any `std.Progress` information is cleared from the terminal.
-///
-/// The lock is recursive; the same thread may hold the lock multiple times.
-pub fn lockStdErr() void {
-    stderr_mutex.lock();
-    clearWrittenWithEscapeCodes() catch {};
-}
-
-pub fn unlockStdErr() void {
-    stderr_mutex.unlock();
-}
-
-fn ipcThreadRun(fd: posix.fd_t) anyerror!void {
+fn ipcThreadRun(io: Io, file: Io.File) void {
     // Store this data in the thread so that it does not need to be part of the
     // linker data of the main executable.
     var serialized_buffer: Serialized.Buffer = undefined;
 
     {
-        _ = wait(global_progress.initial_delay_ns);
+        _ = wait(io, global_progress.initial_delay_ns);
 
-        if (@atomicLoad(bool, &global_progress.done, .seq_cst))
+        if (@atomicLoad(bool, &global_progress.done, .monotonic))
             return;
 
         const serialized = serialize(&serialized_buffer);
-        writeIpc(fd, serialized) catch |err| switch (err) {
+        writeIpc(io, file, serialized) catch |err| switch (err) {
             error.BrokenPipe => return,
         };
     }
 
     while (true) {
-        _ = wait(global_progress.refresh_rate_ns);
+        _ = wait(io, global_progress.refresh_rate_ns);
 
-        if (@atomicLoad(bool, &global_progress.done, .seq_cst))
+        if (@atomicLoad(bool, &global_progress.done, .monotonic))
             return;
 
         const serialized = serialize(&serialized_buffer);
-        writeIpc(fd, serialized) catch |err| switch (err) {
+        writeIpc(io, file, serialized) catch |err| switch (err) {
             error.BrokenPipe => return,
         };
     }
@@ -586,6 +693,14 @@ const clear = "\x1b[J";
 const save = "\x1b7";
 const restore = "\x1b8";
 const finish_sync = "\x1b[?2026l";
+
+const progress_remove = "\x1b]9;4;0\x1b\\";
+const @"progress_normal {d}" = "\x1b]9;4;1;{d}\x1b\\";
+const @"progress_error {d}" = "\x1b]9;4;2;{d}\x1b\\";
+const progress_pulsing = "\x1b]9;4;3\x1b\\";
+const progress_pulsing_error = "\x1b]9;4;2\x1b\\";
+const progress_normal_100 = "\x1b]9;4;1;100\x1b\\";
+const progress_error_100 = "\x1b]9;4;2;100\x1b\\";
 
 const TreeSymbol = enum {
     /// ├─
@@ -665,11 +780,10 @@ fn appendTreeSymbol(symbol: TreeSymbol, buf: []u8, start_i: usize) usize {
     }
 }
 
-fn clearWrittenWithEscapeCodes() anyerror!void {
-    if (!global_progress.need_clear) return;
-
+pub fn clearWrittenWithEscapeCodes(file_writer: *Io.File.Writer) Io.Writer.Error!void {
+    if (noop_impl or !global_progress.need_clear) return;
+    try file_writer.interface.writeAll(clear ++ progress_remove);
     global_progress.need_clear = false;
-    try write(clear);
 }
 
 /// U+25BA or ►
@@ -765,37 +879,39 @@ fn serialize(serialized_buffer: *Serialized.Buffer) Serialized {
     var any_ipc = false;
 
     // Iterate all of the nodes and construct a serializable copy of the state that can be examined
-    // without atomics.
-    const end_index = @atomicLoad(u32, &global_progress.node_end_index, .monotonic);
+    // without atomics. The `@min` call is here because `node_end_index` might briefly exceed the
+    // node count sometimes.
+    const end_index = @min(@atomicLoad(u32, &global_progress.node_end_index, .monotonic), global_progress.node_storage.len);
     for (
         global_progress.node_parents[0..end_index],
         global_progress.node_storage[0..end_index],
         serialized_buffer.map[0..end_index],
     ) |*parent_ptr, *storage_ptr, *map| {
-        var begin_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
-        while (begin_parent != .unused) {
-            const dest_storage = &serialized_buffer.storage[serialized_len];
-            copyAtomicLoad(&dest_storage.name, &storage_ptr.name);
-            dest_storage.estimated_total_count = @atomicLoad(u32, &storage_ptr.estimated_total_count, .acquire);
-            dest_storage.completed_count = @atomicLoad(u32, &storage_ptr.completed_count, .monotonic);
-            const end_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
-            if (begin_parent == end_parent) {
-                any_ipc = any_ipc or (dest_storage.getIpcFd() != null);
-                serialized_buffer.parents[serialized_len] = begin_parent;
-                map.* = @enumFromInt(serialized_len);
-                serialized_len += 1;
-                break;
-            }
-
-            begin_parent = end_parent;
-        } else {
-            // A node may be freed during the execution of this loop, causing
-            // there to be a parent reference to a nonexistent node. Without
-            // this assignment, this would lead to the map entry containing
-            // stale data. By assigning none, the child node with the bad
-            // parent pointer will be harmlessly omitted from the tree.
+        const parent = @atomicLoad(Node.Parent, parent_ptr, .monotonic);
+        if (parent == .unused) {
+            // We might read "mixed" node data in this loop, due to weird atomic things
+            // or just a node actually being freed while this loop runs. That could cause
+            // there to be a parent reference to a nonexistent node. Without this assignment,
+            // this would lead to the map entry containing stale data. By assigning none, the
+            // child node with the bad parent pointer will be harmlessly omitted from the tree.
+            //
+            // Note that there's no concern of potentially creating "looping" data if we read
+            // "mixed" node data like this, because if a node is (directly or indirectly) its own
+            // parent, it will just not be printed at all. The general idea here is that performance
+            // is more important than 100% correct output every frame, given that this API is likely
+            // to be used in hot paths!
             map.* = .none;
+            continue;
         }
+        const dest_storage = &serialized_buffer.storage[serialized_len];
+        copyAtomicLoad(&dest_storage.name, &storage_ptr.name);
+        dest_storage.estimated_total_count = @atomicLoad(u32, &storage_ptr.estimated_total_count, .acquire); // sychronizes with release in `setIpcFd`
+        dest_storage.completed_count = @atomicLoad(u32, &storage_ptr.completed_count, .monotonic);
+
+        any_ipc = any_ipc or (dest_storage.getIpcFd() != null);
+        serialized_buffer.parents[serialized_len] = parent;
+        map.* = @enumFromInt(serialized_len);
+        serialized_len += 1;
     }
 
     // Remap parents to point inside serialized arrays.
@@ -827,11 +943,11 @@ const SavedMetadata = struct {
 const Fd = enum(i32) {
     _,
 
-    fn init(fd: posix.fd_t) Fd {
+    fn init(fd: Io.File.Handle) Fd {
         return @enumFromInt(if (is_windows) @as(isize, @bitCast(@intFromPtr(fd))) else fd);
     }
 
-    fn get(fd: Fd) posix.fd_t {
+    fn get(fd: Fd) Io.File.Handle {
         return if (is_windows)
             @ptrFromInt(@as(usize, @bitCast(@as(isize, @intFromEnum(fd)))))
         else
@@ -842,6 +958,7 @@ const Fd = enum(i32) {
 var ipc_metadata_len: u8 = 0;
 
 fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buffer) usize {
+    const io = global_progress.io;
     const ipc_metadata_fds_copy = &serialized_buffer.ipc_metadata_fds_copy;
     const ipc_metadata_copy = &serialized_buffer.ipc_metadata_copy;
     const ipc_metadata_fds = &serialized_buffer.ipc_metadata_fds;
@@ -860,14 +977,16 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
         0..,
     ) |main_parent, *main_storage, main_index| {
         if (main_parent == .unused) continue;
-        const fd = main_storage.getIpcFd() orelse continue;
-        const opt_saved_metadata = findOld(fd, old_ipc_metadata_fds, old_ipc_metadata);
+        const file: Io.File = .{
+            .handle = main_storage.getIpcFd() orelse continue,
+        };
+        const opt_saved_metadata = findOld(file.handle, old_ipc_metadata_fds, old_ipc_metadata);
         var bytes_read: usize = 0;
         while (true) {
-            const n = posix.read(fd, pipe_buf[bytes_read..]) catch |err| switch (err) {
+            const n = file.readStreaming(io, &.{pipe_buf[bytes_read..]}) catch |err| switch (err) {
                 error.WouldBlock => break,
                 else => |e| {
-                    std.log.debug("failed to read child progress data: {s}", .{@errorName(e)});
+                    std.log.debug("failed to read child progress data: {t}", .{e});
                     main_storage.completed_count = 0;
                     main_storage.estimated_total_count = 0;
                     continue :main_loop;
@@ -882,7 +1001,7 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
                         continue;
                     }
                     const src = pipe_buf[m.remaining_read_trash_bytes..n];
-                    std.mem.copyForwards(u8, &pipe_buf, src);
+                    @memmove(pipe_buf[0..src.len], src);
                     m.remaining_read_trash_bytes = 0;
                     bytes_read = src.len;
                     continue;
@@ -893,7 +1012,7 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
         // Ignore all but the last message on the pipe.
         var input: []u8 = pipe_buf[0..bytes_read];
         if (input.len == 0) {
-            serialized_len = useSavedIpcData(serialized_len, serialized_buffer, main_storage, main_index, opt_saved_metadata, 0, fd);
+            serialized_len = useSavedIpcData(serialized_len, serialized_buffer, main_storage, main_index, opt_saved_metadata, 0, file.handle);
             continue;
         }
 
@@ -903,7 +1022,7 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
             if (input.len < expected_bytes) {
                 // Ignore short reads. We'll handle the next full message when it comes instead.
                 const remaining_read_trash_bytes: u16 = @intCast(expected_bytes - input.len);
-                serialized_len = useSavedIpcData(serialized_len, serialized_buffer, main_storage, main_index, opt_saved_metadata, remaining_read_trash_bytes, fd);
+                serialized_len = useSavedIpcData(serialized_len, serialized_buffer, main_storage, main_index, opt_saved_metadata, remaining_read_trash_bytes, file.handle);
                 continue :main_loop;
             }
             if (input.len > expected_bytes) {
@@ -921,7 +1040,7 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
         const nodes_len: u8 = @intCast(@min(parents.len - 1, serialized_buffer.storage.len - serialized_len));
 
         // Remember in case the pipe is empty on next update.
-        ipc_metadata_fds[ipc_metadata_len] = Fd.init(fd);
+        ipc_metadata_fds[ipc_metadata_len] = Fd.init(file.handle);
         ipc_metadata[ipc_metadata_len] = .{
             .remaining_read_trash_bytes = 0,
             .start_index = @intCast(serialized_len),
@@ -979,7 +1098,7 @@ fn copyRoot(dest: *Node.Storage, src: *align(1) Node.Storage) void {
 }
 
 fn findOld(
-    ipc_fd: posix.fd_t,
+    ipc_fd: Io.File.Handle,
     old_metadata_fds: []Fd,
     old_metadata: []SavedMetadata,
 ) ?*SavedMetadata {
@@ -997,7 +1116,7 @@ fn useSavedIpcData(
     main_index: usize,
     opt_saved_metadata: ?*SavedMetadata,
     remaining_read_trash_bytes: u16,
-    fd: posix.fd_t,
+    fd: Io.File.Handle,
 ) usize {
     const parents_copy = &serialized_buffer.parents_copy;
     const storage_copy = &serialized_buffer.storage_copy;
@@ -1110,6 +1229,47 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) struct { []u8, usize } {
     i, const nl_n = computeNode(buf, i, 0, serialized, children, root_node_index);
 
     if (global_progress.terminal_mode == .ansi_escape_codes) {
+        {
+            // Set progress state https://conemu.github.io/en/AnsiEscapeCodes.html#ConEmu_specific_OSC
+            const root_storage = &serialized.storage[0];
+            const storage = if (root_storage.name[0] != 0 or children[0].child == .none) root_storage else &serialized.storage[@intFromEnum(children[0].child)];
+            const estimated_total = storage.estimated_total_count;
+            const completed_items = storage.completed_count;
+            const status = @atomicLoad(Status, &global_progress.status, .monotonic);
+            switch (status) {
+                .working => {
+                    if (estimated_total == 0) {
+                        buf[i..][0..progress_pulsing.len].* = progress_pulsing.*;
+                        i += progress_pulsing.len;
+                    } else {
+                        const percent = completed_items * 100 / estimated_total;
+                        if (std.fmt.bufPrint(buf[i..], @"progress_normal {d}", .{percent})) |b| {
+                            i += b.len;
+                        } else |_| {}
+                    }
+                },
+                .success => {
+                    buf[i..][0..progress_remove.len].* = progress_remove.*;
+                    i += progress_remove.len;
+                },
+                .failure => {
+                    buf[i..][0..progress_error_100.len].* = progress_error_100.*;
+                    i += progress_error_100.len;
+                },
+                .failure_working => {
+                    if (estimated_total == 0) {
+                        buf[i..][0..progress_pulsing_error.len].* = progress_pulsing_error.*;
+                        i += progress_pulsing_error.len;
+                    } else {
+                        const percent = completed_items * 100 / estimated_total;
+                        if (std.fmt.bufPrint(buf[i..], @"progress_error {d}", .{percent})) |b| {
+                            i += b.len;
+                        } else |_| {}
+                    }
+                },
+            }
+        }
+
         if (nl_n > 0) {
             buf[i] = '\r';
             i += 1;
@@ -1185,7 +1345,7 @@ fn computeNode(
     const storage = &serialized.storage[@intFromEnum(node_index)];
     const estimated_total = storage.estimated_total_count;
     const completed_items = storage.completed_count;
-    const name = if (std.mem.indexOfScalar(u8, &storage.name, 0)) |end| storage.name[0..end] else &storage.name;
+    const name = if (std.mem.findScalar(u8, &storage.name, 0)) |end| storage.name[0..end] else &storage.name;
     const parent = serialized.parents[@intFromEnum(node_index)];
 
     if (parent != .none) p: {
@@ -1203,12 +1363,18 @@ fn computeNode(
     if (!is_empty_root) {
         if (name.len != 0 or estimated_total > 0) {
             if (estimated_total > 0) {
-                i += (std.fmt.bufPrint(buf[i..], "[{d}/{d}] ", .{ completed_items, estimated_total }) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "[{d}/{d}] ", .{ completed_items, estimated_total })) |b| {
+                    i += b.len;
+                } else |_| {}
             } else if (completed_items != 0) {
-                i += (std.fmt.bufPrint(buf[i..], "[{d}] ", .{completed_items}) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "[{d}] ", .{completed_items})) |b| {
+                    i += b.len;
+                } else |_| {}
             }
             if (name.len != 0) {
-                i += (std.fmt.bufPrint(buf[i..], "{s}", .{name}) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "{s}", .{name})) |b| {
+                    i += b.len;
+                } else |_| {}
             }
         }
 
@@ -1247,13 +1413,9 @@ fn withinRowLimit(p: *Progress, nl_n: usize) bool {
     return nl_n + 2 < p.rows;
 }
 
-fn write(buf: []const u8) anyerror!void {
-    try global_progress.terminal.writeAll(buf);
-}
-
 var remaining_write_trash_bytes: usize = 0;
 
-fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
+fn writeIpc(io: Io, file: Io.File, serialized: Serialized) error{BrokenPipe}!void {
     // Byteswap if necessary to ensure little endian over the pipe. This is
     // needed because the parent or child process might be running in qemu.
     if (is_big_endian) for (serialized.storage) |*s| s.byteSwap();
@@ -1264,11 +1426,7 @@ fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
     const storage = std.mem.sliceAsBytes(serialized.storage);
     const parents = std.mem.sliceAsBytes(serialized.parents);
 
-    var vecs: [3]posix.iovec_const = .{
-        .{ .base = header.ptr, .len = header.len },
-        .{ .base = storage.ptr, .len = storage.len },
-        .{ .base = parents.ptr, .len = parents.len },
-    };
+    var vecs: [3][]const u8 = .{ header, storage, parents };
 
     // Ensures the packet can fit in the pipe buffer.
     const upper_bound_msg_len = 1 + node_storage_buffer_len * @sizeOf(Node.Storage) +
@@ -1279,14 +1437,14 @@ fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
         // We do this in a separate write call to give a better chance for the
         // writev below to be in a single packet.
         const n = @min(parents.len, remaining_write_trash_bytes);
-        if (posix.write(fd, parents[0..n])) |written| {
+        if (io.vtable.fileWriteStreaming(io.userdata, file, &.{}, &.{parents[0..n]}, 1)) |written| {
             remaining_write_trash_bytes -= written;
             continue;
         } else |err| switch (err) {
             error.WouldBlock => return,
             error.BrokenPipe => return error.BrokenPipe,
             else => |e| {
-                std.log.debug("failed to send progress to parent process: {s}", .{@errorName(e)});
+                std.log.debug("failed to send progress to parent process: {t}", .{e});
                 return error.BrokenPipe;
             },
         }
@@ -1294,7 +1452,7 @@ fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
 
     // If this write would block we do not want to keep trying, but we need to
     // know if a partial message was written.
-    if (writevNonblock(fd, &vecs)) |written| {
+    if (writevNonblock(io, file, &vecs)) |written| {
         const total = header.len + storage.len + parents.len;
         if (written < total) {
             remaining_write_trash_bytes = total - written;
@@ -1303,13 +1461,13 @@ fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
         error.WouldBlock => {},
         error.BrokenPipe => return error.BrokenPipe,
         else => |e| {
-            std.log.debug("failed to send progress to parent process: {s}", .{@errorName(e)});
+            std.log.debug("failed to send progress to parent process: {t}", .{e});
             return error.BrokenPipe;
         },
     }
 }
 
-fn writevNonblock(fd: posix.fd_t, iov: []posix.iovec_const) posix.WriteError!usize {
+fn writevNonblock(io: Io, file: Io.File, iov: [][]const u8) Io.File.Writer.Error!usize {
     var iov_index: usize = 0;
     var written: usize = 0;
     var total_written: usize = 0;
@@ -1318,9 +1476,9 @@ fn writevNonblock(fd: posix.fd_t, iov: []posix.iovec_const) posix.WriteError!usi
             written >= iov[iov_index].len
         else
             return total_written) : (iov_index += 1) written -= iov[iov_index].len;
-        iov[iov_index].base += written;
+        iov[iov_index].ptr += written;
         iov[iov_index].len -= written;
-        written = try posix.writev(fd, iov[iov_index..]);
+        written = try io.vtable.fileWriteStreaming(io.userdata, file, &.{}, iov, 1);
         if (written == 0) return total_written;
         total_written += written;
     }
@@ -1366,36 +1524,34 @@ fn maybeUpdateSize(resize_flag: bool) void {
     }
 }
 
-fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
+fn handleSigWinch(sig: posix.SIG, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
     _ = info;
     _ = ctx_ptr;
-    assert(sig == posix.SIG.WINCH);
-    global_progress.redraw_event.set();
+    assert(sig == .WINCH);
+    global_progress.redraw_event.set(global_progress.io);
 }
 
 const have_sigwinch = switch (builtin.os.tag) {
     .linux,
     .plan9,
-    .solaris,
+    .illumos,
     .netbsd,
     .openbsd,
     .haiku,
-    .macos,
+    .driverkit,
     .ios,
-    .watchos,
+    .maccatalyst,
+    .macos,
     .tvos,
     .visionos,
+    .watchos,
     .dragonfly,
     .freebsd,
+    .serenity,
     => true,
 
     else => false,
 };
-
-/// The primary motivation for recursive mutex here is so that a panic while
-/// stderr mutex is held still dumps the stack trace and other debug
-/// information.
-var stderr_mutex = std.Thread.Mutex.Recursive.init;
 
 fn copyAtomicStore(dest: []align(@alignOf(usize)) u8, src: []const u8) void {
     assert(dest.len == src.len);

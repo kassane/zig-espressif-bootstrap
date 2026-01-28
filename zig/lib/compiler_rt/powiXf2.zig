@@ -7,8 +7,6 @@ const builtin = @import("builtin");
 const common = @import("common.zig");
 const std = @import("std");
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__powihf2, .{ .name = "__powihf2", .linkage = common.linkage, .visibility = common.visibility });
     @export(&__powisf2, .{ .name = "__powisf2", .linkage = common.linkage, .visibility = common.visibility });

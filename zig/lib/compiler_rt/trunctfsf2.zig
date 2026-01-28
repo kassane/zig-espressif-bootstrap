@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const truncf = @import("./truncf.zig").truncf;
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_ppc_abi) {
         @export(&__trunctfsf2, .{ .name = "__trunckfsf2", .linkage = common.linkage, .visibility = common.visibility });

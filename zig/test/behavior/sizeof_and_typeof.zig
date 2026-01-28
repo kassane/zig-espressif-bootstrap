@@ -80,7 +80,7 @@ const P = packed struct {
 
 test "@offsetOf" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     // Packed structs have fixed memory layout
     try expect(@offsetOf(P, "a") == 0);
@@ -233,6 +233,8 @@ test "@sizeOf comparison against zero" {
 }
 
 test "hardcoded address in typeof expression" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const S = struct {
         fn func() @TypeOf(@as(*[]u8, @ptrFromInt(0x10)).*[0]) {
             return 0;
@@ -268,7 +270,6 @@ test "bitSizeOf comptime_int" {
 }
 
 test "runtime instructions inside typeof in comptime only scope" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -324,10 +325,8 @@ test "lazy abi size used in comparison" {
 }
 
 test "peer type resolution with @TypeOf doesn't trigger dependency loop check" {
-    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const T = struct {
         next: @TypeOf(null, @as(*const @This(), undefined)),
@@ -339,14 +338,14 @@ test "peer type resolution with @TypeOf doesn't trigger dependency loop check" {
 
 test "@sizeOf reified union zero-size payload fields" {
     comptime {
-        try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union {}))));
-        try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union { a: void }))));
+        try std.testing.expect(0 == @sizeOf(@Union(.auto, null, &.{}, &.{}, &.{})));
+        try std.testing.expect(0 == @sizeOf(@Union(.auto, null, &.{"a"}, &.{void}, &.{.{}})));
         if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
-            try std.testing.expect(1 == @sizeOf(@Type(@typeInfo(union { a: void, b: void }))));
-            try std.testing.expect(1 == @sizeOf(@Type(@typeInfo(union { a: void, b: void, c: void }))));
+            try std.testing.expect(1 == @sizeOf(@Union(.auto, null, &.{ "a", "b" }, &.{ void, void }, &.{ .{}, .{} })));
+            try std.testing.expect(1 == @sizeOf(@Union(.auto, null, &.{ "a", "b", "c" }, &.{ void, void, void }, &.{ .{}, .{}, .{} })));
         } else {
-            try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union { a: void, b: void }))));
-            try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union { a: void, b: void, c: void }))));
+            try std.testing.expect(0 == @sizeOf(@Union(.auto, null, &.{ "a", "b" }, &.{ void, void }, &.{ .{}, .{} })));
+            try std.testing.expect(0 == @sizeOf(@Union(.auto, null, &.{ "a", "b", "c" }, &.{ void, void, void }, &.{ .{}, .{}, .{} })));
         }
     }
 }
@@ -385,7 +384,7 @@ comptime {
 }
 
 test "Extern function calls in @TypeOf" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = extern struct {
         state: c_short,
@@ -436,7 +435,6 @@ test "Peer resolution of extern function calls in @TypeOf" {
 }
 
 test "Extern function calls, dereferences and field access in @TypeOf" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const Test = struct {

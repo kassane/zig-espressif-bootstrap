@@ -171,7 +171,7 @@ def offset4m32 : Immediate<i32,
 
 // entry_imm12 predicate - Immediate in the range [0,32760], ENTRY parameter
 def Entry_Imm12_AsmOperand: ImmAsmOperand<"entry_imm12">;
-def entry_imm12: Immediate<i32, [{ return Imm >= 0 && Imm <= 32760 && (Imm & 0x3 == 0); }], "Entry_Imm12_AsmOperand"> {
+def entry_imm12: Immediate<i32, [{ return Imm >= 0 && Imm <= 32760 && (Imm % 8 == 0); }], "Entry_Imm12_AsmOperand"> {
   let EncoderMethod = "getEntry_Imm12OpValue";
   let DecoderMethod = "decodeEntry_Imm12OpValue";
 }
@@ -350,6 +350,7 @@ def  pcrel32call : Operand<iPTR> {
   let EncoderMethod = "getCallEncoding";
   let DecoderMethod = "decodeCallOperand";
   let ParserMatchClass = XtensaPCRelTargetAsmOperand;
+  let OperandType = "OPERAND_PCREL";
 }
 
 def brtarget : Operand<OtherVT> {
@@ -357,6 +358,7 @@ def brtarget : Operand<OtherVT> {
   let EncoderMethod = "getBranchTargetEncoding";
   let DecoderMethod = "decodeBranchOperand";
   let ParserMatchClass = XtensaPCRelTargetAsmOperand;
+  let OperandType = "OPERAND_PCREL";
 }
 
 def jumptarget : Operand<OtherVT> {
@@ -364,6 +366,7 @@ def jumptarget : Operand<OtherVT> {
   let EncoderMethod = "getJumpTargetEncoding";
   let DecoderMethod = "decodeJumpOperand";
   let ParserMatchClass = XtensaPCRelTargetAsmOperand;
+  let OperandType = "OPERAND_PCREL";
 }
 
 def ltarget : Operand<OtherVT> {
@@ -371,11 +374,13 @@ def ltarget : Operand<OtherVT> {
   let EncoderMethod = "getLoopTargetEncoding";
   let DecoderMethod = "decodeLoopOperand";
   let ParserMatchClass = XtensaPCRelTargetAsmOperand;
+  let OperandType = "OPERAND_PCREL";
 }
 
-def L32Rtarget: Operand<i32> {
+def L32Rtarget : Operand<i32> {
   let PrintMethod = "printL32RTarget";
   let EncoderMethod = "getL32RTargetEncoding";
   let DecoderMethod = "decodeL32ROperand";
   let ParserMatchClass = XtensaPCRelTargetAsmOperand;
+  let OperandType = "OPERAND_PCREL";
 }

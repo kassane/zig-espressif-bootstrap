@@ -5,13 +5,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
-const is_test = builtin.is_test;
 const common = @import("common.zig");
 
 const normalize = common.normalize;
 const wideMultiply = common.wideMultiply;
-
-pub const panic = common.panic;
 
 comptime {
     if (common.want_aeabi) {

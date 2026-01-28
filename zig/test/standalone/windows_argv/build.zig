@@ -52,7 +52,7 @@ pub fn build(b: *std.Build) !void {
 
     const fuzz_seed = b.option(u64, "seed", "Seed to use for the PRNG (default: random)") orelse seed: {
         var buf: [8]u8 = undefined;
-        try std.posix.getrandom(&buf);
+        b.graph.io.random(&buf);
         break :seed std.mem.readInt(u64, &buf, builtin.cpu.arch.endian());
     };
     const fuzz_seed_arg = std.fmt.allocPrint(b.allocator, "{}", .{fuzz_seed}) catch @panic("oom");
@@ -67,7 +67,7 @@ pub fn build(b: *std.Build) !void {
 
     // Only target the MSVC ABI if MSVC/Windows SDK is available
     const has_msvc = has_msvc: {
-        const sdk = std.zig.WindowsSdk.find(b.allocator, builtin.cpu.arch) catch |err| switch (err) {
+        const sdk = std.zig.WindowsSdk.find(b.allocator, b.graph.io, builtin.cpu.arch, &b.graph.environ_map) catch |err| switch (err) {
             error.OutOfMemory => @panic("oom"),
             else => break :has_msvc false,
         };

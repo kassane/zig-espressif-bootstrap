@@ -30,6 +30,7 @@ pub fn build(b: *std.Build) void {
 
     const run = b.addRunArtifact(main);
     run.addArtifactArg(hello);
+    run.addDirectoryArg(b.tmpPath());
     run.expectExitCode(0);
     run.skip_foreign_checks = true;
 

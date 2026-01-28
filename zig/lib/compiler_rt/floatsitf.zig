@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const floatFromInt = @import("./float_from_int.zig").floatFromInt;
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_ppc_abi) {
         @export(&__floatsitf, .{ .name = "__floatsikf", .linkage = common.linkage, .visibility = common.visibility });

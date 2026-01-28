@@ -10,7 +10,6 @@ const maxInt = std.math.maxInt;
 top_level_field: i32,
 
 test "top level fields" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var instance = @This(){
@@ -87,10 +86,9 @@ const StructFoo = struct {
 };
 
 test "structs" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var foo: StructFoo = undefined;
     @memset(@as([*]u8, @ptrCast(&foo))[0..@sizeOf(StructFoo)], 0);
@@ -200,7 +198,6 @@ const MemberFnRand = struct {
 };
 
 test "return struct byval from function" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const Bar = struct {
@@ -236,19 +233,7 @@ test "call method with mutable reference to struct with no fields" {
     try expect(s.do());
 }
 
-test "usingnamespace within struct scope" {
-    const S = struct {
-        usingnamespace struct {
-            pub fn inner() i32 {
-                return 42;
-            }
-        };
-    };
-    try expect(@as(i32, 42) == S.inner());
-}
-
 test "struct field init with catch" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -291,9 +276,8 @@ const Val = struct {
 };
 
 test "struct point to self" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var root: Node = undefined;
     root.val.x = 1;
@@ -308,7 +292,6 @@ test "struct point to self" {
 }
 
 test "void struct fields" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const foo = VoidStructFieldsFoo{
@@ -337,7 +320,7 @@ fn testReturnEmptyStructFromFn() EmptyStruct2 {
 
 test "pass slice of empty struct to fn" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try expect(testPassSliceOfEmptyStructToFn(&[_]EmptyStruct2{EmptyStruct2{}}) == 1);
 }
@@ -346,10 +329,9 @@ fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) usize {
 }
 
 test "self-referencing struct via array member" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const T = struct {
         children: [1]*@This(),
@@ -373,7 +355,7 @@ const EmptyStruct = struct {
 test "align 1 field before self referential align 8 field as slice return type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const result = alloc(Expr);
     try expect(result.len == 0);
@@ -394,10 +376,10 @@ const APackedStruct = packed struct {
 };
 
 test "packed struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var foo = APackedStruct{
         .x = 1,
@@ -420,12 +402,11 @@ const Foo96Bits = packed struct {
 
 test "packed struct 24bits" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch.isWasm()) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch.isArm()) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     comptime {
         std.debug.assert(@sizeOf(Foo24Bits) == @sizeOf(u24));
@@ -467,7 +448,7 @@ test "runtime struct initialization of bitfield" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const s1 = Nibbles{
@@ -504,10 +485,10 @@ const Bitfields = packed struct {
 };
 
 test "packed struct fields are ordered from LSB to MSB" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var all: u64 = 0x7765443322221111;
     var bytes: [8]u8 align(@alignOf(Bitfields)) = undefined;
@@ -527,7 +508,8 @@ test "implicit cast packed struct field to const ptr" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     const LevelUpMove = packed struct {
         move_id: u9,
@@ -561,8 +543,7 @@ test "packed struct with non-ABI-aligned field" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = packed struct {
@@ -592,7 +573,8 @@ test "bit field access" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     var data = bit_field_1;
     try expect(getA(&data) == 1);
@@ -621,7 +603,6 @@ fn getC(data: *const BitField1) u2 {
 }
 
 test "default struct initialization fields" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -645,10 +626,10 @@ test "default struct initialization fields" {
 }
 
 test "packed array 24bits" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     comptime {
         try expect(@sizeOf([9]Foo32Bits) == 9 * 4);
@@ -712,10 +693,11 @@ const FooArrayOfAligned = packed struct {
 };
 
 test "pointer to packed struct member in a stack variable" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     const S = packed struct {
         a: u2,
@@ -741,7 +723,6 @@ test "packed struct with u0 field access" {
 }
 
 test "access to global struct fields" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     g_foo.bar.value = 42;
@@ -763,12 +744,12 @@ const S0 = struct {
 var g_foo: S0 = S0.init();
 
 test "packed struct with fp fields" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     const S = packed struct {
         data0: f32,
@@ -794,7 +775,6 @@ test "packed struct with fp fields" {
 
 test "fn with C calling convention returns struct by value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -818,10 +798,9 @@ test "fn with C calling convention returns struct by value" {
 }
 
 test "non-packed struct with u128 entry in union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -845,10 +824,10 @@ test "non-packed struct with u128 entry in union" {
 }
 
 test "packed struct field passed to generic function" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         const P = packed struct {
@@ -870,7 +849,6 @@ test "packed struct field passed to generic function" {
 }
 
 test "anonymous struct literal syntax" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -960,9 +938,8 @@ test "comptime struct field" {
 }
 
 test "tuple element initialized with fn call" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -979,8 +956,7 @@ test "tuple element initialized with fn call" {
 }
 
 test "struct with union field" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -1001,7 +977,6 @@ test "struct with union field" {
 }
 
 test "struct with 0-length union array field" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -1023,7 +998,6 @@ test "packed struct with undefined initializers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const P = packed struct {
@@ -1051,7 +1025,7 @@ test "packed struct with undefined initializers" {
 }
 
 test "for loop over pointers to struct, getting field from struct pointer" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -1090,10 +1064,10 @@ test "for loop over pointers to struct, getting field from struct pointer" {
 }
 
 test "anon init through error unions and optionals" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         a: u32,
@@ -1117,10 +1091,9 @@ test "anon init through error unions and optionals" {
 }
 
 test "anon init through optional" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         a: u32,
@@ -1137,10 +1110,9 @@ test "anon init through optional" {
 }
 
 test "anon init through error union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         a: u32,
@@ -1157,7 +1129,7 @@ test "anon init through error union" {
 }
 
 test "typed init through error unions and optionals" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -1183,7 +1155,6 @@ test "typed init through error unions and optionals" {
 }
 
 test "initialize struct with empty literal" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct { x: i32 = 1234 };
@@ -1218,10 +1189,9 @@ test "loading a struct pointer perfoms a copy" {
 }
 
 test "packed struct aggregate init" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -1239,10 +1209,10 @@ test "packed struct aggregate init" {
 }
 
 test "packed struct field access via pointer" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1280,7 +1250,6 @@ test "store to comptime field" {
 }
 
 test "struct field init value is size of the struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const namespace = struct {
@@ -1295,10 +1264,9 @@ test "struct field init value is size of the struct" {
 }
 
 test "under-aligned struct field" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const U = extern union {
@@ -1319,9 +1287,8 @@ test "under-aligned struct field" {
 }
 
 test "fieldParentPtr of a zero-bit field" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -1369,8 +1336,7 @@ test "fieldParentPtr of a zero-bit field" {
 }
 
 test "struct field has a pointer to an aligned version of itself" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const E = struct {
         next: *align(1) @This(),
@@ -1382,6 +1348,8 @@ test "struct field has a pointer to an aligned version of itself" {
 }
 
 test "struct has only one reference" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const S = struct {
         fn optionalStructParam(_: ?struct { x: u8 }) void {}
         fn errorUnionStructParam(_: error{}!struct { x: u8 }) void {}
@@ -1428,9 +1396,8 @@ test "struct has only one reference" {
 }
 
 test "no dependency loop on pointer to optional struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         const A = struct { b: B };
@@ -1450,8 +1417,7 @@ test "discarded struct initialization works as expected" {
 }
 
 test "function pointer in struct returns the struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const A = struct {
         const A = @This();
@@ -1467,8 +1433,7 @@ test "function pointer in struct returns the struct" {
 }
 
 test "no dependency loop on optional field wrapped in generic function" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         fn Atomic(comptime T: type) type {
@@ -1486,7 +1451,6 @@ test "no dependency loop on optional field wrapped in generic function" {
 }
 
 test "optional field init with tuple" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -1501,8 +1465,6 @@ test "optional field init with tuple" {
 }
 
 test "if inside struct init inside if" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     const MyStruct = struct { x: u32 };
     const b: u32 = 5;
     var i: u32 = 1;
@@ -1529,7 +1491,9 @@ test "optional generic function label struct field" {
 }
 
 test "struct fields get automatically reordered" {
-    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     const S1 = struct {
         a: u32,
@@ -1547,7 +1511,7 @@ test "struct fields get automatically reordered" {
 }
 
 test "directly initiating tuple like struct" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const a = struct { u8 }{8};
     try expect(a[0] == 8);
@@ -1591,8 +1555,8 @@ test "instantiate struct with comptime field" {
 test "struct field pointer has correct alignment" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1621,8 +1585,8 @@ test "struct field pointer has correct alignment" {
 test "extern struct field pointer has correct alignment" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1710,7 +1674,7 @@ test "runtime side-effects in comptime-known struct init" {
 }
 
 test "pointer to struct initialized through reference to anonymous initializer provides result types" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct { a: u8, b: u16, c: *const anyopaque };
     var my_u16: u16 = 0xABCD;
@@ -1769,7 +1733,7 @@ test "initializer uses own size" {
 }
 
 test "initializer takes a pointer to a variable inside its struct" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const namespace = struct {
         const S = struct {
@@ -1789,7 +1753,7 @@ test "initializer takes a pointer to a variable inside its struct" {
 }
 
 test "circular dependency through pointer field of a struct" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         const StructInner = extern struct {
@@ -1839,8 +1803,6 @@ test "tuple with comptime-only field" {
 }
 
 test "extern struct fields are aligned to 1" {
-    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const Foo = extern struct {
@@ -1857,15 +1819,15 @@ test "extern struct fields are aligned to 1" {
 }
 
 test "assign to slice.len of global variable" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const allocator = std.testing.allocator;
-        var list = std.ArrayList(u32).init(allocator);
+        var list = std.array_list.Managed(u32).init(allocator);
     };
 
     S.list.items.len = 0;
@@ -1909,10 +1871,8 @@ test "array of structs inside struct initialized with undefined" {
 }
 
 test "runtime call in nested initializer" {
-    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const Holder = struct {
         array: []const u8,
@@ -1942,8 +1902,6 @@ test "runtime call in nested initializer" {
 }
 
 test "runtime value in nested initializer passed as pointer to function" {
-    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const Bar = struct {
@@ -1967,11 +1925,8 @@ test "runtime value in nested initializer passed as pointer to function" {
 }
 
 test "struct field default value is a call" {
-    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Z = packed struct {
         a: u32,
@@ -2003,7 +1958,7 @@ test "struct field default value is a call" {
 }
 
 test "aggregate initializers should allow initializing comptime fields, verifying equality" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var x: u32 = 15;
     _ = &x;
@@ -2017,7 +1972,6 @@ test "aggregate initializers should allow initializing comptime fields, verifyin
 
 test "assignment of field with padding" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const Mesh = extern struct {
@@ -2047,7 +2001,6 @@ test "assignment of field with padding" {
 
 test "initiate global variable with runtime value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -2066,7 +2019,7 @@ test "initiate global variable with runtime value" {
 
 test "struct containing optional pointer to array of @This()" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         x: ?*const [1]@This(),
@@ -2082,10 +2035,7 @@ test "matching captures causes struct equivalence" {
         fn UnsignedWrapper(comptime I: type) type {
             const bits = @typeInfo(I).int.bits;
             return struct {
-                x: @Type(.{ .int = .{
-                    .signedness = .unsigned,
-                    .bits = bits,
-                } }),
+                x: @Int(.unsigned, bits),
             };
         }
     };
@@ -2139,4 +2089,98 @@ test "anonymous struct equivalence" {
     comptime assert(A == B);
     comptime assert(A != C);
     comptime assert(B != C);
+}
+
+test "field access through mem ptr arg" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn nestedFieldAccess(
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            _: usize,
+            ptr_struct: *const struct { field: u32 },
+        ) u32 {
+            return ptr_struct.field;
+        }
+    };
+    try expect(S.nestedFieldAccess(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        &.{ .field = 0x6b00a2eb },
+    ) == 0x6b00a2eb);
+    comptime assert(S.nestedFieldAccess(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        &.{ .field = 0x0ced271f },
+    ) == 0x0ced271f);
+}
+
+test "align 1 struct parameter dereferenced and returned" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    const S = extern struct {
+        a: u32,
+
+        fn gimme(p: *align(1) @This()) @This() {
+            return p.*;
+        }
+    };
+    var buffer: [5]u8 align(4) = .{ 1, 2, 3, 4, 5 };
+    const s = S.gimme(@ptrCast(buffer[1..]));
+    switch (native_endian) {
+        .big => try expect(s.a == 0x02030405),
+        .little => try expect(s.a == 0x05040302),
+    }
+}
+
+test "avoid unused field function body compile error" {
+    const Case = struct {
+        const This = @This();
+
+        const S = struct {
+            a: usize = 1,
+            b: fn () void = This.functionThatDoesNotCompile,
+        };
+
+        const s: S = .{};
+
+        fn entry() usize {
+            return s.a;
+        }
+
+        pub fn functionThatDoesNotCompile() void {
+            @compileError("told you so");
+        }
+    };
+
+    try expect(Case.entry() == 1);
+}
+
+test "pass a pointer to a comptime-only struct field to a function" {
+    const S = struct {
+        fn checkField(field_ptr: *const type) !void {
+            try expect(field_ptr.* == u42);
+        }
+    };
+    const s: struct { x: type } = .{ .x = u42 };
+    try S.checkField(&s.x);
 }

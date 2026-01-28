@@ -20,8 +20,7 @@ const testing = std.testing;
 const atomic = std.atomic;
 
 /// Checks if `ptr` still contains the value `expect` and, if so, blocks the caller until either:
-/// - The value at `ptr` is no longer equal to `expect`.
-/// - The caller is unblocked by a matching `wake()`.
+/// - The value at `ptr` is no longer equal to `expect` and `wake()` is called on the same address.
 /// - The caller is unblocked spuriously ("at random").
 ///
 /// The checking of `ptr` and `expect`, along with blocking the caller, is done atomically
@@ -116,7 +115,7 @@ const SingleThreadedImpl = struct {
             unreachable; // deadlock detected
         };
 
-        std.time.sleep(delay);
+        _ = delay;
         return error.Timeout;
     }
 
@@ -262,14 +261,14 @@ const LinuxImpl = struct {
             ts.nsec = @as(@TypeOf(ts.nsec), @intCast(timeout_ns % std.time.ns_per_s));
         }
 
-        const rc = linux.futex_wait(
-            @as(*const i32, @ptrCast(&ptr.raw)),
-            linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAIT,
-            @as(i32, @bitCast(expect)),
+        const rc = linux.futex_4arg(
+            &ptr.raw,
+            .{ .cmd = .WAIT, .private = true },
+            expect,
             if (timeout != null) &ts else null,
         );
 
-        switch (linux.E.init(rc)) {
+        switch (linux.errno(rc)) {
             .SUCCESS => {}, // notified by `wake()`
             .INTR => {}, // spurious wakeup
             .AGAIN => {}, // ptr.* != expect
@@ -284,13 +283,13 @@ const LinuxImpl = struct {
     }
 
     fn wake(ptr: *const atomic.Value(u32), max_waiters: u32) void {
-        const rc = linux.futex_wake(
-            @as(*const i32, @ptrCast(&ptr.raw)),
-            linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAKE,
-            std.math.cast(i32, max_waiters) orelse std.math.maxInt(i32),
+        const rc = linux.futex_3arg(
+            &ptr.raw,
+            .{ .cmd = .WAKE, .private = true },
+            @min(max_waiters, std.math.maxInt(i32)),
         );
 
-        switch (linux.E.init(rc)) {
+        switch (linux.errno(rc)) {
             .SUCCESS => {}, // successful wake up
             .INVAL => {}, // invalid futex_wait() on ptr done elsewhere
             .FAULT => {}, // pointer became invalid while doing the wake
@@ -461,9 +460,8 @@ const DragonflyImpl = struct {
 
 const WasmImpl = struct {
     fn wait(ptr: *const atomic.Value(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
-        if (!comptime std.Target.wasm.featureSetHas(builtin.target.cpu.features, .atomics)) {
-            @compileError("WASI target missing cpu feature 'atomics'");
-        }
+        if (!comptime builtin.cpu.has(.wasm, .atomics)) @compileError("WASI target missing cpu feature 'atomics'");
+
         const to: i64 = if (timeout) |to| @intCast(to) else -1;
         const result = asm volatile (
             \\local.get %[ptr]
@@ -485,9 +483,8 @@ const WasmImpl = struct {
     }
 
     fn wake(ptr: *const atomic.Value(u32), max_waiters: u32) void {
-        if (!comptime std.Target.wasm.featureSetHas(builtin.target.cpu.features, .atomics)) {
-            @compileError("WASI target missing cpu feature 'atomics'");
-        }
+        if (!comptime builtin.cpu.has(.wasm, .atomics)) @compileError("WASI target missing cpu feature 'atomics'");
+
         assert(max_waiters != 0);
         const woken_count = asm volatile (
             \\local.get %[ptr]
@@ -798,10 +795,10 @@ const PosixImpl = struct {
         var pending = bucket.pending.fetchAdd(1, .acquire);
         assert(pending < std.math.maxInt(usize));
 
-        // If the wait gets cancelled, remove the pending count we previously added.
+        // If the wait gets canceled, remove the pending count we previously added.
         // This is done outside the mutex lock to keep the critical section short in case of contention.
-        var cancelled = false;
-        defer if (cancelled) {
+        var canceled = false;
+        defer if (canceled) {
             pending = bucket.pending.fetchSub(1, .monotonic);
             assert(pending > 0);
         };
@@ -811,8 +808,8 @@ const PosixImpl = struct {
             assert(c.pthread_mutex_lock(&bucket.mutex) == .SUCCESS);
             defer assert(c.pthread_mutex_unlock(&bucket.mutex) == .SUCCESS);
 
-            cancelled = ptr.load(.monotonic) != expect;
-            if (cancelled) {
+            canceled = ptr.load(.monotonic) != expect;
+            if (canceled) {
                 return;
             }
 
@@ -829,13 +826,13 @@ const PosixImpl = struct {
             // If we fail to cancel after a timeout, it means a wake() thread dequeued us and will wake us up.
             // We must wait until the event is set as that's a signal that the wake() thread won't access the waiter memory anymore.
             // If we return early without waiting, the waiter on the stack would be invalidated and the wake() thread risks a UAF.
-            defer if (!cancelled) waiter.event.wait(null) catch unreachable;
+            defer if (!canceled) waiter.event.wait(null) catch unreachable;
 
             assert(c.pthread_mutex_lock(&bucket.mutex) == .SUCCESS);
             defer assert(c.pthread_mutex_unlock(&bucket.mutex) == .SUCCESS);
 
-            cancelled = WaitQueue.tryRemove(&bucket.treap, address, &waiter);
-            if (cancelled) {
+            canceled = WaitQueue.tryRemove(&bucket.treap, address, &waiter);
+            if (canceled) {
                 return error.Timeout;
             }
         };

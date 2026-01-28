@@ -17,7 +17,7 @@ pub fn main() !void {
         .maximum = 0.20,
     };
     const category = threshold.categorize(0.90);
-    try std.io.getStdOut().writeAll(@tagName(category));
+    std.log.info("category: {t}", .{category});
 }
 
 const std = @import("std");

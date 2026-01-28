@@ -3,6 +3,9 @@ const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
 const ofmt_c = builtin.object_format == .c;
 
+/// For now, we prefer weak linkage because some of the routines we implement here may also be
+/// provided by system/dynamic libc. Eventually we should be more disciplined about this on a
+/// per-symbol, per-target basis: https://github.com/ziglang/zig/issues/11883
 pub const linkage: std.builtin.GlobalLinkage = if (builtin.is_test)
     .internal
 else if (ofmt_c)
@@ -13,8 +16,10 @@ else
 /// Determines the symbol's visibility to other objects.
 /// For WebAssembly this allows the symbol to be resolved to other modules, but will not
 /// export it to the host runtime.
-pub const visibility: std.builtin.SymbolVisibility =
-    if (builtin.target.cpu.arch.isWasm() and linkage != .internal) .hidden else .default;
+pub const visibility: std.builtin.SymbolVisibility = if (linkage == .internal or builtin.link_mode == .dynamic)
+    .default
+else
+    .hidden;
 
 pub const PreferredLoadStoreElement = element: {
     if (std.simd.suggestVectorLength(u8)) |vec_size| {
@@ -43,9 +48,31 @@ pub const want_aeabi = switch (builtin.abi) {
     else => false,
 };
 
-/// These functions are provided by libc when targeting MSVC, but not MinGW.
-// Temporarily used for thumb-uefi until https://github.com/ziglang/zig/issues/21630 is addressed.
-pub const want_windows_arm_abi = builtin.cpu.arch.isArm() and (builtin.os.tag == .windows or builtin.os.tag == .uefi) and (builtin.abi.isGnu() or !builtin.link_libc);
+/// These functions are required on Windows on ARM. They are provided by MSVC libc, but in libc-less
+/// builds or when linking MinGW libc they are our responsibility.
+/// Temporarily used for thumb-uefi until https://github.com/ziglang/zig/issues/21630 is addressed.
+pub const want_windows_arm_abi = e: {
+    if (!builtin.cpu.arch.isArm()) break :e false;
+    switch (builtin.os.tag) {
+        .windows, .uefi => {},
+        else => break :e false,
+    }
+    // The ABI is needed, but it's only our reponsibility if libc won't provide it.
+    break :e builtin.abi.isGnu() or !builtin.link_libc;
+};
+
+/// These functions are required by on Windows on x86 on some ABIs. They are provided by MSVC libc,
+/// but in libc-less builds they are our responsibility.
+pub const want_windows_x86_msvc_abi = e: {
+    if (builtin.cpu.arch != .x86) break :e false;
+    if (builtin.os.tag != .windows) break :e false;
+    switch (builtin.abi) {
+        .none, .msvc, .itanium => {},
+        else => break :e false,
+    }
+    // The ABI is needed, but it's only our responsibility if libc won't provide it.
+    break :e !builtin.link_libc;
+};
 
 pub const want_ppc_abi = builtin.cpu.arch.isPowerPC();
 
@@ -77,7 +104,9 @@ pub const gnu_f16_abi = switch (builtin.cpu.arch) {
     .wasm32,
     .wasm64,
     .riscv64,
+    .riscv64be,
     .riscv32,
+    .riscv32be,
     .xtensa,
     => false,
 
@@ -93,25 +122,34 @@ pub const gnu_f16_abi = switch (builtin.cpu.arch) {
 
 pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 
-// Avoid dragging in the runtime safety mechanisms into this .o file, unless
-// we're trying to test compiler-rt.
-pub const panic = if (builtin.is_test) std.debug.FullPanic(std.debug.defaultPanic) else std.debug.no_panic;
+pub const test_safety = switch (builtin.zig_backend) {
+    .stage2_aarch64 => false,
+    else => builtin.is_test,
+};
 
-/// AArch64 is the only ABI (at the moment) to support f16 arguments without the
-/// need for extending them to wider fp types.
-/// TODO remove this; do this type selection in the language rather than
-/// here in compiler-rt.
+/// This seems to mostly correspond to `clang::TargetInfo::HasFloat16`.
 pub fn F16T(comptime OtherType: type) type {
     return switch (builtin.cpu.arch) {
-        .arm, .armeb, .thumb, .thumbeb => if (std.Target.arm.featureSetHas(builtin.cpu.features, .has_v8))
-            switch (builtin.abi.float()) {
-                .soft => u16,
-                .hard => f16,
-            }
-        else
-            u16,
-        .aarch64, .aarch64_be => f16,
-        .riscv32, .riscv64 => f16,
+        .amdgcn,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .aarch64,
+        .aarch64_be,
+        .hexagon,
+        .loongarch32,
+        .loongarch64,
+        .nvptx,
+        .nvptx64,
+        .riscv32,
+        .riscv32be,
+        .riscv64,
+        .riscv64be,
+        .s390x,
+        .spirv32,
+        .spirv64,
+        => f16,
         .x86, .x86_64 => if (builtin.target.os.tag.isDarwin()) switch (OtherType) {
             // Starting with LLVM 16, Darwin uses different abi for f16
             // depending on the type of the other return/argument..???
@@ -249,10 +287,7 @@ pub fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeIn
 pub inline fn fneg(a: anytype) @TypeOf(a) {
     const F = @TypeOf(a);
     const bits = @typeInfo(F).float.bits;
-    const U = @Type(.{ .int = .{
-        .signedness = .unsigned,
-        .bits = bits,
-    } });
+    const U = @Int(.unsigned, bits);
     const sign_bit_mask = @as(U, 1) << (bits - 1);
     const negated = @as(U, @bitCast(a)) ^ sign_bit_mask;
     return @bitCast(negated);

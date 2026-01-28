@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const intFromFloat = @import("./int_from_float.zig").intFromFloat;
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_aeabi) {
         @export(&__aeabi_d2uiz, .{ .name = "__aeabi_d2uiz", .linkage = common.linkage, .visibility = common.visibility });

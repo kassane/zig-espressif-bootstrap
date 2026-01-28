@@ -1,7 +1,5 @@
 const common = @import("./common.zig");
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_aeabi) {
         @export(&__aeabi_dneg, .{ .name = "__aeabi_dneg", .linkage = common.linkage, .visibility = common.visibility });

@@ -10,8 +10,6 @@ pub fn Value(comptime T: type) type {
             return .{ .raw = value };
         }
 
-        pub const fence = @compileError("@fence is deprecated, use other atomics to establish ordering");
-
         pub inline fn load(self: *const Self, comptime order: AtomicOrder) T {
             return @atomicLoad(T, &self.raw, order);
         }
@@ -378,13 +376,8 @@ pub inline fn spinLoopHint() void {
         .armeb,
         .thumb,
         .thumbeb,
-        => {
-            const can_yield = comptime std.Target.arm.featureSetHasAny(builtin.target.cpu.features, .{
-                .has_v6k, .has_v6m,
-            });
-            if (can_yield) {
-                asm volatile ("yield");
-            }
+        => if (comptime builtin.cpu.hasAny(.arm, &.{ .has_v6k, .has_v6m })) {
+            asm volatile ("yield");
         },
 
         // The 8-bit immediate specifies the amount of cycles to pause for. We can't really be too
@@ -393,8 +386,10 @@ pub inline fn spinLoopHint() void {
         => asm volatile ("pause(#1)"),
 
         .riscv32,
+        .riscv32be,
         .riscv64,
-        => if (comptime std.Target.riscv.featureSetHas(builtin.target.cpu.features, .zihintpause)) {
+        .riscv64be,
+        => if (comptime builtin.cpu.has(.riscv, .zihintpause)) {
             asm volatile ("pause");
         },
 
@@ -424,33 +419,45 @@ pub fn cacheLineForCpu(cpu: std.Target.Cpu) u16 {
         .aarch64,
         .aarch64_be,
         .arc,
+        .arceb,
         .powerpc64,
         .powerpc64le,
         => 128,
 
         // https://github.com/llvm/llvm-project/blob/e379094328e49731a606304f7e3559d4f1fa96f9/clang/lib/Basic/Targets/Hexagon.h#L145-L151
         .hexagon,
-        => if (std.Target.hexagon.featureSetHas(cpu.features, .v73)) 64 else 32,
+        => if (cpu.has(.hexagon, .v73)) 64 else 32,
 
         // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_arm.go#L7
         // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mips.go#L7
         // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mipsle.go#L7
         // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mips64x.go#L9
         // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/sparc/include/asm/cache.h#L14
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/microblaze/include/asm/cache.h#L15
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/sh/include/cpu-sh4/cpu/cache.h#L10
         .arm,
         .armeb,
         .thumb,
         .thumbeb,
+        .microblaze,
+        .microblazeel,
         .mips,
         .mipsel,
         .mips64,
         .mips64el,
+        .sh,
+        .sheb,
         .sparc,
         .sparc64,
         => 32,
 
         // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/m68k/include/asm/cache.h#L10
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/openrisc/include/asm/cache.h#L24
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/parisc/include/asm/cache.h#L16
+        .hppa,
+        .hppa64,
         .m68k,
+        .or1k,
         => 16,
 
         // - https://www.ti.com/lit/pdf/slaa498
@@ -471,6 +478,7 @@ pub fn cacheLineForCpu(cpu: std.Target.Cpu) u16 {
         // - https://github.com/golang/go/blob/19e923182e590ae6568c2c714f20f32512aeb3e3/src/internal/cpu/cpu_riscv64.go#L7
         // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/xtensa/variants/csp/include/variant/core.h#L209
         // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/csky/Kconfig#L183
+        // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/alpha/include/asm/cache.h#L11
         // - https://www.xmos.com/download/The-XMOS-XS3-Architecture.pdf
         else => 64,
     };

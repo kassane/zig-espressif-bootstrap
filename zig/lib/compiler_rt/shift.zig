@@ -3,8 +3,6 @@ const builtin = @import("builtin");
 const Log2Int = std.math.Log2Int;
 const common = @import("common.zig");
 
-pub const panic = common.panic;
-
 comptime {
     // symbol compatibility with libgcc
     @export(&__ashlsi3, .{ .name = "__ashlsi3", .linkage = common.linkage, .visibility = common.visibility });

@@ -436,8 +436,9 @@ fn testRangeBias(r: Random, start: i8, end: i8, biased: bool) !void {
 }
 
 test "CSPRNG" {
+    const io = std.testing.io;
     var secret_seed: [DefaultCsprng.secret_seed_length]u8 = undefined;
-    std.crypto.random.bytes(&secret_seed);
+    io.random(&secret_seed);
     var csprng = DefaultCsprng.init(secret_seed);
     const random = csprng.random();
     const a = random.int(u64);

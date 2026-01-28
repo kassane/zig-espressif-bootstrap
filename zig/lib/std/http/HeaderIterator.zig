@@ -5,17 +5,17 @@ is_trailer: bool,
 pub fn init(bytes: []const u8) HeaderIterator {
     return .{
         .bytes = bytes,
-        .index = std.mem.indexOfPosLinear(u8, bytes, 0, "\r\n").? + 2,
+        .index = std.mem.findPosLinear(u8, bytes, 0, "\r\n").? + 2,
         .is_trailer = false,
     };
 }
 
 pub fn next(it: *HeaderIterator) ?std.http.Header {
-    const end = std.mem.indexOfPosLinear(u8, it.bytes, it.index, "\r\n").?;
+    const end = std.mem.findPosLinear(u8, it.bytes, it.index, "\r\n").?;
     if (it.index == end) { // found the trailer boundary (\r\n\r\n)
         if (it.is_trailer) return null;
 
-        const next_end = std.mem.indexOfPosLinear(u8, it.bytes, end + 2, "\r\n") orelse
+        const next_end = std.mem.findPosLinear(u8, it.bytes, end + 2, "\r\n") orelse
             return null;
 
         var kv_it = std.mem.splitScalar(u8, it.bytes[end + 2 .. next_end], ':');

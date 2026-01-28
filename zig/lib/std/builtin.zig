@@ -1,67 +1,21 @@
 //! Types and values provided by the Zig language.
 
 const builtin = @import("builtin");
+const std = @import("std.zig");
+const root = @import("root");
 
-/// `explicit_subsystem` is missing when the subsystem is automatically detected,
-/// so Zig standard library has the subsystem detection logic here. This should generally be
-/// used rather than `explicit_subsystem`.
-/// On non-Windows targets, this is `null`.
-pub const subsystem: ?std.Target.SubSystem = blk: {
-    if (@hasDecl(builtin, "explicit_subsystem")) break :blk builtin.explicit_subsystem;
-    switch (builtin.os.tag) {
-        .windows => {
-            if (builtin.is_test) {
-                break :blk std.Target.SubSystem.Console;
-            }
-            if (@hasDecl(root, "main") or
-                @hasDecl(root, "WinMain") or
-                @hasDecl(root, "wWinMain") or
-                @hasDecl(root, "WinMainCRTStartup") or
-                @hasDecl(root, "wWinMainCRTStartup"))
-            {
-                break :blk std.Target.SubSystem.Windows;
-            } else {
-                break :blk std.Target.SubSystem.Console;
-            }
-        },
-        else => break :blk null,
-    }
-};
+pub const assembly = @import("builtin/assembly.zig");
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
-
-    pub fn format(
-        self: StackTrace,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-
-        // TODO: re-evaluate whether to use format() methods at all.
-        // Until then, avoid an error when using GeneralPurposeAllocator with WebAssembly
-        // where it tries to call detectTTYConfig here.
-        if (builtin.os.tag == .freestanding) return;
-
-        _ = options;
-        const debug_info = std.debug.getSelfDebugInfo() catch |err| {
-            return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
-        };
-        const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
-        try writer.writeAll("\n");
-        std.debug.writeStackTrace(self, writer, debug_info, tty_config) catch |err| {
-            try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
-        };
-    }
 };
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const GlobalLinkage = enum {
+pub const GlobalLinkage = enum(u2) {
     internal,
     strong,
     weak,
@@ -70,7 +24,7 @@ pub const GlobalLinkage = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const SymbolVisibility = enum {
+pub const SymbolVisibility = enum(u2) {
     default,
     hidden,
     protected,
@@ -141,11 +95,16 @@ pub const AtomicRmwOp = enum {
 /// therefore must be kept in sync with the compiler implementation.
 pub const CodeModel = enum {
     default,
-    tiny,
-    small,
+    extreme,
     kernel,
-    medium,
     large,
+    medany,
+    medium,
+    medlow,
+    medmid,
+    normal,
+    small,
+    tiny,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -156,9 +115,6 @@ pub const OptimizeMode = enum {
     ReleaseFast,
     ReleaseSmall,
 };
-
-/// Deprecated; use OptimizeMode.
-pub const Mode = OptimizeMode;
 
 /// The calling convention of a function defines how arguments and return values are passed, as well
 /// as any other requirements which callers and callees must respect, such as register preservation
@@ -184,56 +140,9 @@ pub const CallingConvention = union(enum(u8)) {
     pub const kernel: CallingConvention = switch (builtin.target.cpu.arch) {
         .amdgcn => .amdgcn_kernel,
         .nvptx, .nvptx64 => .nvptx_kernel,
-        .spirv, .spirv32, .spirv64 => .spirv_kernel,
+        .spirv32, .spirv64 => .spirv_kernel,
         else => unreachable,
     };
-
-    /// Deprecated; use `.auto`.
-    pub const Unspecified: CallingConvention = .auto;
-    /// Deprecated; use `.c`.
-    pub const C: CallingConvention = .c;
-    /// Deprecated; use `.naked`.
-    pub const Naked: CallingConvention = .naked;
-    /// Deprecated; use `.@"async"`.
-    pub const Async: CallingConvention = .@"async";
-    /// Deprecated; use `.@"inline"`.
-    pub const Inline: CallingConvention = .@"inline";
-    /// Deprecated; use `.x86_64_interrupt`, `.x86_interrupt`, or `.avr_interrupt`.
-    pub const Interrupt: CallingConvention = switch (builtin.target.cpu.arch) {
-        .x86_64 => .{ .x86_64_interrupt = .{} },
-        .x86 => .{ .x86_interrupt = .{} },
-        .avr => .avr_interrupt,
-        else => unreachable,
-    };
-    /// Deprecated; use `.avr_signal`.
-    pub const Signal: CallingConvention = .avr_signal;
-    /// Deprecated; use `.x86_stdcall`.
-    pub const Stdcall: CallingConvention = .{ .x86_stdcall = .{} };
-    /// Deprecated; use `.x86_fastcall`.
-    pub const Fastcall: CallingConvention = .{ .x86_fastcall = .{} };
-    /// Deprecated; use `.x86_64_vectorcall`, `.x86_vectorcall`, or `aarch64_vfabi`.
-    pub const Vectorcall: CallingConvention = switch (builtin.target.cpu.arch) {
-        .x86_64 => .{ .x86_64_vectorcall = .{} },
-        .x86 => .{ .x86_vectorcall = .{} },
-        .aarch64, .aarch64_be => .{ .aarch64_vfabi = .{} },
-        else => unreachable,
-    };
-    /// Deprecated; use `.x86_thiscall`.
-    pub const Thiscall: CallingConvention = .{ .x86_thiscall = .{} };
-    /// Deprecated; use `.arm_aapcs`.
-    pub const AAPCS: CallingConvention = .{ .arm_aapcs = .{} };
-    /// Deprecated; use `.arm_aapcs_vfp`.
-    pub const AAPCSVFP: CallingConvention = .{ .arm_aapcs_vfp = .{} };
-    /// Deprecated; use `.x86_64_sysv`.
-    pub const SysV: CallingConvention = .{ .x86_64_sysv = .{} };
-    /// Deprecated; use `.x86_64_win`.
-    pub const Win64: CallingConvention = .{ .x86_64_win = .{} };
-    /// Deprecated; use `.kernel`.
-    pub const Kernel: CallingConvention = .kernel;
-    /// Deprecated; use `.spirv_fragment`.
-    pub const Fragment: CallingConvention = .spirv_fragment;
-    /// Deprecated; use `.spirv_vertex`.
-    pub const Vertex: CallingConvention = .spirv_vertex;
 
     /// The default Zig calling convention when neither `export` nor `inline` is specified.
     /// This calling convention makes no guarantees about stack alignment, registers, etc.
@@ -243,7 +152,7 @@ pub const CallingConvention = union(enum(u8)) {
     /// The calling convention of a function that can be called with `async` syntax. An `async` call
     /// of a runtime-known function must target a function with this calling convention.
     /// Comptime-known functions with other calling conventions may be coerced to this one.
-    @"async",
+    async,
 
     /// Functions with this calling convention have no prologue or epilogue, making the function
     /// uncallable in regular Zig code. This can be useful when integrating with assembly.
@@ -256,6 +165,7 @@ pub const CallingConvention = union(enum(u8)) {
 
     // Calling conventions for the `x86_64` architecture.
     x86_64_sysv: CommonOptions,
+    x86_64_x32: CommonOptions,
     x86_64_win: CommonOptions,
     x86_64_regcall_v3_sysv: CommonOptions,
     x86_64_regcall_v4_win: CommonOptions,
@@ -274,12 +184,22 @@ pub const CallingConvention = union(enum(u8)) {
     x86_vectorcall: CommonOptions,
     x86_interrupt: CommonOptions,
 
+    // Calling conventions for the `x86_16` architecture.
+
+    x86_16_cdecl: CommonOptions,
+    x86_16_stdcall: CommonOptions,
+    x86_16_regparmcall: CommonOptions,
+    x86_16_interrupt: CommonOptions,
+
     // Calling conventions for the `aarch64` and `aarch64_be` architectures.
     aarch64_aapcs: CommonOptions,
     aarch64_aapcs_darwin: CommonOptions,
     aarch64_aapcs_win: CommonOptions,
     aarch64_vfabi: CommonOptions,
     aarch64_vfabi_sve: CommonOptions,
+
+    /// The standard `alpha` calling convention.
+    alpha_osf: CommonOptions,
 
     // Calling convetions for the `arm`, `armeb`, `thumb`, and `thumbeb` architectures.
     /// ARM Architecture Procedure Call Standard
@@ -327,8 +247,9 @@ pub const CallingConvention = union(enum(u8)) {
     /// The standard `wasm32` and `wasm64` calling convention, as specified in the WebAssembly Tool Conventions.
     wasm_mvp: CommonOptions,
 
-    /// The standard `arc` calling convention.
+    /// The standard `arc`/`arceb` calling convention.
     arc_sysv: CommonOptions,
+    arc_interrupt: ArcInterruptOptions,
 
     // Calling conventions for the `avr` architecture.
     avr_gnu,
@@ -347,6 +268,15 @@ pub const CallingConvention = union(enum(u8)) {
     hexagon_sysv: CommonOptions,
     hexagon_sysv_hvx: CommonOptions,
 
+    /// The standard `hppa` calling convention.
+    hppa_elf: CommonOptions,
+
+    /// The standard `hppa64` calling convention.
+    hppa64_elf: CommonOptions,
+
+    kvx_lp64: CommonOptions,
+    kvx_ilp32: CommonOptions,
+
     /// The standard `lanai` calling convention.
     lanai_sysv: CommonOptions,
 
@@ -362,8 +292,16 @@ pub const CallingConvention = union(enum(u8)) {
     m68k_rtd: CommonOptions,
     m68k_interrupt: CommonOptions,
 
+    /// The standard `microblaze`/`microblazeel` calling convention.
+    microblaze_std: CommonOptions,
+    microblaze_interrupt: MicroblazeInterruptOptions,
+
     /// The standard `msp430` calling convention.
     msp430_eabi: CommonOptions,
+    msp430_interrupt: CommonOptions,
+
+    /// The standard `or1k` calling convention.
+    or1k_sysv: CommonOptions,
 
     /// The standard `propeller` calling convention.
     propeller_sysv: CommonOptions,
@@ -372,6 +310,11 @@ pub const CallingConvention = union(enum(u8)) {
     s390x_sysv: CommonOptions,
     s390x_sysv_vx: CommonOptions,
 
+    // Calling conventions for the `sh`/`sheb` architecture.
+    sh_gnu: CommonOptions,
+    sh_renesas: CommonOptions,
+    sh_interrupt: ShInterruptOptions,
+
     /// The standard `ve` calling convention.
     ve_sysv: CommonOptions,
 
@@ -379,7 +322,7 @@ pub const CallingConvention = union(enum(u8)) {
     xcore_xs1: CommonOptions,
     xcore_xs2: CommonOptions,
 
-    // Calling conventions for the `xtensa` architecture.
+    // Calling conventions for the `xtensa`/`xtensaeb` architecture.
     xtensa_call0: CommonOptions,
     xtensa_windowed: CommonOptions,
 
@@ -417,6 +360,22 @@ pub const CallingConvention = union(enum(u8)) {
         register_params: u2 = 0,
     };
 
+    /// Options for the `arc_interrupt` calling convention.
+    pub const ArcInterruptOptions = struct {
+        /// The boundary the stack is aligned to when the function is called.
+        /// `null` means the default for this calling convention.
+        incoming_stack_alignment: ?u64 = null,
+        /// The kind of interrupt being received.
+        type: InterruptType,
+
+        pub const InterruptType = enum(u2) {
+            ilink1,
+            ilink2,
+            ilink,
+            firq,
+        };
+    };
+
     /// Options for the `arm_interrupt` calling convention.
     pub const ArmInterruptOptions = struct {
         /// The boundary the stack is aligned to when the function is called.
@@ -432,6 +391,25 @@ pub const CallingConvention = union(enum(u8)) {
             swi,
             abort,
             undef,
+        };
+    };
+
+    /// Options for the `microblaze_interrupt` calling convention.
+    pub const MicroblazeInterruptOptions = struct {
+        /// The boundary the stack is aligned to when the function is called.
+        /// `null` means the default for this calling convention.
+        incoming_stack_alignment: ?u64 = null,
+        type: InterruptType = .regular,
+
+        pub const InterruptType = enum(u2) {
+            /// User exception; return with `rtsd`.
+            user,
+            /// Regular interrupt; return with `rtid`.
+            regular,
+            /// Fast interrupt; return with `rtid`.
+            fast,
+            /// Software breakpoint; return with `rtbd`.
+            breakpoint,
         };
     };
 
@@ -470,6 +448,25 @@ pub const CallingConvention = union(enum(u8)) {
         };
     };
 
+    /// Options for the `sh_interrupt` calling convention.
+    pub const ShInterruptOptions = struct {
+        /// The boundary the stack is aligned to when the function is called.
+        /// `null` means the default for this calling convention.
+        incoming_stack_alignment: ?u64 = null,
+        save: SaveBehavior = .full,
+
+        pub const SaveBehavior = enum(u3) {
+            /// Save only fpscr (if applicable).
+            fpscr,
+            /// Save only high-numbered registers, i.e. r0 through r7 are *not* saved.
+            high,
+            /// Save all registers normally.
+            full,
+            /// Save all registers using the CPU's fast register bank.
+            bank,
+        };
+    };
+
     /// Returns the array of `std.Target.Cpu.Arch` to which this `CallingConvention` applies.
     /// Asserts that `cc` is not `.auto`, `.@"async"`, `.naked`, or `.@"inline"`.
     pub fn archs(cc: CallingConvention) []const std.Target.Cpu.Arch {
@@ -491,26 +488,15 @@ pub const CallingConvention = union(enum(u8)) {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const AddressSpace = enum(u5) {
-    /// The places where a user can specify an address space attribute
-    pub const Context = enum {
-        /// A function is specified to be placed in a certain address space.
-        function,
-        /// A (global) variable is specified to be placed in a certain address space.
-        /// In contrast to .constant, these values (and thus the address space they will be
-        /// placed in) are required to be mutable.
-        variable,
-        /// A (global) constant value is specified to be placed in a certain address space.
-        /// In contrast to .variable, values placed in this address space are not required to be mutable.
-        constant,
-        /// A pointer is ascripted to point into a certain address space.
-        pointer,
-    };
-
     // CPU address spaces.
     generic,
     gs,
     fs,
     ss,
+
+    // x86_16 extra address spaces.
+    /// Allows addressing the entire address space by storing both segment and offset.
+    far,
 
     // GPU address spaces.
     global,
@@ -523,6 +509,7 @@ pub const AddressSpace = enum(u5) {
     uniform,
     push_constant,
     storage_buffer,
+    physical_storage_buffer,
 
     // AVR address spaces.
     flash,
@@ -561,19 +548,19 @@ pub const TypeId = std.meta.Tag(Type);
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const Type = union(enum) {
-    type: void,
-    void: void,
-    bool: void,
-    noreturn: void,
+    type,
+    void,
+    bool,
+    noreturn,
     int: Int,
     float: Float,
     pointer: Pointer,
     array: Array,
     @"struct": Struct,
-    comptime_float: void,
-    comptime_int: void,
-    undefined: void,
-    null: void,
+    comptime_float,
+    comptime_int,
+    undefined,
+    null,
     optional: Optional,
     error_union: ErrorUnion,
     error_set: ErrorSet,
@@ -584,7 +571,7 @@ pub const Type = union(enum) {
     frame: Frame,
     @"anyframe": AnyFrame,
     vector: Vector,
-    enum_literal: void,
+    enum_literal,
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
@@ -631,6 +618,16 @@ pub const Type = union(enum) {
             many,
             slice,
             c,
+        };
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Attributes = struct {
+            @"const": bool = false,
+            @"volatile": bool = false,
+            @"allowzero": bool = false,
+            @"addrspace": ?AddressSpace = null,
+            @"align": ?usize = null,
         };
     };
 
@@ -681,6 +678,14 @@ pub const Type = union(enum) {
             const dp: *const sf.type = @ptrCast(@alignCast(sf.default_value_ptr orelse return null));
             return dp.*;
         }
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Attributes = struct {
+            @"comptime": bool = false,
+            @"align": ?usize = null,
+            default_value_ptr: ?*const anyopaque = null,
+        };
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -731,6 +736,10 @@ pub const Type = union(enum) {
         fields: []const EnumField,
         decls: []const Declaration,
         is_exhaustive: bool,
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Mode = enum { exhaustive, nonexhaustive };
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -739,6 +748,12 @@ pub const Type = union(enum) {
         name: [:0]const u8,
         type: type,
         alignment: comptime_int,
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Attributes = struct {
+            @"align": ?usize = null,
+        };
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -766,6 +781,19 @@ pub const Type = union(enum) {
             is_generic: bool,
             is_noalias: bool,
             type: ?type,
+
+            /// This data structure is used by the Zig language code generation and
+            /// therefore must be kept in sync with the compiler implementation.
+            pub const Attributes = struct {
+                @"noalias": bool = false,
+            };
+        };
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Attributes = struct {
+            @"callconv": CallingConvention = .auto,
+            varargs: bool = false,
         };
     };
 
@@ -813,11 +841,14 @@ pub const FloatMode = enum {
 pub const Endian = enum {
     big,
     little,
+
+    pub const native = builtin.target.cpu.arch.endian();
+    pub const foreign: Endian = @enumFromInt(1 - @intFromEnum(native));
 };
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const Signedness = enum {
+pub const Signedness = enum(u1) {
     signed,
     unsigned,
 };
@@ -842,7 +873,7 @@ pub const LinkMode = enum {
 pub const UnwindTables = enum {
     none,
     sync,
-    @"async",
+    async,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -857,32 +888,23 @@ pub const WasiExecModel = enum {
 pub const CallModifier = enum {
     /// Equivalent to function call syntax.
     auto,
-
-    /// Equivalent to async keyword used with function call syntax.
-    async_kw,
-
     /// Prevents tail call optimization. This guarantees that the return
     /// address will point to the callsite, as opposed to the callsite's
     /// callsite. If the call is otherwise required to be tail-called
     /// or inlined, a compile error is emitted instead.
     never_tail,
-
     /// Guarantees that the call will not be inlined. If the call is
     /// otherwise required to be inlined, a compile error is emitted instead.
     never_inline,
-
     /// Asserts that the function call will not suspend. This allows a
     /// non-async function to call an async function.
-    no_async,
-
+    no_suspend,
     /// Guarantees that the call will be generated with tail call optimization.
     /// If this is not possible, a compile error is emitted instead.
     always_tail,
-
     /// Guarantees that the call will be inlined at the callsite.
     /// If this is not possible, a compile error is emitted instead.
     always_inline,
-
     /// Evaluates the call at compile-time. If the call cannot be completed at
     /// compile-time, a compile error is emitted instead.
     compile_time,
@@ -896,6 +918,19 @@ pub const VaListAarch64 = extern struct {
     __vr_top: *anyopaque,
     __gr_offs: c_int,
     __vr_offs: c_int,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const VaListAlpha = extern struct {
+    __base: *anyopaque,
+    __offset: c_int,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const VaListArm = extern struct {
+    __ap: *anyopaque,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -927,6 +962,16 @@ pub const VaListS390x = extern struct {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const VaListSh = extern struct {
+    __va_next_o: *anyopaque,
+    __va_next_o_limit: *anyopaque,
+    __va_next_fp: *anyopaque,
+    __va_next_fp_limit: *anyopaque,
+    __va_next_stack: *anyopaque,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const VaListX86_64 = extern struct {
     gp_offset: c_uint,
     fp_offset: c_uint,
@@ -945,37 +990,67 @@ pub const VaListXtensa = extern struct {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const VaList = switch (builtin.cpu.arch) {
+    .amdgcn,
+    .msp430,
+    .nvptx,
+    .nvptx64,
+    .powerpc64,
+    .powerpc64le,
+    .x86,
+    => *u8,
+    .arc,
+    .arceb,
+    .avr,
+    .bpfel,
+    .bpfeb,
+    .csky,
+    .hppa,
+    .hppa64,
+    .kvx,
+    .lanai,
+    .loongarch32,
+    .loongarch64,
+    .m68k,
+    .microblaze,
+    .microblazeel,
+    .mips,
+    .mipsel,
+    .mips64,
+    .mips64el,
+    .riscv32,
+    .riscv32be,
+    .riscv64,
+    .riscv64be,
+    .sparc,
+    .sparc64,
+    .spirv32,
+    .spirv64,
+    .ve,
+    .wasm32,
+    .wasm64,
+    .xcore,
+    => *anyopaque,
     .aarch64, .aarch64_be => switch (builtin.os.tag) {
-        .windows => *u8,
-        .ios, .macos, .tvos, .watchos, .visionos => *u8,
-        else => @compileError("disabled due to miscompilations"), // VaListAarch64,
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .windows => *u8,
+        else => switch (builtin.zig_backend) {
+            else => VaListAarch64,
+            .stage2_llvm => @compileError("disabled due to miscompilations"),
+        },
     },
-    .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
-        .ios, .macos, .tvos, .watchos, .visionos => *u8,
-        else => *anyopaque,
-    },
-    .amdgcn => *u8,
-    .avr => *anyopaque,
-    .bpfel, .bpfeb => *anyopaque,
+    .alpha => VaListAlpha,
+    .arm, .armeb, .thumb, .thumbeb => VaListArm,
     .hexagon => if (builtin.target.abi.isMusl()) VaListHexagon else *u8,
-    .loongarch32, .loongarch64 => *anyopaque,
-    .mips, .mipsel, .mips64, .mips64el => *anyopaque,
-    .riscv32, .riscv64 => *anyopaque,
-    .powerpc, .powerpcle => switch (builtin.os.tag) {
-        .ios, .macos, .tvos, .watchos, .visionos, .aix => *u8,
-        else => VaListPowerPc,
-    },
-    .powerpc64, .powerpc64le => *u8,
-    .sparc, .sparc64 => *anyopaque,
-    .spirv32, .spirv64 => *anyopaque,
+    .powerpc, .powerpcle => VaListPowerPc,
     .s390x => VaListS390x,
-    .wasm32, .wasm64 => *anyopaque,
-    .x86 => *u8,
+    .sh, .sheb => VaListSh, // This is wrong for `sh_renesas`: https://github.com/ziglang/zig/issues/24692#issuecomment-3150779829
     .x86_64 => switch (builtin.os.tag) {
-        .windows => @compileError("disabled due to miscompilations"), // *u8,
+        .uefi, .windows => switch (builtin.zig_backend) {
+            else => *u8,
+            .stage2_llvm => @compileError("disabled due to miscompilations"),
+        },
         else => VaListX86_64,
     },
-    .xtensa => VaListXtensa,
+    .xtensa, .xtensaeb => VaListXtensa,
     else => @compileError("VaList not supported for this target yet"),
 };
 
@@ -1021,8 +1096,30 @@ pub const ExternOptions = struct {
     name: []const u8,
     library_name: ?[]const u8 = null,
     linkage: GlobalLinkage = .strong,
+    visibility: SymbolVisibility = .default,
+    /// Setting this to `true` makes the `@extern` a runtime value.
     is_thread_local: bool = false,
     is_dll_import: bool = false,
+    relocation: Relocation = .any,
+    decoration: ?Decoration = null,
+
+    pub const Decoration = union(enum) {
+        location: u32,
+        descriptor: Descriptor,
+
+        pub const Descriptor = struct {
+            binding: u32,
+            set: u32,
+        };
+    };
+
+    pub const Relocation = enum(u1) {
+        /// Any type of relocation is allowed.
+        any,
+        /// A program-counter-relative relocation is required.
+        /// Using this value makes the `@extern` a runtime value.
+        pcrel,
+    };
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -1101,7 +1198,10 @@ pub const CompilerBackend = enum(u64) {
     stage2_sparc64 = 10,
     /// The reference implementation self-hosted compiler of Zig, using the
     /// spirv backend.
-    stage2_spirv64 = 11,
+    stage2_spirv = 11,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// powerpc backend.
+    stage2_powerpc = 12,
 
     _,
 };
@@ -1112,10 +1212,6 @@ pub const TestFn = struct {
     name: []const u8,
     func: *const fn () anyerror!void,
 };
-
-/// Deprecated, use the `Panic` namespace instead.
-/// To be deleted after 0.14.0 is released.
-pub const PanicFn = fn ([]const u8, ?*StackTrace, ?usize) noreturn;
 
 /// This namespace is used by the Zig compiler to emit various kinds of safety
 /// panics. These can be overridden by making a public `panic` namespace in the
@@ -1132,13 +1228,12 @@ pub const panic: type = p: {
         }
         break :p root.panic;
     }
-    if (@hasDecl(root, "Panic")) {
-        break :p root.Panic; // Deprecated; use `panic` instead.
-    }
-    if (builtin.zig_backend == .stage2_riscv64) {
-        break :p std.debug.simple_panic;
-    }
-    break :p std.debug.FullPanic(std.debug.defaultPanic);
+    break :p switch (builtin.zig_backend) {
+        .stage2_powerpc,
+        .stage2_riscv64,
+        => std.debug.simple_panic,
+        else => std.debug.FullPanic(std.debug.defaultPanic),
+    };
 };
 
 pub noinline fn returnError() void {
@@ -1149,6 +1244,3 @@ pub noinline fn returnError() void {
         st.instruction_addresses[st.index] = @returnAddress();
     st.index += 1;
 }
-
-const std = @import("std.zig");
-const root = @import("root");

@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const absv = @import("./absv.zig").absv;
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__absvsi2, .{ .name = "__absvsi2", .linkage = common.linkage, .visibility = common.visibility });
 }

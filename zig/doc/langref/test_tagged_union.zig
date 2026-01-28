@@ -18,6 +18,14 @@ test "switch on tagged union" {
         .ok => |value| try expect(value == 42),
         .not_ok => unreachable,
     }
+
+    switch (c) {
+        .ok => |_, tag| {
+            // Because we're in the '.ok' prong, 'tag' is compile-time known to be '.ok':
+            comptime std.debug.assert(tag == .ok);
+        },
+        .not_ok => unreachable,
+    }
 }
 
 test "get tag type" {

@@ -21,7 +21,7 @@ extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) call
 extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.c) ?[*]u8;
 
 comptime {
-    @export(&__stack_chk_fail, .{ .name = "__stack_chk_fail", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__stack_chk_fail, .{ .name = if (builtin.os.tag == .openbsd) "__stack_smash_handler" else "__stack_chk_fail", .linkage = common.linkage, .visibility = common.visibility });
     @export(&__chk_fail, .{ .name = "__chk_fail", .linkage = common.linkage, .visibility = common.visibility });
     @export(&__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = common.linkage, .visibility = common.visibility });
     @export(&__strcpy_chk, .{ .name = "__strcpy_chk", .linkage = common.linkage, .visibility = common.visibility });

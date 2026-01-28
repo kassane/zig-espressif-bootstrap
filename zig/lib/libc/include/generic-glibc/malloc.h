@@ -1,5 +1,5 @@
 /* Prototypes and definition for malloc implementation.
-   Copyright (C) 1996-2025 Free Software Foundation, Inc.
+   Copyright (C) 1996-2026 Free Software Foundation, Inc.
    Copyright The GNU Toolchain Authors.
    This file is part of the GNU C Library.
 
@@ -52,7 +52,7 @@ extern void *realloc (void *__ptr, size_t __size)
 __THROW __attribute_warn_unused_result__ __attribute_alloc_size__ ((2));
 
 /*
- * reallocarray introduced in glibc 2.26
+ * zig patch: reallocarray introduced in glibc 2.26
  * https://sourceware.org/git/?p=glibc.git;a=commit;h=2e0bbbfbf95fc9e22692e93658a6fbdd2d4554da
  */
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 26) || __GLIBC__ > 2
@@ -89,11 +89,11 @@ struct mallinfo
 {
   int arena;    /* non-mmapped space allocated from system */
   int ordblks;  /* number of free chunks */
-  int smblks;   /* number of fastbin blocks */
+  int smblks;   /* number of fastbin blocks (deprecated) */
   int hblks;    /* number of mmapped regions */
   int hblkhd;   /* space in mmapped regions */
   int usmblks;  /* always 0, preserved for backwards compatibility */
-  int fsmblks;  /* space available in freed fastbin blocks */
+  int fsmblks;  /* space available in freed fastbin blocks (deprecated) */
   int uordblks; /* total allocated space */
   int fordblks; /* total free space */
   int keepcost; /* top-most, releasable (via malloc_trim) space */
@@ -106,11 +106,11 @@ struct mallinfo2
 {
   size_t arena;    /* non-mmapped space allocated from system */
   size_t ordblks;  /* number of free chunks */
-  size_t smblks;   /* number of fastbin blocks */
+  size_t smblks;   /* number of fastbin blocks (deprecated) */
   size_t hblks;    /* number of mmapped regions */
   size_t hblkhd;   /* space in mmapped regions */
   size_t usmblks;  /* always 0, preserved for backwards compatibility */
-  size_t fsmblks;  /* space available in freed fastbin blocks */
+  size_t fsmblks;  /* space available in freed fastbin blocks (deprecated) */
   size_t uordblks; /* total allocated space */
   size_t fordblks; /* total free space */
   size_t keepcost; /* top-most, releasable (via malloc_trim) space */

@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const addf3 = @import("./addf3.zig").addf3;
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__addhf3, .{ .name = "__addhf3", .linkage = common.linkage, .visibility = common.visibility });
 }

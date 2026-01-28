@@ -288,8 +288,9 @@ pub const oflags_t = packed struct(u16) {
     _: u12 = 0,
 };
 
-pub const preopentype_t = u8;
-pub const PREOPENTYPE_DIR: preopentype_t = 0;
+pub const preopentype_t = enum(u8) {
+    DIR = 0,
+};
 
 pub const prestat_t = extern struct {
     pr_type: preopentype_t,

@@ -58,17 +58,9 @@ pub fn build(b: *std.Build) void {
     );
 
     // Absolute path:
-    const abs_path = setup_abspath: {
-        const temp_dir = b.makeTempPath();
-
-        var dir = std.fs.cwd().openDir(temp_dir, .{}) catch @panic("failed to open temp dir");
-        defer dir.close();
-
-        var file = dir.createFile("foo.txt", .{}) catch @panic("failed to create file");
-        file.close();
-
-        break :setup_abspath std.Build.LazyPath{ .cwd_relative = temp_dir };
-    };
+    const write_files = b.addWriteFiles();
+    _ = write_files.add("foo.txt", "");
+    const abs_path = write_files.getDirectory();
     addTestRun(test_step, exists_in, abs_path, &.{"foo.txt"});
 }
 

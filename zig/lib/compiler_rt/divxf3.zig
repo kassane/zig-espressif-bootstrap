@@ -6,8 +6,6 @@ const common = @import("common.zig");
 const normalize = common.normalize;
 const wideMultiply = common.wideMultiply;
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__divxf3, .{ .name = "__divxf3", .linkage = common.linkage, .visibility = common.visibility });
 }

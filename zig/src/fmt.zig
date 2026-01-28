@@ -1,3 +1,12 @@
+const std = @import("std");
+const Io = std.Io;
+const mem = std.mem;
+const fs = std.fs;
+const process = std.process;
+const Allocator = std.mem.Allocator;
+const Color = std.zig.Color;
+const fatal = std.process.fatal;
+
 const usage_fmt =
     \\Usage: zig fmt [file]...
     \\
@@ -26,24 +35,22 @@ const Fmt = struct {
     color: Color,
     gpa: Allocator,
     arena: Allocator,
-    out_buffer: std.ArrayList(u8),
+    io: Io,
+    out_buffer: std.Io.Writer.Allocating,
+    stdout_writer: *Io.File.Writer,
 
-    const SeenMap = std.AutoHashMap(fs.File.INode, void);
+    const SeenMap = std.AutoHashMap(Io.File.INode, void);
 };
 
-pub fn run(
-    gpa: Allocator,
-    arena: Allocator,
-    args: []const []const u8,
-) !void {
+pub fn run(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !void {
     var color: Color = .auto;
     var stdin_flag = false;
     var check_flag = false;
     var check_ast_flag = false;
     var force_zon = false;
-    var input_files = std.ArrayList([]const u8).init(gpa);
+    var input_files = std.array_list.Managed([]const u8).init(gpa);
     defer input_files.deinit();
-    var excluded_files = std.ArrayList([]const u8).init(gpa);
+    var excluded_files = std.array_list.Managed([]const u8).init(gpa);
     defer excluded_files.deinit();
 
     {
@@ -52,9 +59,8 @@ pub fn run(
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = std.io.getStdOut().writer();
-                    try stdout.writeAll(usage_fmt);
-                    return process.cleanExit();
+                    try Io.File.stdout().writeStreamingAll(io, usage_fmt);
+                    return process.cleanExit(io);
                 } else if (mem.eql(u8, arg, "--color")) {
                     if (i + 1 >= args.len) {
                         fatal("expected [auto|on|off] after --color", .{});
@@ -93,8 +99,10 @@ pub fn run(
             fatal("cannot use --stdin with positional arguments", .{});
         }
 
-        const stdin = std.io.getStdIn();
-        const source_code = std.zig.readSourceFileToEndAlloc(gpa, stdin, null) catch |err| {
+        const stdin: Io.File = .stdin();
+        var stdio_buffer: [1024]u8 = undefined;
+        var file_reader: Io.File.Reader = stdin.reader(io, &stdio_buffer);
+        const source_code = std.zig.readSourceFileToEndAlloc(gpa, &file_reader) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
         defer gpa.free(source_code);
@@ -116,7 +124,7 @@ pub fn run(
                     try wip_errors.addZirErrorMessages(zir, tree, source_code, "<stdin>");
                     var error_bundle = try wip_errors.toOwnedBundle("");
                     defer error_bundle.deinit(gpa);
-                    error_bundle.renderToStdErr(color.renderOptions());
+                    error_bundle.renderToStderr(io, .{}, color) catch {};
                     process.exit(2);
                 }
             } else {
@@ -130,38 +138,43 @@ pub fn run(
                     try wip_errors.addZoirErrorMessages(zoir, tree, source_code, "<stdin>");
                     var error_bundle = try wip_errors.toOwnedBundle("");
                     defer error_bundle.deinit(gpa);
-                    error_bundle.renderToStdErr(color.renderOptions());
+                    error_bundle.renderToStderr(io, .{}, color) catch {};
                     process.exit(2);
                 }
             }
         } else if (tree.errors.len != 0) {
-            try std.zig.printAstErrorsToStderr(gpa, tree, "<stdin>", color);
+            std.zig.printAstErrorsToStderr(gpa, io, tree, "<stdin>", color) catch {};
             process.exit(2);
         }
-        const formatted = try tree.render(gpa);
+        const formatted = try tree.renderAlloc(gpa);
         defer gpa.free(formatted);
 
         if (check_flag) {
-            const code: u8 = @intFromBool(mem.eql(u8, formatted, source_code));
+            const code: u8 = @intFromBool(!mem.eql(u8, formatted, source_code));
             process.exit(code);
         }
 
-        return std.io.getStdOut().writeAll(formatted);
+        return Io.File.stdout().writeStreamingAll(io, formatted);
     }
 
     if (input_files.items.len == 0) {
-        fatal("expected at least one source file argument", .{});
+        fatal("expected at least one file or directory argument", .{});
     }
+
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
 
     var fmt: Fmt = .{
         .gpa = gpa,
         .arena = arena,
+        .io = io,
         .seen = .init(gpa),
         .any_error = false,
         .check_ast = check_ast_flag,
         .force_zon = force_zon,
         .color = color,
-        .out_buffer = std.ArrayList(u8).init(gpa),
+        .out_buffer = .init(gpa),
+        .stdout_writer = &stdout_writer,
     };
     defer fmt.seen.deinit();
     defer fmt.out_buffer.deinit();
@@ -169,13 +182,13 @@ pub fn run(
     // Mark any excluded files/directories as already seen,
     // so that they are skipped later during actual processing
     for (excluded_files.items) |file_path| {
-        const stat = fs.cwd().statFile(file_path) catch |err| switch (err) {
+        const stat = Io.Dir.cwd().statFile(io, file_path, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
             // On Windows, statFile does not work for directories
             error.IsDir => dir: {
-                var dir = try fs.cwd().openDir(file_path, .{});
-                defer dir.close();
-                break :dir try dir.stat();
+                var dir = try Io.Dir.cwd().openDir(io, file_path, .{});
+                defer dir.close(io);
+                break :dir try dir.stat(io);
             },
             else => |e| return e,
         };
@@ -183,47 +196,15 @@ pub fn run(
     }
 
     for (input_files.items) |file_path| {
-        try fmtPath(&fmt, file_path, check_flag, fs.cwd(), file_path);
+        try fmtPath(&fmt, file_path, check_flag, Io.Dir.cwd(), file_path);
     }
+    try fmt.stdout_writer.interface.flush();
     if (fmt.any_error) {
         process.exit(1);
     }
 }
 
-const FmtError = error{
-    SystemResources,
-    OperationAborted,
-    IoPending,
-    BrokenPipe,
-    Unexpected,
-    WouldBlock,
-    Canceled,
-    FileClosed,
-    DestinationAddressRequired,
-    DiskQuota,
-    FileTooBig,
-    InputOutput,
-    NoSpaceLeft,
-    AccessDenied,
-    OutOfMemory,
-    RenameAcrossMountPoints,
-    ReadOnlyFileSystem,
-    LinkQuotaExceeded,
-    FileBusy,
-    EndOfStream,
-    Unseekable,
-    NotOpenForWriting,
-    UnsupportedEncoding,
-    InvalidEncoding,
-    ConnectionResetByPeer,
-    SocketNotConnected,
-    LockViolation,
-    NetNameDeleted,
-    InvalidArgument,
-    ProcessNotFound,
-} || fs.File.OpenError;
-
-fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
+fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: Io.Dir, sub_path: []const u8) !void {
     fmtPathFile(fmt, file_path, check_mode, dir, sub_path) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => return fmtPathDir(fmt, file_path, check_mode, dir, sub_path),
         else => {
@@ -238,17 +219,19 @@ fn fmtPathDir(
     fmt: *Fmt,
     file_path: []const u8,
     check_mode: bool,
-    parent_dir: fs.Dir,
+    parent_dir: Io.Dir,
     parent_sub_path: []const u8,
-) FmtError!void {
-    var dir = try parent_dir.openDir(parent_sub_path, .{ .iterate = true });
-    defer dir.close();
+) !void {
+    const io = fmt.io;
 
-    const stat = try dir.stat();
+    var dir = try parent_dir.openDir(io, parent_sub_path, .{ .iterate = true });
+    defer dir.close(io);
+
+    const stat = try dir.stat(io);
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
 
     var dir_it = dir.iterate();
-    while (try dir_it.next()) |entry| {
+    while (try dir_it.next(io)) |entry| {
         const is_dir = entry.kind == .directory;
 
         if (mem.startsWith(u8, entry.name, ".")) continue;
@@ -261,7 +244,7 @@ fn fmtPathDir(
                 try fmtPathDir(fmt, full_path, check_mode, dir, entry.name);
             } else {
                 fmtPathFile(fmt, full_path, check_mode, dir, entry.name) catch |err| {
-                    std.log.err("unable to format '{s}': {s}", .{ full_path, @errorName(err) });
+                    std.log.err("unable to format '{s}': {t}", .{ full_path, err });
                     fmt.any_error = true;
                     return;
                 };
@@ -274,27 +257,32 @@ fn fmtPathFile(
     fmt: *Fmt,
     file_path: []const u8,
     check_mode: bool,
-    dir: fs.Dir,
+    dir: Io.Dir,
     sub_path: []const u8,
-) FmtError!void {
-    const source_file = try dir.openFile(sub_path, .{});
-    var file_closed = false;
-    errdefer if (!file_closed) source_file.close();
+) !void {
+    const io = fmt.io;
 
-    const stat = try source_file.stat();
+    const source_file = try dir.openFile(io, sub_path, .{});
+    var file_closed = false;
+    errdefer if (!file_closed) source_file.close(io);
+
+    const stat = try source_file.stat(io);
 
     if (stat.kind == .directory)
         return error.IsDir;
 
+    var read_buffer: [1024]u8 = undefined;
+    var file_reader: Io.File.Reader = source_file.reader(io, &read_buffer);
+    file_reader.size = stat.size;
+
     const gpa = fmt.gpa;
-    const source_code = try std.zig.readSourceFileToEndAlloc(
-        gpa,
-        source_file,
-        std.math.cast(usize, stat.size) orelse return error.FileTooBig,
-    );
+    const source_code = std.zig.readSourceFileToEndAlloc(gpa, &file_reader) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        else => |e| return e,
+    };
     defer gpa.free(source_code);
 
-    source_file.close();
+    source_file.close(io);
     file_closed = true;
 
     // Add to set after no longer possible to get error.IsDir.
@@ -310,7 +298,7 @@ fn fmtPathFile(
     defer tree.deinit(gpa);
 
     if (tree.errors.len != 0) {
-        try std.zig.printAstErrorsToStderr(gpa, tree, file_path, fmt.color);
+        try std.zig.printAstErrorsToStderr(gpa, io, tree, file_path, fmt.color);
         fmt.any_error = true;
         return;
     }
@@ -331,7 +319,7 @@ fn fmtPathFile(
                     try wip_errors.addZirErrorMessages(zir, tree, source_code, file_path);
                     var error_bundle = try wip_errors.toOwnedBundle("");
                     defer error_bundle.deinit(gpa);
-                    error_bundle.renderToStdErr(fmt.color.renderOptions());
+                    try error_bundle.renderToStderr(io, .{}, fmt.color);
                     fmt.any_error = true;
                 }
             },
@@ -346,7 +334,7 @@ fn fmtPathFile(
                     try wip_errors.addZoirErrorMessages(zoir, tree, source_code, file_path);
                     var error_bundle = try wip_errors.toOwnedBundle("");
                     defer error_bundle.deinit(gpa);
-                    error_bundle.renderToStdErr(fmt.color.renderOptions());
+                    try error_bundle.renderToStderr(io, .{}, fmt.color);
                     fmt.any_error = true;
                 }
             },
@@ -354,32 +342,36 @@ fn fmtPathFile(
     }
 
     // As a heuristic, we make enough capacity for the same as the input source.
-    fmt.out_buffer.shrinkRetainingCapacity(0);
+    fmt.out_buffer.clearRetainingCapacity();
     try fmt.out_buffer.ensureTotalCapacity(source_code.len);
 
-    try tree.renderToArrayList(&fmt.out_buffer, .{});
-    if (mem.eql(u8, fmt.out_buffer.items, source_code))
+    tree.render(gpa, &fmt.out_buffer.writer, .{}) catch |err| switch (err) {
+        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
+    };
+    if (mem.eql(u8, fmt.out_buffer.written(), source_code))
         return;
 
     if (check_mode) {
-        const stdout = std.io.getStdOut().writer();
-        try stdout.print("{s}\n", .{file_path});
+        try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
         fmt.any_error = true;
     } else {
-        var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode });
-        defer af.deinit();
+        var af = try dir.createFileAtomic(io, sub_path, .{ .permissions = stat.permissions, .replace = true });
+        defer af.deinit(io);
 
-        try af.file.writeAll(fmt.out_buffer.items);
-        try af.finish();
-        const stdout = std.io.getStdOut().writer();
-        try stdout.print("{s}\n", .{file_path});
+        try af.file.writeStreamingAll(io, fmt.out_buffer.written());
+        try af.replace(io);
+        try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
     }
 }
 
-const std = @import("std");
-const mem = std.mem;
-const fs = std.fs;
-const process = std.process;
-const Allocator = std.mem.Allocator;
-const Color = std.zig.Color;
-const fatal = std.process.fatal;
+/// Provided for debugging/testing purposes; unused by the compiler.
+pub fn main() !void {
+    const gpa = std.heap.smp_allocator;
+    var arena_instance = std.heap.ArenaAllocator.init(gpa);
+    const arena = arena_instance.allocator();
+    const args = try process.argsAlloc(arena);
+    var threaded: std.Io.Threaded = .init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    return run(gpa, arena, io, args[1..]);
+}

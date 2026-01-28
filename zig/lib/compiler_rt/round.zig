@@ -12,8 +12,6 @@ const expect = std.testing.expect;
 const arch = builtin.cpu.arch;
 const common = @import("common.zig");
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__roundh, .{ .name = "__roundh", .linkage = common.linkage, .visibility = common.visibility });
     @export(&roundf, .{ .name = "roundf", .linkage = common.linkage, .visibility = common.visibility });

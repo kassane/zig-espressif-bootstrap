@@ -7,7 +7,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const common = @import("common.zig");
 
-const abort = std.posix.abort;
+const abort = std.process.abort;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 
@@ -15,10 +15,8 @@ const expect = std.testing.expect;
 /// typedef unsigned int gcc_word __attribute__((mode(word)));
 const gcc_word = usize;
 
-pub const panic = common.panic;
-
 comptime {
-    if (builtin.link_libc and (builtin.abi.isAndroid() or builtin.os.tag == .openbsd)) {
+    if (builtin.link_libc and (builtin.abi.isAndroid() or builtin.abi.isOpenHarmony() or builtin.os.tag == .openbsd)) {
         @export(&__emutls_get_address, .{ .name = "__emutls_get_address", .linkage = common.linkage, .visibility = common.visibility });
     }
 }

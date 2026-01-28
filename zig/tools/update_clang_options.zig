@@ -10,7 +10,7 @@
 //! would mean that the next parameter specifies the target.
 
 const std = @import("std");
-const fs = std.fs;
+const Io = std.Io;
 const assert = std.debug.assert;
 const json = std.json;
 
@@ -283,6 +283,18 @@ const known_options = [_]KnownOpt{
     .{
         .name = "fsanitize",
         .ident = "sanitize",
+    },
+    .{
+        .name = "fno-sanitize",
+        .ident = "no_sanitize",
+    },
+    .{
+        .name = "fsanitize-trap",
+        .ident = "sanitize_trap",
+    },
+    .{
+        .name = "fno-sanitize-trap",
+        .ident = "no_sanitize_trap",
     },
     .{
         .name = "T",
@@ -568,6 +580,14 @@ const known_options = [_]KnownOpt{
         .name = "rtlib=",
         .ident = "rtlib",
     },
+    .{
+        .name = "static",
+        .ident = "static",
+    },
+    .{
+        .name = "dynamic",
+        .ident = "dynamic",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
@@ -607,34 +627,32 @@ const cpu_targets = struct {
     pub const xtensa = std.Target.xtensa;
 };
 
-pub fn main() anyerror!void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const args = try init.minimal.args.toSlice(arena);
+    const io = init.io;
 
-    const allocator = arena.allocator();
-    const args = try std.process.argsAlloc(allocator);
+    var stdout_buffer: [4000]u8 = undefined;
+    var stdout_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
-    if (args.len <= 1) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
-    }
+    if (args.len <= 1) printUsageAndExit(args[0]);
+
     if (std.mem.eql(u8, args[1], "--help")) {
-        usageAndExit(std.io.getStdOut(), args[0], 0);
+        printUsage(stdout, args[0]) catch std.process.exit(2);
+        stdout.flush() catch std.process.exit(2);
+        std.process.exit(0);
     }
-    if (args.len < 3) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
-    }
+
+    if (args.len < 3) printUsageAndExit(args[0]);
 
     const llvm_tblgen_exe = args[1];
-    if (std.mem.startsWith(u8, llvm_tblgen_exe, "-")) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
-    }
+    if (std.mem.startsWith(u8, llvm_tblgen_exe, "-")) printUsageAndExit(args[0]);
 
     const llvm_src_root = args[2];
-    if (std.mem.startsWith(u8, llvm_src_root, "-")) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
-    }
+    if (std.mem.startsWith(u8, llvm_src_root, "-")) printUsageAndExit(args[0]);
 
-    var llvm_to_zig_cpu_features = std.StringHashMap([]const u8).init(allocator);
+    var llvm_to_zig_cpu_features = std.StringHashMap([]const u8).init(arena);
 
     inline for (@typeInfo(cpu_targets).@"struct".decls) |decl| {
         const Feature = @field(cpu_targets, decl.name).Feature;
@@ -651,13 +669,12 @@ pub fn main() anyerror!void {
     const child_args = [_][]const u8{
         llvm_tblgen_exe,
         "--dump-json",
-        try std.fmt.allocPrint(allocator, "{s}/clang/include/clang/Driver/Options.td", .{llvm_src_root}),
-        try std.fmt.allocPrint(allocator, "-I={s}/llvm/include", .{llvm_src_root}),
-        try std.fmt.allocPrint(allocator, "-I={s}/clang/include/clang/Driver", .{llvm_src_root}),
+        try std.fmt.allocPrint(arena, "{s}/clang/include/clang/Driver/Options.td", .{llvm_src_root}),
+        try std.fmt.allocPrint(arena, "-I={s}/llvm/include", .{llvm_src_root}),
+        try std.fmt.allocPrint(arena, "-I={s}/clang/include/clang/Driver", .{llvm_src_root}),
     };
 
-    const child_result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const child_result = try std.process.run(arena, io, .{
         .argv = &child_args,
         .max_output_bytes = 100 * 1024 * 1024,
     });
@@ -665,7 +682,7 @@ pub fn main() anyerror!void {
     std.debug.print("{s}\n", .{child_result.stderr});
 
     const json_text = switch (child_result.term) {
-        .Exited => |code| if (code == 0) child_result.stdout else {
+        .exited => |code| if (code == 0) child_result.stdout else {
             std.debug.print("llvm-tblgen exited with code {d}\n", .{code});
             std.process.exit(1);
         },
@@ -675,11 +692,11 @@ pub fn main() anyerror!void {
         },
     };
 
-    const parsed = try json.parseFromSlice(json.Value, allocator, json_text, .{});
+    const parsed = try json.parseFromSlice(json.Value, arena, json_text, .{});
     defer parsed.deinit();
     const root_map = &parsed.value.object;
 
-    var all_objects = std.ArrayList(*json.ObjectMap).init(allocator);
+    var all_objects = std.array_list.Managed(*json.ObjectMap).init(arena);
     {
         var it = root_map.iterator();
         it_map: while (it.next()) |kv| {
@@ -699,8 +716,6 @@ pub fn main() anyerror!void {
     // "W" and "Wl,". So we sort this list in order of descending priority.
     std.mem.sort(*json.ObjectMap, all_objects.items, {}, objectLessThan);
 
-    var buffered_stdout = std.io.bufferedWriter(std.io.getStdOut().writer());
-    const stdout = buffered_stdout.writer();
     try stdout.writeAll(
         \\// This file is generated by tools/update_clang_options.zig.
         \\// zig fmt: off
@@ -749,7 +764,7 @@ pub fn main() anyerror!void {
             try stdout.print(
                 \\.{{
                 \\    .name = "{s}",
-                \\    .syntax = {s},
+                \\    .syntax = {f},
                 \\    .zig_equivalent = .{s},
                 \\    .pd1 = {},
                 \\    .pd2 = {},
@@ -779,7 +794,7 @@ pub fn main() anyerror!void {
             try stdout.print(
                 \\.{{
                 \\    .name = "{s}",
-                \\    .syntax = {s},
+                \\    .syntax = {f},
                 \\    .zig_equivalent = .other,
                 \\    .pd1 = {},
                 \\    .pd2 = {},
@@ -795,7 +810,7 @@ pub fn main() anyerror!void {
         \\
     );
 
-    try buffered_stdout.flush();
+    try stdout.flush();
 }
 
 // TODO we should be able to import clang_options.zig but currently this is problematic because it will
@@ -827,14 +842,10 @@ const Syntax = union(enum) {
 
     pub fn format(
         self: Syntax,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
+        out_stream: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         switch (self) {
-            .multi_arg => |n| return out_stream.print(".{{.{s}={}}}", .{ @tagName(self), n }),
+            .multi_arg => |n| return out_stream.print(".{{.{t}={d}}}", .{ self, n }),
             else => return out_stream.print(".{s}", .{@tagName(self)}),
         }
     }
@@ -946,13 +957,19 @@ fn objectLessThan(context: void, a: *json.ObjectMap, b: *json.ObjectMap) bool {
     return std.mem.lessThan(u8, a_key, b_key);
 }
 
-fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
-    file.writer().print(
+fn printUsageAndExit(arg0: []const u8) noreturn {
+    const stderr = std.debug.lockStderr(&.{});
+    const w = &stderr.file_writer.interface;
+    printUsage(w, arg0) catch std.process.exit(2);
+    std.process.exit(1);
+}
+
+fn printUsage(w: *std.Io.Writer, arg0: []const u8) std.Io.Writer.Error!void {
+    try w.print(
         \\Usage: {s} /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
         \\Alternative Usage: zig run /path/to/git/zig/tools/update_clang_options.zig -- /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
         \\
         \\Prints to stdout Zig code which you can use to replace the file src/clang_options_data.zig.
         \\
-    , .{arg0}) catch std.process.exit(1);
-    std.process.exit(code);
+    , .{arg0});
 }

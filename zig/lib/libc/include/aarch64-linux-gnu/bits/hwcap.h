@@ -1,5 +1,5 @@
 /* Defines for bits in AT_HWCAP.  AArch64 Linux version.
-   Copyright (C) 2016-2025 Free Software Foundation, Inc.
+   Copyright (C) 2016-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -120,3 +120,6 @@
 #define HWCAP2_SME_SF8DP4	(1UL << 61)
 #define HWCAP2_SME_SF8DP2	(1UL << 62)
 #define HWCAP2_POE		(1UL << 63)
+
+#define HWCAP3_MTE_FAR		(1UL << 0)
+#define HWCAP3_MTE_STORE_ONLY	(1UL << 1)

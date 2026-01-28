@@ -1,5 +1,5 @@
 /* Generic statx-related definitions and declarations.
-   Copyright (C) 2018-2025 Free Software Foundation, Inc.
+   Copyright (C) 2018-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -48,6 +48,7 @@
 # define STATX_MNT_ID_UNIQUE 0x4000U
 # define STATX_SUBVOL 0x8000U
 # define STATX_WRITE_ATOMIC 0x00010000U
+# define STATX_DIO_READ_ALIGN 0x00020000U
 # define STATX__RESERVED 0x80000000U
 
 # define STATX_ATTR_COMPRESSED 0x0004

@@ -4,6 +4,7 @@ const c = @cImport({
     @cInclude("stdio.h");
 });
 pub fn main() void {
+    if (@import("builtin").os.tag == .netbsd) return; // https://github.com/Vexu/arocc/issues/960
     _ = c.printf("hello\n");
 }
 

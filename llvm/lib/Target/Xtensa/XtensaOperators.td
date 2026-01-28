@@ -21,26 +21,25 @@ def SDT_XtensaBrJT                : SDTypeProfile<0, 2,
                                                  [SDTCisPtrTy<0>, SDTCisVT<1, i32>]>;
 
 def SDT_XtensaSelectCC            : SDTypeProfile<1, 5,
-                                                 [SDTCisSameAs<0, 1>,
-                                                  SDTCisSameAs<2, 3>,
+                                                 [SDTCisSameAs<0, 3>, SDTCisSameAs<1, 2>,
+                                                  SDTCisSameAs<3, 4>,
                                                   SDTCisVT<5, i32>]>;
 
-def SDT_XtensaMOVSP               : SDTypeProfile<1, 1, [SDTCisSameAs<0, 1>, SDTCisVT<0, i32>]>;
-def SDT_XtensaBrBool              : SDTypeProfile<0, 2, [SDTCisVT<0, v1i1>, SDTCisVT<1, OtherVT>]>;
-def SDT_XtensaBrCCFP              : SDTypeProfile<0, 4, [SDTCisVT<0, i32>, SDTCisVT<1, f32>, SDTCisVT<2, f32>, SDTCisVT<3, OtherVT>]>;
 def SDT_XtensaCmp                 : SDTypeProfile<1, 2, [SDTCisVT<0, v1i1>, SDTCisVT<1, f32>, SDTCisVT<2, f32>]>;
 def SDT_XtensaMADD                : SDTypeProfile<1, 3, [SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>, SDTCisSameAs<0, 3>, SDTCisVT<0, f32>]>;
 def SDT_XtensaMOVS                : SDTypeProfile<1, 1, [SDTCisSameAs<0, 1>, SDTCisVT<0, f32>]>;
-def SDT_XtensaSelectCCFP          : SDTypeProfile<1, 5, [SDTCisSameAs<0, 3>, SDTCisSameAs<1, 2>, SDTCisSameAs<3, 4>, SDTCisVT<5, i32>]>;
-
-def SDT_XtensaMEMBARRIER         : SDTypeProfile<0, 0, []>;
-def SDT_XtensaRUR                : SDTypeProfile<1, 1, [SDTCisVT<0, i32>, SDTCisVT<1, i32>]>;
+def SDT_XtensaSelectCCFP          : SDTypeProfile<1, 6, [SDTCisSameAs<0, 3>, SDTCisSameAs<1, 2>, SDTCisSameAs<3, 4>,
+                                                         SDTCisVT<5, i32>, SDTCisVT<6, i32>]>;
 
 def SDT_XtensaSRC                 : SDTypeProfile<1, 3, [SDTCisVT<0, i32>, SDTCisVT<1, i32>,
                                                          SDTCisVT<2, i32>, SDTCisVT<3, i32>]>;
 
 def SDT_XtensaEXTUI               : SDTypeProfile<1, 3, [SDTCisVT<0, i32>, SDTCisVT<1, i32>,
                                                          SDTCisVT<2, i32>, SDTCisVT<3, i32>]>;
+
+def SDT_XtensaMOVSP               : SDTypeProfile<0, 1, [SDTCisVT<0, i32>]>;
+
+def SDT_XtensaRUR                : SDTypeProfile<1, 1, [SDTCisVT<0, i32>, SDTCisVT<1, i32>]>;
 
 def SDT_XtensaLoopEnd             : SDTypeProfile<0, 1, [SDTCisVT<0, OtherVT>]>;
 def SDT_XtensaLoopDec             : SDTypeProfile<1, 1, [SDTCisSameAs<0, 1>, SDTCisVT<0, i32>]>;
@@ -54,7 +53,7 @@ def SDT_XtensaTRUNC               : SDTypeProfile<1, 1, [SDTCisVT<1, i32>, SDTCi
 def Xtensa_call: SDNode<"XtensaISD::CALL", SDT_XtensaCall,
                        [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue, SDNPVariadic]>;
 
-def Xtensa_callw: SDNode<"XtensaISD::CALLW", SDT_XtensaCall,
+def Xtensa_callw8: SDNode<"XtensaISD::CALLW8", SDT_XtensaCall,
                         [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue, SDNPVariadic]>;
 
 def Xtensa_ret: SDNode<"XtensaISD::RET", SDTNone,
@@ -78,8 +77,6 @@ def Xtensa_brjt: SDNode<"XtensaISD::BR_JT", SDT_XtensaBrJT, [SDNPHasChain]>;
 
 def Xtensa_select_cc: SDNode<"XtensaISD::SELECT_CC", SDT_XtensaSelectCC,
                             [SDNPInGlue]>;
-def Xtensa_select_cc_fp: SDNode<"XtensaISD::SELECT_CC_FP", SDT_XtensaSelectCCFP,
-                            [SDNPInGlue]>;
 
 def Xtensa_srcl: SDNode<"XtensaISD::SRCL", SDT_XtensaSRC>;
 
@@ -88,14 +85,10 @@ def Xtensa_srcr: SDNode<"XtensaISD::SRCR", SDT_XtensaSRC>;
 def Xtensa_extui: SDNode<"XtensaISD::EXTUI", SDT_XtensaEXTUI>;
 
 def Xtensa_movsp: SDNode<"XtensaISD::MOVSP", SDT_XtensaMOVSP,
-                            [SDNPInGlue]>;
+                        [SDNPHasChain, SDNPSideEffect, SDNPInGlue]>;
 
-def Xtensa_br_t    : SDNode<"XtensaISD::BR_T", SDT_XtensaBrBool,
-                             [SDNPHasChain, SDNPInGlue]>;
-def Xtensa_br_f    : SDNode<"XtensaISD::BR_F", SDT_XtensaBrBool,
-                             [SDNPHasChain, SDNPInGlue]>;
-def Xtensa_brcc_fp   : SDNode<"XtensaISD::BR_CC_FP", SDT_XtensaBrCCFP,
-                             [SDNPHasChain, SDNPInGlue]>;
+def Xtensa_rur: SDNode<"XtensaISD::RUR", SDT_XtensaRUR,
+                      [SDNPInGlue]>;
 
 def Xtensa_cmpoeq     : SDNode<"XtensaISD::CMPOEQ", SDT_XtensaCmp, [SDNPOutGlue]>;
 def Xtensa_cmpolt     : SDNode<"XtensaISD::CMPOLT", SDT_XtensaCmp, [SDNPOutGlue]>;
@@ -107,14 +100,10 @@ def Xtensa_cmpuo      : SDNode<"XtensaISD::CMPUO", SDT_XtensaCmp, [SDNPOutGlue]>
 
 def Xtensa_madd: SDNode<"XtensaISD::MADD", SDT_XtensaMADD, [SDNPInGlue]>;
 def Xtensa_msub: SDNode<"XtensaISD::MSUB", SDT_XtensaMADD, [SDNPInGlue]>;
-def Xtensa_movs: SDNode<"XtensaISD::MOVS", SDT_XtensaMOVS, [SDNPInGlue]>; 
+def Xtensa_movs: SDNode<"XtensaISD::MOVS", SDT_XtensaMOVS, [SDNPInGlue]>;
 
-
-def Xtensa_mem_barrier: SDNode<"XtensaISD::MEMW", SDT_XtensaMEMBARRIER,
-                              [SDNPHasChain, SDNPSideEffect]>;
-
-def Xtensa_rur: SDNode<"XtensaISD::RUR", SDT_XtensaRUR,
-                      [SDNPInGlue]>;
+def Xtensa_select_cc_fp: SDNode<"XtensaISD::SELECT_CC_FP", SDT_XtensaSelectCCFP,
+                               [SDNPInGlue]>;
 
 def Xtensa_loopend: SDNode<"XtensaISD::LOOPEND", SDT_XtensaLoopEnd,
                           [SDNPHasChain, SDNPInGlue]>;

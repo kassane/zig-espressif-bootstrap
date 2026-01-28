@@ -203,19 +203,6 @@ bool XtensaSizeReduce::ReduceMI(const MachineBasicBlock::instr_iterator &MII) {
     return true;
   } break;
 
-  case Xtensa::RETW: {
-    // Replace RETW to RETW.N
-    DebugLoc dl = MI->getDebugLoc();
-    const MCInstrDesc &NewMCID = XtensaII->get(Xtensa::RETW_N);
-    MachineInstrBuilder MIB = BuildMI(MBB, MI, dl, NewMCID);
-    // Transfer MI flags.
-    MIB.setMIFlags(MI->getFlags());
-    LLVM_DEBUG(dbgs() << "       to 16-bit: " << *MIB);
-    NumReduced++;
-    MBB.erase_instr(MI);
-    return true;
-  } break;
-
   default:
     break;
   }

@@ -1,4 +1,5 @@
 #target=x86_64-linux-selfhosted
+#target=x86_64-windows-selfhosted
 #target=x86_64-linux-cbe
 #target=x86_64-windows-cbe
 #target=wasm32-wasi-selfhosted
@@ -14,9 +15,11 @@ const Foo = enum(Tag) {
 pub fn main() !void {
     var val: Foo = undefined;
     val = .a;
-    try std.io.getStdOut().writer().print("{s}\n", .{@tagName(val)});
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &.{});
+    try stdout_writer.interface.print("{s}\n", .{@tagName(val)});
 }
 const std = @import("std");
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_stdout="a\n"
 #update=too many enum fields
 #file=main.zig
@@ -31,7 +34,8 @@ const Foo = enum(Tag) {
 pub fn main() !void {
     var val: Foo = undefined;
     val = .a;
-    try std.io.getStdOut().writer().print("{s}\n", .{@tagName(val)});
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &.{});
+    try stdout_writer.interface.print("{s}\n", .{@tagName(val)});
 }
 comptime {
     // These can't be true at the same time; analysis should stop as soon as it sees `Foo`
@@ -39,6 +43,7 @@ comptime {
     std.debug.assert(@TypeOf(@intFromEnum(Foo.e)) == Tag);
 }
 const std = @import("std");
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_error=main.zig:7:5: error: enumeration value '4' too large for type 'u2'
 #update=increase tag size
 #file=main.zig
@@ -53,7 +58,9 @@ const Foo = enum(Tag) {
 pub fn main() !void {
     var val: Foo = undefined;
     val = .a;
-    try std.io.getStdOut().writer().print("{s}\n", .{@tagName(val)});
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &.{});
+    try stdout_writer.interface.print("{s}\n", .{@tagName(val)});
 }
 const std = @import("std");
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_stdout="a\n"

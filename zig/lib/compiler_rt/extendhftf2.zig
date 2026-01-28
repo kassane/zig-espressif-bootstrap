@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const extendf = @import("./extendf.zig").extendf;
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__extendhftf2, .{ .name = "__extendhftf2", .linkage = common.linkage, .visibility = common.visibility });
 }

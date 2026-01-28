@@ -1,60 +1,65 @@
+const builtin = @import("builtin");
+
 const std = @import("std");
-const build_options = @import("build_options");
-const introspect = @import("introspect.zig");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
-const fatal = @import("main.zig").fatal;
+const EnvVar = std.zig.EnvVar;
+const fatal = std.process.fatal;
 
-pub fn cmdEnv(arena: Allocator, args: []const []const u8, stdout: std.fs.File.Writer) !void {
-    _ = args;
-    const self_exe_path = try introspect.findZigExePath(arena);
+const build_options = @import("build_options");
+const Compilation = @import("Compilation.zig");
 
-    var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-        fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
+pub fn cmdEnv(
+    arena: Allocator,
+    io: Io,
+    out: *std.Io.Writer,
+    args: []const []const u8,
+    preopens: std.process.Preopens,
+    host: *const std.Target,
+    environ_map: *std.process.Environ.Map,
+) !void {
+    const override_lib_dir: ?[]const u8 = EnvVar.ZIG_LIB_DIR.get(environ_map);
+    const override_global_cache_dir: ?[]const u8 = EnvVar.ZIG_GLOBAL_CACHE_DIR.get(environ_map);
+
+    const self_exe_path = switch (builtin.target.os.tag) {
+        .wasi => args[0],
+        else => std.process.executablePathAlloc(io, arena) catch |err| {
+            fatal("unable to find zig self exe path: {t}", .{err});
+        },
     };
-    defer zig_lib_directory.handle.close();
 
-    const zig_std_dir = try std.fs.path.join(arena, &[_][]const u8{ zig_lib_directory.path.?, "std" });
+    var dirs: Compilation.Directories = .init(
+        arena,
+        io,
+        override_lib_dir,
+        override_global_cache_dir,
+        .global,
+        preopens,
+        if (builtin.target.os.tag != .wasi) self_exe_path,
+        environ_map,
+    );
+    defer dirs.deinit(io);
 
-    const global_cache_dir = try introspect.resolveGlobalCacheDir(arena);
-
-    const host = try std.zig.system.resolveTargetQuery(.{});
+    const zig_lib_dir = dirs.zig_lib.path orelse "";
+    const zig_std_dir = try dirs.zig_lib.join(arena, &.{"std"});
+    const global_cache_dir = dirs.global_cache.path orelse "";
     const triple = try host.zigTriple(arena);
 
-    var bw = std.io.bufferedWriter(stdout);
-    const w = bw.writer();
+    var serializer: std.zon.Serializer = .{ .writer = out };
+    var root = try serializer.beginStruct(.{});
 
-    var jws = std.json.writeStream(w, .{ .whitespace = .indent_1 });
-
-    try jws.beginObject();
-
-    try jws.objectField("zig_exe");
-    try jws.write(self_exe_path);
-
-    try jws.objectField("lib_dir");
-    try jws.write(zig_lib_directory.path.?);
-
-    try jws.objectField("std_dir");
-    try jws.write(zig_std_dir);
-
-    try jws.objectField("global_cache_dir");
-    try jws.write(global_cache_dir);
-
-    try jws.objectField("version");
-    try jws.write(build_options.version);
-
-    try jws.objectField("target");
-    try jws.write(triple);
-
-    try jws.objectField("env");
-    try jws.beginObject();
-    inline for (@typeInfo(std.zig.EnvVar).@"enum".fields) |field| {
-        try jws.objectField(field.name);
-        try jws.write(try @field(std.zig.EnvVar, field.name).get(arena));
+    try root.field("zig_exe", self_exe_path, .{});
+    try root.field("lib_dir", zig_lib_dir, .{});
+    try root.field("std_dir", zig_std_dir, .{});
+    try root.field("global_cache_dir", global_cache_dir, .{});
+    try root.field("version", build_options.version, .{});
+    try root.field("target", triple, .{});
+    var env = try root.beginStructField("env", .{});
+    inline for (@typeInfo(EnvVar).@"enum".fields) |field| {
+        try env.field(field.name, @field(EnvVar, field.name).get(environ_map), .{});
     }
-    try jws.endObject();
+    try env.end();
+    try root.end();
 
-    try jws.endObject();
-    try w.writeByte('\n');
-
-    try bw.flush();
+    try out.writeByte('\n');
 }

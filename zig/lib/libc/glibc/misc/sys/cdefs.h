@@ -1,4 +1,4 @@
-/* Copyright (C) 1992-2025 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2026 Free Software Foundation, Inc.
    Copyright The GNU Toolchain Authors.
    This file is part of the GNU C Library.
 
@@ -438,10 +438,10 @@
 */
 #endif
 
-/* GCC and clang have various useful declarations that can be made with
-   the '__attribute__' syntax.  All of the ways we use this do fine if
-   they are omitted for compilers that don't understand it.  */
-#if !(defined __GNUC__ || defined __clang__)
+/* GCC, clang, and compatible compilers have various useful declarations
+   that can be made with the '__attribute__' syntax.  All of the ways we use
+   this do fine if they are omitted for compilers that don't understand it.  */
+#if !(defined __GNUC__ || defined __clang__ || defined __TINYC__)
 # define __attribute__(xyz)	/* Ignore */
 #endif
 
@@ -606,14 +606,14 @@
 # define __attribute_artificial__ /* Ignore */
 #endif
 
-/* GCC 4.3 and above with -std=c99 or -std=gnu99 implements ISO C99
-   inline semantics, unless -fgnu89-inline is used.  Using __GNUC_STDC_INLINE__
-   or __GNUC_GNU_INLINE is not a good enough check for gcc because gcc versions
+/* GCC 4.3 and above with -std=c99 or -std=gnu99 implements ISO C99 inline
+   semantics, unless -fgnu89-inline is used.  Using __GNUC_STDC_INLINE__ or
+   __GNUC_GNU_INLINE__ is not a good enough check for gcc because gcc versions
    older than 4.3 may define these macros and still not guarantee GNU inlining
    semantics.
 
    clang++ identifies itself as gcc-4.2, but has support for GNU inlining
-   semantics, that can be checked for by using the __GNUC_STDC_INLINE_ and
+   semantics, that can be checked for by using the __GNUC_STDC_INLINE__ and
    __GNUC_GNU_INLINE__ macro definitions.  */
 #if (!defined __cplusplus || __GNUC_PREREQ (4,3) \
      || (defined __clang__ && (defined __GNUC_STDC_INLINE__ \
@@ -826,6 +826,18 @@ _Static_assert (0, "IEEE 128-bits long double requires redirection on this platf
 # define __HAVE_GENERIC_SELECTION 1
 #else
 # define __HAVE_GENERIC_SELECTION 0
+#endif
+
+#if __HAVE_GENERIC_SELECTION
+/* If PTR is a pointer to const, return CALL cast to type CTYPE,
+   otherwise return CALL.  Pointers to types with non-const qualifiers
+   are not valid.  This should not be defined for C++, as macros are
+   not an appropriate way of implementing such qualifier-generic
+   operations for C++.  */
+# define __glibc_const_generic(PTR, CTYPE, CALL)	\
+  _Generic (0 ? (PTR) : (void *) 1,			\
+	    const void *: (CTYPE) (CALL),		\
+	    default: CALL)
 #endif
 
 #if __GNUC_PREREQ (10, 0)

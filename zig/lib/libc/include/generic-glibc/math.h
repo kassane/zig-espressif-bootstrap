@@ -1,5 +1,5 @@
 /* Declarations for math functions.
-   Copyright (C) 1991-2025 Free Software Foundation, Inc.
+   Copyright (C) 1991-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -33,14 +33,15 @@
 
 __BEGIN_DECLS
 
-/* Get definitions of __intmax_t and __uintmax_t.  */
-#include <bits/types.h>
-
 /* Get machine-dependent vector math functions declarations.  */
 #include <bits/math-vector.h>
 
 /* Gather machine dependent type support.  */
 #include <bits/floatn.h>
+
+#if __GLIBC_USE (ISOC23)
+# define __STDC_VERSION_MATH_H__ 202311L
+#endif
 
 /* Value returned on overflow.  With IEEE 754 floating point, this is
    +Infinity, otherwise the largest representable positive value.  */
@@ -162,34 +163,201 @@ __BEGIN_DECLS
 		to evaluate `float' expressions
     double_t	floating-point type at least as wide as `double' used
 		to evaluate `double' expressions
+
+   TS 18661-3 and C23 additionally define long_double_t and _FloatN_t.
 */
-# if __GLIBC_FLT_EVAL_METHOD == 0 || __GLIBC_FLT_EVAL_METHOD == 16
+# if __GLIBC_FLT_EVAL_METHOD == 0
 typedef float float_t;
 typedef double double_t;
+#  if __GLIBC_USE (IEC_60559_TYPES_EXT)
+typedef long double long_double_t;
+#   if __HAVE_FLOAT16
+typedef float _Float16_t;
+#   endif
+#   if __HAVE_FLOAT32
+typedef _Float32 _Float32_t;
+#   endif
+#   if __HAVE_FLOAT64
+typedef _Float64 _Float64_t;
+#   endif
+#   if __HAVE_FLOAT128
+typedef _Float128 _Float128_t;
+#   endif
+#  endif
 # elif __GLIBC_FLT_EVAL_METHOD == 1
 typedef double float_t;
 typedef double double_t;
+#  if __GLIBC_USE (IEC_60559_TYPES_EXT)
+typedef long double long_double_t;
+#   if __HAVE_FLOAT16
+typedef double _Float16_t;
+#   endif
+#   if __HAVE_FLOAT32
+typedef double _Float32_t;
+#   endif
+#   if __HAVE_FLOAT64
+typedef _Float64 _Float64_t;
+#   endif
+#   if __HAVE_FLOAT128
+typedef _Float128 _Float128_t;
+#   endif
+#  endif
 # elif __GLIBC_FLT_EVAL_METHOD == 2
 typedef long double float_t;
 typedef long double double_t;
-# elif __GLIBC_FLT_EVAL_METHOD == 32
-typedef _Float32 float_t;
+#  if __GLIBC_USE (IEC_60559_TYPES_EXT)
+typedef long double long_double_t;
+#   if __HAVE_FLOAT16
+typedef long double _Float16_t;
+#   endif
+#   if __HAVE_FLOAT32
+typedef long double _Float32_t;
+#   endif
+#   if __HAVE_FLOAT64
+#    ifdef __NO_LONG_DOUBLE_MATH
+typedef _Float64 _Float64_t;
+#    else
+typedef long double _Float64_t;
+#    endif
+#   endif
+#   if __HAVE_FLOAT128
+typedef _Float128 _Float128_t;
+#   endif
+#  endif
+# elif __GLIBC_FLT_EVAL_METHOD == 16
+typedef float float_t;
 typedef double double_t;
+#  if __GLIBC_USE (IEC_60559_TYPES_EXT)
+typedef long double long_double_t;
+#   if __HAVE_FLOAT16
+typedef _Float16 _Float16_t;
+#   endif
+#   if __HAVE_FLOAT32
+typedef _Float32 _Float32_t;
+#   endif
+#   if __HAVE_FLOAT64
+typedef _Float64 _Float64_t;
+#   endif
+#   if __HAVE_FLOAT128
+typedef _Float128 _Float128_t;
+#   endif
+#  endif
+# elif __GLIBC_FLT_EVAL_METHOD == 32
+typedef float float_t;
+typedef double double_t;
+#  if __GLIBC_USE (IEC_60559_TYPES_EXT)
+typedef long double long_double_t;
+#   if __HAVE_FLOAT16
+typedef _Float32 _Float16_t;
+#   endif
+#   if __HAVE_FLOAT32
+typedef _Float32 _Float32_t;
+#   endif
+#   if __HAVE_FLOAT64
+typedef _Float64 _Float64_t;
+#   endif
+#   if __HAVE_FLOAT128
+typedef _Float128 _Float128_t;
+#   endif
+#  endif
 # elif __GLIBC_FLT_EVAL_METHOD == 33
 typedef _Float32x float_t;
-typedef _Float32x double_t;
+typedef double double_t;
+#  if __GLIBC_USE (IEC_60559_TYPES_EXT)
+typedef long double long_double_t;
+#   if __HAVE_FLOAT16
+typedef _Float32x _Float16_t;
+#   endif
+#   if __HAVE_FLOAT32
+typedef _Float32x _Float32_t;
+#   endif
+#   if __HAVE_FLOAT64
+typedef _Float64 _Float64_t;
+#   endif
+#   if __HAVE_FLOAT128
+typedef _Float128 _Float128_t;
+#   endif
+#  endif
 # elif __GLIBC_FLT_EVAL_METHOD == 64
 typedef _Float64 float_t;
-typedef _Float64 double_t;
+typedef double double_t;
+#  if __GLIBC_USE (IEC_60559_TYPES_EXT)
+typedef long double long_double_t;
+#   if __HAVE_FLOAT16
+typedef _Float64 _Float16_t;
+#   endif
+#   if __HAVE_FLOAT32
+typedef _Float64 _Float32_t;
+#   endif
+#   if __HAVE_FLOAT64
+typedef _Float64 _Float64_t;
+#   endif
+#   if __HAVE_FLOAT128
+typedef _Float128 _Float128_t;
+#   endif
+#  endif
 # elif __GLIBC_FLT_EVAL_METHOD == 65
 typedef _Float64x float_t;
 typedef _Float64x double_t;
+#  if __GLIBC_USE (IEC_60559_TYPES_EXT)
+typedef long double long_double_t;
+#   if __HAVE_FLOAT16
+typedef _Float64x _Float16_t;
+#   endif
+#   if __HAVE_FLOAT32
+typedef _Float64x _Float32_t;
+#   endif
+#   if __HAVE_FLOAT64
+typedef _Float64x _Float64_t;
+#   endif
+#   if __HAVE_FLOAT128
+typedef _Float128 _Float128_t;
+#   endif
+#  endif
 # elif __GLIBC_FLT_EVAL_METHOD == 128
 typedef _Float128 float_t;
 typedef _Float128 double_t;
+#  if __GLIBC_USE (IEC_60559_TYPES_EXT)
+#   if __HAVE_FLOAT128_UNLIKE_LDBL && __LDBL_MANT_DIG__ != 106
+typedef _Float128 long_double_t;
+#   else
+typedef long double long_double_t;
+#   endif
+#   if __HAVE_FLOAT16
+typedef _Float128 _Float16_t;
+#   endif
+#   if __HAVE_FLOAT32
+typedef _Float128 _Float32_t;
+#   endif
+#   if __HAVE_FLOAT64
+typedef _Float128 _Float64_t;
+#   endif
+#   if __HAVE_FLOAT128
+typedef _Float128 _Float128_t;
+#   endif
+#  endif
 # elif __GLIBC_FLT_EVAL_METHOD == 129
 typedef _Float128x float_t;
 typedef _Float128x double_t;
+#  if __GLIBC_USE (IEC_60559_TYPES_EXT)
+#   if __LDBL_MANT_DIG__ != 106
+typedef _Float128x long_double_t;
+#   else
+typedef long double long_double_t;
+#   endif
+#   if __HAVE_FLOAT16
+typedef _Float128x _Float16_t;
+#   endif
+#   if __HAVE_FLOAT32
+typedef _Float128x _Float32_t;
+#   endif
+#   if __HAVE_FLOAT64
+typedef _Float128x _Float64_t;
+#   endif
+#   if __HAVE_FLOAT128
+typedef _Float128x _Float128_t;
+#   endif
+#  endif
 # else
 #  error "Unknown __GLIBC_FLT_EVAL_METHOD"
 # endif
@@ -1265,7 +1433,7 @@ iszero (__T __val)
 #endif
 
 #ifdef __USE_ISOC99
-# if __GNUC_PREREQ (3, 1)
+# if __GNUC_PREREQ (3, 1) && !defined __clang__
 /* ISO C99 defines some macros to compare number while taking care for
    unordered numbers.  Many FPUs provide special instructions to support
    these operations.  Generic support in GCC for these as builtins went

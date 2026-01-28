@@ -1,10 +1,12 @@
-const std = @import("std.zig");
 const builtin = @import("builtin");
+const native_os = builtin.os.tag;
+
+const std = @import("std.zig");
+const Io = std.Io;
 const mem = std.mem;
 const testing = std.testing;
 const elf = std.elf;
 const windows = std.os.windows;
-const native_os = builtin.os.tag;
 const posix = std.posix;
 
 /// Cross-platform dynamic library loading and symbol lookup.
@@ -16,7 +18,7 @@ pub const DynLib = struct {
         else
             DlDynLib,
         .windows => WindowsDynLib,
-        .macos, .tvos, .watchos, .ios, .visionos, .freebsd, .netbsd, .openbsd, .dragonfly, .solaris, .illumos => DlDynLib,
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .freebsd, .netbsd, .openbsd, .dragonfly, .illumos => DlDynLib,
         else => struct {
             const open = @compileError("unsupported platform");
             const openZ = @compileError("unsupported platform");
@@ -29,12 +31,20 @@ pub const DynLib = struct {
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn open(path: []const u8) Error!DynLib {
-        return .{ .inner = try InnerType.open(path) };
+        if (InnerType == ElfDynLib) {
+            return .{ .inner = try InnerType.open(path, null) };
+        } else {
+            return .{ .inner = try InnerType.open(path) };
+        }
     }
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn openZ(path_c: [*:0]const u8) Error!DynLib {
-        return .{ .inner = try InnerType.openZ(path_c) };
+        if (InnerType == ElfDynLib) {
+            return .{ .inner = try InnerType.openZ(path_c, null) };
+        } else {
+            return .{ .inner = try InnerType.openZ(path_c) };
+        }
     }
 
     /// Trusts the file.
@@ -53,11 +63,11 @@ pub const DynLib = struct {
 // An iterator is provided in order to traverse the linked list in a idiomatic
 // fashion.
 const LinkMap = extern struct {
-    l_addr: usize,
-    l_name: [*:0]const u8,
-    l_ld: ?*elf.Dyn,
-    l_next: ?*LinkMap,
-    l_prev: ?*LinkMap,
+    addr: usize,
+    name: [*:0]const u8,
+    ld: ?*elf.Dyn,
+    next: ?*LinkMap,
+    prev: ?*LinkMap,
 
     pub const Iterator = struct {
         current: ?*LinkMap,
@@ -68,7 +78,7 @@ const LinkMap = extern struct {
 
         pub fn next(self: *Iterator) ?*LinkMap {
             if (self.current) |it| {
-                self.current = it.l_next;
+                self.current = it.next;
                 return it;
             }
             return null;
@@ -77,23 +87,24 @@ const LinkMap = extern struct {
 };
 
 const RDebug = extern struct {
-    r_version: i32,
-    r_map: ?*LinkMap,
-    r_brk: usize,
-    r_ldbase: usize,
+    version: i32,
+    map: ?*LinkMap,
+    brk: usize,
+    ldbase: usize,
 };
 
-/// TODO make it possible to reference this same external symbol 2x so we don't need this
-/// helper function.
-pub fn get_DYNAMIC() ?[*]elf.Dyn {
-    return @extern([*]elf.Dyn, .{ .name = "_DYNAMIC", .linkage = .weak });
+/// TODO fix comparisons of extern symbol pointers so we don't need this helper function.
+pub fn get_DYNAMIC() ?[*]const elf.Dyn {
+    return @extern([*]const elf.Dyn, .{
+        .name = "_DYNAMIC",
+        .linkage = .weak,
+        .visibility = .hidden,
+    });
 }
 
-pub fn linkmap_iterator(phdrs: []elf.Phdr) error{InvalidExe}!LinkMap.Iterator {
-    _ = phdrs;
+pub fn linkmap_iterator() error{InvalidExe}!LinkMap.Iterator {
     const _DYNAMIC = get_DYNAMIC() orelse {
-        // No PT_DYNAMIC means this is either a statically-linked program or a
-        // badly corrupted dynamically-linked one.
+        // No PT_DYNAMIC means this is a statically-linked non-PIE program.
         return .{ .current = null };
     };
 
@@ -104,8 +115,8 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) error{InvalidExe}!LinkMap.Iterator {
                 elf.DT_DEBUG => {
                     const ptr = @as(?*RDebug, @ptrFromInt(_DYNAMIC[i].d_val));
                     if (ptr) |r_debug| {
-                        if (r_debug.r_version != 1) return error.InvalidExe;
-                        break :init r_debug.r_map;
+                        if (r_debug.version != 1) return error.InvalidExe;
+                        break :init r_debug.map;
                     }
                 },
                 elf.DT_PLTGOT => {
@@ -135,7 +146,9 @@ const ElfDynLibError = error{
     ElfStringSectionNotFound,
     ElfSymSectionNotFound,
     ElfHashTableNotFound,
-} || posix.OpenError || posix.MMapError;
+    Canceled,
+    Streaming,
+} || Io.File.OpenError || posix.MMapError;
 
 pub const ElfDynLib = struct {
     strings: [*:0]u8,
@@ -152,39 +165,32 @@ pub const ElfDynLib = struct {
         dt_gnu_hash: *elf.gnu_hash.Header,
     };
 
-    fn openPath(path: []const u8) !std.fs.Dir {
+    fn openPath(io: Io, path: []const u8) !Io.Dir {
         if (path.len == 0) return error.NotDir;
         var parts = std.mem.tokenizeScalar(u8, path, '/');
-        var parent = if (path[0] == '/') try std.fs.cwd().openDir("/", .{}) else std.fs.cwd();
+        var parent = if (path[0] == '/') try Io.Dir.cwd().openDir(io, "/", .{}) else Io.Dir.cwd();
         while (parts.next()) |part| {
-            const child = try parent.openDir(part, .{});
-            parent.close();
+            const child = try parent.openDir(io, part, .{});
+            parent.close(io);
             parent = child;
         }
         return parent;
     }
 
-    fn resolveFromSearchPath(search_path: []const u8, file_name: []const u8, delim: u8) ?posix.fd_t {
+    fn resolveFromSearchPath(io: Io, search_path: []const u8, file_name: []const u8, delim: u8) ?Io.File {
         var paths = std.mem.tokenizeScalar(u8, search_path, delim);
         while (paths.next()) |p| {
-            var dir = openPath(p) catch continue;
-            defer dir.close();
-            const fd = posix.openat(dir.fd, file_name, .{
-                .ACCMODE = .RDONLY,
-                .CLOEXEC = true,
-            }, 0) catch continue;
-            return fd;
+            var dir = openPath(io, p) catch continue;
+            defer dir.close(io);
+            return dir.openFile(io, file_name, .{}) catch continue;
         }
         return null;
     }
 
-    fn resolveFromParent(dir_path: []const u8, file_name: []const u8) ?posix.fd_t {
-        var dir = std.fs.cwd().openDir(dir_path, .{}) catch return null;
-        defer dir.close();
-        return posix.openat(dir.fd, file_name, .{
-            .ACCMODE = .RDONLY,
-            .CLOEXEC = true,
-        }, 0) catch null;
+    fn resolveFromParent(io: Io, dir_path: []const u8, file_name: []const u8) ?Io.File {
+        var dir = Io.Dir.cwd().openDir(io, dir_path, .{}) catch return null;
+        defer dir.close(io);
+        return dir.openFile(io, file_name, .{}) catch null;
     }
 
     // This implements enough to be able to load system libraries in general
@@ -192,36 +198,37 @@ pub const ElfDynLib = struct {
     // - DT_RPATH of the calling binary is not used as a search path
     // - DT_RUNPATH of the calling binary is not used as a search path
     // - /etc/ld.so.cache is not read
-    fn resolveFromName(path_or_name: []const u8) !posix.fd_t {
+    fn resolveFromName(io: Io, path_or_name: []const u8, LD_LIBRARY_PATH: ?[]const u8) !Io.File {
         // If filename contains a slash ("/"), then it is interpreted as a (relative or absolute) pathname
-        if (std.mem.indexOfScalarPos(u8, path_or_name, 0, '/')) |_| {
-            return posix.open(path_or_name, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+        if (std.mem.findScalarPos(u8, path_or_name, 0, '/')) |_| {
+            return Io.Dir.cwd().openFile(io, path_or_name, .{});
         }
 
         // Only read LD_LIBRARY_PATH if the binary is not setuid/setgid
         if (std.os.linux.geteuid() == std.os.linux.getuid() and
             std.os.linux.getegid() == std.os.linux.getgid())
         {
-            if (posix.getenvZ("LD_LIBRARY_PATH")) |ld_library_path| {
-                if (resolveFromSearchPath(ld_library_path, path_or_name, ':')) |fd| {
-                    return fd;
+            if (LD_LIBRARY_PATH) |ld_library_path| {
+                if (resolveFromSearchPath(io, ld_library_path, path_or_name, ':')) |file| {
+                    return file;
                 }
             }
         }
 
         // Lastly the directories /lib and /usr/lib are searched (in this exact order)
-        if (resolveFromParent("/lib", path_or_name)) |fd| return fd;
-        if (resolveFromParent("/usr/lib", path_or_name)) |fd| return fd;
+        if (resolveFromParent(io, "/lib", path_or_name)) |file| return file;
+        if (resolveFromParent(io, "/usr/lib", path_or_name)) |file| return file;
         return error.FileNotFound;
     }
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
-    pub fn open(path: []const u8) Error!ElfDynLib {
-        const fd = try resolveFromName(path);
-        defer posix.close(fd);
+    pub fn open(path: []const u8, LD_LIBRARY_PATH: ?[]const u8) Error!ElfDynLib {
+        const io = std.Options.debug_io;
 
-        const file: std.fs.File = .{ .handle = fd };
-        const stat = try file.stat();
+        const file = try resolveFromName(io, path, LD_LIBRARY_PATH);
+        defer file.close(io);
+
+        const stat = try file.stat(io);
         const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
         const page_size = std.heap.pageSize();
@@ -231,9 +238,9 @@ pub const ElfDynLib = struct {
         const file_bytes = try posix.mmap(
             null,
             mem.alignForward(usize, size, page_size),
-            posix.PROT.READ,
+            .{ .READ = true },
             .{ .TYPE = .PRIVATE },
-            fd,
+            file.handle,
             0,
         );
         defer posix.munmap(file_bytes);
@@ -269,7 +276,7 @@ pub const ElfDynLib = struct {
         const all_loaded_mem = try posix.mmap(
             null,
             virt_addr_end,
-            posix.PROT.NONE,
+            .{},
             .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
@@ -295,7 +302,7 @@ pub const ElfDynLib = struct {
                         const extra_bytes = (base + ph.p_vaddr) - aligned_addr;
                         const extended_memsz = mem.alignForward(usize, ph.p_memsz + extra_bytes, page_size);
                         const ptr = @as([*]align(std.heap.page_size_min) u8, @ptrFromInt(aligned_addr));
-                        const prot = elfToMmapProt(ph.p_flags);
+                        const prot = elfToProt(ph.p_flags);
                         if ((ph.p_flags & elf.PF_W) == 0) {
                             // If it does not need write access, it can be mapped from the fd.
                             _ = try posix.mmap(
@@ -303,7 +310,7 @@ pub const ElfDynLib = struct {
                                 extended_memsz,
                                 prot,
                                 .{ .TYPE = .PRIVATE, .FIXED = true },
-                                fd,
+                                file.handle,
                                 ph.p_offset - extra_bytes,
                             );
                         } else {
@@ -364,8 +371,8 @@ pub const ElfDynLib = struct {
     }
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
-    pub fn openZ(path_c: [*:0]const u8) Error!ElfDynLib {
-        return open(mem.sliceTo(path_c, 0));
+    pub fn openZ(path_c: [*:0]const u8, LD_LIBRARY_PATH: ?[]const u8) Error!ElfDynLib {
+        return open(mem.sliceTo(path_c, 0), LD_LIBRARY_PATH);
     }
 
     /// Trusts the file
@@ -524,12 +531,12 @@ pub const ElfDynLib = struct {
         return null;
     }
 
-    fn elfToMmapProt(elf_prot: u64) u32 {
-        var result: u32 = posix.PROT.NONE;
-        if ((elf_prot & elf.PF_R) != 0) result |= posix.PROT.READ;
-        if ((elf_prot & elf.PF_W) != 0) result |= posix.PROT.WRITE;
-        if ((elf_prot & elf.PF_X) != 0) result |= posix.PROT.EXEC;
-        return result;
+    fn elfToProt(elf_prot: u64) posix.PROT {
+        return .{
+            .READ = (elf_prot & elf.PF_R) != 0,
+            .WRITE = (elf_prot & elf.PF_W) != 0,
+            .EXEC = (elf_prot & elf.PF_X) != 0,
+        };
     }
 };
 
@@ -546,11 +553,9 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: elf.Versym, vername: []const u8, str
 }
 
 test "ElfDynLib" {
-    if (native_os != .linux) {
-        return error.SkipZigTest;
-    }
-
-    try testing.expectError(error.FileNotFound, ElfDynLib.open("invalid_so.so"));
+    if (native_os != .linux) return error.SkipZigTest;
+    try testing.expectError(error.FileNotFound, ElfDynLib.open("invalid_so.so", null));
+    try testing.expectError(error.FileNotFound, ElfDynLib.openZ("invalid_so.so", null));
 }
 
 /// Separated to avoid referencing `WindowsDynLib`, because its field types may not
@@ -670,9 +675,9 @@ pub const DlDynLib = struct {
 
 test "dynamic_library" {
     const libname = switch (native_os) {
-        .linux, .freebsd, .openbsd, .solaris, .illumos => "invalid_so.so",
+        .linux, .freebsd, .openbsd, .illumos => "invalid_so.so",
         .windows => "invalid_dll.dll",
-        .macos, .tvos, .watchos, .ios, .visionos => "invalid_dylib.dylib",
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => "invalid_dylib.dylib",
         else => return error.SkipZigTest,
     };
 

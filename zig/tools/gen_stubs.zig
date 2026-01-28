@@ -6,6 +6,7 @@
 //! * aarch64
 //! * arm
 //! * i386
+//! * hexagon
 //! * loongarch64
 //! * mips
 //! * mips64
@@ -27,6 +28,7 @@
 //!   - `-DARCH_aarch64`
 //!   - `-DARCH_arm`
 //!   - `-DARCH_i386`
+//!   - `-DARCH_hexagon`
 //!   - `-DARCH_loongarch64`
 //!   - `-DARCH_mips`
 //!   - `-DARCH_mips64`
@@ -41,6 +43,7 @@
 //! * One of the following, corresponding to the CPU architecture family:
 //!   - `-DFAMILY_aarch64`
 //!   - `-DFAMILY_arm`
+//!   - `-DFAMILY_hexagon`
 //!   - `-DFAMILY_loongarch`
 //!   - `-DFAMILY_mips`
 //!   - `-DFAMILY_powerpc`
@@ -52,17 +55,20 @@
 //       - e.g. find a common previous symbol and put it after that one
 //       - they definitely need to go into the correct section
 
+const builtin = @import("builtin");
+const native_endian = builtin.cpu.arch.endian();
+
 const std = @import("std");
-const builtin = std.builtin;
+const Io = std.Io;
 const mem = std.mem;
 const log = std.log;
 const elf = std.elf;
-const native_endian = @import("builtin").cpu.arch.endian();
 
 const Arch = enum {
     aarch64,
     arm,
     i386,
+    hexagon,
     loongarch64,
     mips,
     mips64,
@@ -77,6 +83,7 @@ const Arch = enum {
     pub fn ptrSize(arch: Arch) u16 {
         return switch (arch) {
             .arm,
+            .hexagon,
             .i386,
             .mips,
             .mipsn32,
@@ -112,6 +119,7 @@ const Arch = enum {
             .aarch64 => .aarch64,
             .arm => .arm,
             .i386, .x86_64 => .x86,
+            .hexagon => .hexagon,
             .loongarch64 => .loongarch,
             .mips, .mips64, .mipsn32 => .mips,
             .powerpc, .powerpc64 => .powerpc,
@@ -124,6 +132,7 @@ const Arch = enum {
 const Family = enum {
     aarch64,
     arm,
+    hexagon,
     loongarch,
     mips,
     powerpc,
@@ -272,15 +281,13 @@ const Parse = struct {
     arch: Arch,
 };
 
-pub fn main() !void {
-    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_instance.deinit();
-    const arena = arena_instance.allocator();
-
-    const args = try std.process.argsAlloc(arena);
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const io = init.io;
+    const args = try init.minimal.args.toSlice(arena);
     const build_all_path = args[1];
 
-    var build_all_dir = try std.fs.cwd().openDir(build_all_path, .{});
+    var build_all_dir = try Io.Dir.cwd().openDir(io, build_all_path, .{});
 
     var sym_table = std.StringArrayHashMap(MultiSym).init(arena);
     var sections = std.StringArrayHashMap(void).init(arena);
@@ -292,18 +299,19 @@ pub fn main() !void {
 
         // Read the ELF header.
         const elf_bytes = build_all_dir.readFileAllocOptions(
-            arena,
+            io,
             libc_so_path,
-            100 * 1024 * 1024,
-            1 * 1024 * 1024,
-            @alignOf(elf.Elf64_Ehdr),
+            arena,
+            .limited(100 * 1024 * 1024),
+            .of(elf.Elf64_Ehdr),
             null,
         ) catch |err| {
             std.debug.panic("unable to read '{s}/{s}': {s}", .{
                 build_all_path, libc_so_path, @errorName(err),
             });
         };
-        const header = try elf.Header.parse(elf_bytes[0..@sizeOf(elf.Elf64_Ehdr)]);
+        var stream: std.Io.Reader = .fixed(elf_bytes);
+        const header = try elf.Header.read(&stream);
 
         const parse: Parse = .{
             .arena = arena,
@@ -326,7 +334,9 @@ pub fn main() !void {
         }
     }
 
-    const stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [2000]u8 = undefined;
+    var stdout_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
     try stdout.writeAll(
         \\#ifdef PTR64
         \\#define WEAK64 .weak
@@ -526,9 +536,11 @@ pub fn main() !void {
         .all => {},
         .single, .multi, .family, .time32 => try stdout.writeAll("#endif\n"),
     }
+
+    try stdout.flush();
 }
 
-fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian) !void {
+fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: std.builtin.Endian) !void {
     const arena = parse.arena;
     const elf_bytes = parse.elf_bytes;
     const header = parse.header;
@@ -597,7 +609,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
         const name = try arena.dupe(u8, mem.sliceTo(dynstr[s(sym.st_name)..], 0));
         const ty = @as(u4, @truncate(sym.st_info));
         const binding = @as(u4, @truncate(sym.st_info >> 4));
-        const visib = @as(elf.STV, @enumFromInt(@as(u2, @truncate(sym.st_other))));
+        const visib = @as(elf.STV, @enumFromInt(@as(u3, @truncate(sym.st_other))));
         const size = s(sym.st_size);
 
         if (size == 0) {

@@ -10,6 +10,10 @@
 
 const std = @import("std");
 
+pub const lowercase = "abcdefghijklmnopqrstuvwxyz";
+pub const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+pub const letters = lowercase ++ uppercase;
+
 /// The C0 control codes of the ASCII encoding.
 ///
 /// See also: https://en.wikipedia.org/wiki/C0_and_C1_control_codes and `isControl`
@@ -133,6 +137,16 @@ pub fn isPrint(c: u8) bool {
     return isAscii(c) and !isControl(c);
 }
 
+/// Returns whether the character has some graphical representation,
+pub fn isGraphical(c: u8) bool {
+    return isPrint(c) and c != ' ';
+}
+
+/// Returns whether the character is a punctuation character.
+pub fn isPunctuation(c: u8) bool {
+    return isGraphical(c) and !isAlphanumeric(c);
+}
+
 /// Returns whether this character is included in `whitespace`.
 pub fn isWhitespace(c: u8) bool {
     return switch (c) {
@@ -152,7 +166,7 @@ test whitespace {
 
     var i: u8 = 0;
     while (isAscii(i)) : (i += 1) {
-        if (isWhitespace(i)) try std.testing.expect(std.mem.indexOfScalar(u8, &whitespace, i) != null);
+        if (isWhitespace(i)) try std.testing.expect(std.mem.findScalar(u8, &whitespace, i) != null);
     }
 }
 
@@ -176,9 +190,6 @@ pub fn isHex(c: u8) bool {
 pub fn isAscii(c: u8) bool {
     return c < 128;
 }
-
-/// /// Deprecated: use `isAscii`
-pub const isASCII = isAscii;
 
 /// Uppercases the character and returns it as-is if already uppercase or not a letter.
 pub fn toUpper(c: u8) u8 {
@@ -263,6 +274,17 @@ test "ASCII character classes" {
     try testing.expect(!isPrint(control_code.esc));
     try testing.expect(!isPrint(0x80));
     try testing.expect(!isPrint(0xff));
+
+    try testing.expect(isGraphical('@'));
+    try testing.expect(isGraphical('!'));
+    try testing.expect(!isGraphical(' '));
+
+    try testing.expect(isPunctuation('@'));
+    try testing.expect(isPunctuation('!'));
+    try testing.expect(isPunctuation(';'));
+    try testing.expect(isPunctuation(','));
+    try testing.expect(!isPunctuation('A'));
+    try testing.expect(!isPunctuation('8'));
 }
 
 /// Writes a lower case copy of `ascii_string` to `output`.
@@ -356,19 +378,25 @@ test endsWithIgnoreCase {
     try std.testing.expect(!endsWithIgnoreCase("BoB", "Bo"));
 }
 
+/// Deprecated in favor of `findIgnoreCase`.
+pub const indexOfIgnoreCase = findIgnoreCase;
+
 /// Finds `needle` in `haystack`, ignoring case, starting at index 0.
-pub fn indexOfIgnoreCase(haystack: []const u8, needle: []const u8) ?usize {
-    return indexOfIgnoreCasePos(haystack, 0, needle);
+pub fn findIgnoreCase(haystack: []const u8, needle: []const u8) ?usize {
+    return findIgnoreCasePos(haystack, 0, needle);
 }
 
+/// Deprecated in favor of `findIgnoreCasePos`.
+pub const indexOfIgnoreCasePos = findIgnoreCasePos;
+
 /// Finds `needle` in `haystack`, ignoring case, starting at `start_index`.
-/// Uses Boyer-Moore-Horspool algorithm on large inputs; `indexOfIgnoreCasePosLinear` on small inputs.
-pub fn indexOfIgnoreCasePos(haystack: []const u8, start_index: usize, needle: []const u8) ?usize {
+/// Uses Boyer-Moore-Horspool algorithm on large inputs; `findIgnoreCasePosLinear` on small inputs.
+pub fn findIgnoreCasePos(haystack: []const u8, start_index: usize, needle: []const u8) ?usize {
     if (needle.len > haystack.len) return null;
     if (needle.len == 0) return start_index;
 
     if (haystack.len < 52 or needle.len <= 4)
-        return indexOfIgnoreCasePosLinear(haystack, start_index, needle);
+        return findIgnoreCasePosLinear(haystack, start_index, needle);
 
     var skip_table: [256]usize = undefined;
     boyerMooreHorspoolPreprocessIgnoreCase(needle, skip_table[0..]);
@@ -382,9 +410,12 @@ pub fn indexOfIgnoreCasePos(haystack: []const u8, start_index: usize, needle: []
     return null;
 }
 
-/// Consider using `indexOfIgnoreCasePos` instead of this, which will automatically use a
+/// Deprecated in favor of `findIgnoreCaseLinear`.
+pub const indexOfIgnoreCasePosLinear = findIgnoreCasePosLinear;
+
+/// Consider using `findIgnoreCasePos` instead of this, which will automatically use a
 /// more sophisticated algorithm on larger inputs.
-pub fn indexOfIgnoreCasePosLinear(haystack: []const u8, start_index: usize, needle: []const u8) ?usize {
+pub fn findIgnoreCasePosLinear(haystack: []const u8, start_index: usize, needle: []const u8) ?usize {
     var i: usize = start_index;
     const end = haystack.len - needle.len;
     while (i <= end) : (i += 1) {
@@ -406,32 +437,99 @@ fn boyerMooreHorspoolPreprocessIgnoreCase(pattern: []const u8, table: *[256]usiz
     }
 }
 
-test indexOfIgnoreCase {
-    try std.testing.expect(indexOfIgnoreCase("one Two Three Four", "foUr").? == 14);
-    try std.testing.expect(indexOfIgnoreCase("one two three FouR", "gOur") == null);
-    try std.testing.expect(indexOfIgnoreCase("foO", "Foo").? == 0);
-    try std.testing.expect(indexOfIgnoreCase("foo", "fool") == null);
-    try std.testing.expect(indexOfIgnoreCase("FOO foo", "fOo").? == 0);
+test findIgnoreCase {
+    try std.testing.expect(findIgnoreCase("one Two Three Four", "foUr").? == 14);
+    try std.testing.expect(findIgnoreCase("one two three FouR", "gOur") == null);
+    try std.testing.expect(findIgnoreCase("foO", "Foo").? == 0);
+    try std.testing.expect(findIgnoreCase("foo", "fool") == null);
+    try std.testing.expect(findIgnoreCase("FOO foo", "fOo").? == 0);
 
-    try std.testing.expect(indexOfIgnoreCase("one two three four five six seven eight nine ten eleven", "ThReE fOUr").? == 8);
-    try std.testing.expect(indexOfIgnoreCase("one two three four five six seven eight nine ten eleven", "Two tWo") == null);
+    try std.testing.expect(findIgnoreCase("one two three four five six seven eight nine ten eleven", "ThReE fOUr").? == 8);
+    try std.testing.expect(findIgnoreCase("one two three four five six seven eight nine ten eleven", "Two tWo") == null);
 }
 
 /// Returns the lexicographical order of two slices. O(n).
 pub fn orderIgnoreCase(lhs: []const u8, rhs: []const u8) std.math.Order {
-    const n = @min(lhs.len, rhs.len);
-    var i: usize = 0;
-    while (i < n) : (i += 1) {
-        switch (std.math.order(toLower(lhs[i]), toLower(rhs[i]))) {
-            .eq => continue,
-            .lt => return .lt,
-            .gt => return .gt,
+    if (lhs.ptr != rhs.ptr) {
+        const n = @min(lhs.len, rhs.len);
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            switch (std.math.order(toLower(lhs[i]), toLower(rhs[i]))) {
+                .eq => continue,
+                .lt => return .lt,
+                .gt => return .gt,
+            }
         }
     }
     return std.math.order(lhs.len, rhs.len);
 }
 
+/// Returns the lexicographical order of two many-item pointers with NUL-termination. O(n).
+pub fn orderIgnoreCaseZ(lhs: [*:0]const u8, rhs: [*:0]const u8) std.math.Order {
+    return boundedOrderIgnoreCaseZ(lhs, rhs, std.math.maxInt(usize));
+}
+
+test orderIgnoreCaseZ {
+    try std.testing.expect(orderIgnoreCaseZ("aBcD", "Bee") == .lt);
+    try std.testing.expect(orderIgnoreCaseZ("AbC", "aBc") == .eq);
+    try std.testing.expect(orderIgnoreCaseZ("abC", "aBc0") == .lt);
+    try std.testing.expect(orderIgnoreCaseZ("", "") == .eq);
+    try std.testing.expect(orderIgnoreCaseZ("", "a") == .lt);
+
+    const s: [*:0]const u8 = "Abc";
+    try std.testing.expect(orderIgnoreCaseZ(s, s) == .eq);
+}
+
+/// Returns the lexicographical order of two many-item pointers with NUL-termination until some specified bound. O(n).
+pub fn boundedOrderIgnoreCaseZ(lhs: [*:0]const u8, rhs: [*:0]const u8, bound: usize) std.math.Order {
+    if (lhs == rhs) return .eq;
+    var i: usize = 0;
+    while (i < bound and toLower(lhs[i]) == toLower(rhs[i]) and lhs[i] != 0) : (i += 1) {}
+    return if (i < bound) std.math.order(toLower(lhs[i]), toLower(rhs[i])) else .eq;
+}
+
 /// Returns whether the lexicographical order of `lhs` is lower than `rhs`.
 pub fn lessThanIgnoreCase(lhs: []const u8, rhs: []const u8) bool {
     return orderIgnoreCase(lhs, rhs) == .lt;
+}
+
+pub const HexEscape = struct {
+    bytes: []const u8,
+    charset: *const [16]u8,
+
+    pub const upper_charset = "0123456789ABCDEF";
+    pub const lower_charset = "0123456789abcdef";
+
+    pub fn format(se: HexEscape, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        const charset = se.charset;
+
+        var buf: [4]u8 = undefined;
+        buf[0] = '\\';
+        buf[1] = 'x';
+
+        for (se.bytes) |c| {
+            if (std.ascii.isPrint(c)) {
+                try w.writeByte(c);
+            } else {
+                buf[2] = charset[c >> 4];
+                buf[3] = charset[c & 15];
+                try w.writeAll(&buf);
+            }
+        }
+    }
+};
+
+/// Replaces non-ASCII bytes with hex escapes.
+pub fn hexEscape(bytes: []const u8, case: std.fmt.Case) std.fmt.Alt(HexEscape, HexEscape.format) {
+    return .{ .data = .{ .bytes = bytes, .charset = switch (case) {
+        .lower => HexEscape.lower_charset,
+        .upper => HexEscape.upper_charset,
+    } } };
+}
+
+test hexEscape {
+    try std.testing.expectFmt("abc 123", "{f}", .{hexEscape("abc 123", .lower)});
+    try std.testing.expectFmt("ab\\xffc", "{f}", .{hexEscape("ab\xffc", .lower)});
+    try std.testing.expectFmt("abc 123", "{f}", .{hexEscape("abc 123", .upper)});
+    try std.testing.expectFmt("ab\\xFFc", "{f}", .{hexEscape("ab\xffc", .upper)});
 }

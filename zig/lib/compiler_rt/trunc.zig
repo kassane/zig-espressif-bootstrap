@@ -12,8 +12,6 @@ const mem = std.mem;
 const expect = std.testing.expect;
 const common = @import("common.zig");
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__trunch, .{ .name = "__trunch", .linkage = common.linkage, .visibility = common.visibility });
     @export(&truncf, .{ .name = "truncf", .linkage = common.linkage, .visibility = common.visibility });

@@ -65,7 +65,6 @@ def AR : RegisterClass<"Xtensa", [i32], 32, (add
   A8, A9, A10, A11, A12, A13, A14, A15,
   A7, A6, A5, A4, A3, A2, A0, SP)>;
 
-
 // 128-bit general-purpose registers
 class QRReg<bits<16> num, string n, list<string>alt = []> : XtensaReg<n>{
   let HWEncoding{15-0} = num;
@@ -91,6 +90,7 @@ class SRReg<bits<8> num, string n, list<string> alt = []> : XtensaReg<n> {
   let AltNames = alt;
 }
 
+// Loop Option Registers
 def LBEG : SRReg<0, "lbeg", ["LBEG", "0"]>;
 def LEND : SRReg<1, "lend", ["LEND", "1"]>;
 def LCOUNT : SRReg<2, "lcount", ["LCOUNT", "2"]>;
@@ -98,18 +98,16 @@ def LCOUNT : SRReg<2, "lcount", ["LCOUNT", "2"]>;
 // Shift Amount Register
 def SAR : SRReg<3, "sar", ["SAR","3"]>;
 
-def BREG : SRReg<4, "br", ["BR", "4"]>;
-def LITBASE : SRReg<5, "litbase", ["LITBASE", "5"]>;
+// Boolean Register
+def BREG : SRReg<4, "br", ["BR","4"]>;
 
 // Expected data value for S32C1I operation
 def SCOMPARE1 : SRReg<12, "scompare1", ["SCOMPARE1", "12"]>;
 
-def ACCLO : SRReg<16, "acclo", ["ACCLO", "16"]>;
-def ACCHI : SRReg<17, "acchi", ["ACCHI", "17"]>;
-def M0 : SRReg<32, "m0", ["M0", "32"]>;
-def M1 : SRReg<33, "m1", ["M1", "33"]>;
-def M2 : SRReg<34, "m2", ["M2", "34"]>;
-def M3 : SRReg<35, "m3", ["M3", "35"]>;
+// Literal base
+def LITBASE : SRReg<5, "litbase", ["LITBASE", "5"]>;
+
+// Windowed Register Option registers
 def WINDOWBASE : SRReg<72, "windowbase", ["WINDOWBASE", "72"]>;
 def WINDOWSTART : SRReg<73, "windowstart", ["WINDOWSTART", "73"]>;
 
@@ -119,6 +117,7 @@ def IBREAKENABLE : SRReg<96, "ibreakenable", ["IBREAKENABLE", "96"]>;
 // Memory Control Register
 def MEMCTL : SRReg<97, "memctl", ["MEMCTL", "97"]>;
 
+// Atomic Operation Control
 def ATOMCTL : SRReg<99, "atomctl", ["ATOMCTL", "99"]>;
 
 def DDR : SRReg<104, "ddr", ["DDR", "104"]>;
@@ -171,7 +170,9 @@ def EPS4 : SRReg<196, "eps4", ["EPS4", "196"]>;
 def EPS5 : SRReg<197, "eps5", ["EPS5", "197"]>;
 def EPS6 : SRReg<198, "eps6", ["EPS6", "198"]>;
 def EPS7 : SRReg<199, "eps7", ["EPS7", "199"]>;
+
 def CONFIGID1 : SRReg<208, "configid1", ["CONFIGID1", "208"]>;
+
 def EXCSAVE1 : SRReg<209, "excsave1", ["EXCSAVE1", "209"]>;
 def EXCSAVE2 : SRReg<210, "excsave2", ["EXCSAVE2", "210"]>;
 def EXCSAVE3 : SRReg<211, "excsave3", ["EXCSAVE3", "211"]>;
@@ -179,10 +180,13 @@ def EXCSAVE4 : SRReg<212, "excsave4", ["EXCSAVE4", "212"]>;
 def EXCSAVE5 : SRReg<213, "excsave5", ["EXCSAVE5", "213"]>;
 def EXCSAVE6 : SRReg<214, "excsave6", ["EXCSAVE6", "214"]>;
 def EXCSAVE7 : SRReg<215, "excsave7", ["EXCSAVE7", "215"]>;
+
 def CPENABLE : SRReg<224, "cpenable", ["CPENABLE", "224"]>;
 
 // Interrupt enable mask register
-def INTERRUPT : SRReg<226, "interrupt", ["INTERRUPT", "INTSET", "226"]>;
+def INTERRUPT : SRReg<226, "interrupt", ["INTERRUPT", "226"]>;
+
+def INTSET : SRReg<226, "intset", ["INTSET"]>;
 
 def INTCLEAR : SRReg<227, "intclear", ["INTCLEAR", "227"]>;
 
@@ -190,9 +194,6 @@ def INTENABLE : SRReg<228, "intenable", ["INTENABLE", "228"]>;
 
 // Processor State
 def PS : SRReg<230, "ps", ["PS", "230"]>;
-
-// Vector base register
-def VECBASE : SRReg<231, "vecbase", ["VECBASE", "231"]>;
 
 def EXCCAUSE : SRReg<232, "exccause", ["EXCCAUSE", "232"]>;
 
@@ -218,21 +219,33 @@ def CCOMPARE1 : SRReg<241, "ccompare1", ["CCOMPARE1", "241"]>;
 // Cycle number to interrupt register 2
 def CCOMPARE2 : SRReg<242, "ccompare2", ["CCOMPARE2", "242"]>;
 
+// Vector base register
+def VECBASE : SRReg<231, "vecbase", ["VECBASE", "231"]>;
+
+// Xtensa Miscellaneous SR
 def MISC0 : SRReg<244, "misc0", ["MISC0", "244"]>;
 def MISC1 : SRReg<245, "misc1", ["MISC1", "245"]>;
 def MISC2 : SRReg<246, "misc2", ["MISC2", "246"]>;
 def MISC3 : SRReg<247, "misc3", ["MISC3", "247"]>;
 
+// MAC16 Option registers
+def ACCLO : SRReg<16, "acclo", ["ACCLO", "16"]>;
+def ACCHI : SRReg<17, "acchi", ["ACCHI", "17"]>;
+def M0    : SRReg<32, "m0", ["M0", "32"]>;
+def M1    : SRReg<33, "m1", ["M1", "33"]>;
+def M2    : SRReg<34, "m2", ["M2", "34"]>;
+def M3    : SRReg<35, "m3", ["M3", "35"]>;
+
 def MR01 :  RegisterClass<"Xtensa", [i32], 32, (add M0, M1)>;
 def MR23 :  RegisterClass<"Xtensa", [i32], 32, (add M2, M3)>;
-def MR :  RegisterClass<"Xtensa", [i32], 32, (add MR01, MR23)>;
+def MR   :  RegisterClass<"Xtensa", [i32], 32, (add MR01, MR23)>;
 
-def SR :  RegisterClass<"Xtensa", [i32], 32, (add 
-  LBEG, LEND, LCOUNT, SAR, BREG, LITBASE, SCOMPARE1, ACCLO, ACCHI, MR,
+def SR :  RegisterClass<"Xtensa", [i32], 32, (add
+  LBEG, LEND, LCOUNT, SAR, BREG, SCOMPARE1, LITBASE, ACCLO, ACCHI, MR,
   WINDOWBASE, WINDOWSTART, IBREAKENABLE, MEMCTL, ATOMCTL, DDR, IBREAKA0, IBREAKA1,
-  DBREAKA0, DBREAKA1, DBREAKC0, DBREAKC1, CONFIGID0, EPC1, EPC2, EPC3, EPC4, EPC5, 
+  DBREAKA0, DBREAKA1, DBREAKC0, DBREAKC1, CONFIGID0, EPC1, EPC2, EPC3, EPC4, EPC5,
   EPC6, EPC7, DEPC, EPS2, EPS3, EPS4, EPS5, EPS6, EPS7, CONFIGID1, EXCSAVE1, EXCSAVE2,
-  EXCSAVE3, EXCSAVE4, EXCSAVE5, EXCSAVE6, EXCSAVE7, CPENABLE, INTERRUPT, INTCLEAR, INTENABLE,
+  EXCSAVE3, EXCSAVE4, EXCSAVE5, EXCSAVE6, EXCSAVE7, CPENABLE, INTERRUPT, INTSET, INTCLEAR, INTENABLE,
   PS, VECBASE, EXCCAUSE, DEBUGCAUSE, CCOUNT, PRID, ICOUNT, ICOUNTLEVEL, EXCVADDR, CCOMPARE0,
   CCOMPARE1, CCOMPARE2, MISC0, MISC1, MISC2, MISC3)>;
 
@@ -244,6 +257,7 @@ class URReg<bits<8> num, string n, list<string> alt = []> : XtensaReg<n> {
   let AltNames = alt;
 }
 
+// ESP32S2 registers
 def GPIO_OUT : URReg<0, "gpio_out", ["GPIO_OUT"]>;
 def EXPSTATE : URReg<230, "expstate", ["EXPSTATE"]>;
 
@@ -252,6 +266,8 @@ def THREADPTR : URReg<231, "threadptr", ["THREADPTR"]>;
 
 def FCR : URReg<232, "fcr", ["FCR"]>;
 def FSR : URReg<233, "fsr", ["FSR"]>;
+
+// DFPAccel registers
 def F64R_LO : URReg<234, "f64r_lo", ["F64R_LO"]>;
 def F64R_HI : URReg<235, "f64r_hi", ["F64R_HI"]>;
 def F64S : URReg<236, "f64s", ["F64S"]>;
@@ -262,8 +278,9 @@ def FFT_BIT_WIDTH : URReg<239, "fft_bit_width", ["fft_bit_width"]>;
 def SAR_BYTE : URReg<240, "sar_byte", ["sar_byte"]>;
 def UA_STATE : URReg<241, "ua_state", ["ua_state_0", "ua_state_1", "ua_state_2", "ua_state_3"]>;
 
-def UR :  RegisterClass<"Xtensa", [i32], 32, (add GPIO_OUT, EXPSTATE, THREADPTR, FCR,
-  FSR, F64R_LO, F64R_HI, F64S, ACCX, QACC, FFT_BIT_WIDTH, SAR_BYTE, UA_STATE)>; 
+def UR :  RegisterClass<"Xtensa", [i32], 32, (add
+  GPIO_OUT, EXPSTATE, THREADPTR, FCR, FSR, F64R_LO, F64R_HI, F64S,
+  ACCX, QACC, FFT_BIT_WIDTH, SAR_BYTE, UA_STATE)>;
 
 //===----------------------------------------------------------------------===//
 // Floating-Point registers
@@ -304,12 +321,12 @@ class BReg<bits<4> num, string n> : XtensaReg<n> {
 }
 
 foreach i = 0-15 in {
-  def B#i  : BReg<i, "b"#i>,  DwarfRegNum<[i]>;
+  def B#i  : BReg<i, "b"#i>;
 }
 
 // Boolean register class
 def BR : RegisterClass<"Xtensa", [v1i1], 8, (add B0, B1,
-B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15)> {
+  B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15)> {
   let Size = 8;
 }
 
@@ -320,24 +337,23 @@ let Namespace = "Xtensa" in {
   def bsub3 : SubRegIndex<1, 3>;
 
 
-let SubRegIndices = [bsub0, bsub1] in {
-  def B0_B1 : RegisterWithSubRegs<"", [B0, B1]>;
-  def B2_B3 : RegisterWithSubRegs<"", [B2, B3]>;
-  def B4_B5 : RegisterWithSubRegs<"", [B4, B5]>;
-  def B6_B7 : RegisterWithSubRegs<"", [B6, B7]>;
-  def B8_B9 : RegisterWithSubRegs<"", [B8, B9]>;
-  def B10_B11 : RegisterWithSubRegs<"", [B10, B11]>;
-  def B12_B13 : RegisterWithSubRegs<"", [B12, B13]>;
-  def B14_B15 : RegisterWithSubRegs<"", [B14, B15]>;
-}
+ let SubRegIndices = [bsub0, bsub1] in {
+   def B0_B1 : RegisterWithSubRegs<"", [B0, B1]>;
+   def B2_B3 : RegisterWithSubRegs<"", [B2, B3]>;
+   def B4_B5 : RegisterWithSubRegs<"", [B4, B5]>;
+   def B6_B7 : RegisterWithSubRegs<"", [B6, B7]>;
+   def B8_B9 : RegisterWithSubRegs<"", [B8, B9]>;
+   def B10_B11 : RegisterWithSubRegs<"", [B10, B11]>;
+   def B12_B13 : RegisterWithSubRegs<"", [B12, B13]>;
+   def B14_B15 : RegisterWithSubRegs<"", [B14, B15]>;
+ }
 
-let SubRegIndices = [bsub0, bsub1, bsub2, bsub3] in {
-  def B0_B1_B2_B3 : RegisterWithSubRegs<"", [B0, B1, B2, B3]>;
-  def B4_B5_B6_B7 : RegisterWithSubRegs<"", [B4, B5, B6, B7]>;
-  def B8_B9_B10_B11 : RegisterWithSubRegs<"", [B8, B9, B10, B11]>;
-  def B12_B13_B14_B15 : RegisterWithSubRegs<"", [B12, B13, B14, B15]>;
-}
-
+ let SubRegIndices = [bsub0, bsub1, bsub2, bsub3] in {
+   def B0_B1_B2_B3 : RegisterWithSubRegs<"", [B0, B1, B2, B3]>;
+   def B4_B5_B6_B7 : RegisterWithSubRegs<"", [B4, B5, B6, B7]>;
+   def B8_B9_B10_B11 : RegisterWithSubRegs<"", [B8, B9, B10, B11]>;
+   def B12_B13_B14_B15 : RegisterWithSubRegs<"", [B12, B13, B14, B15]>;
+ }
 }
 
 def BR2 : RegisterClass<"Xtensa", [v2i1], 8, (add B0_B1, B2_B3, B4_B5,

@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const truncf = @import("./truncf.zig").truncf;
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__trunctfhf2, .{ .name = "__trunctfhf2", .linkage = common.linkage, .visibility = common.visibility });
 }

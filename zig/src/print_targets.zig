@@ -1,49 +1,48 @@
 const std = @import("std");
+const Io = std.Io;
 const fs = std.fs;
-const io = std.io;
 const mem = std.mem;
 const meta = std.meta;
+const fatal = std.process.fatal;
 const Allocator = std.mem.Allocator;
 const Target = std.Target;
-const target = @import("target.zig");
 const assert = std.debug.assert;
-const glibc = @import("glibc.zig");
+
+const glibc = @import("libs/glibc.zig");
 const introspect = @import("introspect.zig");
-const fatal = @import("main.zig").fatal;
+const target = @import("target.zig");
 
 pub fn cmdTargets(
     allocator: Allocator,
+    io: Io,
     args: []const []const u8,
-    /// Output stream
-    stdout: anytype,
-    native_target: Target,
+    out: *std.Io.Writer,
+    native_target: *const Target,
 ) !void {
     _ = args;
-    var zig_lib_directory = introspect.findZigLibDir(allocator) catch |err| {
-        fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
-    };
-    defer zig_lib_directory.handle.close();
+    var zig_lib_directory = introspect.findZigLibDir(allocator, io) catch |err|
+        fatal("unable to find zig installation directory: {t}", .{err});
+    defer zig_lib_directory.handle.close(io);
     defer allocator.free(zig_lib_directory.path.?);
 
     const abilists_contents = zig_lib_directory.handle.readFileAlloc(
-        allocator,
+        io,
         glibc.abilists_path,
-        glibc.abilists_max_size,
+        allocator,
+        .limited(glibc.abilists_max_size),
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => fatal("unable to read " ++ glibc.abilists_path ++ ": {s}", .{@errorName(err)}),
+        else => fatal("unable to read " ++ glibc.abilists_path ++ ": {t}", .{err}),
     };
     defer allocator.free(abilists_contents);
 
     const glibc_abi = try glibc.loadMetaData(allocator, abilists_contents);
     defer glibc_abi.destroy(allocator);
 
-    var bw = io.bufferedWriter(stdout);
-    const w = bw.writer();
-    var sz = std.zon.stringify.serializer(w, .{});
+    var serializer: std.zon.Serializer = .{ .writer = out };
 
     {
-        var root_obj = try sz.beginStruct(.{});
+        var root_obj = try serializer.beginStruct(.{});
 
         try root_obj.field("arch", meta.fieldNames(Target.Cpu.Arch), .{});
         try root_obj.field("os", meta.fieldNames(Target.Os.Tag), .{});
@@ -52,9 +51,7 @@ pub fn cmdTargets(
         {
             var libc_obj = try root_obj.beginTupleField("libc", .{});
             for (std.zig.target.available_libcs) |libc| {
-                const tmp = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
-                    @tagName(libc.arch), @tagName(libc.os), @tagName(libc.abi),
-                });
+                const tmp = try std.fmt.allocPrint(allocator, "{t}-{t}-{t}", .{ libc.arch, libc.os, libc.abi });
                 defer allocator.free(tmp);
                 try libc_obj.field(tmp, .{});
             }
@@ -64,7 +61,7 @@ pub fn cmdTargets(
         {
             var glibc_obj = try root_obj.beginTupleField("glibc", .{});
             for (glibc_abi.all_versions) |ver| {
-                const tmp = try std.fmt.allocPrint(allocator, "{}", .{ver});
+                const tmp = try std.fmt.allocPrint(allocator, "{f}", .{ver});
                 defer allocator.free(tmp);
                 try glibc_obj.field(tmp, .{});
             }
@@ -136,6 +133,5 @@ pub fn cmdTargets(
         try root_obj.end();
     }
 
-    try w.writeByte('\n');
-    return bw.flush();
+    try out.writeByte('\n');
 }

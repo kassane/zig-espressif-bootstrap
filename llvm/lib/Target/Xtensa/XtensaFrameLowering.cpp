@@ -14,6 +14,7 @@
 #include "XtensaInstrInfo.h"
 #include "XtensaMachineFunctionInfo.h"
 #include "XtensaSubtarget.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -24,34 +25,33 @@
 
 using namespace llvm;
 
+// Minimum frame = reg save area (4 words) plus static chain (1 word)
+// and the total number of words must be a multiple of 128 bits.
+// Width of a word, in units (bytes).
+#define UNITS_PER_WORD 4
+#define MIN_FRAME_SIZE (8 * UNITS_PER_WORD)
+
 XtensaFrameLowering::XtensaFrameLowering(const XtensaSubtarget &STI)
     : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, Align(4), 0,
                           Align(4)),
-      TII(*STI.getInstrInfo()), TRI(STI.getRegisterInfo()) {}
+      STI(STI), TII(*STI.getInstrInfo()), TRI(STI.getRegisterInfo()) {}
 
-bool XtensaFrameLowering::hasFP(const MachineFunction &MF) const {
+bool XtensaFrameLowering::hasFPImpl(const MachineFunction &MF) const {
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   return MF.getTarget().Options.DisableFramePointerElim(MF) ||
          MFI.hasVarSizedObjects();
 }
-
-/* minimum frame = reg save area (4 words) plus static chain (1 word)
-   and the total number of words must be a multiple of 128 bits.  */
-/* Width of a word, in units (bytes).  */
-#define UNITS_PER_WORD 4
-#define MIN_FRAME_SIZE (8 * UNITS_PER_WORD)
 
 void XtensaFrameLowering::emitPrologue(MachineFunction &MF,
                                        MachineBasicBlock &MBB) const {
   assert(&MBB == &MF.front() && "Shrink-wrapping not yet implemented");
   MachineFrameInfo &MFI = MF.getFrameInfo();
   MachineBasicBlock::iterator MBBI = MBB.begin();
-  const XtensaSubtarget &STI = MF.getSubtarget<XtensaSubtarget>();
   DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
   MCRegister SP = Xtensa::SP;
   MCRegister FP = TRI->getFrameRegister(MF);
   const MCRegisterInfo *MRI = MF.getContext().getRegisterInfo();
-  XtensaFunctionInfo *XtensaFI = MF.getInfo<XtensaFunctionInfo>();
+  XtensaMachineFunctionInfo *XtensaFI = MF.getInfo<XtensaMachineFunctionInfo>();
 
   // First, compute final stack size.
   uint64_t StackSize = MFI.getStackSize();
@@ -60,10 +60,10 @@ void XtensaFrameLowering::emitPrologue(MachineFunction &MF,
   // Round up StackSize to 16*N
   StackSize += (16 - StackSize) & 0xf;
 
-  if (STI.isWinABI()) {
+  if (STI.isWindowedABI()) {
     StackSize += 32;
     uint64_t MaxAlignment = MFI.getMaxAlign().value();
-    if(MaxAlignment > 32)
+    if (MaxAlignment > 32)
       StackSize += MaxAlignment;
 
     if (StackSize <= 32760) {
@@ -71,11 +71,9 @@ void XtensaFrameLowering::emitPrologue(MachineFunction &MF,
           .addReg(SP)
           .addImm(StackSize);
     } else {
-      /* Use a8 as a temporary since a0-a7 may be live.  */
-      unsigned TmpReg = Xtensa::A8;
+      // Use a8 as a temporary since a0-a7 may be live.
+      MCRegister TmpReg = Xtensa::A8;
 
-      const XtensaInstrInfo &TII = *static_cast<const XtensaInstrInfo *>(
-          MBB.getParent()->getSubtarget().getInstrInfo());
       BuildMI(MBB, MBBI, DL, TII.get(Xtensa::ENTRY))
           .addReg(SP)
           .addImm(MIN_FRAME_SIZE);
@@ -90,10 +88,10 @@ void XtensaFrameLowering::emitPrologue(MachineFunction &MF,
     // Change offset to: alignment + difference.
     // For example, in case of alignment of 128:
     // diff_to_128_aligned_address = (128 - (SP & 127))
-    // new_offset = 128 + diff_to_128_aligned_address
+    // new_offset = SP + diff_to_128_aligned_address
     // This is safe to do because we increased the stack size by MaxAlignment.
-    unsigned Reg, RegMisAlign;
-    if (MaxAlignment > 32){
+    MCRegister Reg, RegMisAlign;
+    if (MaxAlignment > 32) {
       TII.loadImmediate(MBB, MBBI, &RegMisAlign, MaxAlignment - 1);
       TII.loadImmediate(MBB, MBBI, &Reg, MaxAlignment);
       BuildMI(MBB, MBBI, DL, TII.get(Xtensa::AND))
@@ -169,10 +167,11 @@ void XtensaFrameLowering::emitPrologue(MachineFunction &MF,
         if (MBBI->getOpcode() == TargetOpcode::COPY && Info.isSpilledToReg()) {
           Register DstReg = MBBI->getOperand(0).getReg();
           Register Reg = MBBI->getOperand(1).getReg();
-          IsStoreInst = (Info.getDstReg() == DstReg) && (Info.getReg() == Reg);
+          IsStoreInst = Info.getDstReg() == DstReg.asMCReg() &&
+                        Info.getReg() == Reg.asMCReg();
         } else {
           Register Reg = TII.isStoreToStackSlot(*MBBI, StoreFI);
-          IsStoreInst = (Reg == Info.getReg()) && (StoreFI == FI);
+          IsStoreInst = Reg.asMCReg() == Info.getReg() && StoreFI == FI;
         }
         assert(IsStoreInst &&
                "Unexpected callee-saved register store instruction");
@@ -184,7 +183,7 @@ void XtensaFrameLowering::emitPrologue(MachineFunction &MF,
       // directives.
       for (const auto &I : CSI) {
         int64_t Offset = MFI.getObjectOffset(I.getFrameIdx());
-        Register Reg = I.getReg();
+        MCRegister Reg = I.getReg();
 
         unsigned CFIIndex = MF.addFrameInst(MCCFIInstruction::createOffset(
             nullptr, MRI->getDwarfRegNum(Reg, 1), Offset));
@@ -228,8 +227,6 @@ void XtensaFrameLowering::emitEpilogue(MachineFunction &MF,
                                        MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
   MachineFrameInfo &MFI = MF.getFrameInfo();
-
-  const XtensaSubtarget &STI = MF.getSubtarget<XtensaSubtarget>();
   DebugLoc DL = MBBI->getDebugLoc();
   MCRegister SP = Xtensa::SP;
   MCRegister FP = TRI->getFrameRegister(MF);
@@ -258,17 +255,17 @@ void XtensaFrameLowering::emitEpilogue(MachineFunction &MF,
       if (I->getOpcode() == TargetOpcode::COPY && Info.isSpilledToReg()) {
         Register Reg = I->getOperand(0).getReg();
         Register DstReg = I->getOperand(1).getReg();
-        IsRestoreInst = (Info.getDstReg() == DstReg) && (Info.getReg() == Reg);
+        IsRestoreInst = Info.getDstReg() == DstReg.asMCReg() &&
+                        Info.getReg() == Reg.asMCReg();
       } else {
         Register Reg = TII.isLoadFromStackSlot(*I, LoadFI);
-        IsRestoreInst = (Info.getReg() == Reg) && (LoadFI == FI);
+        IsRestoreInst = Info.getReg() == Reg.asMCReg() && LoadFI == FI;
       }
       assert(IsRestoreInst &&
              "Unexpected callee-saved register restore instruction");
 #endif
     }
-
-    if (STI.isWinABI()) {
+    if (STI.isWindowedABI()) {
       // In most architectures, we need to explicitly restore the stack pointer
       // before returning.
       //
@@ -281,7 +278,7 @@ void XtensaFrameLowering::emitEpilogue(MachineFunction &MF,
     }
   }
 
-  if (STI.isWinABI())
+  if (STI.isWindowedABI())
     return;
 
   // Get the number of bytes from FrameInfo
@@ -298,12 +295,10 @@ bool XtensaFrameLowering::spillCalleeSavedRegisters(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
     ArrayRef<CalleeSavedInfo> CSI, const TargetRegisterInfo *TRI) const {
   MachineFunction *MF = MBB.getParent();
-  const XtensaSubtarget &STI = MF->getSubtarget<XtensaSubtarget>();
-
-  if (STI.isWinABI())
-    return true;
-
   MachineBasicBlock &EntryBlock = *(MF->begin());
+
+  if (STI.isWindowedABI())
+    return true;
 
   for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
     // Add the callee-saved register as live-in. Do not add if the register is
@@ -311,7 +306,7 @@ bool XtensaFrameLowering::spillCalleeSavedRegisters(
     // method XtensaTargetLowering::LowerRETURNADDR.
     // It's killed at the spill, unless the register is RA and return address
     // is taken.
-    Register Reg = CSI[i].getReg();
+    MCRegister Reg = CSI[i].getReg();
     bool IsA0AndRetAddrIsTaken =
         (Reg == Xtensa::A0) && MF->getFrameInfo().isReturnAddressTaken();
     if (!IsA0AndRetAddrIsTaken)
@@ -330,9 +325,7 @@ bool XtensaFrameLowering::spillCalleeSavedRegisters(
 bool XtensaFrameLowering::restoreCalleeSavedRegisters(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
     MutableArrayRef<CalleeSavedInfo> CSI, const TargetRegisterInfo *TRI) const {
-  MachineFunction *MF = MBB.getParent();
-  const XtensaSubtarget &STI = MF->getSubtarget<XtensaSubtarget>();
-  if (STI.isWinABI())
+  if (STI.isWindowedABI())
     return true;
   return TargetFrameLowering::restoreCalleeSavedRegisters(MBB, MI, CSI, TRI);
 }
@@ -341,9 +334,6 @@ bool XtensaFrameLowering::restoreCalleeSavedRegisters(
 MachineBasicBlock::iterator XtensaFrameLowering::eliminateCallFramePseudoInstr(
     MachineFunction &MF, MachineBasicBlock &MBB,
     MachineBasicBlock::iterator I) const {
-  const XtensaInstrInfo &TII =
-      *static_cast<const XtensaInstrInfo *>(MF.getSubtarget().getInstrInfo());
-
   if (!hasReservedCallFrame(MF)) {
     int64_t Amount = I->getOperand(0).getImm();
 
@@ -359,10 +349,9 @@ MachineBasicBlock::iterator XtensaFrameLowering::eliminateCallFramePseudoInstr(
 void XtensaFrameLowering::determineCalleeSaves(MachineFunction &MF,
                                                BitVector &SavedRegs,
                                                RegScavenger *RS) const {
-  const XtensaSubtarget &STI = MF.getSubtarget<XtensaSubtarget>();
-  unsigned FP = TRI->getFrameRegister(MF);
+  MCRegister FP = TRI->getFrameRegister(MF);
 
-  if (STI.isWinABI()) {
+  if (STI.isWindowedABI()) {
     return;
   }
 
@@ -375,8 +364,6 @@ void XtensaFrameLowering::determineCalleeSaves(MachineFunction &MF,
 
 void XtensaFrameLowering::processFunctionBeforeFrameFinalized(
     MachineFunction &MF, RegScavenger *RS) const {
-  const XtensaSubtarget &STI = MF.getSubtarget<XtensaSubtarget>();
-
   // Presence of SPILL_* pseudo-instructions requires spill slots
   int NeedRegs = 0;
   for (const MachineBasicBlock &MBB : MF) {
@@ -391,9 +378,9 @@ void XtensaFrameLowering::processFunctionBeforeFrameFinalized(
   }
   NeedRegs = std::min(16, NeedRegs);
 
-  // In WinABI mode add register scavenging slot
+  // In WindowedABI mode add register scavenging slot
   // FIXME: It may be posssible to add spill slot by more optimal way
-  if (STI.isWinABI() &&
+  if (STI.isWindowedABI() &&
       ((MF.getFrameInfo().estimateStackSize(MF) > STACK_SIZE_THRESHOLD) ||
       (NeedRegs > 0))) {
     MachineFrameInfo &MFI = MF.getFrameInfo();
@@ -405,5 +392,32 @@ void XtensaFrameLowering::processFunctionBeforeFrameFinalized(
     for (int i = 0; i <= NeedRegs; i++)
       RS->addScavengingFrameIndex(
           MFI.CreateStackObject(Size, Alignment, false));
+    return;
+  }
+
+  // Set scavenging frame index if necessary.
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  uint64_t MaxSPOffset = MFI.estimateStackSize(MF);
+  auto *XtensaFI = MF.getInfo<XtensaMachineFunctionInfo>();
+  unsigned ScavSlotsNum = 0;
+
+  if (!isInt<12>(MaxSPOffset))
+    ScavSlotsNum = 1;
+
+  // Far branches over 18-bit offset require a spill slot for scratch register.
+  bool IsLargeFunction = !isInt<18>(MF.estimateFunctionSizeInBytes());
+  if (IsLargeFunction)
+    ScavSlotsNum = std::max(ScavSlotsNum, 1u);
+
+  const TargetRegisterClass &RC = Xtensa::ARRegClass;
+  unsigned Size = TRI->getSpillSize(RC);
+  Align Alignment = TRI->getSpillAlign(RC);
+  for (unsigned I = 0; I < ScavSlotsNum; I++) {
+    int FI = MFI.CreateSpillStackObject(Size, Alignment);
+    RS->addScavengingFrameIndex(FI);
+
+    if (IsLargeFunction &&
+        XtensaFI->getBranchRelaxationScratchFrameIndex() == -1)
+      XtensaFI->setBranchRelaxationScratchFrameIndex(FI);
   }
 }

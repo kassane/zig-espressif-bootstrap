@@ -145,11 +145,12 @@
 #  define HAVE_CLOCK_GETRES64_VSYSCALL	"__vdso_clock_getres"
 #  define HAVE_CLOCK_GETTIME64_VSYSCALL	"__vdso_clock_gettime"
 #  define HAVE_GETTIMEOFDAY_VSYSCALL	"__vdso_gettimeofday"
+#  define HAVE_GETRANDOM_VSYSCALL	"__vdso_getrandom"
 # else
 #  define VDSO_NAME	"LINUX_5.4"
 #  define VDSO_HASH	61765876
 
-/* RV32 does not support the gettime VDSO syscalls.  */
+/* RV32 does not support the gettime and getrandom VDSO syscalls.  */
 # endif
 # define HAVE_CLONE3_WRAPPER		1
 
@@ -354,7 +355,14 @@
 	_sys_result;							\
 })
 
+#ifdef __riscv_v
+# define __SYSCALL_CLOBBERS "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", \
+			     "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", \
+			     "v20", "v21", "v22", "v23", "v24", "v25", "v26", "v27", "v28", "v29", \
+			     "v30", "v31", "vl", "vtype", "vxrm", "vxsat", "memory"
+#else
 # define __SYSCALL_CLOBBERS "memory"
+#endif
 
 extern long int __syscall_error (long int neg_errno);
 

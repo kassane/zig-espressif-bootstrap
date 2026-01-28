@@ -15,6 +15,8 @@ tablegen(LLVM RISCVGenRegisterBank.inc -gen-register-bank)
 tablegen(LLVM RISCVGenRegisterInfo.inc -gen-register-info)
 tablegen(LLVM RISCVGenSearchableTables.inc -gen-searchable-tables)
 tablegen(LLVM RISCVGenSubtargetInfo.inc -gen-subtarget)
+tablegen(LLVM RISCVGenExegesis.inc -gen-exegesis)
+tablegen(LLVM RISCVGenSDNodeInfo.inc -gen-sd-node-info)
 
 set(LLVM_TARGET_DEFINITIONS RISCVGISel.td)
 tablegen(LLVM RISCVGenGlobalISel.inc -gen-global-isel)
@@ -29,36 +31,57 @@ add_public_tablegen_target(RISCVCommonTableGen)
 
 add_llvm_target(RISCVCodeGen
   RISCVAsmPrinter.cpp
+  RISCVCallingConv.cpp
   RISCVCodeGenPrepare.cpp
+  RISCVConstantPoolValue.cpp
   RISCVDeadRegisterDefinitions.cpp
-  RISCVMakeCompressible.cpp
   RISCVExpandAtomicPseudoInsts.cpp
   RISCVExpandPseudoInsts.cpp
+  RISCVFoldMemOffset.cpp
   RISCVFrameLowering.cpp
   RISCVGatherScatterLowering.cpp
   RISCVSplitLoopByLength.cpp
   RISCVCustomLICM.cpp
   RISCVLoopUnrollAndRemainder.cpp
-  RISCVInsertVSETVLI.cpp
+  RISCVESP32P4ConditionSplit.cpp
+  RISCVESP32P4FunctionSpecialization.cpp
+  RISCVESP32P4LoopPatternToIntrinsic.cpp
+  RISCVEsp32P4MemIntrin.cpp
+  RISCVESP32P4LoopVectorizeExtractor.cpp
+  RISCVIndirectBranchTracking.cpp
+  RISCVIntLoopUnrollAndRemainder.cpp
+  RISCVDotprodSplitter.cpp
+  RISCVESP32P4LoopVersioning.cpp
   RISCVInsertReadWriteCSR.cpp
+  RISCVInsertVSETVLI.cpp
   RISCVInsertWriteVXRM.cpp
   RISCVInstrInfo.cpp
+  RISCVInterleavedAccess.cpp
   RISCVISelDAGToDAG.cpp
   RISCVISelLowering.cpp
-  RISCVESP32P4ISelLowering.cpp
+  RISCVESPISelLowering.cpp
+  RISCVLandingPadSetup.cpp
+  RISCVLateBranchOpt.cpp
+  RISCVLoadStoreOptimizer.cpp
   RISCVMachineFunctionInfo.cpp
+  RISCVMakeCompressible.cpp
   RISCVMergeBaseOffset.cpp
+  RISCVMoveMerger.cpp
   RISCVOptWInstrs.cpp
   RISCVPostRAExpandPseudoInsts.cpp
-  RISCVRedundantCopyElimination.cpp
-  RISCVMoveMerger.cpp
   RISCVPushPopOptimizer.cpp
+  RISCVRedundantCopyElimination.cpp
   RISCVRegisterInfo.cpp
+  RISCVSelectionDAGInfo.cpp
   RISCVSubtarget.cpp
   RISCVTargetMachine.cpp
   RISCVTargetObjectFile.cpp
   RISCVTargetTransformInfo.cpp
+  RISCVVectorMaskDAGMutation.cpp
   RISCVVectorPeephole.cpp
+  RISCVVLOptimizer.cpp
+  RISCVVMV0Elimination.cpp
+  RISCVZacasABIFix.cpp
   GISel/RISCVCallLowering.cpp
   GISel/RISCVInstructionSelector.cpp
   GISel/RISCVLegalizerInfo.cpp

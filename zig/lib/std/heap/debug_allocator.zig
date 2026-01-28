@@ -69,7 +69,7 @@
 //! versa.
 //!
 //! When a bucket is full, a new one is allocated, containing a pointer to the
-//! previous one. This singly-linked list is iterated during leak detection.
+//! previous one. This doubly-linked list is iterated during leak detection.
 //!
 //! Resizing and remapping work the same on small allocations: if the size
 //! class would not change, then the operation succeeds, and the address is
@@ -80,15 +80,15 @@
 //!
 //! Resizing and remapping are forwarded directly to the backing allocator,
 //! except where such operations would change the category from large to small.
+const builtin = @import("builtin");
+const StackTrace = std.builtin.StackTrace;
 
 const std = @import("std");
-const builtin = @import("builtin");
-const log = std.log.scoped(.gpa);
+const log = std.log.scoped(.DebugAllocator);
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
-const StackTrace = std.builtin.StackTrace;
 
 const default_page_size: usize = switch (builtin.os.tag) {
     // Makes `std.heap.PageAllocator` take the happy path.
@@ -212,8 +212,8 @@ pub fn DebugAllocator(comptime config: Config) type {
             DummyMutex{};
 
         const DummyMutex = struct {
-            inline fn lock(_: *DummyMutex) void {}
-            inline fn unlock(_: *DummyMutex) void {}
+            inline fn lock(_: DummyMutex) void {}
+            inline fn unlock(_: DummyMutex) void {}
         };
 
         const stack_n = config.stack_trace_frames;
@@ -281,6 +281,7 @@ pub fn DebugAllocator(comptime config: Config) type {
             allocated_count: SlotIndex,
             freed_count: SlotIndex,
             prev: ?*BucketHeader,
+            next: ?*BucketHeader,
             canary: usize = config.canary,
 
             fn fromPage(page_addr: usize, slot_count: usize) *BucketHeader {
@@ -290,7 +291,7 @@ pub fn DebugAllocator(comptime config: Config) type {
 
             fn usedBits(bucket: *BucketHeader, index: usize) *usize {
                 const ptr: [*]u8 = @ptrCast(bucket);
-                const bits: [*]usize = @alignCast(@ptrCast(ptr + @sizeOf(BucketHeader)));
+                const bits: [*]usize = @ptrCast(@alignCast(ptr + @sizeOf(BucketHeader)));
                 return &bits[index];
             }
 
@@ -420,10 +421,14 @@ pub fn DebugAllocator(comptime config: Config) type {
             return usedBitsCount(slot_count) * @sizeOf(usize);
         }
 
-        fn detectLeaksInBucket(bucket: *BucketHeader, size_class_index: usize, used_bits_count: usize) bool {
+        fn detectLeaksInBucket(
+            bucket: *BucketHeader,
+            size_class_index: usize,
+            used_bits_count: usize,
+        ) usize {
             const size_class = @as(usize, 1) << @as(Log2USize, @intCast(size_class_index));
             const slot_count = slot_counts[size_class_index];
-            var leaks = false;
+            var leaks: usize = 0;
             for (0..used_bits_count) |used_bits_byte| {
                 const used_int = bucket.usedBits(used_bits_byte).*;
                 if (used_int != 0) {
@@ -435,8 +440,14 @@ pub fn DebugAllocator(comptime config: Config) type {
                             const stack_trace = bucketStackTrace(bucket, slot_count, slot_index, .alloc);
                             const page_addr = @intFromPtr(bucket) & ~(page_size - 1);
                             const addr = page_addr + slot_index * size_class;
-                            log.err("memory address 0x{x} leaked: {}", .{ addr, stack_trace });
-                            leaks = true;
+                            log.err("memory address 0x{x} leaked: {f}", .{
+                                addr,
+                                std.debug.FormatStackTrace{
+                                    .stack_trace = stack_trace,
+                                    .terminal_mode = std.log.terminalMode(),
+                                },
+                            });
+                            leaks += 1;
                         }
                     }
                 }
@@ -444,16 +455,16 @@ pub fn DebugAllocator(comptime config: Config) type {
             return leaks;
         }
 
-        /// Emits log messages for leaks and then returns whether there were any leaks.
-        pub fn detectLeaks(self: *Self) bool {
-            var leaks = false;
+        /// Emits log messages for leaks and then returns the number of detected leaks (0 if no leaks were detected).
+        pub fn detectLeaks(self: *Self) usize {
+            var leaks: usize = 0;
 
             for (self.buckets, 0..) |init_optional_bucket, size_class_index| {
                 var optional_bucket = init_optional_bucket;
                 const slot_count = slot_counts[size_class_index];
                 const used_bits_count = usedBitsCount(slot_count);
                 while (optional_bucket) |bucket| {
-                    leaks = detectLeaksInBucket(bucket, size_class_index, used_bits_count) or leaks;
+                    leaks += detectLeaksInBucket(bucket, size_class_index, used_bits_count);
                     optional_bucket = bucket.prev;
                 }
             }
@@ -462,10 +473,14 @@ pub fn DebugAllocator(comptime config: Config) type {
             while (it.next()) |large_alloc| {
                 if (config.retain_metadata and large_alloc.freed) continue;
                 const stack_trace = large_alloc.getStackTrace(.alloc);
-                log.err("memory address 0x{x} leaked: {}", .{
-                    @intFromPtr(large_alloc.bytes.ptr), stack_trace,
+                log.err("memory address 0x{x} leaked: {f}", .{
+                    @intFromPtr(large_alloc.bytes.ptr),
+                    std.debug.FormatStackTrace{
+                        .stack_trace = stack_trace,
+                        .terminal_mode = std.log.terminalMode(),
+                    },
                 });
-                leaks = true;
+                leaks += 1;
             }
             return leaks;
         }
@@ -497,32 +512,41 @@ pub fn DebugAllocator(comptime config: Config) type {
 
         /// Returns `std.heap.Check.leak` if there were leaks; `std.heap.Check.ok` otherwise.
         pub fn deinit(self: *Self) std.heap.Check {
-            const leaks = if (config.safety) self.detectLeaks() else false;
+            const leaks: usize = if (config.safety) self.detectLeaks() else 0;
+            self.deinitWithoutLeakChecks();
+            return if (leaks == 0) .ok else .leak;
+        }
+
+        /// Like `deinit`, but does not check for memory leaks. This is useful if leaks have already
+        /// been detected manually with `detectLeaks` to avoid reporting them for a second time.
+        pub fn deinitWithoutLeakChecks(self: *Self) void {
             if (config.retain_metadata) self.freeRetainedMetadata();
             self.large_allocations.deinit(self.backing_allocator);
             self.* = undefined;
-            return if (leaks) .leak else .ok;
         }
 
-        fn collectStackTrace(first_trace_addr: usize, addresses: *[stack_n]usize) void {
-            if (stack_n == 0) return;
-            @memset(addresses, 0);
-            var stack_trace: StackTrace = .{
-                .instruction_addresses = addresses,
-                .index = 0,
-            };
-            std.debug.captureStackTrace(first_trace_addr, &stack_trace);
+        fn collectStackTrace(first_trace_addr: usize, addr_buf: *[stack_n]usize) void {
+            const st = std.debug.captureCurrentStackTrace(.{ .first_address = first_trace_addr }, addr_buf);
+            @memset(addr_buf[@min(st.index, addr_buf.len)..], 0);
         }
 
         fn reportDoubleFree(ret_addr: usize, alloc_stack_trace: StackTrace, free_stack_trace: StackTrace) void {
-            var addresses: [stack_n]usize = @splat(0);
-            var second_free_stack_trace: StackTrace = .{
-                .instruction_addresses = &addresses,
-                .index = 0,
-            };
-            std.debug.captureStackTrace(ret_addr, &second_free_stack_trace);
-            log.err("Double free detected. Allocation: {} First free: {} Second free: {}", .{
-                alloc_stack_trace, free_stack_trace, second_free_stack_trace,
+            @branchHint(.cold);
+            var addr_buf: [stack_n]usize = undefined;
+            const second_free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = ret_addr }, &addr_buf);
+            log.err("Double free detected. Allocation: {f} First free: {f} Second free: {f}", .{
+                std.debug.FormatStackTrace{
+                    .stack_trace = alloc_stack_trace,
+                    .terminal_mode = std.log.terminalMode(),
+                },
+                std.debug.FormatStackTrace{
+                    .stack_trace = free_stack_trace,
+                    .terminal_mode = std.log.terminalMode(),
+                },
+                std.debug.FormatStackTrace{
+                    .stack_trace = second_free_stack_trace,
+                    .terminal_mode = std.log.terminalMode(),
+                },
             });
         }
 
@@ -561,17 +585,20 @@ pub fn DebugAllocator(comptime config: Config) type {
             }
 
             if (config.safety and old_mem.len != entry.value_ptr.bytes.len) {
-                var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
-                var free_stack_trace: StackTrace = .{
-                    .instruction_addresses = &addresses,
-                    .index = 0,
-                };
-                std.debug.captureStackTrace(ret_addr, &free_stack_trace);
-                log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
+                @branchHint(.cold);
+                var addr_buf: [stack_n]usize = undefined;
+                const free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = ret_addr }, &addr_buf);
+                log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                     entry.value_ptr.bytes.len,
                     old_mem.len,
-                    entry.value_ptr.getStackTrace(.alloc),
-                    free_stack_trace,
+                    std.debug.FormatStackTrace{
+                        .stack_trace = entry.value_ptr.getStackTrace(.alloc),
+                        .terminal_mode = std.log.terminalMode(),
+                    },
+                    std.debug.FormatStackTrace{
+                        .stack_trace = free_stack_trace,
+                        .terminal_mode = std.log.terminalMode(),
+                    },
                 });
             }
 
@@ -671,17 +698,20 @@ pub fn DebugAllocator(comptime config: Config) type {
             }
 
             if (config.safety and old_mem.len != entry.value_ptr.bytes.len) {
-                var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
-                var free_stack_trace = StackTrace{
-                    .instruction_addresses = &addresses,
-                    .index = 0,
-                };
-                std.debug.captureStackTrace(ret_addr, &free_stack_trace);
-                log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
+                @branchHint(.cold);
+                var addr_buf: [stack_n]usize = undefined;
+                const free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = ret_addr }, &addr_buf);
+                log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                     entry.value_ptr.bytes.len,
                     old_mem.len,
-                    entry.value_ptr.getStackTrace(.alloc),
-                    free_stack_trace,
+                    std.debug.FormatStackTrace{
+                        .stack_trace = entry.value_ptr.getStackTrace(.alloc),
+                        .terminal_mode = std.log.terminalMode(),
+                    },
+                    std.debug.FormatStackTrace{
+                        .stack_trace = free_stack_trace,
+                        .terminal_mode = std.log.terminalMode(),
+                    },
                 });
             }
 
@@ -782,7 +812,11 @@ pub fn DebugAllocator(comptime config: Config) type {
                 .allocated_count = 1,
                 .freed_count = 0,
                 .prev = self.buckets[size_class_index],
+                .next = null,
             };
+            if (self.buckets[size_class_index]) |old_head| {
+                old_head.next = bucket;
+            }
             self.buckets[size_class_index] = bucket;
 
             if (!config.backing_allocator_zeroes) {
@@ -895,26 +929,36 @@ pub fn DebugAllocator(comptime config: Config) type {
                 if (requested_size == 0) @panic("Invalid free");
                 const slot_alignment = bucket.log2PtrAligns(slot_count)[slot_index];
                 if (old_memory.len != requested_size or alignment != slot_alignment) {
-                    var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
-                    var free_stack_trace: StackTrace = .{
-                        .instruction_addresses = &addresses,
-                        .index = 0,
-                    };
-                    std.debug.captureStackTrace(return_address, &free_stack_trace);
+                    var addr_buf: [stack_n]usize = undefined;
+                    const free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = return_address }, &addr_buf);
                     if (old_memory.len != requested_size) {
-                        log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
+                        @branchHint(.cold);
+                        log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                             requested_size,
                             old_memory.len,
-                            bucketStackTrace(bucket, slot_count, slot_index, .alloc),
-                            free_stack_trace,
+                            std.debug.FormatStackTrace{
+                                .stack_trace = bucketStackTrace(bucket, slot_count, slot_index, .alloc),
+                                .terminal_mode = std.log.terminalMode(),
+                            },
+                            std.debug.FormatStackTrace{
+                                .stack_trace = free_stack_trace,
+                                .terminal_mode = std.log.terminalMode(),
+                            },
                         });
                     }
                     if (alignment != slot_alignment) {
-                        log.err("Allocation alignment {d} does not match free alignment {d}. Allocation: {} Free: {}", .{
+                        @branchHint(.cold);
+                        log.err("Allocation alignment {d} does not match free alignment {d}. Allocation: {f} Free: {f}", .{
                             slot_alignment.toByteUnits(),
                             alignment.toByteUnits(),
-                            bucketStackTrace(bucket, slot_count, slot_index, .alloc),
-                            free_stack_trace,
+                            std.debug.FormatStackTrace{
+                                .stack_trace = bucketStackTrace(bucket, slot_count, slot_index, .alloc),
+                                .terminal_mode = std.log.terminalMode(),
+                            },
+                            std.debug.FormatStackTrace{
+                                .stack_trace = free_stack_trace,
+                                .terminal_mode = std.log.terminalMode(),
+                            },
                         });
                     }
                 }
@@ -935,9 +979,18 @@ pub fn DebugAllocator(comptime config: Config) type {
             }
             bucket.freed_count += 1;
             if (bucket.freed_count == bucket.allocated_count) {
-                if (self.buckets[size_class_index] == bucket) {
-                    self.buckets[size_class_index] = null;
+                if (bucket.prev) |prev| {
+                    prev.next = bucket.next;
                 }
+
+                if (bucket.next) |next| {
+                    assert(self.buckets[size_class_index] != bucket);
+                    next.prev = bucket.prev;
+                } else {
+                    assert(self.buckets[size_class_index] == bucket);
+                    self.buckets[size_class_index] = bucket.prev;
+                }
+
                 if (!config.never_unmap) {
                     const page: [*]align(page_size) u8 = @ptrFromInt(page_addr);
                     self.backing_allocator.rawFree(page[0..page_size], page_align, @returnAddress());
@@ -957,7 +1010,14 @@ pub fn DebugAllocator(comptime config: Config) type {
             size_class_index: usize,
         ) bool {
             const new_size_class_index: usize = @max(@bitSizeOf(usize) - @clz(new_len - 1), @intFromEnum(alignment));
-            if (!config.safety) return new_size_class_index == size_class_index;
+            if (!config.safety) {
+                if (new_size_class_index != size_class_index) return false;
+                // Still account for total even if safety is off
+                if (config.enable_memory_limit)
+                    self.total_requested_bytes = self.total_requested_bytes - memory.len + new_len;
+                return true;
+            }
+
             const slot_count = slot_counts[size_class_index];
             const memory_addr = @intFromPtr(memory.ptr);
             const page_addr = memory_addr & ~(page_size - 1);
@@ -985,26 +1045,36 @@ pub fn DebugAllocator(comptime config: Config) type {
             if (requested_size == 0) @panic("Invalid free");
             const slot_alignment = bucket.log2PtrAligns(slot_count)[slot_index];
             if (memory.len != requested_size or alignment != slot_alignment) {
-                var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
-                var free_stack_trace: StackTrace = .{
-                    .instruction_addresses = &addresses,
-                    .index = 0,
-                };
-                std.debug.captureStackTrace(return_address, &free_stack_trace);
+                var addr_buf: [stack_n]usize = undefined;
+                const free_stack_trace = std.debug.captureCurrentStackTrace(.{ .first_address = return_address }, &addr_buf);
                 if (memory.len != requested_size) {
-                    log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
+                    @branchHint(.cold);
+                    log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {f} Free: {f}", .{
                         requested_size,
                         memory.len,
-                        bucketStackTrace(bucket, slot_count, slot_index, .alloc),
-                        free_stack_trace,
+                        std.debug.FormatStackTrace{
+                            .stack_trace = bucketStackTrace(bucket, slot_count, slot_index, .alloc),
+                            .terminal_mode = std.log.terminalMode(),
+                        },
+                        std.debug.FormatStackTrace{
+                            .stack_trace = free_stack_trace,
+                            .terminal_mode = std.log.terminalMode(),
+                        },
                     });
                 }
                 if (alignment != slot_alignment) {
-                    log.err("Allocation alignment {d} does not match free alignment {d}. Allocation: {} Free: {}", .{
+                    @branchHint(.cold);
+                    log.err("Allocation alignment {d} does not match free alignment {d}. Allocation: {f} Free: {f}", .{
                         slot_alignment.toByteUnits(),
                         alignment.toByteUnits(),
-                        bucketStackTrace(bucket, slot_count, slot_index, .alloc),
-                        free_stack_trace,
+                        std.debug.FormatStackTrace{
+                            .stack_trace = bucketStackTrace(bucket, slot_count, slot_index, .alloc),
+                            .terminal_mode = std.log.terminalMode(),
+                        },
+                        std.debug.FormatStackTrace{
+                            .stack_trace = free_stack_trace,
+                            .terminal_mode = std.log.terminalMode(),
+                        },
                     });
                 }
             }
@@ -1040,14 +1110,14 @@ const TraceKind = enum {
     free,
 };
 
-const test_config = Config{};
+const test_config: Config = .{};
 
 test "small allocations - free in same order" {
     var gpa = DebugAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
-    var list = std.ArrayList(*u64).init(std.testing.allocator);
+    var list = std.array_list.Managed(*u64).init(std.testing.allocator);
     defer list.deinit();
 
     var i: usize = 0;
@@ -1066,7 +1136,7 @@ test "small allocations - free in reverse order" {
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
-    var list = std.ArrayList(*u64).init(std.testing.allocator);
+    var list = std.array_list.Managed(*u64).init(std.testing.allocator);
     defer list.deinit();
 
     var i: usize = 0;
@@ -1106,7 +1176,7 @@ test "realloc" {
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
-    var slice = try allocator.alignedAlloc(u8, @alignOf(u32), 1);
+    var slice = try allocator.alignedAlloc(u8, .of(u32), 1);
     defer allocator.free(slice);
     slice[0] = 0x12;
 
@@ -1209,9 +1279,12 @@ test "shrink large object to large object" {
 }
 
 test "shrink large object to large object with larger alignment" {
-    if (!builtin.link_libc and builtin.os.tag == .wasi) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22731
+    if (builtin.os.tag == .wasi) {
+        // https://github.com/ziglang/zig/issues/22731
+        return error.SkipZigTest;
+    }
 
-    var gpa = DebugAllocator(test_config){};
+    var gpa: DebugAllocator(test_config) = .{};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1220,17 +1293,17 @@ test "shrink large object to large object with larger alignment" {
     const debug_allocator = fba.allocator();
 
     const alloc_size = default_page_size * 2 + 50;
-    var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+    var slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     defer allocator.free(slice);
 
     const big_alignment: usize = default_page_size * 2;
     // This loop allocates until we find a page that is not aligned to the big
     // alignment. Then we shrink the allocation after the loop, but increase the
     // alignment to the higher one, that we know will force it to realloc.
-    var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
+    var stuff_to_free = std.array_list.Managed([]align(16) u8).init(debug_allocator);
     while (mem.isAligned(@intFromPtr(slice.ptr), big_alignment)) {
         try stuff_to_free.append(slice);
-        slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+        slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     }
     while (stuff_to_free.pop()) |item| {
         allocator.free(item);
@@ -1284,7 +1357,10 @@ test "non-page-allocator backing allocator" {
 }
 
 test "realloc large object to larger alignment" {
-    if (!builtin.link_libc and builtin.os.tag == .wasi) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22731
+    if (builtin.os.tag == .wasi) {
+        // https://github.com/ziglang/zig/issues/22731
+        return error.SkipZigTest;
+    }
 
     var gpa = DebugAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
@@ -1294,15 +1370,15 @@ test "realloc large object to larger alignment" {
     var fba = std.heap.FixedBufferAllocator.init(&debug_buffer);
     const debug_allocator = fba.allocator();
 
-    var slice = try allocator.alignedAlloc(u8, 16, default_page_size * 2 + 50);
+    var slice = try allocator.alignedAlloc(u8, .@"16", default_page_size * 2 + 50);
     defer allocator.free(slice);
 
     const big_alignment: usize = default_page_size * 2;
     // This loop allocates until we find a page that is not aligned to the big alignment.
-    var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
+    var stuff_to_free = std.array_list.Managed([]align(16) u8).init(debug_allocator);
     while (mem.isAligned(@intFromPtr(slice.ptr), big_alignment)) {
         try stuff_to_free.append(slice);
-        slice = try allocator.alignedAlloc(u8, 16, default_page_size * 2 + 50);
+        slice = try allocator.alignedAlloc(u8, .@"16", default_page_size * 2 + 50);
     }
     while (stuff_to_free.pop()) |item| {
         allocator.free(item);
@@ -1388,7 +1464,7 @@ test "large allocations count requested size not backing size" {
     var gpa: DebugAllocator(.{ .enable_memory_limit = true }) = .{};
     const allocator = gpa.allocator();
 
-    var buf = try allocator.alignedAlloc(u8, 1, default_page_size + 1);
+    var buf = try allocator.alignedAlloc(u8, .@"1", default_page_size + 1);
     try std.testing.expectEqual(default_page_size + 1, gpa.total_requested_bytes);
     buf = try allocator.realloc(buf, 1);
     try std.testing.expectEqual(1, gpa.total_requested_bytes);

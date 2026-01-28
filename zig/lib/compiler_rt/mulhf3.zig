@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const mulf3 = @import("./mulf3.zig").mulf3;
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__mulhf3, .{ .name = "__mulhf3", .linkage = common.linkage, .visibility = common.visibility });
 }

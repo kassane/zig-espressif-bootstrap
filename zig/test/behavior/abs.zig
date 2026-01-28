@@ -1,13 +1,13 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 
 test "@abs integers" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try comptime testAbsIntegers();
     try testAbsIntegers();
@@ -49,8 +49,34 @@ fn testAbsIntegers() !void {
     }
 }
 
-test "@abs unsigned integers" {
+test "@abs signed C ABI integers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            try testOne(isize, usize);
+            try testOne(c_short, c_ushort);
+            try testOne(c_int, c_uint);
+            try testOne(c_long, c_ulong);
+            if (!builtin.cpu.arch.isSpirV()) try testOne(c_longlong, c_ulonglong);
+        }
+        fn testOne(comptime Signed: type, comptime Unsigned: type) !void {
+            var negative_one: Signed = undefined;
+            negative_one = -1;
+            const one = @abs(negative_one);
+            comptime assert(@TypeOf(one) == Unsigned);
+            try expect(one == 1);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "@abs unsigned integers" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -89,14 +115,38 @@ fn testAbsUnsignedIntegers() !void {
     }
 }
 
-test "@abs big int <= 128 bits" {
+test "@abs unsigned C ABI integers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            try testOne(usize);
+            try testOne(c_ushort);
+            try testOne(c_uint);
+            try testOne(c_ulong);
+            if (!builtin.cpu.arch.isSpirV()) try testOne(c_ulonglong);
+        }
+        fn testOne(comptime Unsigned: type) !void {
+            var one: Unsigned = undefined;
+            one = 1;
+            const still_one = @abs(one);
+            comptime assert(@TypeOf(still_one) == Unsigned);
+            try expect(still_one == 1);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "@abs big int <= 128 bits" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     try comptime testAbsSignedBigInt();
     try testAbsSignedBigInt();
@@ -154,10 +204,8 @@ fn testAbsUnsignedBigInt() !void {
 }
 
 test "@abs floats" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     try comptime testAbsFloats(f16);
     if (builtin.zig_backend != .stage2_riscv64) try testAbsFloats(f16);
@@ -166,9 +214,9 @@ test "@abs floats" {
     try comptime testAbsFloats(f64);
     try testAbsFloats(f64);
     try comptime testAbsFloats(f80);
-    if (builtin.zig_backend != .stage2_wasm and builtin.zig_backend != .stage2_spirv64 and builtin.zig_backend != .stage2_riscv64) try testAbsFloats(f80);
+    if (builtin.zig_backend != .stage2_wasm and builtin.zig_backend != .stage2_spirv and builtin.zig_backend != .stage2_riscv64) try testAbsFloats(f80);
     try comptime testAbsFloats(f128);
-    if (builtin.zig_backend != .stage2_wasm and builtin.zig_backend != .stage2_spirv64 and builtin.zig_backend != .stage2_riscv64) try testAbsFloats(f128);
+    if (builtin.zig_backend != .stage2_wasm and builtin.zig_backend != .stage2_spirv and builtin.zig_backend != .stage2_riscv64) try testAbsFloats(f128);
 }
 
 fn testAbsFloats(comptime T: type) !void {
@@ -209,14 +257,13 @@ fn testAbsFloats(comptime T: type) !void {
 }
 
 test "@abs int vectors" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try comptime testAbsIntVectors(1);
     try testAbsIntVectors(1);
@@ -278,12 +325,12 @@ fn testAbsIntVectors(comptime len: comptime_int) !void {
 }
 
 test "@abs unsigned int vectors" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try comptime testAbsUnsignedIntVectors(1);
     try testAbsUnsignedIntVectors(1);
@@ -337,18 +384,12 @@ fn testAbsUnsignedIntVectors(comptime len: comptime_int) !void {
 }
 
 test "@abs float vectors" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
-
-    // https://github.com/ziglang/zig/issues/12827
-    if (builtin.zig_backend == .stage2_llvm and
-        builtin.os.tag == .macos and
-        builtin.target.cpu.arch == .x86_64) return error.SkipZigTest;
 
     @setEvalBranchQuota(2000);
     try comptime testAbsFloatVectors(f16, 1);

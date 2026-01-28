@@ -10,8 +10,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const common = @import("common.zig");
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__negsi2, .{ .name = "__negsi2", .linkage = common.linkage, .visibility = common.visibility });
     @export(&__negdi2, .{ .name = "__negdi2", .linkage = common.linkage, .visibility = common.visibility });

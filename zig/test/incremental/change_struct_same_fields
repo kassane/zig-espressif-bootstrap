@@ -1,4 +1,5 @@
 #target=x86_64-linux-selfhosted
+#target=x86_64-windows-selfhosted
 #target=x86_64-linux-cbe
 #target=x86_64-windows-cbe
 #target=wasm32-wasi-selfhosted
@@ -10,12 +11,14 @@ pub fn main() !void {
     try foo(&val);
 }
 fn foo(val: *const S) !void {
-    try std.io.getStdOut().writer().print(
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &.{});
+    try stdout_writer.interface.print(
         "{d} {d}\n",
         .{ val.x, val.y },
     );
 }
 const std = @import("std");
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_stdout="100 200\n"
 
 #update=change struct layout
@@ -26,12 +29,14 @@ pub fn main() !void {
     try foo(&val);
 }
 fn foo(val: *const S) !void {
-    try std.io.getStdOut().writer().print(
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &.{});
+    try stdout_writer.interface.print(
         "{d} {d}\n",
         .{ val.x, val.y },
     );
 }
 const std = @import("std");
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_stdout="100 200\n"
 
 #update=change values
@@ -42,10 +47,12 @@ pub fn main() !void {
     try foo(&val);
 }
 fn foo(val: *const S) !void {
-    try std.io.getStdOut().writer().print(
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &.{});
+    try stdout_writer.interface.print(
         "{d} {d}\n",
         .{ val.x, val.y },
     );
 }
 const std = @import("std");
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_stdout="1234 5678\n"

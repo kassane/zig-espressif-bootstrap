@@ -16,8 +16,8 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:9: error: duplicate switch value
+// :3:9: note: previous value here
 // :13:9: error: duplicate switch value
+// :11:9: note: previous value here

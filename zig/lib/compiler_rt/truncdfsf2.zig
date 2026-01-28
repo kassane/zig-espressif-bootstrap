@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const truncf = @import("./truncf.zig").truncf;
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_aeabi) {
         @export(&__aeabi_d2f, .{ .name = "__aeabi_d2f", .linkage = common.linkage, .visibility = common.visibility });

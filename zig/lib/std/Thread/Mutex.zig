@@ -45,14 +45,30 @@ const Impl = if (builtin.mode == .Debug and !builtin.single_threaded)
 else
     ReleaseImpl;
 
-const ReleaseImpl = if (builtin.single_threaded)
-    SingleThreadedImpl
-else if (builtin.os.tag == .windows)
-    WindowsImpl
-else if (builtin.os.tag.isDarwin())
-    DarwinImpl
-else
-    FutexImpl;
+const ReleaseImpl = Impl: {
+    if (builtin.single_threaded) break :Impl SingleThreadedImpl;
+    if (builtin.os.tag == .windows) break :Impl WindowsImpl;
+    if (builtin.os.tag.isDarwin()) break :Impl DarwinImpl;
+
+    if (builtin.target.os.tag == .linux or
+        builtin.target.os.tag == .freebsd or
+        builtin.target.os.tag == .openbsd or
+        builtin.target.os.tag == .dragonfly or
+        builtin.target.cpu.arch.isWasm())
+    {
+        // Futex is the system's synchronization primitive; use that.
+        break :Impl FutexImpl;
+    }
+
+    if (std.Thread.use_pthreads) {
+        // This system doesn't have a futex primitive, so `std.Thread.Futex` is using `PosixImpl`,
+        // which implements futex *on top of* pthread mutexes and conditions. Therefore, instead
+        // of going through that long inefficient path, just use pthread mutex directly.
+        break :Impl PosixImpl;
+    }
+
+    break :Impl FutexImpl;
+};
 
 const DebugImpl = struct {
     locking_thread: std.atomic.Value(Thread.Id) = std.atomic.Value(Thread.Id).init(0), // 0 means it's not locked.
@@ -109,15 +125,15 @@ const WindowsImpl = struct {
     srwlock: windows.SRWLOCK = .{},
 
     fn tryLock(self: *@This()) bool {
-        return windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != windows.FALSE;
+        return windows.ntdll.RtlTryAcquireSRWLockExclusive(&self.srwlock) != windows.FALSE;
     }
 
     fn lock(self: *@This()) void {
-        windows.kernel32.AcquireSRWLockExclusive(&self.srwlock);
+        windows.ntdll.RtlAcquireSRWLockExclusive(&self.srwlock);
     }
 
     fn unlock(self: *@This()) void {
-        windows.kernel32.ReleaseSRWLockExclusive(&self.srwlock);
+        windows.ntdll.RtlReleaseSRWLockExclusive(&self.srwlock);
     }
 
     const windows = std.os.windows;
@@ -204,6 +220,37 @@ const FutexImpl = struct {
 
         if (state == contended) {
             Futex.wake(&self.state, 1);
+        }
+    }
+};
+
+const PosixImpl = struct {
+    mutex: std.c.pthread_mutex_t = .{},
+
+    fn tryLock(impl: *PosixImpl) bool {
+        switch (std.c.pthread_mutex_trylock(&impl.mutex)) {
+            .SUCCESS => return true,
+            .BUSY => return false,
+            .INVAL => unreachable, // mutex is initialized correctly
+            else => unreachable,
+        }
+    }
+
+    fn lock(impl: *PosixImpl) void {
+        switch (std.c.pthread_mutex_lock(&impl.mutex)) {
+            .SUCCESS => return,
+            .INVAL => unreachable, // mutex is initialized correctly
+            .DEADLK => unreachable, // not an error checking mutex
+            else => unreachable,
+        }
+    }
+
+    fn unlock(impl: *PosixImpl) void {
+        switch (std.c.pthread_mutex_unlock(&impl.mutex)) {
+            .SUCCESS => return,
+            .INVAL => unreachable, // mutex is initialized correctly
+            .PERM => unreachable, // not an error checking mutex
+            else => unreachable,
         }
     }
 };

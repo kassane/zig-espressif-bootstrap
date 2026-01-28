@@ -1,10 +1,7 @@
 const std = @import("std");
 
-pub fn main() !void {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    defer _ = gpa.deinit();
-    const args = try std.process.argsAlloc(gpa.allocator());
-    defer std.process.argsFree(gpa.allocator(), args);
+pub fn main(init: std.process.Init) !void {
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
 
     const dynlib_name = args[1];
 

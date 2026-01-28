@@ -94,13 +94,15 @@ pub const E = enum(u16) {
     OVERFLOW,
     LOOP,
     TXTBSY,
-
-    pub fn init(r: usize) E {
-        const signed_r: isize = @bitCast(r);
-        const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
-        return @enumFromInt(int);
-    }
 };
+
+/// Get the errno from a syscall return value. SUCCESS means no error.
+pub fn errno(r: usize) E {
+    const signed_r: isize = @bitCast(r);
+    const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
+    return @enumFromInt(int);
+}
+
 // The max bytes that can be in the errstr buff
 pub const ERRMAX = 128;
 var errstr_buf: [ERRMAX]u8 = undefined;
@@ -182,7 +184,6 @@ pub const SIG = struct {
     pub const TTOU = 20;
 };
 pub const sigset_t = c_long;
-pub const empty_sigset = 0;
 pub const siginfo_t = c_long;
 // TODO plan9 doesn't have sigaction_fn. Sigaction is not a union, but we include it here to be compatible.
 pub const Sigaction = extern struct {
@@ -199,6 +200,10 @@ pub const Sigaction = extern struct {
 pub const AT = struct {
     pub const FDCWD = -100; // we just make up a constant; FDCWD and openat don't actually exist in plan9
 };
+// Plan 9 doesn't do signals.  This is just needed to get through start.zig.
+pub fn sigemptyset() sigset_t {
+    return 0;
+}
 // TODO implement sigaction
 // right now it is just a shim to allow using start.zig code
 pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {

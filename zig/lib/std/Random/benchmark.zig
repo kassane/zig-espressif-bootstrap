@@ -1,7 +1,9 @@
 // zig run -O ReleaseFast --zig-lib-dir ../.. benchmark.zig
 
-const std = @import("std");
 const builtin = @import("builtin");
+
+const std = @import("std");
+const Io = std.Io;
 const time = std.time;
 const Timer = time.Timer;
 const Random = std.Random;
@@ -121,14 +123,17 @@ fn mode(comptime x: comptime_int) comptime_int {
     return if (builtin.mode == .Debug) x / 64 else x;
 }
 
-pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const arena = init.arena.allocator();
 
-    var buffer: [1024]u8 = undefined;
-    var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
-    const args = try std.process.argsAlloc(fixed.allocator());
+    var stdout_buffer: [0x100]u8 = undefined;
+    var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
-    var filter: ?[]u8 = "";
+    const args = try init.minimal.args.toSlice(arena);
+
+    var filter: ?[]const u8 = null;
     var count: usize = mode(128 * MiB);
     var bench_prngs = true;
     var bench_csprngs = true;
@@ -139,6 +144,7 @@ pub fn main() !void {
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--mode")) {
             try stdout.print("{}\n", .{builtin.mode});
+            try stdout.flush();
             return;
         } else if (std.mem.eql(u8, args[i], "--filter")) {
             i += 1;
@@ -177,8 +183,10 @@ pub fn main() !void {
     if (bench_prngs) {
         if (bench_long) {
             inline for (prngs) |R| {
-                if (filter == null or std.mem.indexOf(u8, R.name, filter.?) != null) {
+                if (filter == null or std.mem.find(u8, R.name, filter.?) != null) {
                     try stdout.print("{s} (long outputs)\n", .{R.name});
+                    try stdout.flush();
+
                     const result_long = try benchmark(R, count, long_block_size);
                     try stdout.print("    {:5} MiB/s\n", .{result_long.throughput / (1 * MiB)});
                 }
@@ -186,8 +194,10 @@ pub fn main() !void {
         }
         if (bench_short) {
             inline for (prngs) |R| {
-                if (filter == null or std.mem.indexOf(u8, R.name, filter.?) != null) {
+                if (filter == null or std.mem.find(u8, R.name, filter.?) != null) {
                     try stdout.print("{s} (short outputs)\n", .{R.name});
+                    try stdout.flush();
+
                     const result_short = try benchmark(R, count, short_block_size);
                     try stdout.print("    {:5} MiB/s\n", .{result_short.throughput / (1 * MiB)});
                 }
@@ -197,8 +207,10 @@ pub fn main() !void {
     if (bench_csprngs) {
         if (bench_long) {
             inline for (csprngs) |R| {
-                if (filter == null or std.mem.indexOf(u8, R.name, filter.?) != null) {
+                if (filter == null or std.mem.find(u8, R.name, filter.?) != null) {
                     try stdout.print("{s} (cryptographic, long outputs)\n", .{R.name});
+                    try stdout.flush();
+
                     const result_long = try benchmark(R, count, long_block_size);
                     try stdout.print("    {:5} MiB/s\n", .{result_long.throughput / (1 * MiB)});
                 }
@@ -206,12 +218,15 @@ pub fn main() !void {
         }
         if (bench_short) {
             inline for (csprngs) |R| {
-                if (filter == null or std.mem.indexOf(u8, R.name, filter.?) != null) {
+                if (filter == null or std.mem.find(u8, R.name, filter.?) != null) {
                     try stdout.print("{s} (cryptographic, short outputs)\n", .{R.name});
+                    try stdout.flush();
+
                     const result_short = try benchmark(R, count, short_block_size);
                     try stdout.print("    {:5} MiB/s\n", .{result_short.throughput / (1 * MiB)});
                 }
             }
         }
     }
+    try stdout.flush();
 }

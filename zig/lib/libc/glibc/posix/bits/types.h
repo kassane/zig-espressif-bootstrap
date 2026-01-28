@@ -1,5 +1,5 @@
 /* bits/types.h -- definitions of __*_t types underlying *_t types.
-   Copyright (C) 2002-2025 Free Software Foundation, Inc.
+   Copyright (C) 2002-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -217,7 +217,7 @@ typedef int __sig_atomic_t;
 /* Seconds since the Epoch, visible to user code when time_t is too
    narrow only for consistency with the old way of widening too-narrow
    types.  User code should never use __time64_t.  */
-/* Zig patch: Don't check __LIBC here because it breaks fstatat.c on x86. */
+/* zig patch: Don't check __LIBC here because it breaks fstatat.c on x86. */
 #if __TIMESIZE == 64
 # define __time64_t __time_t
 #elif __TIMESIZE != 64

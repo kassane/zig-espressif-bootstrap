@@ -3,8 +3,6 @@
 const common = @import("./common.zig");
 const comparef = @import("./comparef.zig");
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__gehf2, .{ .name = "__gehf2", .linkage = common.linkage, .visibility = common.visibility });
     @export(&__gthf2, .{ .name = "__gthf2", .linkage = common.linkage, .visibility = common.visibility });

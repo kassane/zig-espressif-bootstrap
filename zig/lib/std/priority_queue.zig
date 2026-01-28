@@ -619,7 +619,7 @@ test "siftUp in remove" {
 
     try queue.addSlice(&.{ 0, 1, 100, 2, 3, 101, 102, 4, 5, 6, 7, 103, 104, 105, 106, 8 });
 
-    _ = queue.removeIndex(std.mem.indexOfScalar(u32, queue.items[0..queue.count()], 102).?);
+    _ = queue.removeIndex(std.mem.findScalar(u32, queue.items[0..queue.count()], 102).?);
 
     const sorted_items = [_]u32{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 100, 101, 103, 104, 105, 106 };
     for (sorted_items) |e| {

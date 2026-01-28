@@ -1,5 +1,5 @@
 /* Define ISO C stdio on top of C++ iostreams.
-   Copyright (C) 1991-2025 Free Software Foundation, Inc.
+   Copyright (C) 1991-2026 Free Software Foundation, Inc.
    Copyright The GNU Toolchain Authors.
    This file is part of the GNU C Library.
 
@@ -28,6 +28,10 @@
 #include <bits/libc-header-start.h>
 
 __BEGIN_DECLS
+
+#if __GLIBC_USE (ISOC23)
+# define __STDC_VERSION_STDIO_H__ 202311L
+#endif
 
 #define __need_size_t
 #define __need_NULL
@@ -168,8 +172,11 @@ extern int renameat (int __oldfd, const char *__old, int __newfd,
 #ifdef __USE_GNU
 /* Flags for renameat2.  */
 # define RENAME_NOREPLACE (1 << 0)
+# define AT_RENAME_NOREPLACE 0x0001
 # define RENAME_EXCHANGE (1 << 1)
+# define AT_RENAME_EXCHANGE 0x0002
 # define RENAME_WHITEOUT (1 << 2)
+# define AT_RENAME_WHITEOUT 0x0004
 
 /* Rename file OLD relative to OLDFD to NEW relative to NEWFD, with
    additional flags.  */
@@ -604,9 +611,6 @@ extern int fgetc_unlocked (FILE *__stream) __nonnull ((1));
 /* Write a character to STREAM.
 
    These functions are possible cancellation points and therefore not
-   marked with __THROW.
-
-   These functions is a possible cancellation point and therefore not
    marked with __THROW.  */
 extern int fputc (int __c, FILE *__stream) __nonnull ((2));
 extern int putc (int __c, FILE *__stream) __nonnull ((2));

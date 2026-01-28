@@ -8,8 +8,6 @@ const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 const common = @import("common.zig");
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__sincosh, .{ .name = "__sincosh", .linkage = common.linkage, .visibility = common.visibility });
     @export(&sincosf, .{ .name = "sincosf", .linkage = common.linkage, .visibility = common.visibility });
@@ -46,7 +44,13 @@ pub fn sincosf(x: f32, r_sin: *f32, r_cos: *f32) callconv(.c) void {
         // |x| < 2**-12
         if (ix < 0x39800000) {
             // raise inexact if x!=0 and underflow if subnormal
-            if (common.want_float_exceptions) mem.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
+            if (common.want_float_exceptions) {
+                if (ix < 0x00100000) {
+                    mem.doNotOptimizeAway(x / 0x1p120);
+                } else {
+                    mem.doNotOptimizeAway(x + 0x1p120);
+                }
+            }
             r_sin.* = x;
             r_cos.* = 1.0;
             return;
@@ -134,7 +138,13 @@ pub fn sincos(x: f64, r_sin: *f64, r_cos: *f64) callconv(.c) void {
         // if |x| < 2**-27 * sqrt(2)
         if (ix < 0x3e46a09e) {
             // raise inexact if x != 0 and underflow if subnormal
-            if (common.want_float_exceptions) mem.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
+            if (common.want_float_exceptions) {
+                if (ix < 0x00100000) {
+                    mem.doNotOptimizeAway(x / 0x1p120);
+                } else {
+                    mem.doNotOptimizeAway(x + 0x1p120);
+                }
+            }
             r_sin.* = x;
             r_cos.* = 1.0;
             return;

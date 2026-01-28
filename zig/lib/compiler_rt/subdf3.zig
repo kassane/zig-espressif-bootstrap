@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const addf3 = @import("./addf3.zig").addf3;
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_aeabi) {
         @export(&__aeabi_dsub, .{ .name = "__aeabi_dsub", .linkage = common.linkage, .visibility = common.visibility });

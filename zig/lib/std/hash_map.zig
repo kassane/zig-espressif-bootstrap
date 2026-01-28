@@ -6,6 +6,7 @@ const math = std.math;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const Wyhash = std.hash.Wyhash;
+const Alignment = std.mem.Alignment;
 
 pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) u64) {
     comptime {
@@ -90,7 +91,7 @@ pub fn hashString(s: []const u8) u64 {
 }
 
 pub const StringIndexContext = struct {
-    bytes: *const std.ArrayListUnmanaged(u8),
+    bytes: *const std.ArrayList(u8),
 
     pub fn eql(_: @This(), a: u32, b: u32) bool {
         return a == b;
@@ -102,14 +103,14 @@ pub const StringIndexContext = struct {
 };
 
 pub const StringIndexAdapter = struct {
-    bytes: *const std.ArrayListUnmanaged(u8),
+    bytes: *const std.ArrayList(u8),
 
     pub fn eql(ctx: @This(), a: []const u8, b: u32) bool {
         return mem.eql(u8, a, mem.sliceTo(ctx.bytes.items[b..], 0));
     }
 
     pub fn hash(_: @This(), adapted_key: []const u8) u64 {
-        assert(mem.indexOfScalar(u8, adapted_key, 0) == null);
+        assert(mem.findScalar(u8, adapted_key, 0) == null);
         return hashString(adapted_key);
     }
 };
@@ -1266,12 +1267,11 @@ pub fn HashMapUnmanaged(
         /// TODO: answer the question in these doc comments, does this
         /// increase the unused capacity by one?
         pub fn removeByPtr(self: *Self, key_ptr: *K) void {
-            // TODO: replace with pointer subtraction once supported by zig
             // if @sizeOf(K) == 0 then there is at most one item in the hash
             // map, which is assumed to exist as key_ptr must be valid.  This
             // item must be at index 0.
             const idx = if (@sizeOf(K) > 0)
-                (@intFromPtr(key_ptr) - @intFromPtr(self.keys())) / @sizeOf(K)
+                (key_ptr - self.keys())
             else
                 0;
 
@@ -1460,7 +1460,7 @@ pub fn HashMapUnmanaged(
             const header_align = @alignOf(Header);
             const key_align = if (@sizeOf(K) == 0) 1 else @alignOf(K);
             const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
-            const max_align = comptime @max(header_align, key_align, val_align);
+            const max_align: Alignment = comptime .fromByteUnits(@max(header_align, key_align, val_align));
 
             const new_cap: usize = new_capacity;
             const meta_size = @sizeOf(Header) + new_cap * @sizeOf(Metadata);
@@ -1472,7 +1472,7 @@ pub fn HashMapUnmanaged(
             const vals_start = std.mem.alignForward(usize, keys_end, val_align);
             const vals_end = vals_start + new_cap * @sizeOf(V);
 
-            const total_size = std.mem.alignForward(usize, vals_end, max_align);
+            const total_size = max_align.forward(vals_end);
 
             const slice = try allocator.alignedAlloc(u8, max_align, total_size);
             const ptr: [*]u8 = @ptrCast(slice.ptr);
@@ -1510,7 +1510,7 @@ pub fn HashMapUnmanaged(
 
             const total_size = std.mem.alignForward(usize, vals_end, max_align);
 
-            const slice = @as([*]align(max_align) u8, @alignCast(@ptrCast(self.header())))[0..total_size];
+            const slice = @as([*]align(max_align) u8, @ptrCast(@alignCast(self.header())))[0..total_size];
             allocator.free(slice);
 
             self.metadata = null;
@@ -1799,7 +1799,7 @@ test "put and remove loop in random order" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
-    var keys = std.ArrayList(u32).init(std.testing.allocator);
+    var keys = std.array_list.Managed(u32).init(std.testing.allocator);
     defer keys.deinit();
 
     const size = 32;
@@ -1827,13 +1827,13 @@ test "put and remove loop in random order" {
     }
 }
 
-test "remove one million elements in random order" {
+test "remove many elements in random order" {
     const Map = AutoHashMap(u32, u32);
-    const n = 1000 * 1000;
+    const n = 1000 * 100;
     var map = Map.init(std.heap.page_allocator);
     defer map.deinit();
 
-    var keys = std.ArrayList(u32).init(std.heap.page_allocator);
+    var keys = std.array_list.Managed(u32).init(std.heap.page_allocator);
     defer keys.deinit();
 
     var i: u32 = 0;
@@ -2147,14 +2147,14 @@ test "getOrPut allocation failure" {
     try testing.expectError(error.OutOfMemory, map.getOrPut(std.testing.failing_allocator, "hello"));
 }
 
-test "std.hash_map rehash" {
+test "rehash" {
     var map = AutoHashMap(usize, usize).init(std.testing.allocator);
     defer map.deinit();
 
     var prng = std.Random.DefaultPrng.init(0);
     const random = prng.random();
 
-    const count = 6 * random.intRangeLessThan(u32, 100_000, 500_000);
+    const count = 4 * random.intRangeLessThan(u32, 100_000, 500_000);
 
     for (0..count) |i| {
         try map.put(i, i);

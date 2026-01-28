@@ -1,4 +1,5 @@
 #target=x86_64-linux-selfhosted
+#target=x86_64-windows-selfhosted
 #target=x86_64-linux-cbe
 #target=x86_64-windows-cbe
 //#target=wasm32-wasi-selfhosted
@@ -7,8 +8,9 @@
 const std = @import("std");
 const message: []const u8 = @import("message.zon");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll(message);
+    try std.Io.File.stdout().writeStreamingAll(io, message);
 }
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #file=message.zon
 "Hello, World!\n"
 #expect_stdout="Hello, World!\n"
@@ -20,16 +22,19 @@ pub fn main() !void {
 
 #update=delete file
 #rm_file=message.zon
-#expect_error=message.zon:1:1: error: unable to load './message.zon': FileNotFound
+#expect_error=message.zon:1:1: error: unable to load 'message.zon': FileNotFound
+#expect_error=main.zig:2:37: note: file imported here
 
 #update=remove reference to ZON file
 #file=main.zig
 const std = @import("std");
 const message: []const u8 = @import("message.zon");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll("a hardcoded string\n");
+    try std.Io.File.stdout().writeStreamingAll(io, "a hardcoded string\n");
 }
-#expect_error=message.zon:1:1: error: unable to load './message.zon': FileNotFound
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
+#expect_error=message.zon:1:1: error: unable to load 'message.zon': FileNotFound
+#expect_error=main.zig:2:37: note: file imported here
 
 #update=recreate ZON file
 #file=message.zon
@@ -41,6 +46,7 @@ pub fn main() !void {
 const std = @import("std");
 const message: []const u8 = @import("message.zon");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll(message);
+    try std.Io.File.stdout().writeStreamingAll(io, message);
 }
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_stdout="We're back, World!\n"

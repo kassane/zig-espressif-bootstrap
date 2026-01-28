@@ -1,29 +1,36 @@
-const std = @import("../../std.zig");
+const NativePaths = @This();
 const builtin = @import("builtin");
+
+const std = @import("../../std.zig");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const process = std.process;
 const mem = std.mem;
 
-const NativePaths = @This();
-
 arena: Allocator,
-include_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
-lib_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
-framework_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
-rpaths: std.ArrayListUnmanaged([]const u8) = .empty,
-warnings: std.ArrayListUnmanaged([]const u8) = .empty,
+include_dirs: std.ArrayList([]const u8) = .empty,
+lib_dirs: std.ArrayList([]const u8) = .empty,
+framework_dirs: std.ArrayList([]const u8) = .empty,
+rpaths: std.ArrayList([]const u8) = .empty,
+warnings: std.ArrayList([]const u8) = .empty,
 
-pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
+pub fn detect(
+    arena: Allocator,
+    io: Io,
+    native_target: *const std.Target,
+    environ_map: *process.Environ.Map,
+) !NativePaths {
     var self: NativePaths = .{ .arena = arena };
     var is_nix = false;
-    if (process.getEnvVarOwned(arena, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
+
+    if (std.zig.EnvVar.NIX_CFLAGS_COMPILE.get(environ_map)) |nix_cflags_compile| {
         is_nix = true;
         var it = mem.tokenizeScalar(u8, nix_cflags_compile, ' ');
         while (true) {
             const word = it.next() orelse break;
-            if (mem.eql(u8, word, "-isystem")) {
+            if (mem.eql(u8, word, "-isystem") or mem.eql(u8, word, "-idirafter")) {
                 const include_path = it.next() orelse {
-                    try self.addWarning("Expected argument after -isystem in NIX_CFLAGS_COMPILE");
+                    try self.addWarningFmt("Expected argument after {s} in NIX_CFLAGS_COMPILE", .{word});
                     break;
                 };
                 try self.addIncludeDir(include_path);
@@ -33,19 +40,17 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
                     break;
                 };
                 try self.addFrameworkDir(framework_path);
+            } else if (mem.startsWith(u8, word, "-frandom-seed=") or
+                mem.startsWith(u8, word, "-fmacro-prefix-map="))
+            {
+                // Ignore this argument.
             } else {
-                if (mem.startsWith(u8, word, "-frandom-seed=")) {
-                    continue;
-                }
                 try self.addWarningFmt("Unrecognized C flag from NIX_CFLAGS_COMPILE: {s}", .{word});
             }
         }
-    } else |err| switch (err) {
-        error.InvalidWtf8 => unreachable,
-        error.EnvironmentVariableNotFound => {},
-        error.OutOfMemory => |e| return e,
     }
-    if (process.getEnvVarOwned(arena, "NIX_LDFLAGS")) |nix_ldflags| {
+
+    if (std.zig.EnvVar.NIX_LDFLAGS.get(environ_map)) |nix_ldflags| {
         is_nix = true;
         var it = mem.tokenizeScalar(u8, nix_ldflags, ' ');
         while (true) {
@@ -65,33 +70,59 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
                 const lib_path = word[2..];
                 try self.addLibDir(lib_path);
                 try self.addRPath(lib_path);
-            } else if (mem.startsWith(u8, word, "-l")) {
+            } else if (mem.startsWith(u8, word, "-l") or mem.startsWith(u8, word, "-static")) {
                 // Ignore this argument.
             } else {
                 try self.addWarningFmt("Unrecognized C flag from NIX_LDFLAGS: {s}", .{word});
                 break;
             }
         }
-    } else |err| switch (err) {
-        error.InvalidWtf8 => unreachable,
-        error.EnvironmentVariableNotFound => {},
-        error.OutOfMemory => |e| return e,
     }
+
+    if (std.zig.EnvVar.NIX_CFLAGS_LINK.get(environ_map)) |nix_cflags_link| {
+        is_nix = true;
+        var it = mem.tokenizeScalar(u8, nix_cflags_link, ' ');
+        while (true) {
+            const word = it.next() orelse break;
+            if (mem.eql(u8, word, "-rpath")) {
+                const rpath = it.next() orelse {
+                    try self.addWarning("Expected argument after -rpath in NIX_CFLAGS_LINK");
+                    break;
+                };
+                try self.addRPath(rpath);
+            } else if (mem.eql(u8, word, "-L") or mem.eql(u8, word, "-l")) {
+                _ = it.next() orelse {
+                    try self.addWarning("Expected argument after -L or -l in NIX_CFLAGS_LINK");
+                    break;
+                };
+            } else if (mem.startsWith(u8, word, "-L")) {
+                const lib_path = word[2..];
+                try self.addLibDir(lib_path);
+                try self.addRPath(lib_path);
+            } else if (mem.startsWith(u8, word, "-l") or mem.startsWith(u8, word, "-static")) {
+                // Ignore this argument.
+            } else {
+                try self.addWarningFmt("Unrecognized C flag from NIX_CFLAGS_LINK: {s}", .{word});
+                break;
+            }
+        }
+    }
+
     if (is_nix) {
         return self;
     }
 
     // TODO: consider also adding macports paths
     if (builtin.target.os.tag.isDarwin()) {
-        if (std.zig.system.darwin.isSdkInstalled(arena)) sdk: {
-            const sdk = std.zig.system.darwin.getSdk(arena, native_target) orelse break :sdk;
+        if (std.zig.system.darwin.isSdkInstalled(arena, io)) sdk: {
+            const sdk = std.zig.system.darwin.getSdk(arena, io, native_target) orelse break :sdk;
             try self.addLibDir(try std.fs.path.join(arena, &.{ sdk, "usr/lib" }));
             try self.addFrameworkDir(try std.fs.path.join(arena, &.{ sdk, "System/Library/Frameworks" }));
             try self.addIncludeDir(try std.fs.path.join(arena, &.{ sdk, "usr/include" }));
         }
 
         // Check for homebrew paths
-        if (std.posix.getenv("HOMEBREW_PREFIX")) |prefix| {
+        if (std.zig.EnvVar.HOMEBREW_PREFIX.get(environ_map)) |prefix| {
             try self.addLibDir(try std.fs.path.join(arena, &.{ prefix, "/lib" }));
             try self.addIncludeDir(try std.fs.path.join(arena, &.{ prefix, "/include" }));
         }
@@ -99,7 +130,7 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
         return self;
     }
 
-    if (builtin.os.tag.isSolarish()) {
+    if (builtin.os.tag == .illumos) {
         try self.addLibDir("/usr/lib/64");
         try self.addLibDir("/usr/local/lib/64");
         try self.addLibDir("/lib/64");
@@ -147,23 +178,21 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
 
         // Distros like guix don't use FHS, so they rely on environment
         // variables to search for headers and libraries.
-        // We use os.getenv here since this part won't be executed on
-        // windows, to get rid of unnecessary error handling.
-        if (std.posix.getenv("C_INCLUDE_PATH")) |c_include_path| {
+        if (std.zig.EnvVar.C_INCLUDE_PATH.get(environ_map)) |c_include_path| {
             var it = mem.tokenizeScalar(u8, c_include_path, ':');
             while (it.next()) |dir| {
                 try self.addIncludeDir(dir);
             }
         }
 
-        if (std.posix.getenv("CPLUS_INCLUDE_PATH")) |cplus_include_path| {
+        if (std.zig.EnvVar.CPLUS_INCLUDE_PATH.get(environ_map)) |cplus_include_path| {
             var it = mem.tokenizeScalar(u8, cplus_include_path, ':');
             while (it.next()) |dir| {
                 try self.addIncludeDir(dir);
             }
         }
 
-        if (std.posix.getenv("LIBRARY_PATH")) |library_path| {
+        if (std.zig.EnvVar.LIBRARY_PATH.get(environ_map)) |library_path| {
             var it = mem.tokenizeScalar(u8, library_path, ':');
             while (it.next()) |dir| {
                 try self.addLibDir(dir);

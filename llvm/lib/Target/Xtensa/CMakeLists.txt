@@ -26,13 +26,11 @@ add_llvm_target(XtensaCodeGen
   XtensaISelDAGToDAG.cpp
   XtensaISelLowering.cpp
   XtensaS3ISelLowering.cpp
-  XtensaMachineFunctionInfo.cpp
   XtensaRegisterInfo.cpp
   XtensaSizeReductionPass.cpp
   XtensaSubtarget.cpp
   XtensaTargetMachine.cpp
   XtensaTargetObjectFile.cpp
-  XtensaUtils.cpp
   XtensaTargetTransformInfo.cpp
   XtensaBRegFixupPass.cpp
 
@@ -44,6 +42,7 @@ add_llvm_target(XtensaCodeGen
   SelectionDAG
   Support
   Target
+  TargetParser
   XtensaDesc
   XtensaInfo
 

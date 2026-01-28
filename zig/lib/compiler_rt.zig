@@ -1,7 +1,23 @@
+const std = @import("std");
 const builtin = @import("builtin");
 const common = @import("compiler_rt/common.zig");
 
-pub const panic = common.panic;
+/// Avoid dragging in the runtime safety mechanisms into this .o file, unless
+/// we're trying to test compiler-rt.
+pub const panic = if (common.test_safety)
+    std.debug.FullPanic(std.debug.defaultPanic)
+else
+    std.debug.no_panic;
+
+pub const std_options_debug_threaded_io: ?*std.Io.Threaded = if (builtin.is_test)
+    std.Io.Threaded.global_single_threaded
+else
+    null;
+
+pub const std_options_debug_io: std.Io = if (builtin.is_test)
+    std.Io.Threaded.global_single_threaded.ioBasic()
+else
+    unreachable;
 
 comptime {
     // Integer routines
@@ -27,8 +43,14 @@ comptime {
     _ = @import("compiler_rt/absvti2.zig");
     _ = @import("compiler_rt/negv.zig");
 
-    _ = @import("compiler_rt/addo.zig");
-    _ = @import("compiler_rt/subo.zig");
+    _ = @import("compiler_rt/addvsi3.zig");
+    _ = @import("compiler_rt/addvdi3.zig");
+
+    _ = @import("compiler_rt/subvsi3.zig");
+    _ = @import("compiler_rt/subvdi3.zig");
+
+    _ = @import("compiler_rt/mulvsi3.zig");
+
     _ = @import("compiler_rt/mulo.zig");
 
     // Float routines
@@ -209,12 +231,11 @@ comptime {
     _ = @import("compiler_rt/divtc3.zig");
 
     // Math routines. Alphabetically sorted.
-    _ = @import("compiler_rt/ceil.zig");
     _ = @import("compiler_rt/cos.zig");
     _ = @import("compiler_rt/exp.zig");
     _ = @import("compiler_rt/exp2.zig");
     _ = @import("compiler_rt/fabs.zig");
-    _ = @import("compiler_rt/floor.zig");
+    _ = @import("compiler_rt/floor_ceil.zig");
     _ = @import("compiler_rt/fma.zig");
     _ = @import("compiler_rt/fmax.zig");
     _ = @import("compiler_rt/fmin.zig");
@@ -244,12 +265,12 @@ comptime {
     _ = @import("compiler_rt/hexagon.zig");
 
     if (@import("builtin").object_format != .c) {
-        _ = @import("compiler_rt/atomics.zig");
+        if (builtin.zig_backend != .stage2_aarch64) _ = @import("compiler_rt/atomics.zig");
         _ = @import("compiler_rt/stack_probe.zig");
 
         // macOS has these functions inside libSystem.
         if (builtin.cpu.arch.isAARCH64() and !builtin.os.tag.isDarwin()) {
-            _ = @import("compiler_rt/aarch64_outline_atomics.zig");
+            if (builtin.zig_backend != .stage2_aarch64) _ = @import("compiler_rt/aarch64_outline_atomics.zig");
         }
 
         _ = @import("compiler_rt/memcpy.zig");
@@ -258,9 +279,12 @@ comptime {
         _ = @import("compiler_rt/memcmp.zig");
         _ = @import("compiler_rt/bcmp.zig");
         _ = @import("compiler_rt/ssp.zig");
+
+        _ = @import("compiler_rt/strlen.zig");
     }
 
-    if (!builtin.link_libc and builtin.abi == .msvc) {
+    // Temporarily used for uefi until https://github.com/ziglang/zig/issues/21630 is addressed.
+    if (!builtin.link_libc and (builtin.os.tag == .windows or builtin.os.tag == .uefi) and (builtin.abi == .none or builtin.abi == .msvc)) {
         @export(&_fltused, .{ .name = "_fltused", .linkage = common.linkage, .visibility = common.visibility });
     }
 }

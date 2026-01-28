@@ -1,46 +1,46 @@
 const std = @import("std");
+const Io = std.Io;
 
 // 42 is expected by parent; other values result in test failure
 var exit_code: u8 = 42;
 
-pub fn main() !void {
-    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const arena = arena_state.allocator();
-    try run(arena);
-    arena_state.deinit();
+pub fn main(init: std.process.Init) !void {
+    try run(init.arena.allocator(), init.io, init.minimal.args);
     std.process.exit(exit_code);
 }
 
-fn run(allocator: std.mem.Allocator) !void {
-    var args = try std.process.argsWithAllocator(allocator);
-    defer args.deinit();
-    _ = args.next() orelse unreachable; // skip binary name
+fn run(arena: std.mem.Allocator, io: Io, args: std.process.Args) !void {
+    var it = try args.iterateAllocator(arena);
+    defer it.deinit();
+    _ = it.next() orelse unreachable; // skip binary name
 
     // test cmd args
     const hello_arg = "hello arg";
-    const a1 = args.next() orelse unreachable;
+    const a1 = it.next() orelse unreachable;
     if (!std.mem.eql(u8, a1, hello_arg)) {
-        testError("first arg: '{s}'; want '{s}'", .{ a1, hello_arg });
+        testError(io, "first arg: '{s}'; want '{s}'", .{ a1, hello_arg });
     }
-    if (args.next()) |a2| {
-        testError("expected only one arg; got more: {s}", .{a2});
+    if (it.next()) |a2| {
+        testError(io, "expected only one arg; got more: {s}", .{a2});
     }
 
     // test stdout pipe; parent verifies
-    try std.io.getStdOut().writer().writeAll("hello from stdout");
+    try std.Io.File.stdout().writeStreamingAll(io, "hello from stdout");
 
     // test stdin pipe from parent
     const hello_stdin = "hello from stdin";
     var buf: [hello_stdin.len]u8 = undefined;
-    const stdin = std.io.getStdIn().reader();
-    const n = try stdin.readAll(&buf);
+    const stdin: std.Io.File = .stdin();
+    var reader = stdin.reader(io, &.{});
+    const n = try reader.interface.readSliceShort(&buf);
     if (!std.mem.eql(u8, buf[0..n], hello_stdin)) {
-        testError("stdin: '{s}'; want '{s}'", .{ buf[0..n], hello_stdin });
+        testError(io, "stdin: '{s}'; want '{s}'", .{ buf[0..n], hello_stdin });
     }
 }
 
-fn testError(comptime fmt: []const u8, args: anytype) void {
-    const stderr = std.io.getStdErr().writer();
+fn testError(io: Io, comptime fmt: []const u8, args: anytype) void {
+    var stderr_writer = std.Io.File.stderr().writer(io, &.{});
+    const stderr = &stderr_writer.interface;
     stderr.print("CHILD TEST ERROR: ", .{}) catch {};
     stderr.print(fmt, args) catch {};
     if (fmt[fmt.len - 1] != '\n') {

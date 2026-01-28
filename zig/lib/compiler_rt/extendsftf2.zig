@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const extendf = @import("./extendf.zig").extendf;
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_ppc_abi) {
         @export(&__extendsftf2, .{ .name = "__extendsfkf2", .linkage = common.linkage, .visibility = common.visibility });

@@ -2,8 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const common = @import("common.zig");
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__bswapsi2, .{ .name = "__bswapsi2", .linkage = common.linkage, .visibility = common.visibility });
     @export(&__bswapdi2, .{ .name = "__bswapdi2", .linkage = common.linkage, .visibility = common.visibility });

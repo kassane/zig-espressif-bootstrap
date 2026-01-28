@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2025 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -27,6 +27,10 @@
 #define __need_size_t
 #define __need_NULL
 #include <stddef.h>
+
+#if __GLIBC_USE (ISOC23)
+# define __STDC_VERSION_TIME_H__ 202311L
+#endif
 
 /* This defines CLOCKS_PER_SEC, which is the number of processor clock
    ticks per second, and possibly a number of other constants.   */
@@ -63,6 +67,11 @@ typedef __pid_t pid_t;
 #ifdef __USE_ISOC11
 /* Time base values for timespec_get.  */
 # define TIME_UTC 1
+#endif
+#if __GLIBC_USE (ISOC23)
+# define TIME_MONOTONIC          2
+# define TIME_ACTIVE             3
+# define TIME_THREAD_ACTIVE      4
 #endif
 
 __BEGIN_DECLS

@@ -4,8 +4,6 @@ const testing = std.testing;
 const common = @import("common.zig");
 const native_endian = builtin.cpu.arch.endian();
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__mulsi3, .{ .name = "__mulsi3", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_aeabi) {

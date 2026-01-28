@@ -1,5 +1,5 @@
 /* Operating system-specific extensions to sys/uio.h - Linux version.
-   Copyright (C) 1996-2025 Free Software Foundation, Inc.
+   Copyright (C) 1996-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -50,6 +50,7 @@ extern ssize_t process_vm_writev (pid_t __pid, const struct iovec *__lvec,
 #define RWF_NOAPPEND	0x00000020 /* per-IO negation of O_APPEND */
 #define RWF_ATOMIC	0x00000040 /* Write is to be issued with torn-write
 				      prevention.  */
+#define RWF_DONTCACHE	0x00000080 /* Uncached buffered IO.  */
 
 __END_DECLS
 

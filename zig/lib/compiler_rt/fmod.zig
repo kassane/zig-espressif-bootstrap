@@ -6,8 +6,6 @@ const arch = builtin.cpu.arch;
 const common = @import("common.zig");
 const normalize = common.normalize;
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__fmodh, .{ .name = "__fmodh", .linkage = common.linkage, .visibility = common.visibility });
     @export(&fmodf, .{ .name = "fmodf", .linkage = common.linkage, .visibility = common.visibility });

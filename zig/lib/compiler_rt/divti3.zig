@@ -4,8 +4,6 @@ const udivmod = @import("udivmod.zig").udivmod;
 const arch = builtin.cpu.arch;
 const common = @import("common.zig");
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_windows_v2u64_abi) {
         @export(&__divti3_windows_x86_64, .{ .name = "__divti3", .linkage = common.linkage, .visibility = common.visibility });

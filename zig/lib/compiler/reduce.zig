@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -46,15 +47,11 @@ const Interestingness = enum { interesting, unknown, boring };
 // - reduce flags sent to the compiler
 // - integrate with the build system?
 
-pub fn main() !void {
-    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_instance.deinit();
-    const arena = arena_instance.allocator();
-
-    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    const gpa = general_purpose_allocator.allocator();
-
-    const args = try std.process.argsAlloc(arena);
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const gpa = init.gpa;
+    const io = init.io;
+    const args = try init.minimal.args.toSlice(arena);
 
     var opt_checker_path: ?[]const u8 = null;
     var opt_root_source_file_path: ?[]const u8 = null;
@@ -68,9 +65,8 @@ pub fn main() !void {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = std.io.getStdOut().writer();
-                    try stdout.writeAll(usage);
-                    return std.process.cleanExit();
+                    try Io.File.stdout().writeStreamingAll(io, usage);
+                    return std.process.cleanExit(io);
                 } else if (mem.eql(u8, arg, "--")) {
                     argv = args[i + 1 ..];
                     break;
@@ -87,9 +83,7 @@ pub fn main() !void {
                     if (i >= args.len) fatal("expected 32-bit integer after {s}", .{arg});
                     const next_arg = args[i];
                     seed = std.fmt.parseUnsigned(u32, next_arg, 0) catch |err| {
-                        fatal("unable to parse seed '{s}' as 32-bit integer: {s}", .{
-                            next_arg, @errorName(err),
-                        });
+                        fatal("unable to parse seed '{s}' as 32-bit integer: {t}", .{ next_arg, err });
                     };
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
@@ -109,18 +103,18 @@ pub fn main() !void {
     const root_source_file_path = opt_root_source_file_path orelse
         fatal("missing root source file path argument; see -h for usage", .{});
 
-    var interestingness_argv: std.ArrayListUnmanaged([]const u8) = .empty;
+    var interestingness_argv: std.ArrayList([]const u8) = .empty;
     try interestingness_argv.ensureUnusedCapacity(arena, argv.len + 1);
     interestingness_argv.appendAssumeCapacity(checker_path);
     interestingness_argv.appendSliceAssumeCapacity(argv);
 
-    var rendered = std.ArrayList(u8).init(gpa);
+    var rendered: std.Io.Writer.Allocating = .init(gpa);
     defer rendered.deinit();
 
-    var astgen_input = std.ArrayList(u8).init(gpa);
+    var astgen_input: std.Io.Writer.Allocating = .init(gpa);
     defer astgen_input.deinit();
 
-    var tree = try parse(gpa, root_source_file_path);
+    var tree = try parse(gpa, io, root_source_file_path);
     defer {
         gpa.free(tree.source);
         tree.deinit(gpa);
@@ -128,20 +122,18 @@ pub fn main() !void {
 
     if (!skip_smoke_test) {
         std.debug.print("smoke testing the interestingness check...\n", .{});
-        switch (try runCheck(arena, interestingness_argv.items)) {
+        switch (try runCheck(arena, io, interestingness_argv.items)) {
             .interesting => {},
             .boring, .unknown => |t| {
-                fatal("interestingness check returned {s} for unmodified input\n", .{
-                    @tagName(t),
-                });
+                fatal("interestingness check returned {t} for unmodified input\n", .{t});
             },
         }
     }
 
-    var fixups: Ast.Fixups = .{};
+    var fixups: Ast.Render.Fixups = .{};
     defer fixups.deinit(gpa);
 
-    var more_fixups: Ast.Fixups = .{};
+    var more_fixups: Ast.Render.Fixups = .{};
     defer more_fixups.deinit(gpa);
 
     var rng = std.Random.DefaultPrng.init(seed);
@@ -161,7 +153,7 @@ pub fn main() !void {
     // result, restart the whole process, reparsing the AST and re-generating the list
     // of all possible transformations and shuffling it again.
 
-    var transformations = std.ArrayList(Walk.Transformation).init(gpa);
+    var transformations = std.array_list.Managed(Walk.Transformation).init(gpa);
     defer transformations.deinit();
     try Walk.findTransformations(arena, &tree, &transformations);
     sortTransformations(transformations.items, rng.random());
@@ -185,18 +177,17 @@ pub fn main() !void {
                 std.debug.print("{s} ", .{@tagName(t)});
             }
             std.debug.print("\n", .{});
-            try transformationsToFixups(gpa, arena, root_source_file_path, this_set, &fixups);
+            try transformationsToFixups(gpa, arena, io, root_source_file_path, this_set, &fixups);
 
             rendered.clearRetainingCapacity();
-            try tree.renderToArrayList(&rendered, fixups);
+            try tree.render(gpa, &rendered.writer, fixups);
 
             // The transformations we applied may have resulted in unused locals,
             // in which case we would like to add the respective discards.
             {
-                try astgen_input.resize(rendered.items.len);
-                @memcpy(astgen_input.items, rendered.items);
-                try astgen_input.append(0);
-                const source_with_null = astgen_input.items[0 .. astgen_input.items.len - 1 :0];
+                try astgen_input.writer.writeAll(rendered.written());
+                try astgen_input.writer.writeByte(0);
+                const source_with_null = astgen_input.written()[0..(astgen_input.written().len - 1) :0];
                 var astgen_tree = try Ast.parse(gpa, source_with_null, .zig);
                 defer astgen_tree.deinit(gpa);
                 if (astgen_tree.errors.len != 0) {
@@ -220,7 +211,7 @@ pub fn main() !void {
                             mem.eql(u8, msg, "unused function parameter") or
                             mem.eql(u8, msg, "unused capture"))
                         {
-                            const ident_token = item.data.token;
+                            const ident_token = item.data.token.unwrap().?;
                             try more_fixups.unused_var_decls.put(gpa, ident_token, {});
                         } else {
                             std.debug.print("found other ZIR error: '{s}'\n", .{msg});
@@ -228,21 +219,21 @@ pub fn main() !void {
                     }
                     if (more_fixups.count() != 0) {
                         rendered.clearRetainingCapacity();
-                        try astgen_tree.renderToArrayList(&rendered, more_fixups);
+                        try astgen_tree.render(gpa, &rendered.writer, more_fixups);
                     }
                 }
             }
 
-            try std.fs.cwd().writeFile(.{ .sub_path = root_source_file_path, .data = rendered.items });
+            try Io.Dir.cwd().writeFile(io, .{ .sub_path = root_source_file_path, .data = rendered.written() });
             // std.debug.print("trying this code:\n{s}\n", .{rendered.items});
 
-            const interestingness = try runCheck(arena, interestingness_argv.items);
-            std.debug.print("{d} random transformations: {s}. {d}/{d}\n", .{
-                subset_size, @tagName(interestingness), start_index, transformations.items.len,
+            const interestingness = try runCheck(arena, io, interestingness_argv.items);
+            std.debug.print("{d} random transformations: {t}. {d}/{d}\n", .{
+                subset_size, interestingness, start_index, transformations.items.len,
             });
             switch (interestingness) {
                 .interesting => {
-                    const new_tree = try parse(gpa, root_source_file_path);
+                    const new_tree = try parse(gpa, io, root_source_file_path);
                     gpa.free(tree.source);
                     tree.deinit(gpa);
                     tree = new_tree;
@@ -273,13 +264,13 @@ pub fn main() !void {
         // Revert the source back to not be transformed.
         fixups.clearRetainingCapacity();
         rendered.clearRetainingCapacity();
-        try tree.renderToArrayList(&rendered, fixups);
-        try std.fs.cwd().writeFile(.{ .sub_path = root_source_file_path, .data = rendered.items });
+        try tree.render(gpa, &rendered.writer, fixups);
+        try Io.Dir.cwd().writeFile(io, .{ .sub_path = root_source_file_path, .data = rendered.written() });
 
-        return std.process.cleanExit();
+        return std.process.cleanExit(io);
     }
     std.debug.print("no more transformations found\n", .{});
-    return std.process.cleanExit();
+    return std.process.cleanExit(io);
 }
 
 fn sortTransformations(transformations: []Walk.Transformation, rng: std.Random) void {
@@ -291,23 +282,24 @@ fn sortTransformations(transformations: []Walk.Transformation, rng: std.Random) 
 
 fn termToInteresting(term: std.process.Child.Term) Interestingness {
     return switch (term) {
-        .Exited => |code| switch (code) {
+        .exited => |code| switch (code) {
             0 => .interesting,
             1 => .unknown,
             else => .boring,
         },
-        else => b: {
+        .signal => |sig| {
+            std.debug.print("interestingness check terminated with signal {t}\n", .{sig});
+            return .boring;
+        },
+        else => {
             std.debug.print("interestingness check aborted unexpectedly\n", .{});
-            break :b .boring;
+            return .boring;
         },
     };
 }
 
-fn runCheck(arena: std.mem.Allocator, argv: []const []const u8) !Interestingness {
-    const result = try std.process.Child.run(.{
-        .allocator = arena,
-        .argv = argv,
-    });
+fn runCheck(arena: Allocator, io: Io, argv: []const []const u8) !Interestingness {
+    const result = try std.process.run(arena, io, .{ .argv = argv });
     if (result.stderr.len != 0)
         std.debug.print("{s}", .{result.stderr});
     return termToInteresting(result.term);
@@ -316,9 +308,10 @@ fn runCheck(arena: std.mem.Allocator, argv: []const []const u8) !Interestingness
 fn transformationsToFixups(
     gpa: Allocator,
     arena: Allocator,
+    io: Io,
     root_source_file_path: []const u8,
     transforms: []const Walk.Transformation,
-    fixups: *Ast.Fixups,
+    fixups: *Ast.Render.Fixups,
 ) !void {
     fixups.clearRetainingCapacity();
 
@@ -353,13 +346,13 @@ fn transformationsToFixups(
                 inline_imported_file.imported_string,
             });
             defer gpa.free(full_imported_path);
-            var other_file_ast = try parse(gpa, full_imported_path);
+            var other_file_ast = try parse(gpa, io, full_imported_path);
             defer {
                 gpa.free(other_file_ast.source);
                 other_file_ast.deinit(gpa);
             }
 
-            var inlined_fixups: Ast.Fixups = .{};
+            var inlined_fixups: Ast.Render.Fixups = .{};
             defer inlined_fixups.deinit(gpa);
             if (std.fs.path.dirname(inline_imported_file.imported_string)) |dirname| {
                 inlined_fixups.rebase_imported_paths = dirname;
@@ -382,28 +375,28 @@ fn transformationsToFixups(
                 }
             }
 
-            var other_source = std.ArrayList(u8).init(gpa);
+            var other_source: std.Io.Writer.Allocating = .init(gpa);
             defer other_source.deinit();
-            try other_source.appendSlice("struct {\n");
-            try other_file_ast.renderToArrayList(&other_source, inlined_fixups);
-            try other_source.appendSlice("}");
+            try other_source.writer.writeAll("struct {\n");
+            try other_file_ast.render(gpa, &other_source.writer, inlined_fixups);
+            try other_source.writer.writeAll("}");
 
             try fixups.replace_nodes_with_string.put(
                 gpa,
                 inline_imported_file.builtin_call_node,
-                try arena.dupe(u8, other_source.items),
+                try arena.dupe(u8, other_source.written()),
             );
         },
     };
 }
 
-fn parse(gpa: Allocator, file_path: []const u8) !Ast {
-    const source_code = std.fs.cwd().readFileAllocOptions(
-        gpa,
+fn parse(gpa: Allocator, io: Io, file_path: []const u8) !Ast {
+    const source_code = Io.Dir.cwd().readFileAllocOptions(
+        io,
         file_path,
-        std.math.maxInt(u32),
-        null,
-        1,
+        gpa,
+        .limited(std.math.maxInt(u32)),
+        .fromByteUnits(1),
         0,
     ) catch |err| {
         fatal("unable to open '{s}': {s}", .{ file_path, @errorName(err) });

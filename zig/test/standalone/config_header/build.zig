@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const config_header = b.addConfigHeader(
-        .{ .style = .{ .autoconf = b.path("config.h.in") } },
+        .{ .style = .{ .autoconf_undef = b.path("config.h.in") } },
         .{
             .SOME_NO = null,
             .SOME_TRUE = true,
@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) void {
         },
     );
 
-    const check_config_header = b.addCheckFile(config_header.getOutput(), .{ .expected_exact = @embedFile("config.h") });
+    const check_config_header = b.addCheckFile(config_header.getOutputFile(), .{ .expected_exact = @embedFile("config.h") });
 
     const test_step = b.step("test", "Test it");
     test_step.dependOn(&check_config_header.step);

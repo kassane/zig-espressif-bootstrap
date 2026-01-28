@@ -6,6 +6,13 @@
 //! There is one special encoding for this data structure. If both arrays are
 //! empty, it means there are no errors. This special encoding exists so that
 //! heap allocation is not needed in the common case of no errors.
+const ErrorBundle = @This();
+
+const std = @import("std");
+const Io = std.Io;
+const Writer = std.Io.Writer;
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 
 string_bytes: []const u8,
 /// The first thing in this array is an `ErrorMessageList`.
@@ -150,106 +157,124 @@ pub fn nullTerminatedString(eb: ErrorBundle, index: String) [:0]const u8 {
 }
 
 pub const RenderOptions = struct {
-    ttyconf: std.io.tty.Config,
     include_reference_trace: bool = true,
     include_source_line: bool = true,
     include_log_text: bool = true,
 };
 
-pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
-    std.debug.lockStdErr();
-    defer std.debug.unlockStdErr();
-    const stderr = std.io.getStdErr();
-    return renderToWriter(eb, options, stderr.writer()) catch return;
+pub const RenderToStderrError = Io.Cancelable || Io.File.Writer.Error;
+
+pub fn renderToStderr(eb: ErrorBundle, io: Io, options: RenderOptions, color: std.zig.Color) RenderToStderrError!void {
+    var buffer: [256]u8 = undefined;
+    const stderr = try io.lockStderr(&buffer, color.terminalMode());
+    defer io.unlockStderr();
+    renderToTerminal(eb, options, stderr.terminal()) catch |err| switch (err) {
+        error.WriteFailed => return stderr.file_writer.err.?,
+        else => |e| return e,
+    };
 }
 
-pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, writer: anytype) anyerror!void {
+pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, w: *Writer) Writer.Error!void {
+    return renderToTerminal(eb, options, .{ .writer = w, .mode = .no_color }) catch |err| switch (err) {
+        error.WriteFailed => |e| return e,
+        else => unreachable,
+    };
+}
+
+pub fn renderToTerminal(eb: ErrorBundle, options: RenderOptions, t: Io.Terminal) Io.Terminal.SetColorError!void {
     if (eb.extra.len == 0) return;
     for (eb.getMessages()) |err_msg| {
-        try renderErrorMessageToWriter(eb, options, err_msg, writer, "error", .red, 0);
+        try renderErrorMessage(eb, options, err_msg, t, "error", .red, 0);
     }
 
     if (options.include_log_text) {
         const log_text = eb.getCompileLogOutput();
         if (log_text.len != 0) {
-            try writer.writeAll("\nCompile Log Output:\n");
-            try writer.writeAll(log_text);
+            try t.writer.writeAll("\nCompile Log Output:\n");
+            try t.writer.writeAll(log_text);
         }
     }
 }
 
-fn renderErrorMessageToWriter(
+fn renderErrorMessage(
     eb: ErrorBundle,
     options: RenderOptions,
     err_msg_index: MessageIndex,
-    stderr: anytype,
+    t: Io.Terminal,
     kind: []const u8,
-    color: std.io.tty.Color,
+    color: Io.Terminal.Color,
     indent: usize,
-) anyerror!void {
-    const ttyconf = options.ttyconf;
-    var counting_writer = std.io.countingWriter(stderr);
-    const counting_stderr = counting_writer.writer();
+) Io.Terminal.SetColorError!void {
+    const w = t.writer;
     const err_msg = eb.getErrorMessage(err_msg_index);
     if (err_msg.src_loc != .none) {
         const src = eb.extraData(SourceLocation, @intFromEnum(err_msg.src_loc));
-        try counting_stderr.writeByteNTimes(' ', indent);
-        try ttyconf.setColor(stderr, .bold);
-        try counting_stderr.print("{s}:{d}:{d}: ", .{
+        var prefix: Writer.Discarding = .init(&.{});
+        try w.splatByteAll(' ', indent);
+        prefix.count += indent;
+        try t.setColor(.bold);
+        try w.print("{s}:{d}:{d}: ", .{
             eb.nullTerminatedString(src.data.src_path),
             src.data.line + 1,
             src.data.column + 1,
         });
-        try ttyconf.setColor(stderr, color);
-        try counting_stderr.writeAll(kind);
-        try counting_stderr.writeAll(": ");
+        try prefix.writer.print("{s}:{d}:{d}: ", .{
+            eb.nullTerminatedString(src.data.src_path),
+            src.data.line + 1,
+            src.data.column + 1,
+        });
+        try t.setColor(color);
+        try w.writeAll(kind);
+        prefix.count += kind.len;
+        try w.writeAll(": ");
+        prefix.count += 2;
         // This is the length of the part before the error message:
         // e.g. "file.zig:4:5: error: "
-        const prefix_len: usize = @intCast(counting_stderr.context.bytes_written);
-        try ttyconf.setColor(stderr, .reset);
-        try ttyconf.setColor(stderr, .bold);
+        const prefix_len: usize = @intCast(prefix.count);
+        try t.setColor(.reset);
+        try t.setColor(.bold);
         if (err_msg.count == 1) {
-            try writeMsg(eb, err_msg, stderr, prefix_len);
-            try stderr.writeByte('\n');
+            try writeMsg(eb, err_msg, w, prefix_len);
+            try w.writeByte('\n');
         } else {
-            try writeMsg(eb, err_msg, stderr, prefix_len);
-            try ttyconf.setColor(stderr, .dim);
-            try stderr.print(" ({d} times)\n", .{err_msg.count});
+            try writeMsg(eb, err_msg, w, prefix_len);
+            try t.setColor(.dim);
+            try w.print(" ({d} times)\n", .{err_msg.count});
         }
-        try ttyconf.setColor(stderr, .reset);
+        try t.setColor(.reset);
         if (src.data.source_line != 0 and options.include_source_line) {
             const line = eb.nullTerminatedString(src.data.source_line);
             for (line) |b| switch (b) {
-                '\t' => try stderr.writeByte(' '),
-                else => try stderr.writeByte(b),
+                '\t' => try w.writeByte(' '),
+                else => try w.writeByte(b),
             };
-            try stderr.writeByte('\n');
+            try w.writeByte('\n');
             // TODO basic unicode code point monospace width
             const before_caret = src.data.span_main - src.data.span_start;
             // -1 since span.main includes the caret
             const after_caret = src.data.span_end -| src.data.span_main -| 1;
-            try stderr.writeByteNTimes(' ', src.data.column - before_caret);
-            try ttyconf.setColor(stderr, .green);
-            try stderr.writeByteNTimes('~', before_caret);
-            try stderr.writeByte('^');
-            try stderr.writeByteNTimes('~', after_caret);
-            try stderr.writeByte('\n');
-            try ttyconf.setColor(stderr, .reset);
+            try w.splatByteAll(' ', src.data.column - before_caret);
+            try t.setColor(.green);
+            try w.splatByteAll('~', before_caret);
+            try w.writeByte('^');
+            try w.splatByteAll('~', after_caret);
+            try w.writeByte('\n');
+            try t.setColor(.reset);
         }
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, options, note, stderr, "note", .cyan, indent);
+            try renderErrorMessage(eb, options, note, t, "note", .cyan, indent);
         }
         if (src.data.reference_trace_len > 0 and options.include_reference_trace) {
-            try ttyconf.setColor(stderr, .reset);
-            try ttyconf.setColor(stderr, .dim);
-            try stderr.print("referenced by:\n", .{});
+            try t.setColor(.reset);
+            try t.setColor(.dim);
+            try w.print("referenced by:\n", .{});
             var ref_index = src.end;
             for (0..src.data.reference_trace_len) |_| {
                 const ref_trace = eb.extraData(ReferenceTrace, ref_index);
                 ref_index = ref_trace.end;
                 if (ref_trace.data.src_loc != .none) {
                     const ref_src = eb.getSourceLocation(ref_trace.data.src_loc);
-                    try stderr.print("    {s}: {s}:{d}:{d}\n", .{
+                    try w.print("    {s}: {s}:{d}:{d}\n", .{
                         eb.nullTerminatedString(ref_trace.data.decl_name),
                         eb.nullTerminatedString(ref_src.src_path),
                         ref_src.line + 1,
@@ -257,36 +282,36 @@ fn renderErrorMessageToWriter(
                     });
                 } else if (ref_trace.data.decl_name != 0) {
                     const count = ref_trace.data.decl_name;
-                    try stderr.print(
+                    try w.print(
                         "    {d} reference(s) hidden; use '-freference-trace={d}' to see all references\n",
                         .{ count, count + src.data.reference_trace_len - 1 },
                     );
                 } else {
-                    try stderr.print(
+                    try w.print(
                         "    remaining reference traces hidden; use '-freference-trace' to see all reference traces\n",
                         .{},
                     );
                 }
             }
-            try ttyconf.setColor(stderr, .reset);
+            try t.setColor(.reset);
         }
     } else {
-        try ttyconf.setColor(stderr, color);
-        try stderr.writeByteNTimes(' ', indent);
-        try stderr.writeAll(kind);
-        try stderr.writeAll(": ");
-        try ttyconf.setColor(stderr, .reset);
+        try t.setColor(color);
+        try w.splatByteAll(' ', indent);
+        try w.writeAll(kind);
+        try w.writeAll(": ");
+        try t.setColor(.reset);
         const msg = eb.nullTerminatedString(err_msg.msg);
         if (err_msg.count == 1) {
-            try stderr.print("{s}\n", .{msg});
+            try w.print("{s}\n", .{msg});
         } else {
-            try stderr.print("{s}", .{msg});
-            try ttyconf.setColor(stderr, .dim);
-            try stderr.print(" ({d} times)\n", .{err_msg.count});
+            try w.print("{s}", .{msg});
+            try t.setColor(.dim);
+            try w.print(" ({d} times)\n", .{err_msg.count});
         }
-        try ttyconf.setColor(stderr, .reset);
+        try t.setColor(.reset);
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, options, note, stderr, "note", .cyan, indent + 4);
+            try renderErrorMessage(eb, options, note, t, "note", .cyan, indent + 4);
         }
     }
 }
@@ -295,27 +320,22 @@ fn renderErrorMessageToWriter(
 /// to allow for long, good-looking error messages.
 ///
 /// This is used to split the message in `@compileError("hello\nworld")` for example.
-fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, stderr: anytype, indent: usize) !void {
+fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, w: *Writer, indent: usize) !void {
     var lines = std.mem.splitScalar(u8, eb.nullTerminatedString(err_msg.msg), '\n');
     while (lines.next()) |line| {
-        try stderr.writeAll(line);
+        try w.writeAll(line);
         if (lines.index == null) break;
-        try stderr.writeByte('\n');
-        try stderr.writeByteNTimes(' ', indent);
+        try w.writeByte('\n');
+        try w.splatByteAll(' ', indent);
     }
 }
 
-const std = @import("std");
-const ErrorBundle = @This();
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-
 pub const Wip = struct {
     gpa: Allocator,
-    string_bytes: std.ArrayListUnmanaged(u8),
+    string_bytes: std.ArrayList(u8),
     /// The first thing in this array is a ErrorMessageList.
-    extra: std.ArrayListUnmanaged(u32),
-    root_list: std.ArrayListUnmanaged(MessageIndex),
+    extra: std.ArrayList(u32),
+    root_list: std.ArrayList(MessageIndex),
 
     pub fn init(wip: *Wip, gpa: Allocator) !void {
         wip.* = .{
@@ -398,7 +418,7 @@ pub const Wip = struct {
     pub fn printString(wip: *Wip, comptime fmt: []const u8, args: anytype) Allocator.Error!String {
         const gpa = wip.gpa;
         const index: String = @intCast(wip.string_bytes.items.len);
-        try wip.string_bytes.writer(gpa).print(fmt, args);
+        try wip.string_bytes.print(gpa, fmt, args);
         try wip.string_bytes.append(gpa, 0);
         return index;
     }
@@ -406,6 +426,18 @@ pub const Wip = struct {
     pub fn addRootErrorMessage(wip: *Wip, em: ErrorMessage) Allocator.Error!void {
         try wip.root_list.ensureUnusedCapacity(wip.gpa, 1);
         wip.root_list.appendAssumeCapacity(try addErrorMessage(wip, em));
+    }
+
+    pub fn addRootErrorMessageWithNotes(
+        wip: *Wip,
+        msg: ErrorMessage,
+        notes: []const ErrorMessage,
+    ) !void {
+        try wip.addRootErrorMessage(msg);
+        const notes_start = try wip.reserveNotes(@intCast(notes.len));
+        for (notes_start.., notes) |i, note| {
+            wip.extra.items[i] = @intFromEnum(wip.addErrorMessageAssumeCapacity(note));
+        }
     }
 
     pub fn addErrorMessage(wip: *Wip, em: ErrorMessage) Allocator.Error!MessageIndex {
@@ -481,13 +513,13 @@ pub const Wip = struct {
             const item = zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
             extra_index = item.end;
             const err_span = blk: {
-                if (item.data.node != 0) {
-                    break :blk tree.nodeToSpan(item.data.node);
-                }
-                const token_starts = tree.tokens.items(.start);
-                const start = token_starts[item.data.token] + item.data.byte_offset;
-                const end = start + @as(u32, @intCast(tree.tokenSlice(item.data.token).len)) - item.data.byte_offset;
-                break :blk std.zig.Ast.Span{ .start = start, .end = end, .main = start };
+                if (item.data.node.unwrap()) |node| {
+                    break :blk tree.nodeToSpan(node);
+                } else if (item.data.token.unwrap()) |token| {
+                    const start = tree.tokenStart(token) + item.data.byte_offset;
+                    const end = start + @as(u32, @intCast(tree.tokenSlice(token).len)) - item.data.byte_offset;
+                    break :blk std.zig.Ast.Span{ .start = start, .end = end, .main = start };
+                } else unreachable;
             };
             const err_loc = std.zig.findLineColumn(source, err_span.main);
 
@@ -516,13 +548,13 @@ pub const Wip = struct {
                     const note_item = zir.extraData(Zir.Inst.CompileErrors.Item, body_elem);
                     const msg = zir.nullTerminatedString(note_item.data.msg);
                     const span = blk: {
-                        if (note_item.data.node != 0) {
-                            break :blk tree.nodeToSpan(note_item.data.node);
-                        }
-                        const token_starts = tree.tokens.items(.start);
-                        const start = token_starts[note_item.data.token] + note_item.data.byte_offset;
-                        const end = start + @as(u32, @intCast(tree.tokenSlice(note_item.data.token).len)) - item.data.byte_offset;
-                        break :blk std.zig.Ast.Span{ .start = start, .end = end, .main = start };
+                        if (note_item.data.node.unwrap()) |node| {
+                            break :blk tree.nodeToSpan(node);
+                        } else if (note_item.data.token.unwrap()) |token| {
+                            const start = tree.tokenStart(token) + note_item.data.byte_offset;
+                            const end = start + @as(u32, @intCast(tree.tokenSlice(token).len)) - item.data.byte_offset;
+                            break :blk std.zig.Ast.Span{ .start = start, .end = end, .main = start };
+                        } else unreachable;
                     };
                     const loc = std.zig.findLineColumn(source, span.main);
 
@@ -560,13 +592,14 @@ pub const Wip = struct {
 
         for (zoir.compile_errors) |err| {
             const err_span: std.zig.Ast.Span = span: {
-                if (err.token == std.zig.Zoir.CompileError.invalid_token) {
-                    break :span tree.nodeToSpan(err.node_or_offset);
+                if (err.token.unwrap()) |token| {
+                    const token_start = tree.tokenStart(token);
+                    const start = token_start + err.node_or_offset;
+                    const end = token_start + @as(u32, @intCast(tree.tokenSlice(token).len));
+                    break :span .{ .start = start, .end = end, .main = start };
+                } else {
+                    break :span tree.nodeToSpan(@enumFromInt(err.node_or_offset));
                 }
-                const token_start = tree.tokens.items(.start)[err.token];
-                const start = token_start + err.node_or_offset;
-                const end = token_start + @as(u32, @intCast(tree.tokenSlice(err.token).len));
-                break :span .{ .start = start, .end = end, .main = start };
             };
             const err_loc = std.zig.findLineColumn(source, err_span.main);
 
@@ -588,13 +621,14 @@ pub const Wip = struct {
             for (notes_start.., err.first_note.., 0..err.note_count) |eb_note_idx, zoir_note_idx, _| {
                 const note = zoir.error_notes[zoir_note_idx];
                 const note_span: std.zig.Ast.Span = span: {
-                    if (note.token == std.zig.Zoir.CompileError.invalid_token) {
-                        break :span tree.nodeToSpan(note.node_or_offset);
+                    if (note.token.unwrap()) |token| {
+                        const token_start = tree.tokenStart(token);
+                        const start = token_start + note.node_or_offset;
+                        const end = token_start + @as(u32, @intCast(tree.tokenSlice(token).len));
+                        break :span .{ .start = start, .end = end, .main = start };
+                    } else {
+                        break :span tree.nodeToSpan(@enumFromInt(note.node_or_offset));
                     }
-                    const token_start = tree.tokens.items(.start)[note.token];
-                    const start = token_start + note.node_or_offset;
-                    const end = token_start + @as(u32, @intCast(tree.tokenSlice(note.token).len));
-                    break :span .{ .start = start, .end = end, .main = start };
                 };
                 const note_loc = std.zig.findLineColumn(source, note_span.main);
 
@@ -644,7 +678,7 @@ pub const Wip = struct {
         if (index == .none) return .none;
         const other_sl = other.getSourceLocation(index);
 
-        var ref_traces: std.ArrayListUnmanaged(ReferenceTrace) = .empty;
+        var ref_traces: std.ArrayList(ReferenceTrace) = .empty;
         defer ref_traces.deinit(wip.gpa);
 
         if (other_sl.reference_trace_len > 0) {
@@ -784,11 +818,10 @@ pub const Wip = struct {
         };
         defer bundle.deinit(std.testing.allocator);
 
-        const ttyconf: std.io.tty.Config = .no_color;
-
-        var bundle_buf = std.ArrayList(u8).init(std.testing.allocator);
+        var bundle_buf: Writer.Allocating = .init(std.testing.allocator);
+        const bundle_bw = &bundle_buf.interface;
         defer bundle_buf.deinit();
-        try bundle.renderToWriter(.{ .ttyconf = ttyconf }, bundle_buf.writer());
+        try bundle.renderToWriter(bundle_bw);
 
         var copy = copy: {
             var wip: ErrorBundle.Wip = undefined;
@@ -801,10 +834,11 @@ pub const Wip = struct {
         };
         defer copy.deinit(std.testing.allocator);
 
-        var copy_buf = std.ArrayList(u8).init(std.testing.allocator);
+        var copy_buf: Writer.Allocating = .init(std.testing.allocator);
+        const copy_bw = &copy_buf.interface;
         defer copy_buf.deinit();
-        try copy.renderToWriter(.{ .ttyconf = ttyconf }, copy_buf.writer());
+        try copy.renderToWriter(copy_bw);
 
-        try std.testing.expectEqualStrings(bundle_buf.items, copy_buf.items);
+        try std.testing.expectEqualStrings(bundle_bw.written(), copy_bw.written());
     }
 };

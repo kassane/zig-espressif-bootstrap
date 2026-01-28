@@ -1,8 +1,7 @@
 const std = @import("std");
 
-pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
-    try stdout.print("Hello, {s}!\n", .{"world"});
+pub fn main(init: std.process.Init) !void {
+    try std.Io.File.stdout().writeStreamingAll(init.io, "Hello, World!\n");
 }
 
 // exe=succeed

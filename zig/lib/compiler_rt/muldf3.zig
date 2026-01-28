@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const mulf3 = @import("./mulf3.zig").mulf3;
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_aeabi) {
         @export(&__aeabi_dmul, .{ .name = "__aeabi_dmul", .linkage = common.linkage, .visibility = common.visibility });

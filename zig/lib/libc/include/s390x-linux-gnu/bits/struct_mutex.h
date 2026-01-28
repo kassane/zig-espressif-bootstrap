@@ -1,5 +1,5 @@
 /* S390 internal mutex struct definitions.
-   Copyright (C) 2019-2025 Free Software Foundation, Inc.
+   Copyright (C) 2019-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -32,7 +32,7 @@ struct __pthread_mutex_s
   int __kind;
 #if __WORDSIZE == 64
   short __spins;
-  short __elision;
+  short __unused;
   __pthread_list_t __list;
 # define __PTHREAD_MUTEX_HAVE_PREV      1
 #else
@@ -41,11 +41,10 @@ struct __pthread_mutex_s
   {
     struct
     {
-      short __espins;
-      short __elision;
-    } _d;
-#  define __spins _d.__espins
-#  define __elision _d.__elision
+      short __data_spins;
+      short __data_unused;
+    } __data;
+#  define __spins __data.__data_spins
     __pthread_slist_t __list;
   };
 # define __PTHREAD_MUTEX_HAVE_PREV      0

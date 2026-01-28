@@ -4,7 +4,6 @@ pub const Tag = enum {
     align_cast,
     align_of,
     as,
-    async_call,
     atomic_load,
     atomic_rmw,
     atomic_store,
@@ -55,7 +54,6 @@ pub const Tag = enum {
     frame,
     Frame,
     frame_address,
-    frame_size,
     has_decl,
     has_field,
     import,
@@ -68,6 +66,7 @@ pub const Tag = enum {
     max,
     memcpy,
     memset,
+    memmove,
     min,
     wasm_memory_size,
     wasm_memory_grow,
@@ -111,7 +110,14 @@ pub const Tag = enum {
     This,
     trap,
     truncate,
-    Type,
+    EnumLiteral,
+    Int,
+    Tuple,
+    Pointer,
+    Fn,
+    Struct,
+    Union,
+    Enum,
     type_info,
     type_name,
     TypeOf,
@@ -181,13 +187,6 @@ pub const list = list: {
                 .tag = .as,
                 .eval_to_error = .maybe,
                 .param_count = 2,
-            },
-        },
-        .{
-            "@asyncCall",
-            .{
-                .tag = .async_call,
-                .param_count = 4,
             },
         },
         .{
@@ -550,13 +549,6 @@ pub const list = list: {
             },
         },
         .{
-            "@frameSize",
-            .{
-                .tag = .frame_size,
-                .param_count = 1,
-            },
-        },
-        .{
             "@hasDecl",
             .{
                 .tag = .has_decl,
@@ -638,6 +630,13 @@ pub const list = list: {
             "@memset",
             .{
                 .tag = .memset,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@memmove",
+            .{
+                .tag = .memmove,
                 .param_count = 2,
             },
         },
@@ -945,10 +944,59 @@ pub const list = list: {
             },
         },
         .{
-            "@Type",
+            "@EnumLiteral",
             .{
-                .tag = .Type,
+                .tag = .EnumLiteral,
+                .param_count = 0,
+            },
+        },
+        .{
+            "@Int",
+            .{
+                .tag = .Int,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@Tuple",
+            .{
+                .tag = .Tuple,
                 .param_count = 1,
+            },
+        },
+        .{
+            "@Pointer",
+            .{
+                .tag = .Pointer,
+                .param_count = 4,
+            },
+        },
+        .{
+            "@Fn",
+            .{
+                .tag = .Fn,
+                .param_count = 4,
+            },
+        },
+        .{
+            "@Struct",
+            .{
+                .tag = .Struct,
+                .param_count = 5,
+            },
+        },
+        .{
+            "@Union",
+            .{
+                .tag = .Union,
+                .param_count = 5,
+            },
+        },
+        .{
+            "@Enum",
+            .{
+                .tag = .Enum,
+                .param_count = 4,
             },
         },
         .{

@@ -68,8 +68,8 @@ pub fn sub(a: CompressedScalar, b: CompressedScalar, endian: std.builtin.Endian)
 }
 
 /// Return a random scalar
-pub fn random(endian: std.builtin.Endian) CompressedScalar {
-    return Scalar.random().toBytes(endian);
+pub fn random(io: std.Io, endian: std.builtin.Endian) CompressedScalar {
+    return Scalar.random(io).toBytes(endian);
 }
 
 /// A scalar in unpacked representation.
@@ -170,10 +170,10 @@ pub const Scalar = struct {
     }
 
     /// Return a random scalar < L.
-    pub fn random() Scalar {
+    pub fn random(io: std.Io) Scalar {
         var s: [48]u8 = undefined;
         while (true) {
-            crypto.random.bytes(&s);
+            io.random(&s);
             const n = Scalar.fromBytes48(s, .little);
             if (!n.isZero()) {
                 return n;

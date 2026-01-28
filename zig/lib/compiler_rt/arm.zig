@@ -6,8 +6,6 @@ const target = builtin.target;
 const arch = builtin.cpu.arch;
 const common = @import("common.zig");
 
-pub const panic = common.panic;
-
 comptime {
     if (!builtin.is_test) {
         if (arch.isArm()) {
@@ -15,11 +13,16 @@ comptime {
             @export(&__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = common.linkage, .visibility = common.visibility });
             @export(&__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(&__aeabi_ldivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_sdiv64" else "__aeabi_ldivmod", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_uldivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_udiv64" else "__aeabi_uldivmod", .linkage = common.linkage, .visibility = common.visibility });
-
-            @export(&__aeabi_idivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_sdiv" else "__aeabi_idivmod", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_uidivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_udiv" else "__aeabi_uidivmod", .linkage = common.linkage, .visibility = common.visibility });
+            if (common.want_windows_arm_abi) {
+                @export(&__aeabi_ldivmod, .{ .name = "__rt_sdiv64", .linkage = common.linkage, .visibility = common.visibility });
+                @export(&__aeabi_uldivmod, .{ .name = "__rt_udiv64", .linkage = common.linkage, .visibility = common.visibility });
+                @export(&__aeabi_idivmod, .{ .name = "__rt_sdiv", .linkage = common.linkage, .visibility = common.visibility });
+                @export(&__aeabi_uidivmod, .{ .name = "__rt_udiv", .linkage = common.linkage, .visibility = common.visibility });
+            }
+            @export(&__aeabi_ldivmod, .{ .name = "__aeabi_ldivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_uldivmod, .{ .name = "__aeabi_uldivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_idivmod, .{ .name = "__aeabi_idivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_uidivmod, .{ .name = "__aeabi_uidivmod", .linkage = common.linkage, .visibility = common.visibility });
 
             @export(&__aeabi_memcpy, .{ .name = "__aeabi_memcpy", .linkage = common.linkage, .visibility = common.visibility });
             @export(&__aeabi_memcpy4, .{ .name = "__aeabi_memcpy4", .linkage = common.linkage, .visibility = common.visibility });
@@ -37,7 +40,7 @@ comptime {
             @export(&__aeabi_memclr4, .{ .name = "__aeabi_memclr4", .linkage = common.linkage, .visibility = common.visibility });
             @export(&__aeabi_memclr8, .{ .name = "__aeabi_memclr8", .linkage = common.linkage, .visibility = common.visibility });
 
-            if (builtin.os.tag == .linux) {
+            if (builtin.os.tag == .linux or builtin.os.tag == .freebsd) {
                 @export(&__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = common.linkage, .visibility = common.visibility });
             }
 
@@ -142,8 +145,7 @@ pub fn __aeabi_uidivmod() callconv(.naked) void {
         \\ pop {pc}
         :
         : [__udivmodsi4] "X" (&__udivmodsi4),
-        : "memory"
-    );
+        : .{ .memory = true });
     unreachable;
 }
 
@@ -162,8 +164,7 @@ pub fn __aeabi_uldivmod() callconv(.naked) void {
         \\ pop {r4, pc}
         :
         : [__udivmoddi4] "X" (&__udivmoddi4),
-        : "memory"
-    );
+        : .{ .memory = true });
     unreachable;
 }
 
@@ -180,8 +181,7 @@ pub fn __aeabi_idivmod() callconv(.naked) void {
         \\ pop {pc}
         :
         : [__divmodsi4] "X" (&__divmodsi4),
-        : "memory"
-    );
+        : .{ .memory = true });
     unreachable;
 }
 
@@ -200,8 +200,7 @@ pub fn __aeabi_ldivmod() callconv(.naked) void {
         \\ pop {r4, pc}
         :
         : [__divmoddi4] "X" (&__divmoddi4),
-        : "memory"
-    );
+        : .{ .memory = true });
     unreachable;
 }
 

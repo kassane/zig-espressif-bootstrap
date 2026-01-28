@@ -1,42 +1,43 @@
 const std = @import("std");
-const io = std.io;
-const process = std.process;
-const fs = std.fs;
+const Io = std.Io;
 const mem = std.mem;
 const warn = std.log.warn;
+const fatal = std.process.fatal;
 
-pub fn main() !void {
-    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_instance.deinit();
-    const arena = arena_instance.allocator();
-
-    const args = try process.argsAlloc(arena);
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const io = init.io;
+    const args = try init.minimal.args.toSlice(arena);
 
     const exe = args[0];
     var catted_anything = false;
-    const stdout_file = io.getStdOut();
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    var stdin_reader = Io.File.stdin().readerStreaming(io, &.{});
 
-    const cwd = fs.cwd();
+    const cwd = Io.Dir.cwd();
 
     for (args[1..]) |arg| {
         if (mem.eql(u8, arg, "-")) {
             catted_anything = true;
-            try stdout_file.writeFileAll(io.getStdIn(), .{});
+            _ = try stdout.sendFileAll(&stdin_reader, .unlimited);
+            try stdout.flush();
         } else if (mem.startsWith(u8, arg, "-")) {
             return usage(exe);
         } else {
-            const file = cwd.openFile(arg, .{}) catch |err| {
-                warn("Unable to open file: {s}\n", .{@errorName(err)});
-                return err;
-            };
-            defer file.close();
+            const file = cwd.openFile(io, arg, .{}) catch |err| fatal("unable to open file: {t}\n", .{err});
+            defer file.close(io);
 
             catted_anything = true;
-            try stdout_file.writeFileAll(file, .{});
+            var file_reader = file.reader(io, &.{});
+            _ = try stdout.sendFileAll(&file_reader, .unlimited);
+            try stdout.flush();
         }
     }
     if (!catted_anything) {
-        try stdout_file.writeFileAll(io.getStdIn(), .{});
+        _ = try stdout.sendFileAll(&stdin_reader, .unlimited);
+        try stdout.flush();
     }
 }
 

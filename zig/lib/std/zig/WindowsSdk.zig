@@ -1,10 +1,16 @@
+const WindowsSdk = @This();
+const builtin = @import("builtin");
+
+const std = @import("std");
+const Io = std.Io;
+const Dir = std.Io.Dir;
+const Writer = std.Io.Writer;
+const Allocator = std.mem.Allocator;
+const Environ = std.process.Environ;
+
 windows10sdk: ?Installation,
 windows81sdk: ?Installation,
 msvc_lib_dir: ?[]const u8,
-
-const WindowsSdk = @This();
-const std = @import("std");
-const builtin = @import("builtin");
 
 const windows = std.os.windows;
 const RRF = windows.advapi32.RRF;
@@ -18,8 +24,13 @@ const product_version_max_length = version_major_minor_max_length + ".65535".len
 
 /// Find path and version of Windows 10 SDK and Windows 8.1 SDK, and find path to MSVC's `lib/` directory.
 /// Caller owns the result's fields.
-/// After finishing work, call `free(allocator)`.
-pub fn find(allocator: std.mem.Allocator, arch: std.Target.Cpu.Arch) error{ OutOfMemory, NotFound, PathTooLong }!WindowsSdk {
+/// Returns memory allocated by `gpa`
+pub fn find(
+    gpa: Allocator,
+    io: Io,
+    arch: std.Target.Cpu.Arch,
+    environ_map: *const Environ.Map,
+) error{ OutOfMemory, NotFound, PathTooLong }!WindowsSdk {
     if (builtin.os.tag != .windows) return error.NotFound;
 
     //note(dimenus): If this key doesn't exist, neither the Win 8 SDK nor the Win 10 SDK is installed
@@ -28,27 +39,27 @@ pub fn find(allocator: std.mem.Allocator, arch: std.Target.Cpu.Arch) error{ OutO
     };
     defer roots_key.closeKey();
 
-    const windows10sdk = Installation.find(allocator, roots_key, "KitsRoot10", "", "v10.0") catch |err| switch (err) {
+    const windows10sdk = Installation.find(gpa, io, roots_key, "KitsRoot10", "", "v10.0") catch |err| switch (err) {
         error.InstallationNotFound => null,
         error.PathTooLong => null,
         error.VersionTooLong => null,
         error.OutOfMemory => return error.OutOfMemory,
     };
-    errdefer if (windows10sdk) |*w| w.free(allocator);
+    errdefer if (windows10sdk) |*w| w.free(gpa);
 
-    const windows81sdk = Installation.find(allocator, roots_key, "KitsRoot81", "winver", "v8.1") catch |err| switch (err) {
+    const windows81sdk = Installation.find(gpa, io, roots_key, "KitsRoot81", "winver", "v8.1") catch |err| switch (err) {
         error.InstallationNotFound => null,
         error.PathTooLong => null,
         error.VersionTooLong => null,
         error.OutOfMemory => return error.OutOfMemory,
     };
-    errdefer if (windows81sdk) |*w| w.free(allocator);
+    errdefer if (windows81sdk) |*w| w.free(gpa);
 
-    const msvc_lib_dir: ?[]const u8 = MsvcLibDir.find(allocator, arch) catch |err| switch (err) {
+    const msvc_lib_dir: ?[]const u8 = MsvcLibDir.find(gpa, io, arch, environ_map) catch |err| switch (err) {
         error.MsvcLibDirNotFound => null,
         error.OutOfMemory => return error.OutOfMemory,
     };
-    errdefer allocator.free(msvc_lib_dir);
+    errdefer gpa.free(msvc_lib_dir);
 
     return .{
         .windows10sdk = windows10sdk,
@@ -57,15 +68,15 @@ pub fn find(allocator: std.mem.Allocator, arch: std.Target.Cpu.Arch) error{ OutO
     };
 }
 
-pub fn free(sdk: WindowsSdk, allocator: std.mem.Allocator) void {
+pub fn free(sdk: WindowsSdk, gpa: Allocator) void {
     if (sdk.windows10sdk) |*w10sdk| {
-        w10sdk.free(allocator);
+        w10sdk.free(gpa);
     }
     if (sdk.windows81sdk) |*w81sdk| {
-        w81sdk.free(allocator);
+        w81sdk.free(gpa);
     }
     if (sdk.msvc_lib_dir) |msvc_lib_dir| {
-        allocator.free(msvc_lib_dir);
+        gpa.free(msvc_lib_dir);
     }
 }
 
@@ -73,8 +84,9 @@ pub fn free(sdk: WindowsSdk, allocator: std.mem.Allocator) void {
 /// and a version. Returns slice of version strings sorted in descending order.
 /// Caller owns result.
 fn iterateAndFilterByVersion(
-    iterator: *std.fs.Dir.Iterator,
-    allocator: std.mem.Allocator,
+    iterator: *Dir.Iterator,
+    gpa: Allocator,
+    io: Io,
     prefix: []const u8,
 ) error{OutOfMemory}![][]const u8 {
     const Version = struct {
@@ -91,15 +103,15 @@ fn iterateAndFilterByVersion(
                 std.mem.order(u8, lhs.build, rhs.build);
         }
     };
-    var versions = std.ArrayList(Version).init(allocator);
-    var dirs = std.ArrayList([]const u8).init(allocator);
+    var versions = std.array_list.Managed(Version).init(gpa);
+    var dirs = std.array_list.Managed([]const u8).init(gpa);
     defer {
         versions.deinit();
-        for (dirs.items) |filtered_dir| allocator.free(filtered_dir);
+        for (dirs.items) |filtered_dir| gpa.free(filtered_dir);
         dirs.deinit();
     }
 
-    iterate: while (iterator.next() catch null) |entry| {
+    iterate: while (iterator.next(io) catch null) |entry| {
         if (entry.kind != .directory) continue;
         if (!std.mem.startsWith(u8, entry.name, prefix)) continue;
 
@@ -108,15 +120,15 @@ fn iterateAndFilterByVersion(
             .build = "",
         };
         const suffix = entry.name[prefix.len..];
-        const underscore = std.mem.indexOfScalar(u8, entry.name, '_');
+        const underscore = std.mem.findScalar(u8, entry.name, '_');
         var num_it = std.mem.splitScalar(u8, suffix[0 .. underscore orelse suffix.len], '.');
         version.nums[0] = Version.parseNum(num_it.first()) orelse continue;
         for (version.nums[1..]) |*num|
             num.* = Version.parseNum(num_it.next() orelse break) orelse continue :iterate
         else if (num_it.next()) |_| continue;
 
-        const name = try allocator.dupe(u8, suffix);
-        errdefer allocator.free(name);
+        const name = try gpa.dupe(u8, suffix);
+        errdefer gpa.free(name);
         if (underscore) |pos| version.build = name[pos + 1 ..];
 
         try versions.append(version);
@@ -173,7 +185,7 @@ const RegistryWtf8 = struct {
 
     /// Get string from registry.
     /// Caller owns result.
-    pub fn getString(reg: RegistryWtf8, allocator: std.mem.Allocator, subkey: []const u8, value_name: []const u8) error{ OutOfMemory, ValueNameNotFound, NotAString, StringNotFound }![]u8 {
+    pub fn getString(reg: RegistryWtf8, gpa: Allocator, subkey: []const u8, value_name: []const u8) error{ OutOfMemory, ValueNameNotFound, NotAString, StringNotFound }![]u8 {
         const subkey_wtf16le: [:0]const u16 = subkey_wtf16le: {
             var subkey_wtf16le_buf: [RegistryWtf16Le.key_name_max_len]u16 = undefined;
             const subkey_wtf16le_len: usize = std.unicode.wtf8ToWtf16Le(subkey_wtf16le_buf[0..], subkey) catch unreachable;
@@ -189,11 +201,11 @@ const RegistryWtf8 = struct {
         };
 
         const registry_wtf16le: RegistryWtf16Le = .{ .key = reg.key };
-        const value_wtf16le = try registry_wtf16le.getString(allocator, subkey_wtf16le, value_name_wtf16le);
-        defer allocator.free(value_wtf16le);
+        const value_wtf16le = try registry_wtf16le.getString(gpa, subkey_wtf16le, value_name_wtf16le);
+        defer gpa.free(value_wtf16le);
 
-        const value_wtf8: []u8 = try std.unicode.wtf16LeToWtf8Alloc(allocator, value_wtf16le);
-        errdefer allocator.free(value_wtf8);
+        const value_wtf8: []u8 = try std.unicode.wtf16LeToWtf8Alloc(gpa, value_wtf16le);
+        errdefer gpa.free(value_wtf8);
 
         return value_wtf8;
     }
@@ -249,13 +261,15 @@ const RegistryWtf16Le = struct {
     /// After finishing work, call `closeKey`.
     fn openKey(hkey: windows.HKEY, key_wtf16le: [:0]const u16, options: OpenOptions) error{KeyNotFound}!RegistryWtf16Le {
         var key: windows.HKEY = undefined;
-        var access: windows.REGSAM = windows.KEY_QUERY_VALUE | windows.KEY_ENUMERATE_SUB_KEYS;
-        if (options.wow64_32) access |= windows.KEY_WOW64_32KEY;
         const return_code_int: windows.HRESULT = windows.advapi32.RegOpenKeyExW(
             hkey,
             key_wtf16le,
             0,
-            access,
+            .{ .SPECIFIC = .{ .KEY = .{
+                .QUERY_VALUE = true,
+                .ENUMERATE_SUB_KEYS = true,
+                .WOW64_32KEY = options.wow64_32,
+            } } },
             &key,
         );
         const return_code: windows.Win32Error = @enumFromInt(return_code_int);
@@ -279,7 +293,7 @@ const RegistryWtf16Le = struct {
     }
 
     /// Get string ([:0]const u16) from registry.
-    fn getString(reg: RegistryWtf16Le, allocator: std.mem.Allocator, subkey_wtf16le: [:0]const u16, value_name_wtf16le: [:0]const u16) error{ OutOfMemory, ValueNameNotFound, NotAString, StringNotFound }![]const u16 {
+    fn getString(reg: RegistryWtf16Le, gpa: Allocator, subkey_wtf16le: [:0]const u16, value_name_wtf16le: [:0]const u16) error{ OutOfMemory, ValueNameNotFound, NotAString, StringNotFound }![]const u16 {
         var actual_type: windows.ULONG = undefined;
 
         // Calculating length to allocate
@@ -308,8 +322,8 @@ const RegistryWtf16Le = struct {
             else => return error.NotAString,
         }
 
-        const value_wtf16le_buf: []u16 = try allocator.alloc(u16, std.math.divCeil(u32, value_wtf16le_buf_size, 2) catch unreachable);
-        errdefer allocator.free(value_wtf16le_buf);
+        const value_wtf16le_buf: []u16 = try gpa.alloc(u16, std.math.divCeil(u32, value_wtf16le_buf_size, 2) catch unreachable);
+        errdefer gpa.free(value_wtf16le_buf);
 
         return_code_int = windows.advapi32.RegGetValueW(
             reg.key,
@@ -343,7 +357,7 @@ const RegistryWtf16Le = struct {
             break :value_wtf16le std.mem.span(value_wtf16le_overestimated);
         };
 
-        _ = allocator.resize(value_wtf16le_buf, value_wtf16le.len);
+        _ = gpa.resize(value_wtf16le_buf, value_wtf16le.len);
         return value_wtf16le;
     }
 
@@ -388,7 +402,10 @@ const RegistryWtf16Le = struct {
         const return_code_int: windows.HRESULT = std.os.windows.advapi32.RegLoadAppKeyW(
             absolute_path_as_wtf16le,
             &key,
-            windows.KEY_QUERY_VALUE | windows.KEY_ENUMERATE_SUB_KEYS,
+            .{ .SPECIFIC = .{ .KEY = .{
+                .QUERY_VALUE = true,
+                .ENUMERATE_SUB_KEYS = true,
+            } } },
             0,
             0,
         );
@@ -408,88 +425,89 @@ pub const Installation = struct {
 
     /// Find path and version of Windows SDK.
     /// Caller owns the result's fields.
-    /// After finishing work, call `free(allocator)`.
     fn find(
-        allocator: std.mem.Allocator,
+        gpa: Allocator,
+        io: Io,
         roots_key: RegistryWtf8,
         roots_subkey: []const u8,
         prefix: []const u8,
         version_key_name: []const u8,
     ) error{ OutOfMemory, InstallationNotFound, PathTooLong, VersionTooLong }!Installation {
         roots: {
-            const installation = findFromRoot(allocator, roots_key, roots_subkey, prefix) catch
+            const installation = findFromRoot(gpa, io, roots_key, roots_subkey, prefix) catch
                 break :roots;
             if (installation.isValidVersion()) return installation;
-            installation.free(allocator);
+            installation.free(gpa);
         }
         {
-            const installation = try findFromInstallationFolder(allocator, version_key_name);
+            const installation = try findFromInstallationFolder(gpa, version_key_name);
             if (installation.isValidVersion()) return installation;
-            installation.free(allocator);
+            installation.free(gpa);
         }
         return error.InstallationNotFound;
     }
 
     fn findFromRoot(
-        allocator: std.mem.Allocator,
+        gpa: Allocator,
+        io: Io,
         roots_key: RegistryWtf8,
         roots_subkey: []const u8,
         prefix: []const u8,
     ) error{ OutOfMemory, InstallationNotFound, PathTooLong, VersionTooLong }!Installation {
         const path = path: {
-            const path_maybe_with_trailing_slash = roots_key.getString(allocator, "", roots_subkey) catch |err| switch (err) {
+            const path_maybe_with_trailing_slash = roots_key.getString(gpa, "", roots_subkey) catch |err| switch (err) {
                 error.NotAString => return error.InstallationNotFound,
                 error.ValueNameNotFound => return error.InstallationNotFound,
                 error.StringNotFound => return error.InstallationNotFound,
 
                 error.OutOfMemory => return error.OutOfMemory,
             };
-            if (path_maybe_with_trailing_slash.len > std.fs.max_path_bytes or !std.fs.path.isAbsolute(path_maybe_with_trailing_slash)) {
-                allocator.free(path_maybe_with_trailing_slash);
+            if (path_maybe_with_trailing_slash.len > Dir.max_path_bytes or !Dir.path.isAbsolute(path_maybe_with_trailing_slash)) {
+                gpa.free(path_maybe_with_trailing_slash);
                 return error.PathTooLong;
             }
 
-            var path = std.ArrayList(u8).fromOwnedSlice(allocator, path_maybe_with_trailing_slash);
+            var path = std.array_list.Managed(u8).fromOwnedSlice(gpa, path_maybe_with_trailing_slash);
             errdefer path.deinit();
 
             // String might contain trailing slash, so trim it here
             if (path.items.len > "C:\\".len and path.getLast() == '\\') _ = path.pop();
             break :path try path.toOwnedSlice();
         };
-        errdefer allocator.free(path);
+        errdefer gpa.free(path);
 
         const version = version: {
-            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            var buf: [Dir.max_path_bytes]u8 = undefined;
             const sdk_lib_dir_path = std.fmt.bufPrint(buf[0..], "{s}\\Lib\\", .{path}) catch |err| switch (err) {
                 error.NoSpaceLeft => return error.PathTooLong,
             };
-            if (!std.fs.path.isAbsolute(sdk_lib_dir_path)) return error.InstallationNotFound;
+            if (!Dir.path.isAbsolute(sdk_lib_dir_path)) return error.InstallationNotFound;
 
             // enumerate files in sdk path looking for latest version
-            var sdk_lib_dir = std.fs.openDirAbsolute(sdk_lib_dir_path, .{
+            var sdk_lib_dir = Dir.openDirAbsolute(io, sdk_lib_dir_path, .{
                 .iterate = true,
             }) catch |err| switch (err) {
                 error.NameTooLong => return error.PathTooLong,
                 else => return error.InstallationNotFound,
             };
-            defer sdk_lib_dir.close();
+            defer sdk_lib_dir.close(io);
 
             var iterator = sdk_lib_dir.iterate();
-            const versions = try iterateAndFilterByVersion(&iterator, allocator, prefix);
+            const versions = try iterateAndFilterByVersion(&iterator, gpa, io, prefix);
             if (versions.len == 0) return error.InstallationNotFound;
             defer {
-                for (versions[1..]) |version| allocator.free(version);
-                allocator.free(versions);
+                for (versions[1..]) |version| gpa.free(version);
+                gpa.free(versions);
             }
             break :version versions[0];
         };
-        errdefer allocator.free(version);
+        errdefer gpa.free(version);
 
         return .{ .path = path, .version = version };
     }
 
     fn findFromInstallationFolder(
-        allocator: std.mem.Allocator,
+        gpa: Allocator,
         version_key_name: []const u8,
     ) error{ OutOfMemory, InstallationNotFound, PathTooLong, VersionTooLong }!Installation {
         var key_name_buf: [RegistryWtf16Le.key_name_max_len]u8 = undefined;
@@ -508,7 +526,7 @@ pub const Installation = struct {
         defer key.closeKey();
 
         const path: []const u8 = path: {
-            const path_maybe_with_trailing_slash = key.getString(allocator, "", "InstallationFolder") catch |err| switch (err) {
+            const path_maybe_with_trailing_slash = key.getString(gpa, "", "InstallationFolder") catch |err| switch (err) {
                 error.NotAString => return error.InstallationNotFound,
                 error.ValueNameNotFound => return error.InstallationNotFound,
                 error.StringNotFound => return error.InstallationNotFound,
@@ -516,12 +534,12 @@ pub const Installation = struct {
                 error.OutOfMemory => return error.OutOfMemory,
             };
 
-            if (path_maybe_with_trailing_slash.len > std.fs.max_path_bytes or !std.fs.path.isAbsolute(path_maybe_with_trailing_slash)) {
-                allocator.free(path_maybe_with_trailing_slash);
+            if (path_maybe_with_trailing_slash.len > Dir.max_path_bytes or !Dir.path.isAbsolute(path_maybe_with_trailing_slash)) {
+                gpa.free(path_maybe_with_trailing_slash);
                 return error.PathTooLong;
             }
 
-            var path = std.ArrayList(u8).fromOwnedSlice(allocator, path_maybe_with_trailing_slash);
+            var path = std.array_list.Managed(u8).fromOwnedSlice(gpa, path_maybe_with_trailing_slash);
             errdefer path.deinit();
 
             // String might contain trailing slash, so trim it here
@@ -530,12 +548,12 @@ pub const Installation = struct {
             const path_without_trailing_slash = try path.toOwnedSlice();
             break :path path_without_trailing_slash;
         };
-        errdefer allocator.free(path);
+        errdefer gpa.free(path);
 
         const version: []const u8 = version: {
 
             // note(dimenus): Microsoft doesn't include the .0 in the ProductVersion key....
-            const version_without_0 = key.getString(allocator, "", "ProductVersion") catch |err| switch (err) {
+            const version_without_0 = key.getString(gpa, "", "ProductVersion") catch |err| switch (err) {
                 error.NotAString => return error.InstallationNotFound,
                 error.ValueNameNotFound => return error.InstallationNotFound,
                 error.StringNotFound => return error.InstallationNotFound,
@@ -543,11 +561,11 @@ pub const Installation = struct {
                 error.OutOfMemory => return error.OutOfMemory,
             };
             if (version_without_0.len + ".0".len > product_version_max_length) {
-                allocator.free(version_without_0);
+                gpa.free(version_without_0);
                 return error.VersionTooLong;
             }
 
-            var version = std.ArrayList(u8).fromOwnedSlice(allocator, version_without_0);
+            var version = std.array_list.Managed(u8).fromOwnedSlice(gpa, version_without_0);
             errdefer version.deinit();
 
             try version.appendSlice(".0");
@@ -555,14 +573,14 @@ pub const Installation = struct {
             const version_with_0 = try version.toOwnedSlice();
             break :version version_with_0;
         };
-        errdefer allocator.free(version);
+        errdefer gpa.free(version);
 
         return .{ .path = path, .version = version };
     }
 
     /// Check whether this version is enumerated in registry.
     fn isValidVersion(installation: Installation) bool {
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        var buf: [Dir.max_path_bytes]u8 = undefined;
         const reg_query_as_wtf8 = std.fmt.bufPrint(buf[0..], "{s}\\{s}\\Installed Options", .{
             windows_kits_reg_key,
             installation.version,
@@ -591,21 +609,21 @@ pub const Installation = struct {
         return (reg_value == 1);
     }
 
-    fn free(install: Installation, allocator: std.mem.Allocator) void {
-        allocator.free(install.path);
-        allocator.free(install.version);
+    fn free(install: Installation, gpa: Allocator) void {
+        gpa.free(install.path);
+        gpa.free(install.version);
     }
 };
 
 const MsvcLibDir = struct {
-    fn findInstancesDirViaSetup(allocator: std.mem.Allocator) error{ OutOfMemory, PathNotFound }!std.fs.Dir {
+    fn findInstancesDirViaSetup(gpa: Allocator, io: Io) error{ OutOfMemory, PathNotFound }!Dir {
         const vs_setup_key_path = "SOFTWARE\\Microsoft\\VisualStudio\\Setup";
         const vs_setup_key = RegistryWtf8.openKey(windows.HKEY_LOCAL_MACHINE, vs_setup_key_path, .{}) catch |err| switch (err) {
             error.KeyNotFound => return error.PathNotFound,
         };
         defer vs_setup_key.closeKey();
 
-        const packages_path = vs_setup_key.getString(allocator, "", "CachePath") catch |err| switch (err) {
+        const packages_path = vs_setup_key.getString(gpa, "", "CachePath") catch |err| switch (err) {
             error.NotAString,
             error.ValueNameNotFound,
             error.StringNotFound,
@@ -613,24 +631,24 @@ const MsvcLibDir = struct {
 
             error.OutOfMemory => return error.OutOfMemory,
         };
-        defer allocator.free(packages_path);
+        defer gpa.free(packages_path);
 
-        if (!std.fs.path.isAbsolute(packages_path)) return error.PathNotFound;
+        if (!Dir.path.isAbsolute(packages_path)) return error.PathNotFound;
 
-        const instances_path = try std.fs.path.join(allocator, &.{ packages_path, "_Instances" });
-        defer allocator.free(instances_path);
+        const instances_path = try Dir.path.join(gpa, &.{ packages_path, "_Instances" });
+        defer gpa.free(instances_path);
 
-        return std.fs.openDirAbsolute(instances_path, .{ .iterate = true }) catch return error.PathNotFound;
+        return Dir.openDirAbsolute(io, instances_path, .{ .iterate = true }) catch return error.PathNotFound;
     }
 
-    fn findInstancesDirViaCLSID(allocator: std.mem.Allocator) error{ OutOfMemory, PathNotFound }!std.fs.Dir {
+    fn findInstancesDirViaCLSID(gpa: Allocator, io: Io) error{ OutOfMemory, PathNotFound }!Dir {
         const setup_configuration_clsid = "{177f0c4a-1cd3-4de7-a32c-71dbbb9fa36d}";
         const setup_config_key = RegistryWtf8.openKey(windows.HKEY_CLASSES_ROOT, "CLSID\\" ++ setup_configuration_clsid, .{}) catch |err| switch (err) {
             error.KeyNotFound => return error.PathNotFound,
         };
         defer setup_config_key.closeKey();
 
-        const dll_path = setup_config_key.getString(allocator, "InprocServer32", "") catch |err| switch (err) {
+        const dll_path = setup_config_key.getString(gpa, "InprocServer32", "") catch |err| switch (err) {
             error.NotAString,
             error.ValueNameNotFound,
             error.StringNotFound,
@@ -638,11 +656,11 @@ const MsvcLibDir = struct {
 
             error.OutOfMemory => return error.OutOfMemory,
         };
-        defer allocator.free(dll_path);
+        defer gpa.free(dll_path);
 
-        if (!std.fs.path.isAbsolute(dll_path)) return error.PathNotFound;
+        if (!Dir.path.isAbsolute(dll_path)) return error.PathNotFound;
 
-        var path_it = std.fs.path.componentIterator(dll_path) catch return error.PathNotFound;
+        var path_it = Dir.path.componentIterator(dll_path);
         // the .dll filename
         _ = path_it.last();
         const root_path = while (path_it.previous()) |dir_component| {
@@ -653,17 +671,21 @@ const MsvcLibDir = struct {
             return error.PathNotFound;
         };
 
-        const instances_path = try std.fs.path.join(allocator, &.{ root_path, "Packages", "_Instances" });
-        defer allocator.free(instances_path);
+        const instances_path = try Dir.path.join(gpa, &.{ root_path, "Packages", "_Instances" });
+        defer gpa.free(instances_path);
 
-        return std.fs.openDirAbsolute(instances_path, .{ .iterate = true }) catch return error.PathNotFound;
+        return Dir.openDirAbsolute(io, instances_path, .{ .iterate = true }) catch return error.PathNotFound;
     }
 
-    fn findInstancesDir(allocator: std.mem.Allocator) error{ OutOfMemory, PathNotFound }!std.fs.Dir {
+    fn findInstancesDir(
+        gpa: Allocator,
+        io: Io,
+        environ_map: *const Environ.Map,
+    ) error{ OutOfMemory, PathNotFound }!Dir {
         // First, try getting the packages cache path from the registry.
         // This only seems to exist when the path is different from the default.
         method1: {
-            return findInstancesDirViaSetup(allocator) catch |err| switch (err) {
+            return findInstancesDirViaSetup(gpa, io) catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
                 error.PathNotFound => break :method1,
             };
@@ -671,7 +693,7 @@ const MsvcLibDir = struct {
         // Otherwise, try to get the path from the .dll that would have been
         // loaded via COM for SetupConfiguration.
         method2: {
-            return findInstancesDirViaCLSID(allocator) catch |err| switch (err) {
+            return findInstancesDirViaCLSID(gpa, io) catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
                 error.PathNotFound => break :method2,
             };
@@ -679,19 +701,16 @@ const MsvcLibDir = struct {
         // If that can't be found, fall back to manually appending
         // `Microsoft\VisualStudio\Packages\_Instances` to %PROGRAMDATA%
         method3: {
-            const program_data = std.process.getEnvVarOwned(allocator, "PROGRAMDATA") catch |err| switch (err) {
-                error.OutOfMemory => |e| return e,
-                error.InvalidWtf8 => unreachable,
-                error.EnvironmentVariableNotFound => break :method3,
-            };
-            defer allocator.free(program_data);
+            const program_data = std.zig.EnvVar.PROGRAMDATA.get(environ_map) orelse break :method3;
 
-            if (!std.fs.path.isAbsolute(program_data)) break :method3;
+            if (!Dir.path.isAbsolute(program_data)) break :method3;
 
-            const instances_path = try std.fs.path.join(allocator, &.{ program_data, "Microsoft", "VisualStudio", "Packages", "_Instances" });
-            defer allocator.free(instances_path);
+            const instances_path = try Dir.path.join(gpa, &.{
+                program_data, "Microsoft", "VisualStudio", "Packages", "_Instances",
+            });
+            defer gpa.free(instances_path);
 
-            return std.fs.openDirAbsolute(instances_path, .{ .iterate = true }) catch break :method3;
+            return Dir.openDirAbsolute(io, instances_path, .{ .iterate = true }) catch break :method3;
         }
         return error.PathNotFound;
     }
@@ -742,34 +761,38 @@ const MsvcLibDir = struct {
     ///
     /// The logic in this function is intended to match what ISetupConfiguration does
     /// under-the-hood, as verified using Procmon.
-    fn findViaCOM(allocator: std.mem.Allocator, arch: std.Target.Cpu.Arch) error{ OutOfMemory, PathNotFound }![]const u8 {
+    fn findViaCOM(
+        gpa: Allocator,
+        io: Io,
+        arch: std.Target.Cpu.Arch,
+        environ_map: *const Environ.Map,
+    ) error{ OutOfMemory, PathNotFound }![]const u8 {
         // Typically `%PROGRAMDATA%\Microsoft\VisualStudio\Packages\_Instances`
         // This will contain directories with names of instance IDs like 80a758ca,
         // which will contain `state.json` files that have the version and
         // installation directory.
-        var instances_dir = try findInstancesDir(allocator);
-        defer instances_dir.close();
+        var instances_dir = try findInstancesDir(gpa, io, environ_map);
+        defer instances_dir.close(io);
 
-        var state_subpath_buf: [std.fs.max_name_bytes + 32]u8 = undefined;
-        var latest_version_lib_dir: std.ArrayListUnmanaged(u8) = .empty;
-        errdefer latest_version_lib_dir.deinit(allocator);
+        var state_subpath_buf: [Dir.max_name_bytes + 32]u8 = undefined;
+        var latest_version_lib_dir: std.ArrayList(u8) = .empty;
+        errdefer latest_version_lib_dir.deinit(gpa);
 
         var latest_version: u64 = 0;
         var instances_dir_it = instances_dir.iterateAssumeFirstIteration();
-        while (instances_dir_it.next() catch return error.PathNotFound) |entry| {
+        while (instances_dir_it.next(io) catch return error.PathNotFound) |entry| {
             if (entry.kind != .directory) continue;
 
-            var fbs = std.io.fixedBufferStream(&state_subpath_buf);
-            const writer = fbs.writer();
+            var writer: Writer = .fixed(&state_subpath_buf);
 
             writer.writeAll(entry.name) catch unreachable;
-            writer.writeByte(std.fs.path.sep) catch unreachable;
+            writer.writeByte(Dir.path.sep) catch unreachable;
             writer.writeAll("state.json") catch unreachable;
 
-            const json_contents = instances_dir.readFileAlloc(allocator, fbs.getWritten(), std.math.maxInt(usize)) catch continue;
-            defer allocator.free(json_contents);
+            const json_contents = instances_dir.readFileAlloc(io, writer.buffered(), gpa, .limited(std.math.maxInt(usize))) catch continue;
+            defer gpa.free(json_contents);
 
-            var parsed = std.json.parseFromSlice(std.json.Value, allocator, json_contents, .{}) catch continue;
+            var parsed = std.json.parseFromSlice(std.json.Value, gpa, json_contents, .{}) catch continue;
             defer parsed.deinit();
 
             if (parsed.value != .object) continue;
@@ -786,35 +809,40 @@ const MsvcLibDir = struct {
             const installation_path = parsed.value.object.get("installationPath") orelse continue;
             if (installation_path != .string) continue;
 
-            const lib_dir_path = libDirFromInstallationPath(allocator, installation_path.string, arch) catch |err| switch (err) {
+            const lib_dir_path = libDirFromInstallationPath(gpa, io, installation_path.string, arch) catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
                 error.PathNotFound => continue,
             };
-            defer allocator.free(lib_dir_path);
+            defer gpa.free(lib_dir_path);
 
             latest_version_lib_dir.clearRetainingCapacity();
-            try latest_version_lib_dir.appendSlice(allocator, lib_dir_path);
+            try latest_version_lib_dir.appendSlice(gpa, lib_dir_path);
             latest_version = parsed_version;
         }
 
         if (latest_version_lib_dir.items.len == 0) return error.PathNotFound;
-        return latest_version_lib_dir.toOwnedSlice(allocator);
+        return latest_version_lib_dir.toOwnedSlice(gpa);
     }
 
-    fn libDirFromInstallationPath(allocator: std.mem.Allocator, installation_path: []const u8, arch: std.Target.Cpu.Arch) error{ OutOfMemory, PathNotFound }![]const u8 {
-        var lib_dir_buf = try std.ArrayList(u8).initCapacity(allocator, installation_path.len + 64);
+    fn libDirFromInstallationPath(
+        gpa: Allocator,
+        io: Io,
+        installation_path: []const u8,
+        arch: std.Target.Cpu.Arch,
+    ) error{ OutOfMemory, PathNotFound }![]const u8 {
+        var lib_dir_buf = try std.array_list.Managed(u8).initCapacity(gpa, installation_path.len + 64);
         errdefer lib_dir_buf.deinit();
 
         lib_dir_buf.appendSliceAssumeCapacity(installation_path);
 
-        if (!std.fs.path.isSep(lib_dir_buf.getLast())) {
+        if (!Dir.path.isSep(lib_dir_buf.getLast())) {
             try lib_dir_buf.append('\\');
         }
         const installation_path_with_trailing_sep_len = lib_dir_buf.items.len;
 
         try lib_dir_buf.appendSlice("VC\\Auxiliary\\Build\\Microsoft.VCToolsVersion.default.txt");
         var default_tools_version_buf: [512]u8 = undefined;
-        const default_tools_version_contents = std.fs.cwd().readFile(lib_dir_buf.items, &default_tools_version_buf) catch {
+        const default_tools_version_contents = Dir.cwd().readFile(io, lib_dir_buf.items, &default_tools_version_buf) catch {
             return error.PathNotFound;
         };
         var tokenizer = std.mem.tokenizeAny(u8, default_tools_version_contents, " \r\n");
@@ -832,7 +860,7 @@ const MsvcLibDir = struct {
             else => unreachable,
         });
 
-        if (!verifyLibDir(lib_dir_buf.items)) {
+        if (!verifyLibDir(io, lib_dir_buf.items)) {
             return error.PathNotFound;
         }
 
@@ -840,64 +868,72 @@ const MsvcLibDir = struct {
     }
 
     // https://learn.microsoft.com/en-us/visualstudio/install/tools-for-managing-visual-studio-instances?view=vs-2022#editing-the-registry-for-a-visual-studio-instance
-    fn findViaRegistry(allocator: std.mem.Allocator, arch: std.Target.Cpu.Arch) error{ OutOfMemory, PathNotFound }![]const u8 {
+    fn findViaRegistry(
+        gpa: Allocator,
+        io: Io,
+        arch: std.Target.Cpu.Arch,
+        environ_map: *const Environ.Map,
+    ) error{ OutOfMemory, PathNotFound }![]const u8 {
 
         // %localappdata%\Microsoft\VisualStudio\
         // %appdata%\Local\Microsoft\VisualStudio\
-        const visualstudio_folder_path = std.fs.getAppDataDir(allocator, "Microsoft\\VisualStudio\\") catch return error.PathNotFound;
-        defer allocator.free(visualstudio_folder_path);
+        const local_app_data_path = std.zig.EnvVar.LOCALAPPDATA.get(environ_map) orelse return error.PathNotFound;
+        const visualstudio_folder_path = try Dir.path.join(gpa, &.{
+            local_app_data_path, "Microsoft\\VisualStudio\\",
+        });
+        defer gpa.free(visualstudio_folder_path);
 
         const vs_versions: []const []const u8 = vs_versions: {
-            if (!std.fs.path.isAbsolute(visualstudio_folder_path)) return error.PathNotFound;
+            if (!Dir.path.isAbsolute(visualstudio_folder_path)) return error.PathNotFound;
             // enumerate folders that contain `privateregistry.bin`, looking for all versions
             // f.i. %localappdata%\Microsoft\VisualStudio\17.0_9e9cbb98\
-            var visualstudio_folder = std.fs.openDirAbsolute(visualstudio_folder_path, .{
+            var visualstudio_folder = Dir.openDirAbsolute(io, visualstudio_folder_path, .{
                 .iterate = true,
             }) catch return error.PathNotFound;
-            defer visualstudio_folder.close();
+            defer visualstudio_folder.close(io);
 
             var iterator = visualstudio_folder.iterate();
-            break :vs_versions try iterateAndFilterByVersion(&iterator, allocator, "");
+            break :vs_versions try iterateAndFilterByVersion(&iterator, gpa, io, "");
         };
         defer {
-            for (vs_versions) |vs_version| allocator.free(vs_version);
-            allocator.free(vs_versions);
+            for (vs_versions) |vs_version| gpa.free(vs_version);
+            gpa.free(vs_versions);
         }
         var config_subkey_buf: [RegistryWtf16Le.key_name_max_len * 2]u8 = undefined;
         const source_directories: []const u8 = source_directories: for (vs_versions) |vs_version| {
-            const privateregistry_absolute_path = std.fs.path.join(allocator, &.{ visualstudio_folder_path, vs_version, "privateregistry.bin" }) catch continue;
-            defer allocator.free(privateregistry_absolute_path);
-            if (!std.fs.path.isAbsolute(privateregistry_absolute_path)) continue;
+            const privateregistry_absolute_path = Dir.path.join(gpa, &.{ visualstudio_folder_path, vs_version, "privateregistry.bin" }) catch continue;
+            defer gpa.free(privateregistry_absolute_path);
+            if (!Dir.path.isAbsolute(privateregistry_absolute_path)) continue;
 
             const visualstudio_registry = RegistryWtf8.loadFromPath(privateregistry_absolute_path) catch continue;
             defer visualstudio_registry.closeKey();
 
             const config_subkey = std.fmt.bufPrint(config_subkey_buf[0..], "Software\\Microsoft\\VisualStudio\\{s}_Config", .{vs_version}) catch unreachable;
 
-            const source_directories_value = visualstudio_registry.getString(allocator, config_subkey, "Source Directories") catch |err| switch (err) {
+            const source_directories_value = visualstudio_registry.getString(gpa, config_subkey, "Source Directories") catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 else => continue,
             };
-            if (source_directories_value.len > (std.fs.max_path_bytes * 30)) { // note(bratishkaerik): guessing from the fact that on my computer it has 15 paths and at least some of them are not of max length
-                allocator.free(source_directories_value);
+            if (source_directories_value.len > (Dir.max_path_bytes * 30)) { // note(bratishkaerik): guessing from the fact that on my computer it has 15 paths and at least some of them are not of max length
+                gpa.free(source_directories_value);
                 continue;
             }
 
             break :source_directories source_directories_value;
         } else return error.PathNotFound;
-        defer allocator.free(source_directories);
+        defer gpa.free(source_directories);
 
         var source_directories_split = std.mem.splitScalar(u8, source_directories, ';');
 
         const msvc_dir: []const u8 = msvc_dir: {
-            const msvc_include_dir_maybe_with_trailing_slash = try allocator.dupe(u8, source_directories_split.first());
+            const msvc_include_dir_maybe_with_trailing_slash = try gpa.dupe(u8, source_directories_split.first());
 
-            if (msvc_include_dir_maybe_with_trailing_slash.len > std.fs.max_path_bytes or !std.fs.path.isAbsolute(msvc_include_dir_maybe_with_trailing_slash)) {
-                allocator.free(msvc_include_dir_maybe_with_trailing_slash);
+            if (msvc_include_dir_maybe_with_trailing_slash.len > Dir.max_path_bytes or !Dir.path.isAbsolute(msvc_include_dir_maybe_with_trailing_slash)) {
+                gpa.free(msvc_include_dir_maybe_with_trailing_slash);
                 return error.PathNotFound;
             }
 
-            var msvc_dir = std.ArrayList(u8).fromOwnedSlice(allocator, msvc_include_dir_maybe_with_trailing_slash);
+            var msvc_dir = std.array_list.Managed(u8).fromOwnedSlice(gpa, msvc_include_dir_maybe_with_trailing_slash);
             errdefer msvc_dir.deinit();
 
             // String might contain trailing slash, so trim it here
@@ -919,28 +955,27 @@ const MsvcLibDir = struct {
             const msvc_dir_with_arch = try msvc_dir.toOwnedSlice();
             break :msvc_dir msvc_dir_with_arch;
         };
-        errdefer allocator.free(msvc_dir);
+        errdefer gpa.free(msvc_dir);
 
-        if (!verifyLibDir(msvc_dir)) {
+        if (!verifyLibDir(io, msvc_dir)) {
             return error.PathNotFound;
         }
 
         return msvc_dir;
     }
 
-    fn findViaVs7Key(allocator: std.mem.Allocator, arch: std.Target.Cpu.Arch) error{ OutOfMemory, PathNotFound }![]const u8 {
-        var base_path: std.ArrayList(u8) = base_path: {
+    fn findViaVs7Key(
+        gpa: Allocator,
+        io: Io,
+        arch: std.Target.Cpu.Arch,
+        environ_map: *const Environ.Map,
+    ) error{ OutOfMemory, PathNotFound }![]const u8 {
+        var base_path: std.array_list.Managed(u8) = base_path: {
             try_env: {
-                var env_map = std.process.getEnvMap(allocator) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    else => break :try_env,
-                };
-                defer env_map.deinit();
-
-                if (env_map.get("VS140COMNTOOLS")) |VS140COMNTOOLS| {
+                if (environ_map.get("VS140COMNTOOLS")) |VS140COMNTOOLS| {
                     if (VS140COMNTOOLS.len < "C:\\Common7\\Tools".len) break :try_env;
-                    if (!std.fs.path.isAbsolute(VS140COMNTOOLS)) break :try_env;
-                    var list = std.ArrayList(u8).init(allocator);
+                    if (!Dir.path.isAbsolute(VS140COMNTOOLS)) break :try_env;
+                    var list = std.array_list.Managed(u8).init(gpa);
                     errdefer list.deinit();
 
                     try list.appendSlice(VS140COMNTOOLS); // C:\Program Files (x86)\Microsoft Visual Studio 14.0\Common7\Tools
@@ -954,17 +989,17 @@ const MsvcLibDir = struct {
             const vs7_key = RegistryWtf8.openKey(windows.HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\VisualStudio\\SxS\\VS7", .{ .wow64_32 = true }) catch return error.PathNotFound;
             defer vs7_key.closeKey();
             try_vs7_key: {
-                const path_maybe_with_trailing_slash = vs7_key.getString(allocator, "", "14.0") catch |err| switch (err) {
+                const path_maybe_with_trailing_slash = vs7_key.getString(gpa, "", "14.0") catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
                     else => break :try_vs7_key,
                 };
 
-                if (path_maybe_with_trailing_slash.len > std.fs.max_path_bytes or !std.fs.path.isAbsolute(path_maybe_with_trailing_slash)) {
-                    allocator.free(path_maybe_with_trailing_slash);
+                if (path_maybe_with_trailing_slash.len > Dir.max_path_bytes or !Dir.path.isAbsolute(path_maybe_with_trailing_slash)) {
+                    gpa.free(path_maybe_with_trailing_slash);
                     break :try_vs7_key;
                 }
 
-                var path = std.ArrayList(u8).fromOwnedSlice(allocator, path_maybe_with_trailing_slash);
+                var path = std.array_list.Managed(u8).fromOwnedSlice(gpa, path_maybe_with_trailing_slash);
                 errdefer path.deinit();
 
                 // String might contain trailing slash, so trim it here
@@ -984,7 +1019,7 @@ const MsvcLibDir = struct {
             else => unreachable,
         });
 
-        if (!verifyLibDir(base_path.items)) {
+        if (!verifyLibDir(io, base_path.items)) {
             return error.PathNotFound;
         }
 
@@ -992,13 +1027,13 @@ const MsvcLibDir = struct {
         return full_path;
     }
 
-    fn verifyLibDir(lib_dir_path: []const u8) bool {
-        std.debug.assert(std.fs.path.isAbsolute(lib_dir_path)); // should be already handled in `findVia*`
+    fn verifyLibDir(io: Io, lib_dir_path: []const u8) bool {
+        std.debug.assert(Dir.path.isAbsolute(lib_dir_path)); // should be already handled in `findVia*`
 
-        var dir = std.fs.openDirAbsolute(lib_dir_path, .{}) catch return false;
-        defer dir.close();
+        var dir = Dir.openDirAbsolute(io, lib_dir_path, .{}) catch return false;
+        defer dir.close(io);
 
-        const stat = dir.statFile("vcruntime.lib") catch return false;
+        const stat = dir.statFile(io, "vcruntime.lib", .{}) catch return false;
         if (stat.kind != .file)
             return false;
 
@@ -1007,18 +1042,23 @@ const MsvcLibDir = struct {
 
     /// Find path to MSVC's `lib/` directory.
     /// Caller owns the result.
-    pub fn find(allocator: std.mem.Allocator, arch: std.Target.Cpu.Arch) error{ OutOfMemory, MsvcLibDirNotFound }![]const u8 {
-        const full_path = MsvcLibDir.findViaCOM(allocator, arch) catch |err1| switch (err1) {
+    pub fn find(
+        gpa: Allocator,
+        io: Io,
+        arch: std.Target.Cpu.Arch,
+        environ_map: *const Environ.Map,
+    ) error{ OutOfMemory, MsvcLibDirNotFound }![]const u8 {
+        const full_path = MsvcLibDir.findViaCOM(gpa, io, arch, environ_map) catch |err1| switch (err1) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.PathNotFound => MsvcLibDir.findViaRegistry(allocator, arch) catch |err2| switch (err2) {
+            error.PathNotFound => MsvcLibDir.findViaRegistry(gpa, io, arch, environ_map) catch |err2| switch (err2) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.PathNotFound => MsvcLibDir.findViaVs7Key(allocator, arch) catch |err3| switch (err3) {
+                error.PathNotFound => MsvcLibDir.findViaVs7Key(gpa, io, arch, environ_map) catch |err3| switch (err3) {
                     error.OutOfMemory => return error.OutOfMemory,
                     error.PathNotFound => return error.MsvcLibDirNotFound,
                 },
             },
         };
-        errdefer allocator.free(full_path);
+        errdefer gpa.free(full_path);
 
         return full_path;
     }

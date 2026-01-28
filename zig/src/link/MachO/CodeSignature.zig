@@ -1,19 +1,27 @@
 const CodeSignature = @This();
 
 const std = @import("std");
+const Io = std.Io;
 const assert = std.debug.assert;
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
 const testing = std.testing;
-const trace = @import("../../tracy.zig").trace;
-const Allocator = mem.Allocator;
-const Hasher = @import("hasher.zig").ParallelHasher;
-const MachO = @import("../MachO.zig");
 const Sha256 = std.crypto.hash.sha2.Sha256;
+const Allocator = std.mem.Allocator;
+
+const trace = @import("../../tracy.zig").trace;
+const ParallelHasher = @import("hasher.zig").ParallelHasher;
+const MachO = @import("../MachO.zig");
 
 const hash_size = Sha256.digest_length;
+
+page_size: u16,
+code_directory: CodeDirectory,
+requirements: ?Requirements = null,
+entitlements: ?Entitlements = null,
+signature: ?Signature = null,
 
 const Blob = union(enum) {
     code_directory: *CodeDirectory,
@@ -53,7 +61,7 @@ const CodeDirectory = struct {
     inner: macho.CodeDirectory,
     ident: []const u8,
     special_slots: [n_special_slots][hash_size]u8,
-    code_slots: std.ArrayListUnmanaged([hash_size]u8) = .empty,
+    code_slots: std.ArrayList([hash_size]u8) = .empty,
 
     const n_special_slots: usize = 7;
 
@@ -218,12 +226,6 @@ const Signature = struct {
     }
 };
 
-page_size: u16,
-code_directory: CodeDirectory,
-requirements: ?Requirements = null,
-entitlements: ?Entitlements = null,
-signature: ?Signature = null,
-
 pub fn init(page_size: u16) CodeSignature {
     return .{
         .page_size = page_size,
@@ -244,15 +246,13 @@ pub fn deinit(self: *CodeSignature, allocator: Allocator) void {
     }
 }
 
-pub fn addEntitlements(self: *CodeSignature, allocator: Allocator, path: []const u8) !void {
-    const file = try fs.cwd().openFile(path, .{});
-    defer file.close();
-    const inner = try file.readToEndAlloc(allocator, std.math.maxInt(u32));
+pub fn addEntitlements(self: *CodeSignature, allocator: Allocator, io: Io, path: []const u8) !void {
+    const inner = try Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(std.math.maxInt(u32)));
     self.entitlements = .{ .inner = inner };
 }
 
 pub const WriteOpts = struct {
-    file: fs.File,
+    file: Io.File,
     exec_seg_base: u64,
     exec_seg_limit: u64,
     file_size: u32,
@@ -263,12 +263,14 @@ pub fn writeAdhocSignature(
     self: *CodeSignature,
     macho_file: *MachO,
     opts: WriteOpts,
-    writer: anytype,
+    writer: *std.Io.Writer,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const allocator = macho_file.base.comp.gpa;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
+    const io = comp.io;
 
     var header: macho.SuperBlob = .{
         .magic = macho.CSMAGIC_EMBEDDED_SIGNATURE,
@@ -276,7 +278,7 @@ pub fn writeAdhocSignature(
         .count = 0,
     };
 
-    var blobs = std.ArrayList(Blob).init(allocator);
+    var blobs = std.array_list.Managed(Blob).init(gpa);
     defer blobs.deinit();
 
     self.code_directory.inner.execSegBase = opts.exec_seg_base;
@@ -286,13 +288,12 @@ pub fn writeAdhocSignature(
 
     const total_pages = @as(u32, @intCast(mem.alignForward(usize, opts.file_size, self.page_size) / self.page_size));
 
-    try self.code_directory.code_slots.ensureTotalCapacityPrecise(allocator, total_pages);
+    try self.code_directory.code_slots.ensureTotalCapacityPrecise(gpa, total_pages);
     self.code_directory.code_slots.items.len = total_pages;
     self.code_directory.inner.nCodeSlots = total_pages;
 
     // Calculate hash for each page (in file) and write it to the buffer
-    var hasher = Hasher(Sha256){ .allocator = allocator, .thread_pool = macho_file.base.comp.thread_pool };
-    try hasher.hash(opts.file, self.code_directory.code_slots.items, .{
+    try ParallelHasher(Sha256).hash(gpa, io, opts.file, self.code_directory.code_slots.items, .{
         .chunk_size = self.page_size,
         .max_file_size = opts.file_size,
     });
@@ -304,10 +305,10 @@ pub fn writeAdhocSignature(
     var hash: [hash_size]u8 = undefined;
 
     if (self.requirements) |*req| {
-        var buf = std.ArrayList(u8).init(allocator);
-        defer buf.deinit();
-        try req.write(buf.writer());
-        Sha256.hash(buf.items, &hash, .{});
+        var a: std.Io.Writer.Allocating = .init(gpa);
+        defer a.deinit();
+        try req.write(&a.writer);
+        Sha256.hash(a.written(), &hash, .{});
         self.code_directory.addSpecialHash(req.slotType(), hash);
 
         try blobs.append(.{ .requirements = req });
@@ -316,10 +317,10 @@ pub fn writeAdhocSignature(
     }
 
     if (self.entitlements) |*ents| {
-        var buf = std.ArrayList(u8).init(allocator);
-        defer buf.deinit();
-        try ents.write(buf.writer());
-        Sha256.hash(buf.items, &hash, .{});
+        var a: std.Io.Writer.Allocating = .init(gpa);
+        defer a.deinit();
+        try ents.write(&a.writer);
+        Sha256.hash(a.written(), &hash, .{});
         self.code_directory.addSpecialHash(ents.slotType(), hash);
 
         try blobs.append(.{ .entitlements = ents });

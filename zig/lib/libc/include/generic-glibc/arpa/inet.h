@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2025 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -99,6 +99,14 @@ extern unsigned int inet_nsap_addr (const char *__cp,
    a presentation form and place result in BUF.  */
 extern char *inet_nsap_ntoa (int __len, const unsigned char *__cp,
 			     char *__buf) __THROW;
+#endif
+
+// zig patch: inet was fortified in glibc 2.42
+#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 42) || __GLIBC__ > 2
+#if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function
+/* Include functions with security checks.  */
+#  include <bits/inet-fortified.h>
+#endif
 #endif
 
 __END_DECLS

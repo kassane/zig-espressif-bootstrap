@@ -175,8 +175,8 @@ pub const Secp256k1 = struct {
     }
 
     /// Return a random point.
-    pub fn random() Secp256k1 {
-        const n = scalar.random(.little);
+    pub fn random(io: std.Io) Secp256k1 {
+        const n = scalar.random(io, .little);
         return basePoint.mul(n, .little) catch unreachable;
     }
 
@@ -548,6 +548,10 @@ pub const AffineCoordinates = struct {
 
     /// Identity element in affine coordinates.
     pub const identityElement = AffineCoordinates{ .x = Secp256k1.identityElement.x, .y = Secp256k1.identityElement.y };
+
+    pub fn neg(p: AffineCoordinates) AffineCoordinates {
+        return .{ .x = p.x, .y = p.y.neg() };
+    }
 
     fn cMov(p: *AffineCoordinates, a: AffineCoordinates, c: u1) void {
         p.x.cMov(a.x, c);

@@ -7,6 +7,7 @@ const mem = std.mem;
 const c = std.c;
 const Allocator = std.mem.Allocator;
 const windows = std.os.windows;
+const Alignment = std.mem.Alignment;
 
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
 pub const SmpAllocator = @import("heap/SmpAllocator.zig");
@@ -24,10 +25,20 @@ pub const GeneralPurposeAllocatorConfig = DebugAllocatorConfig;
 /// Deprecated; to be removed after 0.14.0 is tagged.
 pub const GeneralPurposeAllocator = DebugAllocator;
 
-const memory_pool = @import("heap/memory_pool.zig");
-pub const MemoryPool = memory_pool.MemoryPool;
-pub const MemoryPoolAligned = memory_pool.MemoryPoolAligned;
-pub const MemoryPoolExtra = memory_pool.MemoryPoolExtra;
+/// A memory pool that can allocate objects of a single type very quickly.
+/// Use this when you need to allocate a lot of objects of the same type,
+/// because it outperforms general purpose allocators.
+/// Functions that potentially allocate memory accept an `Allocator` parameter.
+pub fn MemoryPool(comptime Item: type) type {
+    return memory_pool.Extra(Item, .{ .alignment = null });
+}
+pub const memory_pool = @import("heap/memory_pool.zig");
+
+/// Deprecated; use `memory_pool.Aligned`.
+pub const MemoryPoolAligned = memory_pool.Aligned;
+/// Deprecated; use `memory_pool.Extra`.
+pub const MemoryPoolExtra = memory_pool.Extra;
+/// Deprecated; use `memory_pool.Options`.
 pub const MemoryPoolOptions = memory_pool.Options;
 
 /// TODO Utilize this on Windows.
@@ -35,15 +46,16 @@ pub var next_mmap_addr_hint: ?[*]align(page_size_min) u8 = null;
 
 /// comptime-known minimum page size of the target.
 ///
-/// All pointers from `mmap` or `VirtualAlloc` are aligned to at least
+/// All pointers from `mmap` or `NtAllocateVirtualMemory` are aligned to at least
 /// `page_size_min`, but their actual alignment may be bigger.
 ///
 /// This value can be overridden via `std.options.page_size_min`.
 ///
 /// On many systems, the actual page size can only be determined at runtime
 /// with `pageSize`.
-pub const page_size_min: usize = std.options.page_size_min orelse (page_size_min_default orelse
-    @compileError(@tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " has unknown page_size_min; populate std.options.page_size_min"));
+pub const page_size_min: usize = std.options.page_size_min orelse (page_size_min_default orelse 1);
+//`orelse 1` is a workaround for https://codeberg.org/ziglang/zig/issues/30842
+//@compileError(@tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " has unknown page_size_min; populate std.options.page_size_min"));
 
 /// comptime-known maximum page size of the target.
 ///
@@ -77,37 +89,46 @@ pub fn defaultQueryPageSize() usize {
     };
     var size = global.cached_result.load(.unordered);
     if (size > 0) return size;
-    size = switch (builtin.os.tag) {
-        .linux => if (builtin.link_libc) @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE))) else std.os.linux.getauxval(std.elf.AT_PAGESZ),
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => blk: {
+    size = size: switch (builtin.os.tag) {
+        .linux => if (builtin.link_libc)
+            @max(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)), 0)
+        else
+            std.os.linux.getauxval(std.elf.AT_PAGESZ),
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             const task_port = std.c.mach_task_self();
             // mach_task_self may fail "if there are any resource failures or other errors".
-            if (task_port == std.c.TASK_NULL)
-                break :blk 0;
-            var info_count = std.c.TASK_VM_INFO_COUNT;
+            if (task_port == std.c.TASK.NULL) break :size 0;
+            var info_count = std.c.TASK.VM.INFO_COUNT;
             var vm_info: std.c.task_vm_info_data_t = undefined;
             vm_info.page_size = 0;
             _ = std.c.task_info(
                 task_port,
-                std.c.TASK_VM_INFO,
+                std.c.TASK.VM.INFO,
                 @as(std.c.task_info_t, @ptrCast(&vm_info)),
                 &info_count,
             );
-            assert(vm_info.page_size != 0);
-            break :blk @intCast(vm_info.page_size);
+            break :size @intCast(vm_info.page_size);
         },
-        .windows => blk: {
-            var info: std.os.windows.SYSTEM_INFO = undefined;
-            std.os.windows.kernel32.GetSystemInfo(&info);
-            break :blk info.dwPageSize;
+        .windows => {
+            var sbi: windows.SYSTEM_BASIC_INFORMATION = undefined;
+            switch (windows.ntdll.NtQuerySystemInformation(
+                .SystemBasicInformation,
+                &sbi,
+                @sizeOf(windows.SYSTEM_BASIC_INFORMATION),
+                null,
+            )) {
+                .SUCCESS => break :size sbi.PageSize,
+                else => break :size 0,
+            }
         },
         else => if (builtin.link_libc)
-            @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)))
+            @max(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)), 0)
         else if (builtin.os.tag == .freestanding or builtin.os.tag == .other)
             @compileError("unsupported target: freestanding/other")
         else
             @compileError("pageSize on " ++ @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " is not supported without linking libc, using the default implementation"),
     };
+    if (size == 0) size = page_size_max;
 
     assert(size >= page_size_min);
     assert(size <= page_size_max);
@@ -121,7 +142,16 @@ test defaultQueryPageSize {
     assert(std.math.isPowerOfTwo(defaultQueryPageSize()));
 }
 
-const CAllocator = struct {
+/// A wrapper around the C memory allocation API which supports the full `Allocator`
+/// interface, including arbitrary alignment. Simple `malloc` calls are used when
+/// possible, but large requested alignments may require larger buffers in order to
+/// satisfy the request. As well as `malloc`, `realloc`, and `free`, the extension
+/// functions `malloc_usable_size` and `posix_memalign` are used when available.
+pub const c_allocator: Allocator = .{
+    .ptr = undefined,
+    .vtable = &c_allocator_impl.vtable,
+};
+const c_allocator_impl = struct {
     comptime {
         if (!builtin.link_libc) {
             @compileError("C allocator is only available when linking against libc");
@@ -135,206 +165,183 @@ const CAllocator = struct {
         .free = free,
     };
 
-    pub const supports_malloc_size = @TypeOf(malloc_size) != void;
-    pub const malloc_size = if (@TypeOf(c.malloc_size) != void)
-        c.malloc_size
-    else if (@TypeOf(c.malloc_usable_size) != void)
-        c.malloc_usable_size
-    else if (@TypeOf(c._msize) != void)
-        c._msize
-    else {};
-
-    pub const supports_posix_memalign = switch (builtin.os.tag) {
-        .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos => true,
+    const have_posix_memalign = switch (builtin.os.tag) {
+        .dragonfly,
+        .netbsd,
+        .freebsd,
+        .illumos,
+        .openbsd,
+        .linux,
+        .driverkit,
+        .ios,
+        .maccatalyst,
+        .macos,
+        .tvos,
+        .visionos,
+        .watchos,
+        .serenity,
+        => true,
         else => false,
     };
 
-    fn getHeader(ptr: [*]u8) *[*]u8 {
-        return @alignCast(@ptrCast(ptr - @sizeOf(usize)));
+    fn allocStrat(need_align: Alignment) union(enum) {
+        raw,
+        posix_memalign: if (have_posix_memalign) void else noreturn,
+        manual_align: if (have_posix_memalign) noreturn else void,
+    } {
+        // If `malloc` guarantees `need_align`, always prefer a raw allocation.
+        if (Alignment.compare(need_align, .lte, .of(c.max_align_t))) {
+            return .raw;
+        }
+        // Use `posix_memalign` if available. Otherwise, we must manually align the allocation.
+        return if (have_posix_memalign) .posix_memalign else .manual_align;
     }
 
-    fn alignedAlloc(len: usize, alignment: mem.Alignment) ?[*]u8 {
-        const alignment_bytes = alignment.toByteUnits();
-        if (supports_posix_memalign) {
-            // The posix_memalign only accepts alignment values that are a
-            // multiple of the pointer size
-            const effective_alignment = @max(alignment_bytes, @sizeOf(usize));
-
-            var aligned_ptr: ?*anyopaque = undefined;
-            if (c.posix_memalign(&aligned_ptr, effective_alignment, len) != 0)
-                return null;
-
-            return @ptrCast(aligned_ptr);
-        }
-
-        // Thin wrapper around regular malloc, overallocate to account for
-        // alignment padding and store the original malloc()'ed pointer before
-        // the aligned address.
-        const unaligned_ptr = @as([*]u8, @ptrCast(c.malloc(len + alignment_bytes - 1 + @sizeOf(usize)) orelse return null));
-        const unaligned_addr = @intFromPtr(unaligned_ptr);
-        const aligned_addr = mem.alignForward(usize, unaligned_addr + @sizeOf(usize), alignment_bytes);
-        const aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
-        getHeader(aligned_ptr).* = unaligned_ptr;
-
-        return aligned_ptr;
-    }
-
-    fn alignedFree(ptr: [*]u8) void {
-        if (supports_posix_memalign) {
-            return c.free(ptr);
-        }
-
-        const unaligned_ptr = getHeader(ptr).*;
-        c.free(unaligned_ptr);
-    }
-
-    fn alignedAllocSize(ptr: [*]u8) usize {
-        if (supports_posix_memalign) {
-            return CAllocator.malloc_size(ptr);
-        }
-
-        const unaligned_ptr = getHeader(ptr).*;
-        const delta = @intFromPtr(ptr) - @intFromPtr(unaligned_ptr);
-        return CAllocator.malloc_size(unaligned_ptr) - delta;
+    /// If `allocStrat(a) == .manual_align`, an allocation looks like this:
+    ///
+    /// unaligned_ptr   hdr_ptr  aligned_ptr
+    /// v               v        v
+    /// +---------------+--------+--------------+
+    /// |    padding    | header | usable bytes |
+    /// +---------------+--------+--------------+
+    ///
+    /// * `unaligned_ptr` is the raw return value of `malloc`.
+    /// * `aligned_ptr` is computed by aligning `unaligned_ptr` forward; it is what `alloc` returns.
+    /// * `hdr_ptr` points to a pointer-sized header directly before the usable space. This header
+    ///   contains the value `unaligned_ptr`, so that we can pass it to `free` later. This is
+    ///   necessary because the width of the padding is unknown.
+    ///
+    /// This function accepts `aligned_ptr` and offsets it backwards to return `hdr_ptr`.
+    fn manualAlignHeader(aligned_ptr: [*]u8) *[*]u8 {
+        return @ptrCast(@alignCast(aligned_ptr - @sizeOf(usize)));
     }
 
     fn alloc(
         _: *anyopaque,
         len: usize,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         return_address: usize,
     ) ?[*]u8 {
         _ = return_address;
         assert(len > 0);
-        return alignedAlloc(len, alignment);
+        switch (allocStrat(alignment)) {
+            .raw => {
+                // `std.c.max_align_t` isn't the whole story, because if `len` is smaller than
+                // every C type with alignment `max_align_t`, the allocation can be less-aligned.
+                // The implementation need only guarantee that any type of length `len` would be
+                // suitably aligned.
+                //
+                // For instance, if `len == 8` and `alignment == .@"16"`, then `malloc` may not
+                // fulfil this request, because there is necessarily no C type with 8-byte size
+                // but 16-byte alignment.
+                //
+                // In theory, the resulting rule here would be target-specific, but in practice,
+                // the smallest type with an alignment of `max_align_t` has the same size (it's
+                // usually `c_longdouble`), so we can just extend the allocation size up to the
+                // alignment of `max_align_t` if necessary.
+                const actual_len = @max(len, @alignOf(std.c.max_align_t));
+                const ptr = c.malloc(actual_len) orelse return null;
+                assert(alignment.check(@intFromPtr(ptr)));
+                return @ptrCast(ptr);
+            },
+            .posix_memalign => {
+                // The posix_memalign only accepts alignment values that are a
+                // multiple of the pointer size
+                const effective_alignment = @max(alignment.toByteUnits(), @sizeOf(usize));
+                var aligned_ptr: ?*anyopaque = undefined;
+                if (c.posix_memalign(&aligned_ptr, effective_alignment, len) != 0) {
+                    return null;
+                }
+                assert(alignment.check(@intFromPtr(aligned_ptr)));
+                return @ptrCast(aligned_ptr);
+            },
+            .manual_align => {
+                // Overallocate to account for alignment padding and store the original pointer
+                // returned by `malloc` before the aligned address.
+                const padded_len = len + @sizeOf(usize) + alignment.toByteUnits() - 1;
+                const unaligned_ptr: [*]u8 = @ptrCast(c.malloc(padded_len) orelse return null);
+                const unaligned_addr = @intFromPtr(unaligned_ptr);
+                const aligned_addr = alignment.forward(unaligned_addr + @sizeOf(usize));
+                const aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
+                manualAlignHeader(aligned_ptr).* = unaligned_ptr;
+                return aligned_ptr;
+            },
+        }
     }
 
     fn resize(
         _: *anyopaque,
-        buf: []u8,
-        alignment: mem.Alignment,
+        memory: []u8,
+        alignment: Alignment,
         new_len: usize,
         return_address: usize,
     ) bool {
-        _ = alignment;
         _ = return_address;
-        if (new_len <= buf.len) {
-            return true;
+        assert(new_len > 0);
+        if (new_len <= memory.len) {
+            return true; // in-place shrink always works
         }
-        if (CAllocator.supports_malloc_size) {
-            const full_len = alignedAllocSize(buf.ptr);
-            if (new_len <= full_len) {
-                return true;
-            }
-        }
-        return false;
+        const mallocSize = func: {
+            if (@TypeOf(c.malloc_size) != void) break :func c.malloc_size;
+            if (@TypeOf(c.malloc_usable_size) != void) break :func c.malloc_usable_size;
+            if (@TypeOf(c._msize) != void) break :func c._msize;
+            return false; // we don't know how much space is actually available
+        };
+        const usable_len: usize = switch (allocStrat(alignment)) {
+            .raw, .posix_memalign => mallocSize(memory.ptr),
+            .manual_align => usable_len: {
+                const unaligned_ptr = manualAlignHeader(memory.ptr).*;
+                const full_len = mallocSize(unaligned_ptr);
+                const padding = @intFromPtr(memory.ptr) - @intFromPtr(unaligned_ptr);
+                break :usable_len full_len - padding;
+            },
+        };
+        return new_len <= usable_len;
     }
 
     fn remap(
-        context: *anyopaque,
+        ctx: *anyopaque,
         memory: []u8,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         new_len: usize,
         return_address: usize,
     ) ?[*]u8 {
-        // realloc would potentially return a new allocation that does not
-        // respect the original alignment.
-        return if (resize(context, memory, alignment, new_len, return_address)) memory.ptr else null;
+        assert(new_len > 0);
+        // Prefer resizing in-place if possible, since `realloc` could be expensive even if legal.
+        if (resize(ctx, memory, alignment, new_len, return_address)) {
+            return memory.ptr;
+        }
+        switch (allocStrat(alignment)) {
+            .raw => {
+                // `malloc` and friends guarantee the required alignment, so we can try `realloc`.
+                // C only needs to respect `max_align_t` up to the allocation size due to object
+                // alignment rules. If necessary, extend the allocation size.
+                const actual_len = @max(new_len, @alignOf(std.c.max_align_t));
+                const new_ptr = c.realloc(memory.ptr, actual_len) orelse return null;
+                assert(alignment.check(@intFromPtr(new_ptr)));
+                return @ptrCast(new_ptr);
+            },
+            .posix_memalign, .manual_align => {
+                // `realloc` would potentially return a new allocation which does not respect
+                // the original alignment, so we can't do anything more.
+                return null;
+            },
+        }
     }
 
     fn free(
         _: *anyopaque,
-        buf: []u8,
-        alignment: mem.Alignment,
+        memory: []u8,
+        alignment: Alignment,
         return_address: usize,
     ) void {
-        _ = alignment;
         _ = return_address;
-        alignedFree(buf.ptr);
+        switch (allocStrat(alignment)) {
+            .raw, .posix_memalign => c.free(memory.ptr),
+            .manual_align => c.free(manualAlignHeader(memory.ptr).*),
+        }
     }
 };
-
-/// Supports the full Allocator interface, including alignment, and exploiting
-/// `malloc_usable_size` if available. For an allocator that directly calls
-/// `malloc`/`free`, see `raw_c_allocator`.
-pub const c_allocator: Allocator = .{
-    .ptr = undefined,
-    .vtable = &CAllocator.vtable,
-};
-
-/// Asserts allocations are within `@alignOf(std.c.max_align_t)` and directly
-/// calls `malloc`/`free`. Does not attempt to utilize `malloc_usable_size`.
-/// This allocator is safe to use as the backing allocator with
-/// `ArenaAllocator` for example and is more optimal in such a case than
-/// `c_allocator`.
-pub const raw_c_allocator: Allocator = .{
-    .ptr = undefined,
-    .vtable = &raw_c_allocator_vtable,
-};
-const raw_c_allocator_vtable: Allocator.VTable = .{
-    .alloc = rawCAlloc,
-    .resize = rawCResize,
-    .remap = rawCRemap,
-    .free = rawCFree,
-};
-
-fn rawCAlloc(
-    context: *anyopaque,
-    len: usize,
-    alignment: mem.Alignment,
-    return_address: usize,
-) ?[*]u8 {
-    _ = context;
-    _ = return_address;
-    assert(alignment.compare(.lte, comptime .fromByteUnits(@alignOf(std.c.max_align_t))));
-    // Note that this pointer cannot be aligncasted to max_align_t because if
-    // len is < max_align_t then the alignment can be smaller. For example, if
-    // max_align_t is 16, but the user requests 8 bytes, there is no built-in
-    // type in C that is size 8 and has 16 byte alignment, so the alignment may
-    // be 8 bytes rather than 16. Similarly if only 1 byte is requested, malloc
-    // is allowed to return a 1-byte aligned pointer.
-    return @ptrCast(c.malloc(len));
-}
-
-fn rawCResize(
-    context: *anyopaque,
-    memory: []u8,
-    alignment: mem.Alignment,
-    new_len: usize,
-    return_address: usize,
-) bool {
-    _ = context;
-    _ = memory;
-    _ = alignment;
-    _ = new_len;
-    _ = return_address;
-    return false;
-}
-
-fn rawCRemap(
-    context: *anyopaque,
-    memory: []u8,
-    alignment: mem.Alignment,
-    new_len: usize,
-    return_address: usize,
-) ?[*]u8 {
-    _ = context;
-    _ = alignment;
-    _ = return_address;
-    return @ptrCast(c.realloc(memory.ptr, new_len));
-}
-
-fn rawCFree(
-    context: *anyopaque,
-    memory: []u8,
-    alignment: mem.Alignment,
-    return_address: usize,
-) void {
-    _ = context;
-    _ = alignment;
-    _ = return_address;
-    c.free(memory.ptr);
-}
 
 /// On operating systems that support memory mapping, this allocator makes a
 /// syscall directly for every allocation and free.
@@ -425,7 +432,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn alloc(
             ctx: *anyopaque,
             len: usize,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             ra: usize,
         ) ?[*]u8 {
             const self: *Self = @ptrCast(@alignCast(ctx));
@@ -436,7 +443,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn resize(
             ctx: *anyopaque,
             buf: []u8,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             new_len: usize,
             ra: usize,
         ) bool {
@@ -451,7 +458,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn remap(
             context: *anyopaque,
             memory: []u8,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             new_len: usize,
             return_address: usize,
         ) ?[*]u8 {
@@ -466,7 +473,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn free(
             ctx: *anyopaque,
             buf: []u8,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             ra: usize,
         ) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
@@ -488,12 +495,6 @@ test c_allocator {
     }
 }
 
-test raw_c_allocator {
-    if (builtin.link_libc) {
-        try testAllocator(raw_c_allocator);
-    }
-}
-
 test smp_allocator {
     if (builtin.single_threaded) return;
     try testAllocator(smp_allocator);
@@ -512,7 +513,7 @@ test PageAllocator {
     }
 
     if (builtin.os.tag == .windows) {
-        const slice = try allocator.alignedAlloc(u8, page_size_min, 128);
+        const slice = try allocator.alignedAlloc(u8, .fromByteUnits(page_size_min), 128);
         slice[0] = 0x12;
         slice[127] = 0x34;
         allocator.free(slice);
@@ -593,6 +594,8 @@ pub fn testAllocator(base_allocator: mem.Allocator) !void {
     const zero_bit_ptr = try allocator.create(u0);
     zero_bit_ptr.* = 0;
     allocator.destroy(zero_bit_ptr);
+    const zero_len_array = try allocator.create([0]u64);
+    allocator.destroy(zero_len_array);
 
     const oversize = try allocator.alignedAlloc(u32, null, 5);
     try testing.expect(oversize.len >= 5);
@@ -607,7 +610,7 @@ pub fn testAllocatorAligned(base_allocator: mem.Allocator) !void {
     const allocator = validationAllocator.allocator();
 
     // Test a few alignment values, smaller and bigger than the type's one
-    inline for ([_]u29{ 1, 2, 4, 8, 16, 32, 64 }) |alignment| {
+    inline for ([_]Alignment{ .@"1", .@"2", .@"4", .@"8", .@"16", .@"32", .@"64" }) |alignment| {
         // initial
         var slice = try allocator.alignedAlloc(u8, alignment, 10);
         try testing.expect(slice.len == 10);
@@ -638,7 +641,7 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     var align_mask: usize = undefined;
     align_mask = @shlWithOverflow(~@as(usize, 0), @as(Allocator.Log2Align, @ctz(large_align)))[0];
 
-    var slice = try allocator.alignedAlloc(u8, large_align, 500);
+    var slice = try allocator.alignedAlloc(u8, .fromByteUnits(large_align), 500);
     try testing.expect(@intFromPtr(slice.ptr) & align_mask == @intFromPtr(slice.ptr));
 
     if (allocator.resize(slice, 100)) {
@@ -667,17 +670,17 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     const debug_allocator = fib.allocator();
 
     const alloc_size = pageSize() * 2 + 50;
-    var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+    var slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     defer allocator.free(slice);
 
-    var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
+    var stuff_to_free = std.array_list.Managed([]align(16) u8).init(debug_allocator);
     // On Windows, VirtualAlloc returns addresses aligned to a 64K boundary,
     // which is 16 pages, hence the 32. This test may require to increase
     // the size of the allocations feeding the `allocator` parameter if they
     // fail, because of this high over-alignment we want to have.
     while (@intFromPtr(slice.ptr) == mem.alignForward(usize, @intFromPtr(slice.ptr), pageSize() * 32)) {
         try stuff_to_free.append(slice);
-        slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+        slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     }
     while (stuff_to_free.pop()) |item| {
         allocator.free(item);
@@ -691,7 +694,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
 }
 
 const page_size_min_default: ?usize = switch (builtin.os.tag) {
-    .driverkit, .ios, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
+    .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
         .x86_64 => 4 << 10,
         .aarch64 => 16 << 10,
         else => null,
@@ -724,11 +727,14 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
     },
     .netbsd => switch (builtin.cpu.arch) {
         // NetBSD/sys/arch/*
+        .alpha => 8 << 10,
         .x86, .x86_64 => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb => 4 << 10,
         .aarch64, .aarch64_be => 4 << 10,
+        .hppa => 4 << 10,
         .mips, .mipsel, .mips64, .mips64el => 4 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .sh, .sheb => 4 << 10,
         .sparc => 4 << 10,
         .sparc64 => 8 << 10,
         .riscv32, .riscv64 => 4 << 10,
@@ -742,15 +748,18 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
     },
     .openbsd => switch (builtin.cpu.arch) {
         // OpenBSD/sys/arch/*
+        .alpha => 8 << 10,
+        .hppa => 4 << 10,
         .x86, .x86_64 => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
         .mips64, .mips64el => 4 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
         .riscv64 => 4 << 10,
+        .sh, .sheb => 4 << 10,
         .sparc64 => 8 << 10,
         else => null,
     },
-    .solaris, .illumos => switch (builtin.cpu.arch) {
+    .illumos => switch (builtin.cpu.arch) {
         // src/uts/*/sys/machparam.h
         .x86, .x86_64 => 4 << 10,
         .sparc, .sparc64 => 8 << 10,
@@ -812,21 +821,26 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
     .emscripten => 64 << 10,
     .linux => switch (builtin.cpu.arch) {
         // Linux/arch/*/Kconfig
-        .arc => 4 << 10,
+        .alpha => 8 << 10,
+        .arc, .arceb => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb => 4 << 10,
         .aarch64, .aarch64_be => 4 << 10,
         .csky => 4 << 10,
         .hexagon => 4 << 10,
+        .hppa => 4 << 10,
         .loongarch32, .loongarch64 => 4 << 10,
         .m68k => 4 << 10,
+        .microblaze, .microblazeel => 4 << 10,
         .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .or1k => 8 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
         .riscv32, .riscv64 => 4 << 10,
         .s390x => 4 << 10,
+        .sh, .sheb => 4 << 10,
         .sparc => 4 << 10,
         .sparc64 => 8 << 10,
         .x86, .x86_64 => 4 << 10,
-        .xtensa => 4 << 10,
+        .xtensa, .xtensaeb => 4 << 10,
         else => null,
     },
     .freestanding, .other => switch (builtin.cpu.arch) {
@@ -839,7 +853,7 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
 };
 
 const page_size_max_default: ?usize = switch (builtin.os.tag) {
-    .driverkit, .ios, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
+    .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
         .x86_64 => 4 << 10,
         .aarch64 => 16 << 10,
         else => null,
@@ -872,11 +886,14 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
     },
     .netbsd => switch (builtin.cpu.arch) {
         // NetBSD/sys/arch/*
+        .alpha => 8 << 10,
         .x86, .x86_64 => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb => 4 << 10,
         .aarch64, .aarch64_be => 64 << 10,
+        .hppa => 4 << 10,
         .mips, .mipsel, .mips64, .mips64el => 16 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 16 << 10,
+        .sh, .sheb => 4 << 10,
         .sparc => 8 << 10,
         .sparc64 => 8 << 10,
         .riscv32, .riscv64 => 4 << 10,
@@ -889,15 +906,18 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
     },
     .openbsd => switch (builtin.cpu.arch) {
         // OpenBSD/sys/arch/*
+        .alpha => 8 << 10,
+        .hppa => 4 << 10,
         .x86, .x86_64 => 4 << 10,
         .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
         .mips64, .mips64el => 16 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
         .riscv64 => 4 << 10,
+        .sh, .sheb => 4 << 10,
         .sparc64 => 8 << 10,
         else => null,
     },
-    .solaris, .illumos => switch (builtin.cpu.arch) {
+    .illumos => switch (builtin.cpu.arch) {
         // src/uts/*/sys/machparam.h
         .x86, .x86_64 => 4 << 10,
         .sparc, .sparc64 => 8 << 10,
@@ -959,21 +979,26 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
     .emscripten => 64 << 10,
     .linux => switch (builtin.cpu.arch) {
         // Linux/arch/*/Kconfig
-        .arc => 16 << 10,
+        .alpha => 8 << 10,
+        .arc, .arceb => 16 << 10,
         .thumb, .thumbeb, .arm, .armeb => 4 << 10,
         .aarch64, .aarch64_be => 64 << 10,
         .csky => 4 << 10,
         .hexagon => 256 << 10,
+        .hppa => 64 << 10,
         .loongarch32, .loongarch64 => 64 << 10,
         .m68k => 8 << 10,
+        .microblaze, .microblazeel => 4 << 10,
         .mips, .mipsel, .mips64, .mips64el => 64 << 10,
+        .or1k => 8 << 10,
         .powerpc, .powerpc64, .powerpc64le, .powerpcle => 256 << 10,
         .riscv32, .riscv64 => 4 << 10,
         .s390x => 4 << 10,
+        .sh, .sheb => 64 << 10,
         .sparc => 4 << 10,
         .sparc64 => 8 << 10,
         .x86, .x86_64 => 4 << 10,
-        .xtensa => 4 << 10,
+        .xtensa, .xtensaeb => 4 << 10,
         else => null,
     },
     .freestanding => switch (builtin.cpu.arch) {

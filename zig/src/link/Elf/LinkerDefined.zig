@@ -1,11 +1,11 @@
 index: File.Index,
 
-symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty,
-strtab: std.ArrayListUnmanaged(u8) = .empty,
+symtab: std.ArrayList(elf.Elf64_Sym) = .empty,
+strtab: std.ArrayList(u8) = .empty,
 
-symbols: std.ArrayListUnmanaged(Symbol) = .empty,
-symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
-symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .empty,
+symbols: std.ArrayList(Symbol) = .empty,
+symbols_extra: std.ArrayList(u32) = .empty,
+symbols_resolver: std.ArrayList(Elf.SymbolResolver.Index) = .empty,
 
 entry_index: ?Symbol.Index = null,
 dynamic_index: ?Symbol.Index = null,
@@ -24,7 +24,7 @@ dso_handle_index: ?Symbol.Index = null,
 rela_iplt_start_index: ?Symbol.Index = null,
 rela_iplt_end_index: ?Symbol.Index = null,
 global_pointer_index: ?Symbol.Index = null,
-start_stop_indexes: std.ArrayListUnmanaged(u32) = .empty,
+start_stop_indexes: std.ArrayList(u32) = .empty,
 
 output_symtab_ctx: Elf.SymtabCtx = .{},
 
@@ -47,7 +47,7 @@ fn newSymbolAssumeCapacity(self: *LinkerDefined, name_off: u32, elf_file: *Elf) 
     const esym = self.symtab.addOneAssumeCapacity();
     esym.* = .{
         .st_name = name_off,
-        .st_info = elf.STB_WEAK << 4,
+        .st_info = @as(u8, elf.STB_WEAK) << 4,
         .st_other = @intFromEnum(elf.STV.HIDDEN),
         .st_shndx = elf.SHN_ABS,
         .st_value = 0,
@@ -147,9 +147,9 @@ pub fn initStartStopSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
     for (slice.items(.shdr)) |shdr| {
         // TODO use getOrPut for incremental so that we don't create duplicates
         if (elf_file.getStartStopBasename(shdr)) |name| {
-            const start_name = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
+            const start_name = try std.fmt.allocPrintSentinel(gpa, "__start_{s}", .{name}, 0);
             defer gpa.free(start_name);
-            const stop_name = try std.fmt.allocPrintZ(gpa, "__stop_{s}", .{name});
+            const stop_name = try std.fmt.allocPrintSentinel(gpa, "__stop_{s}", .{name}, 0);
             defer gpa.free(stop_name);
 
             for (&[_][]const u8{ start_name, stop_name }) |nn| {
@@ -437,38 +437,31 @@ pub fn setSymbolExtra(self: *LinkerDefined, index: u32, extra: Symbol.Extra) voi
     }
 }
 
-pub fn fmtSymtab(self: *LinkerDefined, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *LinkerDefined, elf_file: *Elf) std.fmt.Alt(Format, Format.symtab) {
     return .{ .data = .{
         .self = self,
         .elf_file = elf_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     self: *LinkerDefined,
     elf_file: *Elf,
-};
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const self = ctx.self;
-    const elf_file = ctx.elf_file;
-    try writer.writeAll("  globals\n");
-    for (self.symbols.items, 0..) |sym, i| {
-        const ref = self.resolveSymbol(@intCast(i), elf_file);
-        if (elf_file.symbol(ref)) |ref_sym| {
-            try writer.print("    {}\n", .{ref_sym.fmt(elf_file)});
-        } else {
-            try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+    fn symtab(ctx: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        const self = ctx.self;
+        const elf_file = ctx.elf_file;
+        try writer.writeAll("  globals\n");
+        for (self.symbols.items, 0..) |sym, i| {
+            const ref = self.resolveSymbol(@intCast(i), elf_file);
+            if (elf_file.symbol(ref)) |ref_sym| {
+                try writer.print("    {f}\n", .{ref_sym.fmt(elf_file)});
+            } else {
+                try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+            }
         }
     }
-}
+};
 
 const assert = std.debug.assert;
 const elf = std.elf;

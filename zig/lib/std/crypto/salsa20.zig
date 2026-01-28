@@ -41,7 +41,7 @@ fn SalsaVecImpl(comptime rounds: comptime_int) type {
             };
         }
 
-        inline fn salsaCore(x: *BlockVec, input: BlockVec, comptime feedback: bool) void {
+        fn salsaCore(x: *BlockVec, input: BlockVec, comptime feedback: bool) void {
             const n1n2n3n0 = Lane{ input[3][1], input[3][2], input[3][3], input[3][0] };
             const n1n2 = Half{ n1n2n3n0[0], n1n2n3n0[1] };
             const n3n0 = Half{ n1n2n3n0[2], n1n2n3n0[3] };
@@ -203,7 +203,7 @@ fn SalsaNonVecImpl(comptime rounds: comptime_int) type {
             d: u6,
         };
 
-        inline fn Rp(a: usize, b: usize, c: usize, d: u6) QuarterRound {
+        fn Rp(a: usize, b: usize, c: usize, d: u6) QuarterRound {
             return QuarterRound{
                 .a = a,
                 .b = b,
@@ -212,7 +212,7 @@ fn SalsaNonVecImpl(comptime rounds: comptime_int) type {
             };
         }
 
-        inline fn salsaCore(x: *BlockVec, input: BlockVec, comptime feedback: bool) void {
+        fn salsaCore(x: *BlockVec, input: BlockVec, comptime feedback: bool) void {
             const arx_steps = comptime [_]QuarterRound{
                 Rp(4, 0, 12, 7),   Rp(8, 4, 0, 9),    Rp(12, 8, 4, 13),   Rp(0, 12, 8, 18),
                 Rp(9, 5, 1, 7),    Rp(13, 9, 5, 9),   Rp(1, 13, 9, 13),   Rp(5, 1, 13, 18),
@@ -533,9 +533,9 @@ pub const SealedBox = struct {
 
     /// Encrypt a message `m` for a recipient whose public key is `public_key`.
     /// `c` must be `seal_length` bytes larger than `m`, so that the required metadata can be added.
-    pub fn seal(c: []u8, m: []const u8, public_key: [public_length]u8) (WeakPublicKeyError || IdentityElementError)!void {
+    pub fn seal(io: std.Io, c: []u8, m: []const u8, public_key: [public_length]u8) (WeakPublicKeyError || IdentityElementError)!void {
         debug.assert(c.len == m.len + seal_length);
-        var ekp = KeyPair.generate();
+        var ekp = KeyPair.generate(io);
         const nonce = createNonce(ekp.public_key, public_key);
         c[0..public_length].* = ekp.public_key;
         try Box.seal(c[Box.public_length..], m, nonce, public_key, ekp.secret_key);
@@ -557,6 +557,8 @@ pub const SealedBox = struct {
 const htest = @import("test.zig");
 
 test "(x)salsa20" {
+    if (builtin.cpu.has(.riscv, .v) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24299
+
     const key = [_]u8{0x69} ** 32;
     const nonce = [_]u8{0x42} ** 8;
     const msg = [_]u8{0} ** 20;
@@ -571,56 +573,64 @@ test "(x)salsa20" {
 }
 
 test "xsalsa20poly1305" {
+    const io = std.testing.io;
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var c: [msg.len]u8 = undefined;
     var key: [XSalsa20Poly1305.key_length]u8 = undefined;
     var nonce: [XSalsa20Poly1305.nonce_length]u8 = undefined;
     var tag: [XSalsa20Poly1305.tag_length]u8 = undefined;
-    crypto.random.bytes(&msg);
-    crypto.random.bytes(&key);
-    crypto.random.bytes(&nonce);
+    io.random(&msg);
+    io.random(&key);
+    io.random(&nonce);
 
     XSalsa20Poly1305.encrypt(c[0..], &tag, msg[0..], "ad", nonce, key);
     try XSalsa20Poly1305.decrypt(msg2[0..], c[0..], tag, "ad", nonce, key);
 }
 
 test "xsalsa20poly1305 secretbox" {
+    const io = std.testing.io;
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var key: [XSalsa20Poly1305.key_length]u8 = undefined;
     var nonce: [Box.nonce_length]u8 = undefined;
     var boxed: [msg.len + Box.tag_length]u8 = undefined;
-    crypto.random.bytes(&msg);
-    crypto.random.bytes(&key);
-    crypto.random.bytes(&nonce);
+    io.random(&msg);
+    io.random(&key);
+    io.random(&nonce);
 
     SecretBox.seal(boxed[0..], msg[0..], nonce, key);
     try SecretBox.open(msg2[0..], boxed[0..], nonce, key);
 }
 
 test "xsalsa20poly1305 box" {
+    if (builtin.cpu.has(.riscv, .v) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24299
+
+    const io = std.testing.io;
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var nonce: [Box.nonce_length]u8 = undefined;
     var boxed: [msg.len + Box.tag_length]u8 = undefined;
-    crypto.random.bytes(&msg);
-    crypto.random.bytes(&nonce);
+    io.random(&msg);
+    io.random(&nonce);
 
-    const kp1 = Box.KeyPair.generate();
-    const kp2 = Box.KeyPair.generate();
+    const kp1 = Box.KeyPair.generate(io);
+    const kp2 = Box.KeyPair.generate(io);
     try Box.seal(boxed[0..], msg[0..], nonce, kp1.public_key, kp2.secret_key);
     try Box.open(msg2[0..], boxed[0..], nonce, kp2.public_key, kp1.secret_key);
 }
 
 test "xsalsa20poly1305 sealedbox" {
+    if (builtin.cpu.has(.riscv, .v) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24299
+
+    const io = std.testing.io;
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var boxed: [msg.len + SealedBox.seal_length]u8 = undefined;
-    crypto.random.bytes(&msg);
+    io.random(&msg);
 
-    const kp = Box.KeyPair.generate();
-    try SealedBox.seal(boxed[0..], msg[0..], kp.public_key);
+    const kp = Box.KeyPair.generate(io);
+    try SealedBox.seal(io, boxed[0..], msg[0..], kp.public_key);
     try SealedBox.open(msg2[0..], boxed[0..], kp);
 }
 

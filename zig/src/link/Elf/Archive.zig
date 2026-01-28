@@ -1,3 +1,21 @@
+const Archive = @This();
+
+const std = @import("std");
+const Io = std.Io;
+const assert = std.debug.assert;
+const elf = std.elf;
+const fs = std.fs;
+const log = std.log.scoped(.link);
+const mem = std.mem;
+const Path = std.Build.Cache.Path;
+const Allocator = std.mem.Allocator;
+
+const Diags = @import("../../link.zig").Diags;
+const Elf = @import("../Elf.zig");
+const File = @import("file.zig").File;
+const Object = @import("Object.zig");
+const StringTable = @import("../StringTable.zig");
+
 objects: []const Object,
 /// '\n'-delimited
 strtab: []const u8,
@@ -10,52 +28,51 @@ pub fn deinit(a: *Archive, gpa: Allocator) void {
 
 pub fn parse(
     gpa: Allocator,
+    io: Io,
     diags: *Diags,
-    file_handles: *const std.ArrayListUnmanaged(File.Handle),
+    file_handles: *const std.ArrayList(File.Handle),
     path: Path,
     handle_index: File.HandleIndex,
 ) !Archive {
-    const handle = file_handles.items[handle_index];
+    const file = file_handles.items[handle_index];
     var pos: usize = 0;
     {
         var magic_buffer: [elf.ARMAG.len]u8 = undefined;
-        const n = try handle.preadAll(&magic_buffer, pos);
+        const n = try file.readPositionalAll(io, &magic_buffer, pos);
         if (n != magic_buffer.len) return error.BadMagic;
         if (!mem.eql(u8, &magic_buffer, elf.ARMAG)) return error.BadMagic;
         pos += magic_buffer.len;
     }
 
-    const size = (try handle.stat()).size;
+    const size = (try file.stat(io)).size;
 
-    var objects: std.ArrayListUnmanaged(Object) = .empty;
+    var objects: std.ArrayList(Object) = .empty;
     defer objects.deinit(gpa);
 
-    var strtab: std.ArrayListUnmanaged(u8) = .empty;
+    var strtab: std.ArrayList(u8) = .empty;
     defer strtab.deinit(gpa);
 
     while (pos < size) {
-        pos = mem.alignForward(usize, pos, 2);
-
         var hdr: elf.ar_hdr = undefined;
         {
-            const n = try handle.preadAll(mem.asBytes(&hdr), pos);
+            const n = try file.readPositionalAll(io, mem.asBytes(&hdr), pos);
             if (n != @sizeOf(elf.ar_hdr)) return error.UnexpectedEndOfFile;
         }
         pos += @sizeOf(elf.ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
-            return diags.failParse(path, "invalid archive header delimiter: {s}", .{
-                std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
+            return diags.failParse(path, "invalid archive header delimiter: {f}", .{
+                std.ascii.hexEscape(&hdr.ar_fmag, .lower),
             });
         }
 
         const obj_size = try hdr.size();
-        defer pos += obj_size;
+        defer pos = std.mem.alignForward(usize, pos + obj_size, 2);
 
         if (hdr.isSymtab() or hdr.isSymtab64()) continue;
         if (hdr.isStrtab()) {
             try strtab.resize(gpa, obj_size);
-            const amt = try handle.preadAll(strtab.items, pos);
+            const amt = try file.readPositionalAll(io, strtab.items, pos);
             if (amt != obj_size) return error.InputOutput;
             continue;
         }
@@ -83,7 +100,7 @@ pub fn parse(
             .alive = false,
         };
 
-        log.debug("extracting object '{}' from archive '{}'", .{
+        log.debug("extracting object '{f}' from archive '{f}'", .{
             @as(Path, object.path), @as(Path, path),
         });
 
@@ -120,11 +137,9 @@ pub fn setArHdr(opts: struct {
         .ar_fmag = undefined,
     };
     @memset(mem.asBytes(&hdr), 0x20);
-    @memcpy(&hdr.ar_fmag, elf.ARFMAG);
 
     {
-        var stream = std.io.fixedBufferStream(&hdr.ar_name);
-        const writer = stream.writer();
+        var writer: Io.Writer = .fixed(&hdr.ar_name);
         switch (opts.name) {
             .symtab => writer.print("{s}", .{elf.SYM64NAME}) catch unreachable,
             .strtab => writer.print("//", .{}) catch unreachable,
@@ -132,10 +147,15 @@ pub fn setArHdr(opts: struct {
             .name_off => |x| writer.print("/{d}", .{x}) catch unreachable,
         }
     }
+    hdr.ar_date[0] = '0';
+    hdr.ar_uid[0] = '0';
+    hdr.ar_gid[0] = '0';
+    hdr.ar_mode[0] = '0';
     {
-        var stream = std.io.fixedBufferStream(&hdr.ar_size);
-        stream.writer().print("{d}", .{opts.size}) catch unreachable;
+        var writer: Io.Writer = .fixed(&hdr.ar_size);
+        writer.print("{d}", .{opts.size}) catch unreachable;
     }
+    hdr.ar_fmag = elf.ARFMAG.*;
 
     return hdr;
 }
@@ -144,7 +164,7 @@ const strtab_delimiter = '\n';
 pub const max_member_name_len = 15;
 
 pub const ArSymtab = struct {
-    symtab: std.ArrayListUnmanaged(Entry) = .empty,
+    symtab: std.ArrayList(Entry) = .empty,
     strtab: StringTable = .{},
 
     pub fn deinit(ar: *ArSymtab, allocator: Allocator) void {
@@ -201,46 +221,26 @@ pub const ArSymtab = struct {
         }
     }
 
-    pub fn format(
-        ar: ArSymtab,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = ar;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format ar symtab directly; use fmt instead");
-    }
-
-    const FormatContext = struct {
+    const Format = struct {
         ar: ArSymtab,
         elf_file: *Elf,
+
+        fn default(f: Format, writer: *Io.Writer) Io.Writer.Error!void {
+            const ar = f.ar;
+            const elf_file = f.elf_file;
+            for (ar.symtab.items, 0..) |entry, i| {
+                const name = ar.strtab.getAssumeExists(entry.off);
+                const file = elf_file.file(entry.file_index).?;
+                try writer.print("  {d}: {s} in file({d})({f})\n", .{ i, name, entry.file_index, file.fmtPath() });
+            }
+        }
     };
 
-    pub fn fmt(ar: ArSymtab, elf_file: *Elf) std.fmt.Formatter(format2) {
+    pub fn fmt(ar: ArSymtab, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .ar = ar,
             .elf_file = elf_file,
         } };
-    }
-
-    fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        const ar = ctx.ar;
-        const elf_file = ctx.elf_file;
-        for (ar.symtab.items, 0..) |entry, i| {
-            const name = ar.strtab.getAssumeExists(entry.off);
-            const file = elf_file.file(entry.file_index).?;
-            try writer.print("  {d}: {s} in file({d})({})\n", .{ i, name, entry.file_index, file.fmtPath() });
-        }
     }
 
     const Entry = struct {
@@ -258,7 +258,7 @@ pub const ArSymtab = struct {
 };
 
 pub const ArStrtab = struct {
-    buffer: std.ArrayListUnmanaged(u8) = .empty,
+    buffer: std.ArrayList(u8) = .empty,
 
     pub fn deinit(ar: *ArStrtab, allocator: Allocator) void {
         ar.buffer.deinit(allocator);
@@ -266,7 +266,7 @@ pub const ArStrtab = struct {
 
     pub fn insert(ar: *ArStrtab, allocator: Allocator, name: []const u8) error{OutOfMemory}!u32 {
         const off = @as(u32, @intCast(ar.buffer.items.len));
-        try ar.buffer.writer(allocator).print("{s}/{c}", .{ name, strtab_delimiter });
+        try ar.buffer.print(allocator, "{s}/{c}", .{ name, strtab_delimiter });
         return off;
     }
 
@@ -280,15 +280,8 @@ pub const ArStrtab = struct {
         try writer.writeAll(ar.buffer.items);
     }
 
-    pub fn format(
-        ar: ArStrtab,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        try writer.print("{s}", .{std.fmt.fmtSliceEscapeLower(ar.buffer.items)});
+    pub fn format(ar: ArStrtab, writer: *Io.Writer) Io.Writer.Error!void {
+        try writer.print("{f}", .{std.ascii.hexEscape(ar.buffer.items, .lower)});
     }
 };
 
@@ -303,19 +296,3 @@ pub const ArState = struct {
     /// Total size of the contributing object (excludes ar_hdr).
     size: u64 = 0,
 };
-
-const std = @import("std");
-const assert = std.debug.assert;
-const elf = std.elf;
-const fs = std.fs;
-const log = std.log.scoped(.link);
-const mem = std.mem;
-const Path = std.Build.Cache.Path;
-const Allocator = std.mem.Allocator;
-
-const Diags = @import("../../link.zig").Diags;
-const Archive = @This();
-const Elf = @import("../Elf.zig");
-const File = @import("file.zig").File;
-const Object = @import("Object.zig");
-const StringTable = @import("../StringTable.zig");

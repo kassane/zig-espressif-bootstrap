@@ -1,4 +1,5 @@
 #target=x86_64-linux-selfhosted
+#target=x86_64-windows-selfhosted
 #target=x86_64-linux-cbe
 #target=x86_64-windows-cbe
 #target=wasm32-wasi-selfhosted
@@ -7,8 +8,9 @@
 const std = @import("std");
 const string = @embedFile("string.txt");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll(string);
+    try std.Io.File.stdout().writeStreamingAll(io, string);
 }
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #file=string.txt
 Hello, World!
 #expect_stdout="Hello, World!\n"
@@ -27,8 +29,9 @@ Hello again, World!
 const std = @import("std");
 const string = @embedFile("string.txt");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll("a hardcoded string\n");
+    try std.Io.File.stdout().writeStreamingAll(io, "a hardcoded string\n");
 }
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_stdout="a hardcoded string\n"
 
 #update=re-introduce reference to file
@@ -36,8 +39,9 @@ pub fn main() !void {
 const std = @import("std");
 const string = @embedFile("string.txt");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll(string);
+    try std.Io.File.stdout().writeStreamingAll(io, string);
 }
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_error=main.zig:2:27: error: unable to open 'string.txt': FileNotFound
 
 #update=recreate file

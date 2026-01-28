@@ -3,8 +3,6 @@
 const common = @import("./common.zig");
 const comparef = @import("./comparef.zig");
 
-pub const panic = common.panic;
-
 comptime {
     if (common.want_ppc_abi) {
         @export(&__getf2, .{ .name = "__gekf2", .linkage = common.linkage, .visibility = common.visibility });

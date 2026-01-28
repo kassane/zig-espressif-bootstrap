@@ -5,7 +5,5 @@ pub fn main() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :2:23: error: expected error union type, found 'bool'
+// :2:11: error: expected error union type, found 'bool'

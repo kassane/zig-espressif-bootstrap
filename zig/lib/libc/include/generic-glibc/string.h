@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2025 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -26,6 +26,10 @@
 #include <bits/libc-header-start.h>
 
 __BEGIN_DECLS
+
+#if __GLIBC_USE (ISOC23)
+# define __STDC_VERSION_STRING_H__ 202311L
+#endif
 
 /* Get size_t and NULL from <stddef.h>.  */
 #define	__need_size_t
@@ -59,6 +63,13 @@ extern void *memccpy (void *__restrict __dest, const void *__restrict __src,
 
 /* Set N bytes of S to C.  */
 extern void *memset (void *__s, int __c, size_t __n) __THROW __nonnull ((1));
+
+#if defined __USE_MISC || __GLIBC_USE (ISOC23)
+/* Like memset, but the compiler will not delete a call to this
+   function, even if S is dead after the call.  */
+extern void *memset_explicit (void *__s, int __c, size_t __n)
+     __THROW __nonnull ((1)) __fortified_attr_access (__write_only__, 1, 3);
+#endif
 
 /* Compare N bytes of S1 and S2.  */
 extern int memcmp (const void *__s1, const void *__s2, size_t __n)
@@ -106,6 +117,10 @@ memchr (const void *__s, int __c, size_t __n) __THROW
 #else
 extern void *memchr (const void *__s, int __c, size_t __n)
       __THROW __attribute_pure__ __nonnull ((1));
+# if __GLIBC_USE (ISOC23) && defined __glibc_const_generic && !defined _LIBC
+#  define memchr(S, C, N)					\
+  __glibc_const_generic (S, const void *, memchr (S, C, N))
+# endif
 #endif
 
 #ifdef __USE_GNU
@@ -245,6 +260,10 @@ strchr (const char *__s, int __c) __THROW
 #else
 extern char *strchr (const char *__s, int __c)
      __THROW __attribute_pure__ __nonnull ((1));
+# if __GLIBC_USE (ISOC23) && defined __glibc_const_generic && !defined _LIBC
+#  define strchr(S, C)						\
+  __glibc_const_generic (S, const char *, strchr (S, C))
+# endif
 #endif
 /* Find the last occurrence of C in S.  */
 #ifdef __CORRECT_ISO_CPP_STRING_H_PROTO
@@ -272,6 +291,10 @@ strrchr (const char *__s, int __c) __THROW
 #else
 extern char *strrchr (const char *__s, int __c)
      __THROW __attribute_pure__ __nonnull ((1));
+# if __GLIBC_USE (ISOC23) && defined __glibc_const_generic && !defined _LIBC
+#  define strrchr(S, C)						\
+  __glibc_const_generic (S, const char *, strrchr (S, C))
+# endif
 #endif
 
 #ifdef __USE_MISC
@@ -322,6 +345,10 @@ strpbrk (const char *__s, const char *__accept) __THROW
 #else
 extern char *strpbrk (const char *__s, const char *__accept)
      __THROW __attribute_pure__ __nonnull ((1, 2));
+# if __GLIBC_USE (ISOC23) && defined __glibc_const_generic && !defined _LIBC
+#  define strpbrk(S, ACCEPT)					\
+  __glibc_const_generic (S, const char *, strpbrk (S, ACCEPT))
+# endif
 #endif
 /* Find the first occurrence of NEEDLE in HAYSTACK.  */
 #ifdef __CORRECT_ISO_CPP_STRING_H_PROTO
@@ -349,6 +376,11 @@ strstr (const char *__haystack, const char *__needle) __THROW
 #else
 extern char *strstr (const char *__haystack, const char *__needle)
      __THROW __attribute_pure__ __nonnull ((1, 2));
+# if __GLIBC_USE (ISOC23) && defined __glibc_const_generic && !defined _LIBC
+#  define strstr(HAYSTACK, NEEDLE)			\
+  __glibc_const_generic (HAYSTACK, const char *,	\
+			 strstr (HAYSTACK, NEEDLE))
+# endif
 #endif
 
 
@@ -502,7 +534,7 @@ extern char *stpncpy (char *__restrict __dest,
 #endif
 
 /*
- * strlcpy and strlcat introduced in glibc 2.38
+ * zig patch: strlcpy and strlcat introduced in glibc 2.38
  * https://sourceware.org/git/?p=glibc.git;a=commit;h=2e0bbbfbf95fc9e22692e93658a6fbdd2d4554da
  */
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38) || __GLIBC__ > 2

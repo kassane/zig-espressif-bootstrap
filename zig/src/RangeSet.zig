@@ -1,102 +1,92 @@
-const std = @import("std");
-const assert = std.debug.assert;
-const Order = std.math.Order;
-
-const InternPool = @import("InternPool.zig");
-const Type = @import("Type.zig");
-const Value = @import("Value.zig");
-const Zcu = @import("Zcu.zig");
 const RangeSet = @This();
-const LazySrcLoc = Zcu.LazySrcLoc;
 
-zcu: *Zcu,
 ranges: std.ArrayList(Range),
 
 pub const Range = struct {
-    first: InternPool.Index,
-    last: InternPool.Index,
+    first: Value,
+    last: Value,
     src: LazySrcLoc,
 };
 
-pub fn init(allocator: std.mem.Allocator, zcu: *Zcu) RangeSet {
-    return .{
-        .zcu = zcu,
-        .ranges = std.ArrayList(Range).init(allocator),
-    };
+pub const empty: RangeSet = .{ .ranges = .empty };
+
+pub fn deinit(self: *RangeSet, allocator: Allocator) void {
+    self.ranges.deinit(allocator);
+    self.* = undefined;
 }
 
-pub fn deinit(self: *RangeSet) void {
-    self.ranges.deinit();
+pub fn ensureUnusedCapacity(self: *RangeSet, allocator: Allocator, additional_count: usize) Allocator.Error!void {
+    return self.ranges.ensureUnusedCapacity(allocator, additional_count);
 }
 
-pub fn add(
-    self: *RangeSet,
-    first: InternPool.Index,
-    last: InternPool.Index,
-    src: LazySrcLoc,
-) !?LazySrcLoc {
-    const zcu = self.zcu;
-    const ip = &zcu.intern_pool;
+pub fn addAssumeCapacity(set: *RangeSet, new: Range, ty: Type, zcu: *Zcu) ?LazySrcLoc {
+    assert(new.first.typeOf(zcu).eql(ty, zcu));
+    assert(new.last.typeOf(zcu).eql(ty, zcu));
 
-    const ty = ip.typeOf(first);
-    assert(ty == ip.typeOf(last));
-
-    for (self.ranges.items) |range| {
-        assert(ty == ip.typeOf(range.first));
-        assert(ty == ip.typeOf(range.last));
-
-        if (Value.fromInterned(last).compareScalar(.gte, Value.fromInterned(range.first), Type.fromInterned(ty), zcu) and
-            Value.fromInterned(first).compareScalar(.lte, Value.fromInterned(range.last), Type.fromInterned(ty), zcu))
+    for (set.ranges.items) |range| {
+        if (new.last.compareScalar(.gte, range.first, ty, zcu) and
+            new.first.compareScalar(.lte, range.last, ty, zcu))
         {
             return range.src; // They overlap.
         }
     }
-
-    try self.ranges.append(.{
-        .first = first,
-        .last = last,
-        .src = src,
-    });
+    set.ranges.appendAssumeCapacity(new);
     return null;
 }
 
-/// Assumes a and b do not overlap
-fn lessThan(zcu: *Zcu, a: Range, b: Range) bool {
-    const ty = Type.fromInterned(zcu.intern_pool.typeOf(a.first));
-    return Value.fromInterned(a.first).compareScalar(.lt, Value.fromInterned(b.first), ty, zcu);
+pub fn add(set: *RangeSet, allocator: Allocator, new: Range, ty: Type, zcu: *Zcu) Allocator.Error!?LazySrcLoc {
+    try set.ensureUnusedCapacity(allocator, 1);
+    return set.addAssumeCapacity(new, ty, zcu);
 }
 
-pub fn spans(self: *RangeSet, first: InternPool.Index, last: InternPool.Index) !bool {
-    const zcu = self.zcu;
-    const ip = &zcu.intern_pool;
-    assert(ip.typeOf(first) == ip.typeOf(last));
+const SortCtx = struct {
+    ty: Type,
+    zcu: *Zcu,
+};
+/// Assumes a and b do not overlap
+fn lessThan(ctx: SortCtx, a: Range, b: Range) bool {
+    return a.first.compareScalar(.lt, b.first, ctx.ty, ctx.zcu);
+}
 
-    if (self.ranges.items.len == 0)
-        return false;
+pub fn spans(
+    set: *RangeSet,
+    allocator: Allocator,
+    first: Value,
+    last: Value,
+    ty: Type,
+    zcu: *Zcu,
+) Allocator.Error!bool {
+    assert(first.typeOf(zcu).eql(ty, zcu));
+    assert(last.typeOf(zcu).eql(ty, zcu));
+    if (set.ranges.items.len == 0) return false;
 
-    std.mem.sort(Range, self.ranges.items, zcu, lessThan);
+    std.mem.sort(Range, set.ranges.items, SortCtx{ .ty = ty, .zcu = zcu }, lessThan);
 
-    if (self.ranges.items[0].first != first or
-        self.ranges.items[self.ranges.items.len - 1].last != last)
+    if (!set.ranges.items[0].first.eql(first, ty, zcu) or
+        !set.ranges.items[set.ranges.items.len - 1].last.eql(last, ty, zcu))
     {
         return false;
     }
 
+    const limbs = try allocator.alloc(
+        std.math.big.Limb,
+        std.math.big.int.calcTwosCompLimbCount(ty.intInfo(zcu).bits),
+    );
+    defer allocator.free(limbs);
+    var counter: std.math.big.int.Mutable = .init(limbs, 0);
+
     var space: InternPool.Key.Int.Storage.BigIntSpace = undefined;
 
-    var counter = try std.math.big.int.Managed.init(self.ranges.allocator);
-    defer counter.deinit();
-
     // look for gaps
-    for (self.ranges.items[1..], 0..) |cur, i| {
+    for (set.ranges.items[1..], 0..) |cur, i| {
         // i starts counting from the second item.
-        const prev = self.ranges.items[i];
+        const prev = set.ranges.items[i];
 
         // prev.last + 1 == cur.first
-        try counter.copy(Value.fromInterned(prev.last).toBigInt(&space, zcu));
-        try counter.addScalar(&counter, 1);
+        counter.copy(prev.last.toBigInt(&space, zcu));
+        counter.addScalar(counter.toConst(), 1);
 
-        const cur_start_int = Value.fromInterned(cur.first).toBigInt(&space, zcu);
+        const cur_start_int = cur.first.toBigInt(&space, zcu);
         if (!cur_start_int.eql(counter.toConst())) {
             return false;
         }
@@ -104,3 +94,13 @@ pub fn spans(self: *RangeSet, first: InternPool.Index, last: InternPool.Index) !
 
     return true;
 }
+
+const std = @import("std");
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+
+const InternPool = @import("InternPool.zig");
+const Type = @import("Type.zig");
+const Value = @import("Value.zig");
+const Zcu = @import("Zcu.zig");
+const LazySrcLoc = Zcu.LazySrcLoc;

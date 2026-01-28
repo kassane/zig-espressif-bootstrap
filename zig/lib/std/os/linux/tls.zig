@@ -16,7 +16,6 @@ const math = std.math;
 const assert = std.debug.assert;
 const native_arch = @import("builtin").cpu.arch;
 const linux = std.os.linux;
-const posix = std.posix;
 const page_size_min = std.heap.page_size_min;
 
 /// Represents an ELF TLS variant.
@@ -47,7 +46,7 @@ const Variant = enum {
     /// -------------------------------------^-------------
     ///                                      `-- The TP register points here.
     ///
-    /// The offset (which can be zero) is applied to the TP only; there is never physical gap
+    /// The offset (which can be zero) is applied to the TP only; there is never a physical gap
     /// between the ABI TCB and the TLS blocks. This implies that we only need to align the TP.
     ///
     /// The first (and only) word in the ABI TCB points to the DTV.
@@ -64,12 +63,19 @@ const Variant = enum {
 };
 
 const current_variant: Variant = switch (native_arch) {
-    .arc,
-    .arm,
-    .armeb,
     .aarch64,
     .aarch64_be,
+    .alpha,
+    .arc,
+    .arceb,
+    .arm,
+    .armeb,
     .csky,
+    .hppa,
+    .microblaze,
+    .microblazeel,
+    .sh,
+    .sheb,
     .thumb,
     .thumbeb,
     => .I_original,
@@ -80,6 +86,7 @@ const current_variant: Variant = switch (native_arch) {
     .mipsel,
     .mips64,
     .mips64el,
+    .or1k,
     .powerpc,
     .powerpcle,
     .powerpc64,
@@ -133,18 +140,22 @@ const current_dtv_offset = switch (native_arch) {
 /// Per-thread storage for the ELF TLS ABI.
 const AbiTcb = switch (current_variant) {
     .I_original, .I_modified => switch (native_arch) {
-        // ARM EABI mandates enough space for two pointers: the first one points to the DTV as
-        // usual, while the second one is unspecified.
         .aarch64,
         .aarch64_be,
+        .alpha,
         .arm,
         .armeb,
+        .hppa,
+        .microblaze,
+        .microblazeel,
+        .sh,
+        .sheb,
         .thumb,
         .thumbeb,
         => extern struct {
             /// This is offset by `current_dtv_offset`.
             dtv: usize,
-            reserved: ?*anyopaque,
+            _reserved: ?*anyopaque,
         },
         else => extern struct {
             /// This is offset by `current_dtv_offset`.
@@ -243,7 +254,15 @@ pub fn setThreadPointer(addr: usize) void {
                 : [addr] "r" (addr),
             );
         },
-        .arc => {
+        .alpha => {
+            asm volatile (
+                \\ lda a0, %[addr]
+                \\ wruniq
+                :
+                : [addr] "r" (addr),
+            );
+        },
+        .arc, .arceb => {
             // We apparently need to both set r25 (TP) *and* inform the kernel...
             asm volatile (
                 \\ mov r25, %[addr]
@@ -268,6 +287,13 @@ pub fn setThreadPointer(addr: usize) void {
                 : [addr] "r" (addr),
             );
         },
+        .hppa => {
+            asm volatile (
+                \\ ble 0xe0(%%sr2, %%r0)
+                :
+                : [addr] "={r26}" (addr),
+                : .{ .r29 = true });
+        },
         .loongarch32, .loongarch64 => {
             asm volatile (
                 \\ move $tp, %[addr]
@@ -285,6 +311,20 @@ pub fn setThreadPointer(addr: usize) void {
         .csky, .mips, .mipsel, .mips64, .mips64el => {
             const rc = @call(.always_inline, linux.syscall1, .{ .set_thread_area, addr });
             assert(rc == 0);
+        },
+        .microblaze, .microblazeel => {
+            asm volatile (
+                \\ ori r21, %[addr], 0
+                :
+                : [addr] "r" (addr),
+            );
+        },
+        .or1k => {
+            asm volatile (
+                \\ l.ori r10, %[addr], 0
+                :
+                : [addr] "r" (addr),
+            );
         },
         .powerpc, .powerpcle => {
             asm volatile (
@@ -308,7 +348,13 @@ pub fn setThreadPointer(addr: usize) void {
                 \\ sar %%a0, %%r0
                 :
                 : [addr] "r" (addr),
-                : "r0"
+                : .{ .r0 = true });
+        },
+        .sh, .sheb => {
+            asm volatile (
+                \\ ldc gbr, %[addr]
+                :
+                : [addr] "r" (addr),
             );
         },
         .sparc, .sparc64 => {
@@ -485,13 +531,11 @@ pub fn prepareArea(area: []u8) usize {
     };
 }
 
-/// The main motivation for the size chosen here is that this is how much ends up being requested for
-/// the thread-local variables of the `std.crypto.random` implementation. I'm not sure why it ends up
-/// being so much; the struct itself is only 64 bytes. I think it has to do with being page-aligned
-/// and LLVM or LLD is not smart enough to lay out the TLS data in a space-conserving way. Anyway, I
-/// think it's fine because it's less than 3 pages of memory, and putting it in the ELF like this is
-/// equivalent to moving the `mmap` call below into the kernel, avoiding syscall overhead.
-var main_thread_area_buffer: [0x2100]u8 align(page_size_min) = undefined;
+/// The main motivation for the size chosen here is to be larger than total
+/// amount of thread-local variables for most programs. Putting this allocation
+/// in the ELF like this is equivalent to moving the `mmap` call below into the
+/// kernel, avoiding syscall overhead.
+var main_thread_area_buffer: [0x1000]u8 align(page_size_min) = undefined;
 
 /// Computes the layout of the static TLS area, allocates the area, initializes all of its fields,
 /// and assigns the architecture-specific value to the TP register.
@@ -508,15 +552,8 @@ pub fn initStatic(phdrs: []elf.Phdr) void {
             break :blk main_thread_area_buffer[0..area_desc.size];
         }
 
-        const begin_addr = mmap(
-            null,
-            area_desc.size + area_desc.alignment - 1,
-            posix.PROT.READ | posix.PROT.WRITE,
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-            -1,
-            0,
-        );
-        if (@as(isize, @bitCast(begin_addr)) < 0) @trap();
+        const begin_addr = mmap_tls(area_desc.size + area_desc.alignment - 1);
+        if (@call(.always_inline, linux.errno, .{begin_addr}) != .SUCCESS) @trap();
 
         const area_ptr: [*]align(page_size_min) u8 = @ptrFromInt(begin_addr);
 
@@ -530,16 +567,19 @@ pub fn initStatic(phdrs: []elf.Phdr) void {
     setThreadPointer(tp_value);
 }
 
-inline fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: linux.MAP, fd: i32, offset: i64) usize {
+inline fn mmap_tls(length: usize) usize {
+    const prot: linux.PROT = .{ .READ = true, .WRITE = true };
+    const flags: linux.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true };
+
     if (@hasField(linux.SYS, "mmap2")) {
         return @call(.always_inline, linux.syscall6, .{
             .mmap2,
-            @intFromPtr(address),
+            0,
             length,
-            prot,
+            @as(u32, @bitCast(prot)),
             @as(u32, @bitCast(flags)),
-            @as(usize, @bitCast(@as(isize, fd))),
-            @as(usize, @truncate(@as(u64, @bitCast(offset)) / linux.MMAP2_UNIT)),
+            @as(usize, @bitCast(@as(isize, -1))),
+            0,
         });
     } else {
         // The s390x mmap() syscall existed before Linux supported syscalls with 5+ parameters, so
@@ -547,21 +587,21 @@ inline fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: linux.MAP, fd
         return if (native_arch == .s390x) @call(.always_inline, linux.syscall1, .{
             .mmap,
             @intFromPtr(&[_]usize{
-                @intFromPtr(address),
+                0,
                 length,
-                prot,
+                @as(u32, @bitCast(prot)),
                 @as(u32, @bitCast(flags)),
-                @as(usize, @bitCast(@as(isize, fd))),
-                @as(u64, @bitCast(offset)),
+                @as(usize, @bitCast(@as(isize, -1))),
+                0,
             }),
         }) else @call(.always_inline, linux.syscall6, .{
             .mmap,
-            @intFromPtr(address),
+            0,
             length,
-            prot,
+            @as(u32, @bitCast(prot)),
             @as(u32, @bitCast(flags)),
-            @as(usize, @bitCast(@as(isize, fd))),
-            @as(u64, @bitCast(offset)),
+            @as(usize, @bitCast(@as(isize, -1))),
+            0,
         });
     }
 }

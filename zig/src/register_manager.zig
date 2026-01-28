@@ -14,14 +14,7 @@ const link = @import("link.zig");
 
 const log = std.log.scoped(.register_manager);
 
-pub const AllocationError = error{
-    OutOfRegisters,
-    OutOfMemory,
-    /// Compiler was asked to operate on a number larger than supported.
-    Overflow,
-    /// Indicates the error is already stored in `failed_codegen` on the Zcu.
-    CodegenFail,
-};
+pub const AllocationError = @import("codegen.zig").CodeGenError || error{OutOfRegisters};
 
 pub fn RegisterManager(
     comptime Function: type,
@@ -245,7 +238,7 @@ pub fn RegisterManager(
             if (i < count) return null;
 
             for (regs, insts) |reg, inst| {
-                log.debug("tryAllocReg {} for inst {?}", .{ reg, inst });
+                log.debug("tryAllocReg {} for inst {?f}", .{ reg, inst });
                 self.markRegAllocated(reg);
 
                 if (inst) |tracked_inst| {
@@ -324,7 +317,7 @@ pub fn RegisterManager(
             tracked_index: TrackedIndex,
             inst: ?Air.Inst.Index,
         ) AllocationError!void {
-            log.debug("getReg {} for inst {?}", .{ regAtTrackedIndex(tracked_index), inst });
+            log.debug("getReg {} for inst {?f}", .{ regAtTrackedIndex(tracked_index), inst });
             if (!self.isRegIndexFree(tracked_index)) {
                 // Move the instruction that was previously there to a
                 // stack allocation.
@@ -356,7 +349,7 @@ pub fn RegisterManager(
             tracked_index: TrackedIndex,
             inst: ?Air.Inst.Index,
         ) void {
-            log.debug("getRegAssumeFree {} for inst {?}", .{ regAtTrackedIndex(tracked_index), inst });
+            log.debug("getRegAssumeFree {} for inst {?f}", .{ regAtTrackedIndex(tracked_index), inst });
             self.markRegIndexAllocated(tracked_index);
 
             assert(self.isRegIndexFree(tracked_index));
@@ -490,7 +483,7 @@ fn MockFunction(comptime Register: type) type {
     return struct {
         allocator: Allocator,
         register_manager: Register.RM = .{},
-        spilled: std.ArrayListUnmanaged(Register) = .empty,
+        spilled: std.ArrayList(Register) = .empty,
 
         const Self = @This();
 

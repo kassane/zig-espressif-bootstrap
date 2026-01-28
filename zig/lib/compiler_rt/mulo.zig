@@ -3,8 +3,6 @@ const builtin = @import("builtin");
 const math = std.math;
 const common = @import("common.zig");
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__mulosi4, .{ .name = "__mulosi4", .linkage = common.linkage, .visibility = common.visibility });
     @export(&__mulodi4, .{ .name = "__mulodi4", .linkage = common.linkage, .visibility = common.visibility });

@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2025 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -29,6 +29,10 @@
 #include <bits/floatn.h>
 #include <math.h>
 #include <complex.h>
+
+#if __GLIBC_USE (ISOC23)
+# define __STDC_VERSION_TGMATH_H__ 202311L
+#endif
 
 
 /* There are two variant implementations of type-generic macros in
@@ -386,7 +390,7 @@
 #   define __TGMATH_TERNARY_REAL_ONLY(Val1, Val2, Val3, Fct)	\
   __TGMATH_3 (Fct, (Val1), (Val2), (Val3))
 #  endif
-#  define __TGMATH_TERNARY_FIRST_REAL_RET_ONLY(Val1, Val2, Val3, Fct)	\
+#  define __TGMATH_TERNARY_FIRST_REAL_ONLY(Val1, Val2, Val3, Fct)	\
   __TGMATH_3 (Fct, (Val1), (Val2), (Val3))
 #  define __TGMATH_UNARY_REAL_IMAG(Val, Fct, Cfct)	\
   __TGMATH_1C (Fct, Cfct, (Val))
@@ -520,14 +524,17 @@
 # endif
 
 # if !__HAVE_BUILTIN_TGMATH
-#  define __TGMATH_TERNARY_FIRST_REAL_RET_ONLY(Val1, Val2, Val3, Fct) \
-     (__extension__ ((sizeof (+(Val1)) == sizeof (double)		\
-		      || __builtin_classify_type (Val1) != 8)		\
-		     ? Fct (Val1, Val2, Val3)				\
-		     : (sizeof (+(Val1)) == sizeof (float))		\
-		     ? Fct##f (Val1, Val2, Val3)			\
-		     : __TGMATH_F128 ((Val1), Fct, (Val1, Val2, Val3))	\
-		     __tgml(Fct) (Val1, Val2, Val3)))
+#  define __TGMATH_TERNARY_FIRST_REAL_ONLY(Val1, Val2, Val3, Fct)	      \
+     (__extension__ ((sizeof (+(Val1)) == sizeof (double)		      \
+		      || __builtin_classify_type (Val1) != 8)		      \
+		     ? (__tgmath_real_type (Val1)) Fct (Val1, Val2, Val3)     \
+		     : (sizeof (+(Val1)) == sizeof (float))		      \
+		     ? (__tgmath_real_type (Val1)) Fct##f (Val1, Val2, Val3)  \
+		     : __TGMATH_F128 ((Val1),				      \
+				      (__tgmath_real_type (Val1)) Fct,	      \
+				      (Val1, Val2, Val3))		      \
+		     (__tgmath_real_type (Val1)) __tgml(Fct) (Val1, Val2,     \
+							      Val3)))
 
 /* XXX This definition has to be changed as soon as the compiler understands
    the imaginary keyword.  */
@@ -923,6 +930,24 @@
 /* Return the cube root of X.  */
 #define cbrt(Val) __TGMATH_UNARY_REAL_ONLY (Val, cbrt)
 
+#if __GLIBC_USE (IEC_60559_FUNCS_EXT_C23)
+/* Return 1+X to the Y power.  */
+# define compoundn(Val1, Val2)					\
+  __TGMATH_BINARY_FIRST_REAL_ONLY (Val1, Val2, compoundn)
+
+/* Return X to the Y power.  */
+# define pown(Val1, Val2) __TGMATH_BINARY_FIRST_REAL_ONLY (Val1, Val2, pown)
+
+/* Return X to the Y power.  */
+# define powr(Val1, Val2) __TGMATH_BINARY_REAL_ONLY (Val1, Val2, powr)
+
+/* Return the Yth root of X.  */
+# define rootn(Val1, Val2) __TGMATH_BINARY_FIRST_REAL_ONLY (Val1, Val2, rootn)
+
+/* Return 1/sqrt(X).  */
+# define rsqrt(Val) __TGMATH_UNARY_REAL_ONLY (Val, rsqrt)
+#endif
+
 
 /* Nearest integer, absolute value, and remainder functions.  */
 
@@ -1038,17 +1063,17 @@
 /* Round X to nearest integer value, rounding halfway cases to even.  */
 # define roundeven(Val) __TGMATH_UNARY_REAL_ONLY (Val, roundeven)
 
-# define fromfp(Val1, Val2, Val3)					\
-  __TGMATH_TERNARY_FIRST_REAL_RET_ONLY (Val1, Val2, Val3, fromfp)
+# define fromfp(Val1, Val2, Val3)				\
+  __TGMATH_TERNARY_FIRST_REAL_ONLY (Val1, Val2, Val3, fromfp)
 
-# define ufromfp(Val1, Val2, Val3)					\
-  __TGMATH_TERNARY_FIRST_REAL_RET_ONLY (Val1, Val2, Val3, ufromfp)
+# define ufromfp(Val1, Val2, Val3)				\
+  __TGMATH_TERNARY_FIRST_REAL_ONLY (Val1, Val2, Val3, ufromfp)
 
-# define fromfpx(Val1, Val2, Val3)					\
-  __TGMATH_TERNARY_FIRST_REAL_RET_ONLY (Val1, Val2, Val3, fromfpx)
+# define fromfpx(Val1, Val2, Val3)				\
+  __TGMATH_TERNARY_FIRST_REAL_ONLY (Val1, Val2, Val3, fromfpx)
 
-# define ufromfpx(Val1, Val2, Val3)					\
-  __TGMATH_TERNARY_FIRST_REAL_RET_ONLY (Val1, Val2, Val3, ufromfpx)
+# define ufromfpx(Val1, Val2, Val3)				\
+  __TGMATH_TERNARY_FIRST_REAL_ONLY (Val1, Val2, Val3, ufromfpx)
 
 /* Like ilogb, but returning long int.  */
 # define llogb(Val) __TGMATH_UNARY_REAL_RET_ONLY (Val, llogb)

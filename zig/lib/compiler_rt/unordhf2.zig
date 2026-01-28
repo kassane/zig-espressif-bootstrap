@@ -1,8 +1,6 @@
 const common = @import("./common.zig");
 const comparef = @import("./comparef.zig");
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__unordhf2, .{ .name = "__unordhf2", .linkage = common.linkage, .visibility = common.visibility });
 }

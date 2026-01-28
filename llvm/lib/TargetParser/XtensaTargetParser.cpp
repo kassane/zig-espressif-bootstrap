@@ -10,9 +10,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/TargetParser/XtensaTargetParser.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSwitch.h"
-#include "llvm/TargetParser/XtensaTargetParser.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace llvm {
 
@@ -41,18 +42,18 @@ constexpr CPUInfo XtensaCPUInfo[] = {
 #include "llvm/TargetParser/XtensaTargetParser.def"
 };
 
-StringRef getBaseName(StringRef CPU){
+StringRef getBaseName(StringRef CPU) {
   return llvm::StringSwitch<StringRef>(CPU)
 #define XTENSA_CPU_ALIAS(NAME, ANAME) .Case(ANAME, NAME)
 #include "llvm/TargetParser/XtensaTargetParser.def"
-       .Default(CPU);
+      .Default(CPU);
 }
 
-StringRef getAliasName(StringRef CPU){
+StringRef getAliasName(StringRef CPU) {
   return llvm::StringSwitch<StringRef>(CPU)
 #define XTENSA_CPU_ALIAS(NAME, ANAME) .Case(NAME, ANAME)
 #include "llvm/TargetParser/XtensaTargetParser.def"
-       .Default(CPU);
+      .Default(CPU);
 }
 
 CPUKind parseCPUKind(StringRef CPU) {
@@ -63,7 +64,7 @@ CPUKind parseCPUKind(StringRef CPU) {
       .Default(CK_INVALID);
 }
 
-//Get all features for the CPU
+// Get all features for the CPU
 void getCPUFeatures(StringRef CPU, SmallVectorImpl<StringRef> &Features) {
   CPU = getBaseName(CPU);
   auto I = llvm::find_if(XtensaCPUInfo,
@@ -77,7 +78,7 @@ void getCPUFeatures(StringRef CPU, SmallVectorImpl<StringRef> &Features) {
   }
 }
 
-//Find all valid CPUs
+// Find all valid CPUs
 void fillValidCPUList(SmallVectorImpl<StringRef> &Values) {
   for (const auto &C : XtensaCPUInfo) {
     if (C.Kind != CK_INVALID) {

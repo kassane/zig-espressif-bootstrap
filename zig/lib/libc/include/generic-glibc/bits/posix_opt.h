@@ -1,5 +1,5 @@
 /* Define POSIX options for Linux.
-   Copyright (C) 1996-2025 Free Software Foundation, Inc.
+   Copyright (C) 1996-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -54,7 +54,7 @@
 
 /* `c_cc' member of 'struct termios' structure can be disabled by
    using the value _POSIX_VDISABLE.  */
-#define	_POSIX_VDISABLE	'\0'
+#define	_POSIX_VDISABLE	0
 
 /* Filenames are not silently truncated.  */
 #define	_POSIX_NO_TRUNC	1

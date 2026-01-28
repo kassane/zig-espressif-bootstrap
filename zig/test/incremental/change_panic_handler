@@ -1,4 +1,5 @@
 #target=x86_64-linux-selfhosted
+#target=x86_64-windows-selfhosted
 #target=x86_64-linux-cbe
 #target=x86_64-windows-cbe
 #update=initial version
@@ -11,10 +12,12 @@ pub fn main() !u8 {
 }
 pub const panic = std.debug.FullPanic(myPanic);
 fn myPanic(msg: []const u8, _: ?usize) noreturn {
-    std.io.getStdOut().writer().print("panic message: {s}\n", .{msg}) catch {};
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &.{});
+    stdout_writer.interface.print("panic message: {s}\n", .{msg}) catch {};
     std.process.exit(0);
 }
 const std = @import("std");
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_stdout="panic message: integer overflow\n"
 
 #update=change the panic handler body
@@ -27,10 +30,12 @@ pub fn main() !u8 {
 }
 pub const panic = std.debug.FullPanic(myPanic);
 fn myPanic(msg: []const u8, _: ?usize) noreturn {
-    std.io.getStdOut().writer().print("new panic message: {s}\n", .{msg}) catch {};
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &.{});
+    stdout_writer.interface.print("new panic message: {s}\n", .{msg}) catch {};
     std.process.exit(0);
 }
 const std = @import("std");
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_stdout="new panic message: integer overflow\n"
 
 #update=change the panic handler function value
@@ -43,8 +48,10 @@ pub fn main() !u8 {
 }
 pub const panic = std.debug.FullPanic(myPanicNew);
 fn myPanicNew(msg: []const u8, _: ?usize) noreturn {
-    std.io.getStdOut().writer().print("third panic message: {s}\n", .{msg}) catch {};
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &.{});
+    stdout_writer.interface.print("third panic message: {s}\n", .{msg}) catch {};
     std.process.exit(0);
 }
 const std = @import("std");
+const io = std.Io.Threaded.global_single_threaded.ioBasic();
 #expect_stdout="third panic message: integer overflow\n"

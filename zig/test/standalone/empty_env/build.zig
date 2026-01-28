@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
 
-    if (builtin.os.tag == .windows and std.process.hasEnvVarConstant("ConEmuHWND")) {
+    if (builtin.os.tag == .windows and b.graph.environ_map.contains("ConEmuHWND")) {
         // ConEmu injects environment variables into processes before they are executed
         // depending on user settings. This obviously invalidates the test, so skipping
         // it is the best option.
@@ -31,6 +31,7 @@ pub fn build(b: *std.Build) void {
     const run = b.addRunArtifact(main);
     run.clearEnvironment();
     run.disable_zig_progress = true;
+    run.color = .manual;
 
     test_step.dependOn(&run.step);
 }

@@ -15,14 +15,15 @@ dsync
 # CHECK: encoding: [0x20,0x20,0x00]
 esync
 
-# CHECK-INST: ill
-# CHECK: encoding: [0x00,0x00,0x00]
-ill
-
 # Instruction format RRR
 # CHECK-INST: isync
 # CHECK: encoding: [0x00,0x20,0x00]
 isync
+
+# Instruction format CALLX
+# CHECK-INST: ill
+# CHECK: encoding: [0x00,0x00,0x00]
+ill
 
 # Instruction format RRR
 # CHECK-INST: nop
@@ -67,10 +68,6 @@ wsr.sar a8
 # CHECK-INST: wsr a8, sar
 # CHECK: encoding: [0x80,0x03,0x13]
 wsr a8, 3
-
-# CHECK-INST: wsr     a8, sar
-# CHECK: encoding: [0x80,0x03,0x13]
-wsr a8, (2 + 1)
 
 # Instruction format RRR
 # CHECK-INST: xsr a8, sar

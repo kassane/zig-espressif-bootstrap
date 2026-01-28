@@ -1,6 +1,6 @@
 const std = @import("std");
+const Io = std.Io;
 const mem = std.mem;
-const io = std.io;
 const LibCInstallation = std.zig.LibCInstallation;
 
 const usage_libc =
@@ -22,27 +22,31 @@ const usage_libc =
     \\
 ;
 
-pub fn main() !void {
-    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_instance.deinit();
-    const arena = arena_instance.allocator();
-    const gpa = arena;
+var stdout_buffer: [4096]u8 = undefined;
 
-    const args = try std.process.argsAlloc(arena);
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const gpa = init.gpa;
+    const io = init.io;
+    const args = try init.minimal.args.toSlice(arena);
+    const environ_map = init.environ_map;
+
     const zig_lib_directory = args[1];
 
     var input_file: ?[]const u8 = null;
     var target_arch_os_abi: []const u8 = "native";
     var print_includes: bool = false;
+    var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
     {
         var i: usize = 2;
         while (i < args.len) : (i += 1) {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = std.io.getStdOut().writer();
                     try stdout.writeAll(usage_libc);
-                    return std.process.cleanExit();
+                    try stdout.flush();
+                    return std.process.cleanExit(io);
                 } else if (mem.eql(u8, arg, "-target")) {
                     if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
                     i += 1;
@@ -63,14 +67,14 @@ pub fn main() !void {
     const target_query = std.zig.parseTargetQueryOrReportFatalError(gpa, .{
         .arch_os_abi = target_arch_os_abi,
     });
-    const target = std.zig.resolveTargetQueryOrFatal(target_query);
+    const target = std.zig.resolveTargetQueryOrFatal(io, target_query);
 
     if (print_includes) {
         const libc_installation: ?*LibCInstallation = libc: {
             if (input_file) |libc_file| {
                 const libc = try arena.create(LibCInstallation);
-                libc.* = LibCInstallation.parse(arena, libc_file, target) catch |err| {
-                    fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
+                libc.* = LibCInstallation.parse(arena, io, libc_file, &target) catch |err| {
+                    fatal("unable to parse libc file at path {s}: {t}", .{ libc_file, err });
                 };
                 break :libc libc;
             } else {
@@ -82,14 +86,16 @@ pub fn main() !void {
 
         const libc_dirs = std.zig.LibCDirs.detect(
             arena,
+            io,
             zig_lib_directory,
-            target,
+            &target,
             is_native_abi,
             true,
             libc_installation,
+            environ_map,
         ) catch |err| {
             const zig_target = try target.zigTriple(arena);
-            fatal("unable to detect libc for target {s}: {s}", .{ zig_target, @errorName(err) });
+            fatal("unable to detect libc for target {s}: {t}", .{ zig_target, err });
         };
 
         if (libc_dirs.libc_include_dir_list.len == 0) {
@@ -97,37 +103,34 @@ pub fn main() !void {
             fatal("no include dirs detected for target {s}", .{zig_target});
         }
 
-        var bw = std.io.bufferedWriter(std.io.getStdOut().writer());
-        var writer = bw.writer();
         for (libc_dirs.libc_include_dir_list) |include_dir| {
-            try writer.writeAll(include_dir);
-            try writer.writeByte('\n');
+            try stdout.writeAll(include_dir);
+            try stdout.writeByte('\n');
         }
-        try bw.flush();
-        return std.process.cleanExit();
+        try stdout.flush();
+        return std.process.cleanExit(io);
     }
 
     if (input_file) |libc_file| {
-        var libc = LibCInstallation.parse(gpa, libc_file, target) catch |err| {
-            fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
+        var libc = LibCInstallation.parse(gpa, io, libc_file, &target) catch |err| {
+            fatal("unable to parse libc file at path {s}: {t}", .{ libc_file, err });
         };
         defer libc.deinit(gpa);
     } else {
         if (!target_query.canDetectLibC()) {
             fatal("unable to detect libc for non-native target", .{});
         }
-        var libc = LibCInstallation.findNative(.{
-            .allocator = gpa,
+        var libc = LibCInstallation.findNative(gpa, io, .{
             .verbose = true,
-            .target = target,
+            .target = &target,
+            .environ_map = environ_map,
         }) catch |err| {
-            fatal("unable to detect native libc: {s}", .{@errorName(err)});
+            fatal("unable to detect native libc: {t}", .{err});
         };
         defer libc.deinit(gpa);
 
-        var bw = std.io.bufferedWriter(std.io.getStdOut().writer());
-        try libc.render(bw.writer());
-        try bw.flush();
+        try libc.render(stdout);
+        try stdout.flush();
     }
 }
 

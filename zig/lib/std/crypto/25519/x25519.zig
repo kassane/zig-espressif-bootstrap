@@ -41,10 +41,10 @@ pub const X25519 = struct {
         }
 
         /// Generate a new, random key pair.
-        pub fn generate() KeyPair {
+        pub fn generate(io: std.Io) KeyPair {
             var random_seed: [seed_length]u8 = undefined;
             while (true) {
-                crypto.random.bytes(&random_seed);
+                io.random(&random_seed);
                 return generateDeterministic(random_seed) catch {
                     @branchHint(.unlikely);
                     continue;

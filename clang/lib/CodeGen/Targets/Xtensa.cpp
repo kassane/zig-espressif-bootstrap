@@ -11,7 +11,6 @@
 
 using namespace clang;
 using namespace clang::CodeGen;
-
 //===----------------------------------------------------------------------===//
 // Xtensa ABI Implementation
 //===----------------------------------------------------------------------===//
@@ -60,8 +59,9 @@ ABIArgInfo XtensaABIInfo::classifyArgumentType(QualType Ty,
   if (CGCXXABI::RecordArgABI RAA = getRecordArgABI(Ty, getCXXABI())) {
     if (ArgGPRsLeft)
       ArgGPRsLeft -= 1;
-    return getNaturalAlignIndirect(Ty, /*ByVal=*/RAA ==
-                                           CGCXXABI::RAA_DirectInMemory);
+    return getNaturalAlignIndirect(
+        Ty, getDataLayout().getAllocaAddrSpace(), /*ByVal=*/RAA ==
+                                           CGCXXABI::RAA_DirectInMemory);;
   }
 
   // Ignore empty structs/unions.
@@ -88,7 +88,7 @@ ABIArgInfo XtensaABIInfo::classifyArgumentType(QualType Ty,
 
   if (!isAggregateTypeForABI(Ty) && !Ty->isVectorType() && !MustUseStack) {
     // Treat an enum type as its underlying type.
-    if (const EnumType *EnumTy = Ty->getAs<EnumType>())
+    if (const auto *EnumTy = Ty->getAs<EnumType>())
       Ty = EnumTy->getDecl()->getIntegerType();
     // All integral types are promoted to XLen width, unless passed on the
     // stack.
@@ -109,6 +109,7 @@ ABIArgInfo XtensaABIInfo::classifyArgumentType(QualType Ty,
         llvm::FixedVectorType::get(llvm::Type::getInt1Ty(getVMContext()), NumBits);
     return ABIArgInfo::getDirect(ResType);
   }
+
   // Vector arguments
   if (getTarget().hasFeature("hifi3") && Ty->isVectorType() && (Size <= 64)) {
     const VectorType *VT = Ty->getAs<VectorType>();
@@ -119,6 +120,7 @@ ABIArgInfo XtensaABIInfo::classifyArgumentType(QualType Ty,
           llvm::IntegerType::get(getVMContext(), Size));
     return ABIArgInfo::getDirectInReg();
   }
+
   // Aggregates which are <= 6*32 will be passed in registers if possible,
   // so coerce to integers.
   if ((Size <= (MaxNumArgGPRs * 32)) && (!MustUseStack)) {
@@ -135,7 +137,8 @@ ABIArgInfo XtensaABIInfo::classifyArgumentType(QualType Ty,
     }
   }
 #undef MAX_STRUCT_IN_REGS_SIZE
-  return getNaturalAlignIndirect(Ty, /*ByVal=*/true);
+  return getNaturalAlignIndirect(
+      Ty, getDataLayout().getAllocaAddrSpace(), /*ByVal=*/true);
 }
 
 ABIArgInfo XtensaABIInfo::classifyReturnType(QualType RetTy) const {
@@ -154,7 +157,7 @@ ABIArgInfo XtensaABIInfo::classifyReturnType(QualType RetTy) const {
 }
 
 RValue XtensaABIInfo::EmitVAArg(CodeGenFunction &CGF, Address VAListAddr,
-                                 QualType Ty, AggValueSlot Slot) const {
+                                QualType Ty, AggValueSlot Slot) const {
   // The va_list structure memory layout:
   // struct __va_list_tag {
   //   int32_t *va_stk;
@@ -207,9 +210,10 @@ RValue XtensaABIInfo::EmitVAArg(CodeGenFunction &CGF, Address VAListAddr,
 
     CharUnits RegSize = CharUnits::fromQuantity(4);
     RegSaveArea =
-        Address(Builder.CreateInBoundsGEP(CGF.Int32Ty, RegSaveArea.emitRawPointer(CGF),
-                                          ARIndex),
-                CGF.Int32Ty, RegSaveArea.getAlignment().alignmentOfArrayElement(RegSize));
+        Address(Builder.CreateInBoundsGEP(
+                    CGF.Int32Ty, RegSaveArea.emitRawPointer(CGF), ARIndex),
+                CGF.Int32Ty,
+                RegSaveArea.getAlignment().alignmentOfArrayElement(RegSize));
     RegAddr = RegSaveArea.withElementType(DirectTy);
     CGF.EmitBranch(Cont);
   }
@@ -234,7 +238,8 @@ RValue XtensaABIInfo::EmitVAArg(CodeGenFunction &CGF, Address VAListAddr,
     OverflowArea =
         Address(Builder.CreateInBoundsGEP(
                     CGF.Int32Ty, OverflowArea.emitRawPointer(CGF), ARIndexCorr),
-                CGF.Int32Ty, OverflowArea.getAlignment().alignmentOfArrayElement(RegSize));
+                CGF.Int32Ty,
+                OverflowArea.getAlignment().alignmentOfArrayElement(RegSize));
     MemAddr = OverflowArea.withElementType(DirectTy);
     CGF.EmitBranch(Cont);
   }
@@ -274,5 +279,3 @@ std::unique_ptr<TargetCodeGenInfo>
 CodeGen::createXtensaTargetCodeGenInfo(CodeGenModule &CGM) {
   return std::make_unique<XtensaTargetCodeGenInfo>(CGM.getTypes());
 }
-
-

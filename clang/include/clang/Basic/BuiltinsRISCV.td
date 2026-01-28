@@ -147,4 +147,16 @@ def ntl_load : RISCVBuiltin<"void(...)">;
 def ntl_store : RISCVBuiltin<"void(...)">;
 } // Features = "zihintntl", Attributes = [CustomTypeChecking]
 
-include "BuiltinsRISCVESP32P4.td"
+//===----------------------------------------------------------------------===//
+// Zihintpause extension.
+//===----------------------------------------------------------------------===//
+let Features = "zihintpause", Attributes = [NoThrow] in
+def pause : RISCVBuiltin<"void()">;
+
+include "BuiltinsRISCVESPV.td"
+include "BuiltinsRISCVESPDSP.td"
+
+//===----------------------------------------------------------------------===//
+// XCV extensions.
+//===----------------------------------------------------------------------===//
+include "clang/Basic/BuiltinsRISCVXCV.td"

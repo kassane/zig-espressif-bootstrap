@@ -3,8 +3,6 @@ const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const common = @import("common.zig");
 
-pub const panic = common.panic;
-
 comptime {
     @export(&__fabsh, .{ .name = "__fabsh", .linkage = common.linkage, .visibility = common.visibility });
     @export(&fabsf, .{ .name = "fabsf", .linkage = common.linkage, .visibility = common.visibility });

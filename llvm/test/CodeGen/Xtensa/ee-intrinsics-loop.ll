@@ -4,7 +4,8 @@
 ; Function Attrs: nounwind
 define dso_local void @test(i32 noundef %ptr.coerce, i32 noundef %ptr2.coerce) local_unnamed_addr #0 {
 ; CHECK-LABEL: test:
-; CHECK:         entry a1, 32
+; CHECK:       # %bb.0: # %entry
+; CHECK-NEXT:    entry a1, 32
 ; CHECK-NEXT:    l32i.n a8, a2, 0
 ; CHECK-NEXT:    movi.n a9, 16
 ; CHECK-NEXT:    mov.n a10, a9
@@ -147,7 +148,7 @@ declare void @llvm.xtensa.wur.accx.0(i32) #1
 ; Function Attrs: nounwind
 declare void @llvm.xtensa.wur.accx.1(i32) #1
 
-attributes #0 = { nounwind "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="+atomctl,+bool,+coprocessor,+debug,+density,+dfpaccel,+div32,+exception,+fp,+highpriinterrupts,+interrupt,+loop,+mac16,+memctl,+miscsr,+mul32,+mul32high,+nsa,+prid,+regprotect,+rvector,+s32c1i,+sext,+threadptr,+timerint,+windowed" }
+attributes #0 = { nounwind "frame-pointer"="none" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-features"="+bool,+coprocessor,+debug,+density,+dfpaccel,+div32,+exception,+fp,+highpriinterrupts,+interrupt,+loop,+mac16,+miscsr,+mul32,+mul32high,+nsa,+prid,+regprotect,+rvector,+s32c1i,+sext,+threadptr,+windowed" }
 attributes #1 = { nounwind }
 
 !llvm.module.flags = !{!0}

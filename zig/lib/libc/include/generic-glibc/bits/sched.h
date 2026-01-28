@@ -1,6 +1,6 @@
 /* Definitions of constants and data structure for POSIX 1003.1b-1993
    scheduling interface.
-   Copyright (C) 1996-2025 Free Software Foundation, Inc.
+   Copyright (C) 1996-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -152,7 +152,7 @@ int sched_setattr (pid_t tid, struct sched_attr *attr, unsigned int flags)
    store it in *ATTR.  */
 int sched_getattr (pid_t tid, struct sched_attr *attr, unsigned int size,
 		   unsigned int flags)
-  __THROW __nonnull ((2)) __attr_access ((__write_only__, 2, 3));
+  __THROW __nonnull ((2));
 
 #endif
 

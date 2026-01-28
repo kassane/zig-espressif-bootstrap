@@ -1,4 +1,4 @@
-# RUN: llvm-mc -triple xtensa-esp-elf -filetype obj -o - %s \
+# RUN: llvm-mc -triple xtensa-esp-elf --mattr=+windowed,+density -filetype obj -o - %s \
 # RUN:   | llvm-readobj -S --sd - \
 # RUN:   | FileCheck %s
 

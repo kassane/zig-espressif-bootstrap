@@ -1,5 +1,5 @@
 /* ISO C11 Standard: 7.26 - Thread support library  <threads.h>.
-   Copyright (C) 2018-2025 Free Software Foundation, Inc.
+   Copyright (C) 2018-2026 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -16,6 +16,12 @@
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
+
+// zig patch: threads header was added in glibc 2.28
+#if __GLIBC__ == 2 && __GLIBC_MINOR__ < 28
+   #error "threads.h did not exist before glibc 2.28"
+#endif /* error for glibc before 2.28 */
+
 #ifndef _THREADS_H
 #define _THREADS_H	1
 
@@ -25,6 +31,7 @@
 __BEGIN_DECLS
 
 #include <bits/thread-shared-types.h>
+#include <bits/types/once_flag.h>
 #include <bits/types/struct_timespec.h>
 
 #if (!defined __STDC_VERSION__				\
@@ -57,9 +64,6 @@ enum
   mtx_recursive = 1,
   mtx_timed     = 2
 };
-
-typedef __once_flag once_flag;
-#define ONCE_FLAG_INIT __ONCE_FLAG_INIT
 
 typedef union
 {

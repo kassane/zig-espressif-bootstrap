@@ -1,32 +1,42 @@
-//! By convention, main.zig is where your main function lives in the case that
-//! you are building an executable. If you are making a library, the convention
-//! is to delete this file and start with root.zig instead.
+const std = @import("std");
+const Io = std.Io;
 
-pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
+const _NAME = @import(".NAME");
+
+pub fn main(init: std.process.Init) !void {
+    // Prints to stderr, unbuffered, ignoring potential errors.
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
 
-    // stdout is for the actual output of your application, for example if you
+    // This is appropriate for anything that lives as long as the process.
+    const arena: std.mem.Allocator = init.arena.allocator();
+
+    // Accessing command line arguments:
+    const args = try init.minimal.args.toSlice(arena);
+    for (args) |arg| {
+        std.log.info("arg: {s}", .{arg});
+    }
+
+    // In order to do I/O operations need an `Io` instance.
+    const io = init.io;
+
+    // Stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
     // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_file_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
+    const stdout_writer = &stdout_file_writer.interface;
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    try _NAME.printAnotherMessage(stdout_writer);
 
-    try bw.flush(); // Don't forget to flush!
+    try stdout_writer.flush(); // Don't forget to flush!
 }
 
 test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
+    const gpa = std.testing.allocator;
+    var list: std.ArrayList(i32) = .empty;
+    defer list.deinit(gpa); // Try commenting this out and see if zig detects the memory leak!
+    try list.append(gpa, 42);
     try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "use other module" {
-    try std.testing.expectEqual(@as(i32, 150), lib.add(100, 50));
 }
 
 test "fuzz example" {
@@ -39,8 +49,3 @@ test "fuzz example" {
     };
     try std.testing.fuzz(Context{}, Context.testOne, .{});
 }
-
-const std = @import("std");
-
-/// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
-const lib = @import(".NAME_lib");

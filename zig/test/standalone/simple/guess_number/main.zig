@@ -1,37 +1,40 @@
-const builtin = @import("builtin");
 const std = @import("std");
-const io = std.io;
-const fmt = std.fmt;
 
-pub fn main() !void {
-    const stdout = io.getStdOut().writer();
-    const stdin = io.getStdIn();
+pub fn main(init: std.process.Init) !void {
+    var stdout_writer = std.Io.File.stdout().writerStreaming(init.io, &.{});
+    const out = &stdout_writer.interface;
 
-    try stdout.print("Welcome to the Guess Number Game in Zig.\n", .{});
+    var line_buffer: [20]u8 = undefined;
+    var stdin_reader: std.Io.File.Reader = .init(.stdin(), init.io, &line_buffer);
+    const in = &stdin_reader.interface;
 
-    const answer = std.crypto.random.intRangeLessThan(u8, 0, 100) + 1;
+    try out.writeAll("Welcome to the Guess Number Game in Zig.\n");
+
+    var rng: std.Random.IoSource = .{ .io = init.io };
+    const answer = rng.interface().intRangeLessThan(u8, 0, 100) + 1;
 
     while (true) {
-        try stdout.print("\nGuess a number between 1 and 100: ", .{});
-        var line_buf: [20]u8 = undefined;
+        try out.writeAll("\nGuess a number between 1 and 100: ");
+        const untrimmed_line = in.takeSentinel('\n') catch |err| switch (err) {
+            error.StreamTooLong => {
+                try out.writeAll("Line too long.\n");
+                _ = try in.discardDelimiterInclusive('\n');
+                continue;
+            },
+            else => |e| return e,
+        };
+        const line = std.mem.trimEnd(u8, untrimmed_line, "\r\n");
 
-        const amt = try stdin.read(&line_buf);
-        if (amt == line_buf.len) {
-            try stdout.print("Input too long.\n", .{});
-            continue;
-        }
-        const line = std.mem.trimRight(u8, line_buf[0..amt], "\r\n");
-
-        const guess = fmt.parseUnsigned(u8, line, 10) catch {
-            try stdout.print("Invalid number.\n", .{});
+        const guess = std.fmt.parseUnsigned(u8, line, 10) catch {
+            try out.writeAll("Invalid number.\n");
             continue;
         };
         if (guess > answer) {
-            try stdout.print("Guess lower.\n", .{});
+            try out.writeAll("Guess lower.\n");
         } else if (guess < answer) {
-            try stdout.print("Guess higher.\n", .{});
+            try out.writeAll("Guess higher.\n");
         } else {
-            try stdout.print("You win!\n", .{});
+            try out.writeAll("You win!\n");
             return;
         }
     }

@@ -11,10 +11,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "XtensaRegisterInfo.h"
+#include "MCTargetDesc/XtensaMCTargetDesc.h"
 #include "XtensaInstrInfo.h"
-#include "XtensaMachineFunctionInfo.h"
 #include "XtensaSubtarget.h"
-#include "XtensaUtils.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -36,19 +35,14 @@ XtensaRegisterInfo::XtensaRegisterInfo(const XtensaSubtarget &STI)
 
 const uint16_t *
 XtensaRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
-  if (Subtarget.isWinABI())
-    return CSRWE_Xtensa_SaveList;
-  else
-    return CSR_Xtensa_SaveList;
+  return Subtarget.isWindowedABI() ? CSRW8_Xtensa_SaveList
+                                   : CSR_Xtensa_SaveList;
 }
 
 const uint32_t *
 XtensaRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
                                          CallingConv::ID) const {
-  if (Subtarget.isWinABI())
-    return CSRWE_Xtensa_RegMask;
-  else
-    return CSR_Xtensa_RegMask;
+  return Subtarget.isWindowedABI() ? CSRW8_Xtensa_RegMask : CSR_Xtensa_RegMask;
 }
 
 BitVector XtensaRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
@@ -60,7 +54,10 @@ BitVector XtensaRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
     // Reserve frame pointer.
     Reserved.set(getFrameRegister(MF));
   }
-
+  if (Subtarget.hasTHREADPTR()) {
+    // Reserve frame pointer.
+    Reserved.set(Xtensa::THREADPTR);
+  }
   // Reserve stack pointer.
   Reserved.set(Xtensa::SP);
   //Reserve QR regs
@@ -89,8 +86,6 @@ bool XtensaRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   int MinCSFI = 0;
   int MaxCSFI = -1;
 
-  assert(RS && "Need register scavenger");
-
   if (CSI.size()) {
     MinCSFI = CSI[0].getFrameIdx();
     MaxCSFI = CSI[CSI.size() - 1].getFrameIdx();
@@ -102,7 +97,7 @@ bool XtensaRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   //  4. Locations for eh data registers.
   // Everything else is referenced relative to whatever register
   // getFrameRegister() returns.
-  unsigned FrameReg;
+  MCRegister FrameReg;
   if ((FrameIndex >= MinCSFI && FrameIndex <= MaxCSFI))
     FrameReg = Xtensa::SP;
   else
@@ -119,21 +114,20 @@ bool XtensaRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   int64_t Offset =
       SPOffset + (int64_t)StackSize + MI.getOperand(FIOperandNum + 1).getImm();
 
-  uint64_t Alignment = MF.getFrameInfo().getObjectAlign(FrameIndex).value();
-  bool Valid = isValidAddrOffset(MI, Offset);
+  bool Valid = Xtensa::isValidAddrOffsetForOpcode(MI.getOpcode(), Offset);
 
   // If MI is not a debug value, make sure Offset fits in the 16-bit immediate
   // field.
   if (!MI.isDebugValue() && !Valid) {
     MachineBasicBlock &MBB = *MI.getParent();
     DebugLoc DL = II->getDebugLoc();
-    unsigned Reg;
+    unsigned ADD = Xtensa::ADD;
+    MCRegister Reg;
     const XtensaInstrInfo &TII = *static_cast<const XtensaInstrInfo *>(
         MBB.getParent()->getSubtarget().getInstrInfo());
 
     TII.loadImmediate(MBB, II, &Reg, Offset);
-
-    BuildMI(MBB, II, DL, TII.get(Xtensa::ADD), Reg)
+    BuildMI(MBB, II, DL, TII.get(ADD), Reg)
         .addReg(FrameReg)
         .addReg(Reg, RegState::Kill);
 
@@ -147,6 +141,7 @@ bool XtensaRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   const XtensaInstrInfo &TII = *static_cast<const XtensaInstrInfo *>(
       MBB.getParent()->getSubtarget().getInstrInfo());
   unsigned BRegBase = Xtensa::B0;
+
   switch (MI.getOpcode()) {
   case Xtensa::SPILL_BOOL: {
     Register TempAR =
@@ -238,7 +233,7 @@ bool XtensaRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
 Register XtensaRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
   const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
-  return TFI->hasFP(MF) ? (Subtarget.isWinABI() ? Xtensa::A7 : Xtensa::A15)
+  return TFI->hasFP(MF) ? (Subtarget.isWindowedABI() ? Xtensa::A7 : Xtensa::A15)
                         : Xtensa::SP;
 }
 

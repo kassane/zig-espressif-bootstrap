@@ -18,6 +18,7 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/TargetOptions.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/TargetParser/XtensaTargetParser.h"
@@ -30,6 +31,7 @@ namespace clang {
 namespace targets {
 
 class LLVM_LIBRARY_VISIBILITY XtensaTargetInfo : public TargetInfo {
+
 protected:
   std::string CPU;
   bool HasFP = false;
@@ -40,8 +42,9 @@ protected:
   bool HasLoop = false;
   bool HasSEXT = false;
   bool HasNSA = false;
-  bool HasCLAPMS = false;
+  bool HasCLAMPS = false;
   bool HasMINMAX = false;
+  bool HasMul16 = false;
   bool HasMul32 = false;
   bool HasMul32High = false;
   bool HasDiv32 = false;
@@ -50,22 +53,31 @@ protected:
   bool HasS32C1I = false;
   bool HasTHREADPTR = false;
   bool HasExtendedL32R = false;
-  bool HasATOMCTL = false;
-  bool HasMEMCTL = false;
   bool HasDebug = false;
   bool HasException = false;
   bool HasHighPriInterrupts = false;
   bool HasCoprocessor = false;
   bool HasInterrupt = false;
   bool HasRelocatableVector = false;
-  bool HasTimerInt = false;
+  bool HasTimers1 = false;
+  bool HasTimers2 = false;
+  bool HasTimers3 = false;
   bool HasPRID = false;
   bool HasRegionProtection = false;
   bool HasMiscSR = false;
+  bool HasDataCache = false;
+  bool HasHighPriInterruptsLevel3 = false;
+  bool HasHighPriInterruptsLevel4 = false;
+  bool HasHighPriInterruptsLevel5 = false;
+  bool HasHighPriInterruptsLevel6 = false;
+  bool HasHighPriInterruptsLevel7 = false;
+  bool HasESP32S2Ops = false;
+  bool HasESP32S3Ops = false;
 
 public:
   XtensaTargetInfo(const llvm::Triple &Triple, const TargetOptions &)
       : TargetInfo(Triple) {
+    // no big-endianess support yet
     BigEndian = false;
     NoAsmVariants = true;
     LongLongAlign = 64;
@@ -84,10 +96,9 @@ public:
   virtual void getTargetDefines(const LangOptions &Opts,
                         MacroBuilder &Builder) const override;
 
-  ArrayRef<Builtin::Info> getTargetBuiltins() const override;
+  llvm::SmallVector<Builtin::InfosShard> getTargetBuiltins() const override;
 
   BuiltinVaListKind getBuiltinVaListKind() const override {
-
     return TargetInfo::XtensaABIBuiltinVaList;
   }
 
@@ -104,7 +115,7 @@ public:
   }
 
   ArrayRef<TargetInfo::GCCRegAlias> getGCCRegAliases() const override {
-    return std::nullopt;
+    return {};
   }
 
   bool validateAsmConstraint(const char *&Name,

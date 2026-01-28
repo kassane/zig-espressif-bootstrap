@@ -10,9 +10,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MCTargetDesc/XtensaMCTargetDesc.h"
 #include "Xtensa.h"
 #include "XtensaTargetMachine.h"
-#include "XtensaUtils.h"
 #include "llvm/IR/IntrinsicsXtensa.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -28,10 +28,16 @@ using namespace llvm;
 namespace {
 
 class XtensaDAGToDAGISel : public SelectionDAGISel {
-  const XtensaSubtarget *Subtarget;
+  const XtensaSubtarget *Subtarget = nullptr;
+
 public:
-  XtensaDAGToDAGISel(XtensaTargetMachine &TM, CodeGenOptLevel OptLevel)
-      : SelectionDAGISel(TM, OptLevel), Subtarget(nullptr) {}
+  explicit XtensaDAGToDAGISel(XtensaTargetMachine &TM, CodeGenOptLevel OptLevel)
+      : SelectionDAGISel(TM, OptLevel) {}
+
+  bool runOnMachineFunction(MachineFunction &MF) override {
+    Subtarget = &MF.getSubtarget<XtensaSubtarget>();
+    return SelectionDAGISel::runOnMachineFunction(MF);
+  }
 
   void Select(SDNode *Node) override;
 
@@ -54,10 +60,9 @@ public:
     }
 
     if (TM.isPositionIndependent()) {
-      DiagnosticInfoUnsupported Diag(CurDAG->getMachineFunction().getFunction(),
-                                     "PIC relocations are not supported ",
-                                     Addr.getDebugLoc());
-      CurDAG->getContext()->diagnose(Diag);
+      CurDAG->getContext()->diagnose(DiagnosticInfoUnsupported(
+          CurDAG->getMachineFunction().getFunction(),
+          "PIC relocations are not supported", Addr.getDebugLoc()));
     }
 
     if ((Addr.getOpcode() == ISD::TargetExternalSymbol ||
@@ -70,10 +75,10 @@ public:
       ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Addr.getOperand(1));
       int64_t OffsetVal = CN->getSExtValue();
 
-      Valid = isValidAddrOffset(Scale, OffsetVal);
+      Valid = Xtensa::isValidAddrOffset(Scale, OffsetVal);
 
       if (Valid) {
-        // If the first operand is a FI, get the TargetFI Node
+        // If the first operand is a FI, get the TargetFI Node.
         if (FrameIndexSDNode *FIN =
                 dyn_cast<FrameIndexSDNode>(Addr.getOperand(0)))
           Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), ValTy);
@@ -102,11 +107,6 @@ public:
 
   bool selectMemRegAddrISH4(SDValue Addr, SDValue &Base, SDValue &Offset) {
     return selectMemRegAddr(Addr, Base, Offset, 4);
-  }
-
-  bool runOnMachineFunction(MachineFunction &MF) {
-    Subtarget = &MF.getSubtarget<XtensaSubtarget>();
-    return SelectionDAGISel::runOnMachineFunction(MF);
   }
 
   template <signed Low, signed High, signed Scale>
@@ -189,8 +189,8 @@ void XtensaDAGToDAGISel::Select(SDNode *Node) {
     SDValue N1 = Node->getOperand(1);
     auto *C = dyn_cast<ConstantSDNode>(N1);
     // If C is constant in range [1..31] then we can generate SLLI
-    // instruction using pattern matching, otherwise generate SLL
-    if (!C || !(isUInt<5>(C->getZExtValue()) && !C->isZero())) {
+    // instruction using pattern matching, otherwise generate SLL.
+    if (!C || C->isZero()) {
       SDNode *SSL = CurDAG->getMachineNode(Xtensa::SSL, DL, MVT::Glue, N1);
       SDNode *SLL =
           CurDAG->getMachineNode(Xtensa::SLL, DL, VT, N0, SDValue(SSL, 0));
@@ -205,7 +205,7 @@ void XtensaDAGToDAGISel::Select(SDNode *Node) {
     auto *C = dyn_cast<ConstantSDNode>(N1);
 
     // If C is constant then we can generate SRLI
-    // instruction using pattern matching or EXTUI, otherwise generate SRL
+    // instruction using pattern matching or EXTUI, otherwise generate SRL.
     if (C) {
       if (isUInt<4>(C->getZExtValue()))
         break;
@@ -228,7 +228,7 @@ void XtensaDAGToDAGISel::Select(SDNode *Node) {
     SDValue N1 = Node->getOperand(1);
     auto *C = dyn_cast<ConstantSDNode>(N1);
     // If C is constant then we can generate SRAI
-    // instruction using pattern matching, otherwise generate SRA
+    // instruction using pattern matching, otherwise generate SRA.
     if (!C) {
       SDNode *SSR = CurDAG->getMachineNode(Xtensa::SSR, DL, MVT::Glue, N1);
       SDNode *SRA =
@@ -553,17 +553,13 @@ bool XtensaDAGToDAGISel::SelectInlineAsmMemoryOperand(
     llvm_unreachable("Unexpected asm memory constraint");
   case InlineAsm::ConstraintCode::m: {
     SDValue Base, Offset;
-    // TODO
+
     selectMemRegAddr(Op, Base, Offset, 4);
     OutOps.push_back(Base);
     OutOps.push_back(Offset);
+
     return false;
   }
-  case InlineAsm::ConstraintCode::i:
-  case InlineAsm::ConstraintCode::R:
-  case InlineAsm::ConstraintCode::ZC:
-    OutOps.push_back(Op);
-    return false;
   }
   return false;
 }

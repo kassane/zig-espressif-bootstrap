@@ -7,6 +7,7 @@
 //! target.
 
 const std = @import("std");
+const Io = std.Io;
 
 fn cName(ty: std.Target.CType) []const u8 {
     return switch (ty) {
@@ -27,12 +28,9 @@ fn cName(ty: std.Target.CType) []const u8 {
 
 var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
 
-pub fn main() !void {
-    const gpa = general_purpose_allocator.allocator();
-    defer std.debug.assert(general_purpose_allocator.deinit() == .ok);
-
-    const args = try std.process.argsAlloc(gpa);
-    defer std.process.argsFree(gpa, args);
+pub fn main(init: std.process.Init) !void {
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
+    const io = init.io;
 
     if (args.len != 2) {
         std.debug.print("Usage: {s} [target_triple]\n", .{args[0]});
@@ -40,22 +38,25 @@ pub fn main() !void {
     }
 
     const query = try std.Target.Query.parse(.{ .arch_os_abi = args[1] });
-    const target = try std.zig.system.resolveTargetQuery(query);
+    const target = try std.zig.system.resolveTargetQuery(io, query);
 
-    const stdout = std.io.getStdOut().writer();
+    var buffer: [2000]u8 = undefined;
+    var stdout_writer = Io.File.stdout().writerStreaming(io, &buffer);
+    const w = &stdout_writer.interface;
     inline for (@typeInfo(std.Target.CType).@"enum".fields) |field| {
         const c_type: std.Target.CType = @enumFromInt(field.value);
-        try stdout.print("_Static_assert(sizeof({0s}) == {1d}, \"sizeof({0s}) == {1d}\");\n", .{
+        try w.print("_Static_assert(sizeof({0s}) == {1d}, \"sizeof({0s}) == {1d}\");\n", .{
             cName(c_type),
             target.cTypeByteSize(c_type),
         });
-        try stdout.print("_Static_assert(_Alignof({0s}) == {1d}, \"_Alignof({0s}) == {1d}\");\n", .{
+        try w.print("_Static_assert(_Alignof({0s}) == {1d}, \"_Alignof({0s}) == {1d}\");\n", .{
             cName(c_type),
             target.cTypeAlignment(c_type),
         });
-        try stdout.print("_Static_assert(__alignof({0s}) == {1d}, \"__alignof({0s}) == {1d}\");\n\n", .{
+        try w.print("_Static_assert(__alignof({0s}) == {1d}, \"__alignof({0s}) == {1d}\");\n\n", .{
             cName(c_type),
             target.cTypePreferredAlignment(c_type),
         });
     }
+    try w.flush();
 }

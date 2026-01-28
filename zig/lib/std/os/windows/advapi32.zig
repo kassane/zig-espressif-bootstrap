@@ -28,11 +28,6 @@ pub extern "advapi32" fn RegQueryValueExW(
 
 pub extern "advapi32" fn RegCloseKey(hKey: HKEY) callconv(.winapi) LSTATUS;
 
-// RtlGenRandom is known as SystemFunction036 under advapi32
-// http://msdn.microsoft.com/en-us/library/windows/desktop/aa387694.aspx */
-pub extern "advapi32" fn SystemFunction036(output: [*]u8, length: ULONG) callconv(.winapi) BOOL;
-pub const RtlGenRandom = SystemFunction036;
-
 pub const RRF = struct {
     pub const RT_ANY: DWORD = 0x0000ffff;
 
