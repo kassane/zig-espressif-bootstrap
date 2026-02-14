@@ -126,8 +126,8 @@ test "pipe" {
     const io = testing.io;
 
     const fds = try std.Io.Threaded.pipe2(.{});
-    const out: Io.File = .{ .handle = fds[0] };
-    const in: Io.File = .{ .handle = fds[1] };
+    const out: Io.File = .{ .handle = fds[0], .flags = .{ .nonblocking = false } };
+    const in: Io.File = .{ .handle = fds[1], .flags = .{ .nonblocking = false } };
     try in.writeStreamingAll(io, "hello");
     var buf: [16]u8 = undefined;
     try expect((try out.readStreaming(io, &.{&buf})) == 5);
@@ -150,7 +150,10 @@ test "memfd_create" {
         else => return error.SkipZigTest,
     }
 
-    const file: Io.File = .{ .handle = try posix.memfd_create("test", 0) };
+    const file: Io.File = .{
+        .handle = try posix.memfd_create("test", 0),
+        .flags = .{ .nonblocking = false },
+    };
     defer file.close(io);
     try file.writePositionalAll(io, "test", 0);
 
@@ -273,17 +276,17 @@ test "fcntl" {
 
     // Note: The test assumes createFile opens the file with CLOEXEC
     {
-        const flags = try posix.fcntl(file.handle, posix.F.GETFD, 0);
+        const flags = posix.system.fcntl(file.handle, posix.F.GETFD, @as(usize, 0));
         try expect((flags & posix.FD_CLOEXEC) != 0);
     }
     {
-        _ = try posix.fcntl(file.handle, posix.F.SETFD, 0);
-        const flags = try posix.fcntl(file.handle, posix.F.GETFD, 0);
+        _ = posix.system.fcntl(file.handle, posix.F.SETFD, @as(usize, 0));
+        const flags = posix.system.fcntl(file.handle, posix.F.GETFD, @as(usize, 0));
         try expect((flags & posix.FD_CLOEXEC) == 0);
     }
     {
-        _ = try posix.fcntl(file.handle, posix.F.SETFD, posix.FD_CLOEXEC);
-        const flags = try posix.fcntl(file.handle, posix.F.GETFD, 0);
+        _ = posix.system.fcntl(file.handle, posix.F.SETFD, @as(usize, posix.FD_CLOEXEC));
+        const flags = posix.system.fcntl(file.handle, posix.F.GETFD, @as(usize, 0));
         try expect((flags & posix.FD_CLOEXEC) != 0);
     }
 }
@@ -518,22 +521,4 @@ test "rename smoke test" {
         defer gpa.free(file_path);
         try expectError(error.FileNotFound, Io.Dir.cwd().openDir(io, file_path, .{}));
     }
-}
-
-test "timerfd" {
-    if (native_os != .linux) return error.SkipZigTest;
-
-    const tfd = try posix.timerfd_create(.MONOTONIC, .{ .CLOEXEC = true });
-    defer posix.close(tfd);
-
-    // Fire event 10_000_000ns = 10ms after the posix.timerfd_settime call.
-    var sit: linux.itimerspec = .{ .it_interval = .{ .sec = 0, .nsec = 0 }, .it_value = .{ .sec = 0, .nsec = 10 * (1000 * 1000) } };
-    try posix.timerfd_settime(tfd, .{}, &sit, null);
-
-    var fds: [1]posix.pollfd = .{.{ .fd = tfd, .events = linux.POLL.IN, .revents = 0 }};
-    try expectEqual(@as(usize, 1), try posix.poll(&fds, -1)); // -1 => infinite waiting
-
-    const git = try posix.timerfd_gettime(tfd);
-    const expect_disarmed_timer: linux.itimerspec = .{ .it_interval = .{ .sec = 0, .nsec = 0 }, .it_value = .{ .sec = 0, .nsec = 0 } };
-    try expectEqual(expect_disarmed_timer, git);
 }

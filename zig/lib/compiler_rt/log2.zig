@@ -11,18 +11,19 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const maxInt = std.math.maxInt;
 const arch = builtin.cpu.arch;
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 comptime {
-    @export(&__log2h, .{ .name = "__log2h", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&log2f, .{ .name = "log2f", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&log2, .{ .name = "log2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__log2x, .{ .name = "__log2x", .linkage = common.linkage, .visibility = common.visibility });
-    if (common.want_ppc_abi) {
-        @export(&log2q, .{ .name = "log2f128", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__log2h, "__log2h");
+    symbol(&log2f, "log2f");
+    symbol(&log2, "log2");
+    symbol(&__log2x, "__log2x");
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&log2q, "log2f128");
     }
-    @export(&log2q, .{ .name = "log2q", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&log2l, .{ .name = "log2l", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&log2q, "log2q");
+    symbol(&log2l, "log2l");
 }
 
 pub fn __log2h(a: f16) callconv(.c) f16 {
@@ -47,11 +48,11 @@ pub fn log2f(x_: f32) callconv(.c) f32 {
     if (ix < 0x00800000 or ix >> 31 != 0) {
         // log(+-0) = -inf
         if (ix << 1 == 0) {
-            return if (common.want_float_exceptions) -1 / (x * x) else -std.math.inf(f64);
+            return if (compiler_rt.want_float_exceptions) -1 / (x * x) else -std.math.inf(f64);
         }
         // log(-#) = nan
         if (ix >> 31 != 0) {
-            return if (common.want_float_exceptions) (x - x) / 0.0 else math.nan(f64);
+            return if (compiler_rt.want_float_exceptions) (x - x) / 0.0 else math.nan(f64);
         }
 
         k -= 25;
@@ -105,11 +106,11 @@ pub fn log2(x_: f64) callconv(.c) f64 {
     if (hx < 0x00100000 or hx >> 31 != 0) {
         // log(+-0) = -inf
         if (ix << 1 == 0) {
-            return if (common.want_float_exceptions) -1 / (x * x) else -std.math.inf(f64);
+            return if (compiler_rt.want_float_exceptions) -1 / (x * x) else -std.math.inf(f64);
         }
         // log(-#) = nan
         if (hx >> 31 != 0) {
-            return if (common.want_float_exceptions) (x - x) / 0.0 else math.nan(f64);
+            return if (compiler_rt.want_float_exceptions) (x - x) / 0.0 else math.nan(f64);
         }
 
         // subnormal, scale x

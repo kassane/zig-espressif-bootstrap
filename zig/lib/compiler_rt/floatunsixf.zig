@@ -1,8 +1,9 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const floatFromInt = @import("./float_from_int.zig").floatFromInt;
 
 comptime {
-    @export(&__floatunsixf, .{ .name = "__floatunsixf", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__floatunsixf, "__floatunsixf");
 }
 
 fn __floatunsixf(a: u32) callconv(.c) f80 {

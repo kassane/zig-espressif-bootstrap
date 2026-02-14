@@ -1,8 +1,9 @@
 const std = @import("std");
-const common = @import("./common.zig");
+
+const symbol = @import("../compiler_rt.zig").symbol;
 
 comptime {
-    @export(&__extendxftf2, .{ .name = "__extendxftf2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__extendxftf2, "__extendxftf2");
 }
 
 fn __extendxftf2(a: f80) callconv(.c) f128 {

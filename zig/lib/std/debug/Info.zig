@@ -93,7 +93,7 @@ pub fn resolveAddresses(
 ) ResolveAddressesError!void {
     assert(sorted_pc_addrs.len == output.len);
     switch (info.impl) {
-        .elf => |*ef| return info.coverage.resolveAddressesDwarf(gpa, ef.endian, sorted_pc_addrs, output, &ef.dwarf.?),
+        .elf => |*ef| return info.coverage.resolveAddressesDwarf(gpa, io, ef.endian, sorted_pc_addrs, output, &ef.dwarf.?),
         .macho => |*mf| {
             // Resolving all of the addresses at once unfortunately isn't so easy in Mach-O binaries
             // due to split debug information. For now, we'll just resolve the addreses one by one.
@@ -112,7 +112,7 @@ pub fn resolveAddresses(
                         else => |e| return e,
                     };
                 }
-                try info.coverage.resolveAddressesDwarf(gpa, .little, &.{dwarf_pc_addr}, src_loc[0..1], dwarf);
+                try info.coverage.resolveAddressesDwarf(gpa, io, .little, &.{dwarf_pc_addr}, src_loc[0..1], dwarf);
             }
         },
     }

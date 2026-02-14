@@ -4,11 +4,6 @@
 #include "lock.h"
 #include "fork_impl.h"
 
-#define malloc __libc_malloc
-#define calloc __libc_calloc
-#define realloc undef
-#define free undef
-
 /* Ensure that at least 32 atexit handlers can be registered without malloc */
 #define COUNT 32
 

@@ -55,7 +55,8 @@ pub fn init(cpu_context: *const std.debug.cpu_context.Native) SelfUnwinder {
     };
 }
 
-pub fn deinit(unwinder: *SelfUnwinder, gpa: Allocator) void {
+pub fn deinit(unwinder: *SelfUnwinder) void {
+    const gpa = std.debug.getDebugInfoAllocator();
     unwinder.cfi_vm.deinit(gpa);
     unwinder.expr_vm.deinit(gpa);
     unwinder.* = undefined;

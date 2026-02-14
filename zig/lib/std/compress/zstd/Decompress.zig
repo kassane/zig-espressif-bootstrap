@@ -123,9 +123,13 @@ fn rebaseFallible(r: *Reader, capacity: usize) Reader.RebaseError!void {
     rebase(r, capacity);
 }
 
+// Rebase the buffer, keeping at least the sliding window (`d.window_len` bytes) buffered
 fn rebase(r: *Reader, capacity: usize) void {
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
+    // `capacity` must fit in the buffer along with the required sliding window
     assert(capacity <= r.buffer.len - d.window_len);
+    // According to the vtable contract, this function will only be called if the free space in the
+    // buffer cannot already fit `capacity` bytes
     assert(r.end + capacity > r.buffer.len);
     const discard_n = @min(r.seek, r.end - d.window_len);
     const keep = r.buffer[discard_n..r.end];
@@ -134,11 +138,27 @@ fn rebase(r: *Reader, capacity: usize) void {
     r.seek -= discard_n;
 }
 
+/// Rebase `d.reader.buffer` as much as needed for a discard limited by `limit`
+fn rebaseForDiscard(d: *Decompress, limit: std.Io.Limit) void {
+    // Number of bytes desired to rebase, always rebase for at least block_size
+    const desire_n = limit.max(Limit.limited(zstd.block_size_max));
+    // Maximum number of bytes possible to rebase
+    const max_n = d.reader.buffer.len -| d.window_len;
+    // Number of bytes to rebase
+    const n = desire_n.minInt(max_n);
+
+    // Current buffer free space
+    const current_cap = d.reader.buffer.len - d.reader.end;
+    if (current_cap < n) {
+        rebase(&d.reader, n);
+    }
+}
+
 /// This could be improved so that when an amount is discarded that includes an
 /// entire frame, skip decoding that frame.
 fn discardDirect(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
-    rebase(r, d.window_len);
+    rebaseForDiscard(d, limit);
     var writer: Writer = .{
         .vtable = &.{
             .drain = std.Io.Writer.Discarding.drain,
@@ -162,7 +182,7 @@ fn discardDirect(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
 
 fn discardIndirect(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
-    rebase(r, d.window_len);
+    rebaseForDiscard(d, limit);
     var writer: Writer = .{
         .buffer = r.buffer,
         .end = r.end,

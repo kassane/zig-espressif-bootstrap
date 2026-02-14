@@ -324,11 +324,10 @@ fn buildWasmBinary(
         .stderr = .pipe,
     });
 
-    var poller = Io.poll(gpa, enum { stdout, stderr }, .{
-        .stdout = child.stdout.?,
-        .stderr = child.stderr.?,
-    });
-    defer poller.deinit();
+    var multi_reader_buffer: Io.File.MultiReader.Buffer(2) = undefined;
+    var multi_reader: Io.File.MultiReader = undefined;
+    multi_reader.init(gpa, io, multi_reader_buffer.toStreams(), &.{ child.stdout.?, child.stderr.? });
+    defer multi_reader.deinit();
 
     try sendMessage(io, child.stdin.?, .update);
     try sendMessage(io, child.stdin.?, .exit);
@@ -336,14 +335,23 @@ fn buildWasmBinary(
     var result: ?Cache.Path = null;
     var result_error_bundle = std.zig.ErrorBundle.empty;
 
-    const stdout = poller.reader(.stdout);
+    const stdout = multi_reader.fileReader(0);
+    const MessageHeader = std.zig.Server.Message.Header;
 
-    poll: while (true) {
-        const Header = std.zig.Server.Message.Header;
-        while (stdout.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll;
-        const header = stdout.takeStruct(Header, .little) catch unreachable;
-        while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll;
-        const body = stdout.take(header.bytes_len) catch unreachable;
+    var eos_err: error{EndOfStream}!void = {};
+
+    while (true) {
+        const header = stdout.interface.takeStruct(MessageHeader, .little) catch |err| switch (err) {
+            error.EndOfStream => break,
+            error.ReadFailed => return stdout.err.?,
+        };
+        const body = stdout.interface.take(header.bytes_len) catch |err| switch (err) {
+            error.EndOfStream => |e| {
+                eos_err = e;
+                break;
+            },
+            error.ReadFailed => return stdout.err.?,
+        };
 
         switch (header.tag) {
             .zig_version => {
@@ -372,10 +380,14 @@ fn buildWasmBinary(
         }
     }
 
-    const stderr = poller.reader(.stderr);
-    if (stderr.bufferedLen() > 0) {
-        std.debug.print("{s}", .{stderr.buffered()});
+    try multi_reader.fillRemaining(.none);
+    const stderr = multi_reader.reader(1).buffered();
+
+    if (stderr.len > 0) {
+        std.debug.print("{s}", .{stderr});
     }
+
+    try eos_err;
 
     // Send EOF to stdin.
     child.stdin.?.close(io);
@@ -386,7 +398,7 @@ fn buildWasmBinary(
             if (code != 0) {
                 std.log.err(
                     "the following command exited with error code {d}:\n{s}",
-                    .{ code, try std.Build.Step.allocPrintCmd(arena, null, null, argv.items) },
+                    .{ code, try std.Build.Step.allocPrintCmd(arena, .inherit, null, argv.items) },
                 );
                 return error.WasmCompilationFailed;
             }
@@ -394,14 +406,14 @@ fn buildWasmBinary(
         .signal => |sig| {
             std.log.err(
                 "the following command terminated with signal {t}:\n{s}",
-                .{ sig, try std.Build.Step.allocPrintCmd(arena, null, null, argv.items) },
+                .{ sig, try std.Build.Step.allocPrintCmd(arena, .inherit, null, argv.items) },
             );
             return error.WasmCompilationFailed;
         },
         .stopped, .unknown => {
             std.log.err(
                 "the following command terminated unexpectedly:\n{s}",
-                .{try std.Build.Step.allocPrintCmd(arena, null, null, argv.items)},
+                .{try std.Build.Step.allocPrintCmd(arena, .inherit, null, argv.items)},
             );
             return error.WasmCompilationFailed;
         },
@@ -411,14 +423,14 @@ fn buildWasmBinary(
         try result_error_bundle.renderToStderr(io, .{}, .auto);
         std.log.err("the following command failed with {d} compilation errors:\n{s}", .{
             result_error_bundle.errorMessageCount(),
-            try std.Build.Step.allocPrintCmd(arena, null, null, argv.items),
+            try std.Build.Step.allocPrintCmd(arena, .inherit, null, argv.items),
         });
         return error.WasmCompilationFailed;
     }
 
     return result orelse {
         std.log.err("child process failed to report result\n{s}", .{
-            try std.Build.Step.allocPrintCmd(arena, null, null, argv.items),
+            try std.Build.Step.allocPrintCmd(arena, .inherit, null, argv.items),
         });
         return error.WasmCompilationFailed;
     };

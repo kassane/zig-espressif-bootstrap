@@ -145,7 +145,7 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const io = init.io;
     const args = try init.minimal.args.toSlice(arena);
-    const cwd_path = try std.process.getCwdAlloc(arena);
+    const cwd_path = try std.process.currentPathAlloc(io, arena);
     const environ_map = init.environ_map;
 
     var search_paths = std.array_list.Managed([]const u8).init(arena);

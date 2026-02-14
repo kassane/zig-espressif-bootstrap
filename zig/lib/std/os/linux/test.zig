@@ -407,6 +407,42 @@ test "futex2_requeue" {
     try expectEqual(0, rc);
 }
 
+test "timerfd" {
+    const tfd: linux.fd_t = rc: {
+        const rc = linux.timerfd_create(.MONOTONIC, .{ .CLOEXEC = true });
+        switch (linux.errno(rc)) {
+            .SUCCESS => break :rc @intCast(rc),
+            else => @panic("test failed"),
+        }
+    };
+    defer _ = linux.close(tfd);
+
+    // Fire event 10_000_000ns = 10ms after the posix.timerfd_settime call.
+    var sit: linux.itimerspec = .{ .it_interval = .{ .sec = 0, .nsec = 0 }, .it_value = .{ .sec = 0, .nsec = 10 * (1000 * 1000) } };
+    const flags: linux.TFD.TIMER = .{};
+    switch (linux.errno(linux.timerfd_settime(tfd, @bitCast(flags), &sit, null))) {
+        .SUCCESS => {},
+        else => @panic("test failed"),
+    }
+
+    var fds: [1]std.posix.pollfd = .{.{ .fd = tfd, .events = linux.POLL.IN, .revents = 0 }};
+    try expectEqual(@as(usize, 1), try std.posix.poll(&fds, -1)); // -1 => infinite waiting
+
+    const git = rc: {
+        var curr_value: linux.itimerspec = undefined;
+        const rc = linux.timerfd_gettime(tfd, &curr_value);
+        switch (linux.errno(rc)) {
+            .SUCCESS => break :rc curr_value,
+            else => @panic("test failed"),
+        }
+    };
+    const expect_disarmed_timer: linux.itimerspec = .{
+        .it_interval = .{ .sec = 0, .nsec = 0 },
+        .it_value = .{ .sec = 0, .nsec = 0 },
+    };
+    try expectEqual(expect_disarmed_timer, git);
+}
+
 test {
     _ = linux.IoUring;
 }

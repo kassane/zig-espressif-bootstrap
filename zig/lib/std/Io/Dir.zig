@@ -940,6 +940,7 @@ pub const RenameError = error{
     /// Attempted to replace a nonempty directory.
     DirNotEmpty,
     PermissionDenied,
+    /// The file attempted to be moved or replaced is a running executable.
     FileBusy,
     DiskQuota,
     IsDir,
@@ -952,7 +953,6 @@ pub const RenameError = error{
     ReadOnlyFileSystem,
     CrossDevice,
     NoDevice,
-    SharingViolation,
     PipeBusy,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
@@ -1167,6 +1167,8 @@ pub const ReadLinkError = error{
     /// intercepts file system operations and makes them significantly slower
     /// in addition to possibly failing with this error code.
     AntivirusInterference,
+    /// File attempted to be opened is a running executable.
+    FileBusy,
 } || PathNameError || Io.Cancelable || Io.UnexpectedError;
 
 /// Obtain target of a symbolic link.
@@ -1791,6 +1793,8 @@ pub const CreateFileAtomicError = error{
     NotDir,
     WouldBlock,
     ReadOnlyFileSystem,
+    /// The file attempted to be created is a running executable.
+    FileBusy,
 } || Io.Dir.PathNameError || Io.Cancelable || Io.UnexpectedError;
 
 /// Create an unnamed ephemeral file that can eventually be atomically

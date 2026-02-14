@@ -1,10 +1,12 @@
-const std = @import("std");
-const common = @import("common.zig");
 const builtin = @import("builtin");
+
+const std = @import("std");
 const assert = std.debug.assert;
 const div_t = std.c.div_t;
 const ldiv_t = std.c.ldiv_t;
 const lldiv_t = std.c.lldiv_t;
+
+const symbol = @import("../c.zig").symbol;
 
 comptime {
     _ = @import("stdlib/rand.zig");
@@ -12,36 +14,36 @@ comptime {
 
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         // Functions specific to musl and wasi-libc.
-        @export(&abs, .{ .name = "abs", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&labs, .{ .name = "labs", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&llabs, .{ .name = "llabs", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&abs, "abs");
+        symbol(&labs, "labs");
+        symbol(&llabs, "llabs");
 
-        @export(&div, .{ .name = "div", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&ldiv, .{ .name = "ldiv", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&lldiv, .{ .name = "lldiv", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&div, "div");
+        symbol(&ldiv, "ldiv");
+        symbol(&lldiv, "lldiv");
 
-        @export(&atoi, .{ .name = "atoi", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&atol, .{ .name = "atol", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&atoll, .{ .name = "atoll", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&atoi, "atoi");
+        symbol(&atol, "atol");
+        symbol(&atoll, "atoll");
 
-        @export(&strtol, .{ .name = "strtol", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strtoll, .{ .name = "strtoll", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strtoul, .{ .name = "strtoul", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strtoull, .{ .name = "strtoull", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strtoimax, .{ .name = "strtoimax", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strtoumax, .{ .name = "strtoumax", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&strtol, "strtol");
+        symbol(&strtoll, "strtoll");
+        symbol(&strtoul, "strtoul");
+        symbol(&strtoull, "strtoull");
+        symbol(&strtoimax, "strtoimax");
+        symbol(&strtoumax, "strtoumax");
 
-        @export(&strtol, .{ .name = "__strtol_internal", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strtoll, .{ .name = "__strtoll_internal", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strtoul, .{ .name = "__strtoul_internal", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strtoull, .{ .name = "__strtoull_internal", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strtoimax, .{ .name = "__strtoimax_internal", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strtoumax, .{ .name = "__strtoumax_internal", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&strtol, "__strtol_internal");
+        symbol(&strtoll, "__strtoll_internal");
+        symbol(&strtoul, "__strtoul_internal");
+        symbol(&strtoull, "__strtoull_internal");
+        symbol(&strtoimax, "__strtoimax_internal");
+        symbol(&strtoumax, "__strtoumax_internal");
 
-        @export(&qsort_r, .{ .name = "qsort_r", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&qsort, .{ .name = "qsort", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&qsort_r, "qsort_r");
+        symbol(&qsort, "qsort");
 
-        @export(&bsearch, .{ .name = "bsearch", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&bsearch, "bsearch");
     }
 }
 

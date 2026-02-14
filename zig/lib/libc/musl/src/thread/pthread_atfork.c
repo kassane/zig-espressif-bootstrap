@@ -3,11 +3,6 @@
 #include "libc.h"
 #include "lock.h"
 
-#define malloc __libc_malloc
-#define calloc undef
-#define realloc undef
-#define free undef
-
 static struct atfork_funcs {
 	void (*prepare)(void);
 	void (*parent)(void);

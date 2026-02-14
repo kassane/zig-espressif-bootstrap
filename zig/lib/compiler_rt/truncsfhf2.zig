@@ -1,20 +1,21 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const truncf = @import("./truncf.zig").truncf;
 
 comptime {
-    if (common.gnu_f16_abi) {
-        @export(&__gnu_f2h_ieee, .{ .name = "__gnu_f2h_ieee", .linkage = common.linkage, .visibility = common.visibility });
-    } else if (common.want_aeabi) {
-        @export(&__aeabi_f2h, .{ .name = "__aeabi_f2h", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.gnu_f16_abi) {
+        symbol(&__gnu_f2h_ieee, "__gnu_f2h_ieee");
+    } else if (compiler_rt.want_aeabi) {
+        symbol(&__aeabi_f2h, "__aeabi_f2h");
     }
-    @export(&__truncsfhf2, .{ .name = "__truncsfhf2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__truncsfhf2, "__truncsfhf2");
 }
 
-pub fn __truncsfhf2(a: f32) callconv(.c) common.F16T(f32) {
+pub fn __truncsfhf2(a: f32) callconv(.c) compiler_rt.F16T(f32) {
     return @bitCast(truncf(f16, f32, a));
 }
 
-fn __gnu_f2h_ieee(a: f32) callconv(.c) common.F16T(f32) {
+fn __gnu_f2h_ieee(a: f32) callconv(.c) compiler_rt.F16T(f32) {
     return @bitCast(truncf(f16, f32, a));
 }
 

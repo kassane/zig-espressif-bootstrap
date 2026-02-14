@@ -1,5 +1,7 @@
 const builtin = @import("builtin");
-const common = @import("./common.zig");
+
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 fn __hexagon_divsi3() callconv(.naked) noreturn {
     asm volatile (
@@ -1759,29 +1761,29 @@ fn __hexagon_sqrtdf2() align(32) callconv(.naked) noreturn {
 
 comptime {
     if (builtin.cpu.arch == .hexagon) {
-        @export(&__hexagon_adddf3, .{ .name = "__hexagon_adddf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_adddf3, .{ .name = "__hexagon_fast_adddf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_subdf3, .{ .name = "__hexagon_subdf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_subdf3, .{ .name = "__hexagon_fast_subdf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_divdf3, .{ .name = "__hexagon_divdf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_divdf3, .{ .name = "__hexagon_fast_divdf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_muldf3, .{ .name = "__hexagon_muldf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_muldf3, .{ .name = "__hexagon_fast_muldf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_sqrtdf2, .{ .name = "__hexagon_sqrtdf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_sqrtdf2, .{ .name = "__hexagon_fast2_sqrtdf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_sqrtdf2, .{ .name = "__hexagon_sqrt", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_divsf3, .{ .name = "__hexagon_divsf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_divsf3, .{ .name = "__hexagon_fast_divsf3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_divsi3, .{ .name = "__hexagon_divsi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_umodsi3, .{ .name = "__hexagon_umodsi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_sqrtf, .{ .name = "__hexagon_sqrtf", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_sqrtf, .{ .name = "__hexagon_fast2_sqrtf", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_moddi3, .{ .name = "__hexagon_moddi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_divdi3, .{ .name = "__hexagon_divdi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_udivdi3, .{ .name = "__hexagon_udivdi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_umoddi3, .{ .name = "__hexagon_umoddi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_modsi3, .{ .name = "__hexagon_modsi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_memcpy_likely_aligned_min32bytes_mult8bytes, .{ .name = "__hexagon_memcpy_likely_aligned_min32bytes_mult8bytes", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__hexagon_udivsi3, .{ .name = "__hexagon_udivsi3", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__hexagon_adddf3, "__hexagon_adddf3");
+        symbol(&__hexagon_adddf3, "__hexagon_fast_adddf3");
+        symbol(&__hexagon_subdf3, "__hexagon_subdf3");
+        symbol(&__hexagon_subdf3, "__hexagon_fast_subdf3");
+        symbol(&__hexagon_divdf3, "__hexagon_divdf3");
+        symbol(&__hexagon_divdf3, "__hexagon_fast_divdf3");
+        symbol(&__hexagon_muldf3, "__hexagon_muldf3");
+        symbol(&__hexagon_muldf3, "__hexagon_fast_muldf3");
+        symbol(&__hexagon_sqrtdf2, "__hexagon_sqrtdf2");
+        symbol(&__hexagon_sqrtdf2, "__hexagon_fast2_sqrtdf2");
+        symbol(&__hexagon_sqrtdf2, "__hexagon_sqrt");
+        symbol(&__hexagon_divsf3, "__hexagon_divsf3");
+        symbol(&__hexagon_divsf3, "__hexagon_fast_divsf3");
+        symbol(&__hexagon_divsi3, "__hexagon_divsi3");
+        symbol(&__hexagon_umodsi3, "__hexagon_umodsi3");
+        symbol(&__hexagon_sqrtf, "__hexagon_sqrtf");
+        symbol(&__hexagon_sqrtf, "__hexagon_fast2_sqrtf");
+        symbol(&__hexagon_moddi3, "__hexagon_moddi3");
+        symbol(&__hexagon_divdi3, "__hexagon_divdi3");
+        symbol(&__hexagon_udivdi3, "__hexagon_udivdi3");
+        symbol(&__hexagon_umoddi3, "__hexagon_umoddi3");
+        symbol(&__hexagon_modsi3, "__hexagon_modsi3");
+        symbol(&__hexagon_memcpy_likely_aligned_min32bytes_mult8bytes, "__hexagon_memcpy_likely_aligned_min32bytes_mult8bytes");
+        symbol(&__hexagon_udivsi3, "__hexagon_udivsi3");
     }
 }

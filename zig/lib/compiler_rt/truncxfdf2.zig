@@ -1,8 +1,8 @@
-const common = @import("./common.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 const trunc_f80 = @import("./truncf.zig").trunc_f80;
 
 comptime {
-    @export(&__truncxfdf2, .{ .name = "__truncxfdf2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__truncxfdf2, "__truncxfdf2");
 }
 
 fn __truncxfdf2(a: f80) callconv(.c) f64 {

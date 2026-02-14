@@ -1,15 +1,15 @@
-const builtin = @import("builtin");
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
 const floatFromInt = @import("./float_from_int.zig").floatFromInt;
+const symbol = @import("../compiler_rt.zig").symbol;
 
 comptime {
-    if (common.want_aeabi) {
-        @export(&__aeabi_ul2d, .{ .name = "__aeabi_ul2d", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_aeabi) {
+        symbol(&__aeabi_ul2d, "__aeabi_ul2d");
     } else {
-        if (common.want_windows_arm_abi) {
-            @export(&__floatundidf, .{ .name = "__u64tod", .linkage = common.linkage, .visibility = common.visibility });
+        if (compiler_rt.want_windows_arm_abi) {
+            symbol(&__floatundidf, "__u64tod");
         }
-        @export(&__floatundidf, .{ .name = "__floatundidf", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__floatundidf, "__floatundidf");
     }
 }
 

@@ -9,7 +9,7 @@ pub const callstack_depth = if (enable_callstack and build_options.tracy_callsta
 
 const ___tracy_c_zone_context = extern struct {
     id: u32,
-    active: c_int,
+    active: i32,
 
     pub inline fn end(self: @This()) void {
         ___tracy_emit_zone_end(self);
@@ -96,6 +96,16 @@ pub inline fn traceNamed(comptime src: std.builtin.SourceLocation, comptime name
     } else {
         return ___tracy_emit_zone_begin(&global.loc, 1);
     }
+}
+
+pub inline fn fiberEnter(fiber: [*:0]const u8) void {
+    if (!enable) return;
+    ___tracy_fiber_enter(fiber);
+}
+
+pub inline fn fiberLeave() void {
+    if (!enable) return;
+    ___tracy_fiber_leave();
 }
 
 pub fn tracyAllocator(allocator: std.mem.Allocator) TracyAllocator(null) {
@@ -197,24 +207,22 @@ pub fn TracyAllocator(comptime name: ?[:0]const u8) type {
 
 // This function only accepts comptime-known strings, see `messageCopy` for runtime strings
 pub inline fn message(comptime msg: [:0]const u8) void {
-    if (!enable) return;
-    ___tracy_emit_messageL(msg.ptr, if (enable_callstack) callstack_depth else 0);
+    messageColor(msg, 0);
 }
 
 // This function only accepts comptime-known strings, see `messageColorCopy` for runtime strings
-pub inline fn messageColor(comptime msg: [:0]const u8, color: u32) void {
+pub inline fn messageColor(comptime msg: [:0]const u8, color: u24) void {
     if (!enable) return;
-    ___tracy_emit_messageLC(msg.ptr, color, if (enable_callstack) callstack_depth else 0);
+    ___tracy_emit_logStringL(.Info, color, if (enable_callstack) callstack_depth else 0, msg.ptr);
 }
 
 pub inline fn messageCopy(msg: []const u8) void {
-    if (!enable) return;
-    ___tracy_emit_message(msg.ptr, msg.len, if (enable_callstack) callstack_depth else 0);
+    messageColorCopy(msg, 0);
 }
 
-pub inline fn messageColorCopy(msg: [:0]const u8, color: u32) void {
+pub inline fn messageColorCopy(msg: []const u8, color: u24) void {
     if (!enable) return;
-    ___tracy_emit_messageC(msg.ptr, msg.len, color, if (enable_callstack) callstack_depth else 0);
+    ___tracy_emit_logString(.Info, color, if (enable_callstack) callstack_depth else 0, msg.len, msg.ptr);
 }
 
 pub inline fn frameMark() void {
@@ -293,33 +301,35 @@ inline fn freeNamed(ptr: [*]u8, comptime name: [:0]const u8) void {
     }
 }
 
-extern fn ___tracy_emit_zone_begin(
-    srcloc: *const ___tracy_source_location_data,
-    active: c_int,
-) ___tracy_c_zone_context;
-extern fn ___tracy_emit_zone_begin_callstack(
-    srcloc: *const ___tracy_source_location_data,
-    depth: c_int,
-    active: c_int,
-) ___tracy_c_zone_context;
+pub const MessageSeverity = enum(i8) {
+    Trace, // Broadly track variable states and events in the software program.
+    Debug, // Describes variable states and details about specific internal events in the software, that are useful for investigations.
+    Info, // Describes normal events, which inform on the expected progress and state of your software.
+    Warning, // Describes potentially dangerous situations caused by unexpected events and states.
+    Error, // Describes the occurance of unexpected behavior. Does not interrupt the execution of the software.
+    Fatal, // Describes a critical event that will lead to a software failure/crash.
+};
+
+extern fn ___tracy_emit_zone_begin(srcloc: *const ___tracy_source_location_data, active: i32) ___tracy_c_zone_context;
+extern fn ___tracy_emit_zone_begin_callstack(srcloc: *const ___tracy_source_location_data, depth: i32, active: i32) ___tracy_c_zone_context;
 extern fn ___tracy_emit_zone_text(ctx: ___tracy_c_zone_context, txt: [*]const u8, size: usize) void;
 extern fn ___tracy_emit_zone_name(ctx: ___tracy_c_zone_context, txt: [*]const u8, size: usize) void;
 extern fn ___tracy_emit_zone_color(ctx: ___tracy_c_zone_context, color: u32) void;
 extern fn ___tracy_emit_zone_value(ctx: ___tracy_c_zone_context, value: u64) void;
 extern fn ___tracy_emit_zone_end(ctx: ___tracy_c_zone_context) void;
-extern fn ___tracy_emit_memory_alloc(ptr: *const anyopaque, size: usize, secure: c_int) void;
-extern fn ___tracy_emit_memory_alloc_callstack(ptr: *const anyopaque, size: usize, depth: c_int, secure: c_int) void;
-extern fn ___tracy_emit_memory_free(ptr: *const anyopaque, secure: c_int) void;
-extern fn ___tracy_emit_memory_free_callstack(ptr: *const anyopaque, depth: c_int, secure: c_int) void;
-extern fn ___tracy_emit_memory_alloc_named(ptr: *const anyopaque, size: usize, secure: c_int, name: [*:0]const u8) void;
-extern fn ___tracy_emit_memory_alloc_callstack_named(ptr: *const anyopaque, size: usize, depth: c_int, secure: c_int, name: [*:0]const u8) void;
-extern fn ___tracy_emit_memory_free_named(ptr: *const anyopaque, secure: c_int, name: [*:0]const u8) void;
-extern fn ___tracy_emit_memory_free_callstack_named(ptr: *const anyopaque, depth: c_int, secure: c_int, name: [*:0]const u8) void;
-extern fn ___tracy_emit_message(txt: [*]const u8, size: usize, callstack: c_int) void;
-extern fn ___tracy_emit_messageL(txt: [*:0]const u8, callstack: c_int) void;
-extern fn ___tracy_emit_messageC(txt: [*]const u8, size: usize, color: u32, callstack: c_int) void;
-extern fn ___tracy_emit_messageLC(txt: [*:0]const u8, color: u32, callstack: c_int) void;
+extern fn ___tracy_emit_memory_alloc(ptr: *const anyopaque, size: usize, secure: i32) void;
+extern fn ___tracy_emit_memory_alloc_callstack(ptr: *const anyopaque, size: usize, depth: i32, secure: i32) void;
+extern fn ___tracy_emit_memory_free(ptr: *const anyopaque, secure: i32) void;
+extern fn ___tracy_emit_memory_free_callstack(ptr: *const anyopaque, depth: i32, secure: i32) void;
+extern fn ___tracy_emit_memory_alloc_named(ptr: *const anyopaque, size: usize, secure: i32, name: [*:0]const u8) void;
+extern fn ___tracy_emit_memory_alloc_callstack_named(ptr: *const anyopaque, size: usize, depth: i32, secure: i32, name: [*:0]const u8) void;
+extern fn ___tracy_emit_memory_free_named(ptr: *const anyopaque, secure: i32, name: [*:0]const u8) void;
+extern fn ___tracy_emit_memory_free_callstack_named(ptr: *const anyopaque, depth: i32, secure: i32, name: [*:0]const u8) void;
+extern fn ___tracy_emit_logString(severity: MessageSeverity, color: i32, callstack_depth: i32, size: usize, txt: [*]const u8) void;
+extern fn ___tracy_emit_logStringL(severity: MessageSeverity, color: i32, callstack_depth: i32, txt: [*:0]const u8) void;
 extern fn ___tracy_emit_frame_mark(name: ?[*:0]const u8) void;
+extern fn ___tracy_fiber_enter(fiber: [*:0]const u8) void;
+extern fn ___tracy_fiber_leave() void;
 
 const ___tracy_source_location_data = extern struct {
     name: ?[*:0]const u8,

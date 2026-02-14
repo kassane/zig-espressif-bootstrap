@@ -1,12 +1,12 @@
 const std = @import("std");
 const math = std.math;
 const builtin = @import("builtin");
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
 
 /// Ported from:
 /// https://github.com/llvm/llvm-project/blob/2ffb1b0413efa9a24eb3c49e710e36f92e2cb50b/compiler-rt/lib/builtins/fp_mul_impl.inc
 pub inline fn mulf3(comptime T: type, a: T, b: T) T {
-    @setRuntimeSafety(common.test_safety);
+    @setRuntimeSafety(compiler_rt.test_safety);
     const typeWidth = @typeInfo(T).float.bits;
     const significandBits = math.floatMantissaBits(T);
     const fractionalBits = math.floatFractionalBits(T);
@@ -97,7 +97,7 @@ pub inline fn mulf3(comptime T: type, a: T, b: T) T {
     var productHi: ZSignificand = undefined;
     var productLo: ZSignificand = undefined;
     const left_align_shift = ZSignificandBits - fractionalBits - 1;
-    common.wideMultiply(ZSignificand, aSignificand, bSignificand << left_align_shift, &productHi, &productLo);
+    compiler_rt.wideMultiply(ZSignificand, aSignificand, bSignificand << left_align_shift, &productHi, &productLo);
 
     var productExponent: i32 = @as(i32, @intCast(aExponent + bExponent)) - exponentBias + scale;
 
@@ -163,7 +163,7 @@ pub inline fn mulf3(comptime T: type, a: T, b: T) T {
 ///
 /// This is analogous to an shr version of `@shlWithOverflow`
 fn wideShrWithTruncation(comptime Z: type, hi: *Z, lo: *Z, count: u32) bool {
-    @setRuntimeSafety(common.test_safety);
+    @setRuntimeSafety(compiler_rt.test_safety);
     const typeWidth = @typeInfo(Z).int.bits;
     var inexact = false;
     if (count < typeWidth) {

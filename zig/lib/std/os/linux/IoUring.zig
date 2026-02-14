@@ -67,7 +67,7 @@ pub fn init_params(entries: u16, p: *linux.io_uring_params) !IoUring {
     }
     const fd = @as(linux.fd_t, @intCast(res));
     assert(fd >= 0);
-    errdefer posix.close(fd);
+    errdefer _ = linux.close(fd);
 
     // Kernel versions 5.4 and up use only one mmap() for the submission and completion queues.
     // This is not an optional feature for us... if the kernel does it, we have to do it.
@@ -125,7 +125,7 @@ pub fn deinit(self: *IoUring) void {
     // The mmaps depend on the fd, so the order of these calls is important:
     self.cq.deinit();
     self.sq.deinit();
-    posix.close(self.fd);
+    _ = linux.close(self.fd);
     self.fd = -1;
 }
 

@@ -639,7 +639,7 @@ test "zig fmt: array types last token" {
 
 test "zig fmt: sentinel-terminated array type" {
     try testCanonical(
-        \\pub fn cStrToPrefixedFileW(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
+        \\pub fn foobar(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
         \\    return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
         \\}
         \\

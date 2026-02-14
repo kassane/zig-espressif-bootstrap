@@ -13,9 +13,9 @@ pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
 pub const SmpAllocator = @import("heap/SmpAllocator.zig");
 pub const FixedBufferAllocator = @import("heap/FixedBufferAllocator.zig");
 pub const PageAllocator = @import("heap/PageAllocator.zig");
-pub const SbrkAllocator = @import("heap/sbrk_allocator.zig").SbrkAllocator;
 pub const ThreadSafeAllocator = @import("heap/ThreadSafeAllocator.zig");
-pub const WasmAllocator = @import("heap/WasmAllocator.zig");
+pub const WasmAllocator = if (builtin.single_threaded) BrkAllocator else @compileError("unimplemented");
+pub const BrkAllocator = @import("heap/BrkAllocator.zig");
 
 pub const DebugAllocatorConfig = @import("heap/debug_allocator.zig").Config;
 pub const DebugAllocator = @import("heap/debug_allocator.zig").DebugAllocator;
@@ -110,11 +110,11 @@ pub fn defaultQueryPageSize() usize {
             break :size @intCast(vm_info.page_size);
         },
         .windows => {
-            var sbi: windows.SYSTEM_BASIC_INFORMATION = undefined;
+            var sbi: windows.SYSTEM.BASIC_INFORMATION = undefined;
             switch (windows.ntdll.NtQuerySystemInformation(
-                .SystemBasicInformation,
+                .Basic,
                 &sbi,
-                @sizeOf(windows.SYSTEM_BASIC_INFORMATION),
+                @sizeOf(windows.SYSTEM.BASIC_INFORMATION),
                 null,
             )) {
                 .SUCCESS => break :size sbi.PageSize,
@@ -356,9 +356,6 @@ pub const page_allocator: Allocator = if (@hasDecl(root, "os") and
 else if (builtin.target.cpu.arch.isWasm()) .{
     .ptr = undefined,
     .vtable = &WasmAllocator.vtable,
-} else if (builtin.target.os.tag == .plan9) .{
-    .ptr = undefined,
-    .vtable = &SbrkAllocator(std.os.plan9.sbrk).vtable,
 } else .{
     .ptr = undefined,
     .vtable = &PageAllocator.vtable,
@@ -369,14 +366,16 @@ pub const smp_allocator: Allocator = .{
     .vtable = &SmpAllocator.vtable,
 };
 
-/// This allocator is fast, small, and specific to WebAssembly. In the future,
-/// this will be the implementation automatically selected by
-/// `GeneralPurposeAllocator` when compiling in `ReleaseSmall` mode for wasm32
-/// and wasm64 architectures.
-/// Until then, it is available here to play with.
+/// This allocator is fast, small, and specific to WebAssembly.
 pub const wasm_allocator: Allocator = .{
     .ptr = undefined,
     .vtable = &WasmAllocator.vtable,
+};
+
+/// Supports single-threaded WebAssembly and Linux.
+pub const brk_allocator: Allocator = .{
+    .ptr = undefined,
+    .vtable = &BrkAllocator.vtable,
 };
 
 /// Returns a `StackFallbackAllocator` allocating using either a
@@ -1014,9 +1013,11 @@ test {
     _ = GeneralPurposeAllocator;
     _ = FixedBufferAllocator;
     _ = ThreadSafeAllocator;
-    _ = SbrkAllocator;
-    if (builtin.target.cpu.arch.isWasm()) {
-        _ = WasmAllocator;
+    if (builtin.single_threaded) {
+        if (builtin.cpu.arch.isWasm() or (builtin.os.tag == .linux and !builtin.link_libc)) {
+            _ = brk_allocator;
+        }
+    } else {
+        _ = smp_allocator;
     }
-    if (!builtin.single_threaded) _ = smp_allocator;
 }

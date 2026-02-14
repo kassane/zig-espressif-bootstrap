@@ -1,9 +1,9 @@
-const common = @import("./common.zig");
 const mulc3 = @import("./mulc3.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 
 comptime {
     if (@import("builtin").zig_backend != .stage2_c) {
-        @export(&__muldc3, .{ .name = "__muldc3", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__muldc3, "__muldc3");
     }
 }
 

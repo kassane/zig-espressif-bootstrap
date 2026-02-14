@@ -170,21 +170,21 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .block,
             .loop,
             => {
-                const extra = air.extraData(Air.Block, data.ty_pl.payload);
-                if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
+                const block = air.unwrapBlock(inst);
+                if (!checkType(block.ty, zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]),
+                    block.body,
                     zcu,
                 )) return false;
             },
 
             .dbg_inline_block => {
-                const extra = air.extraData(Air.DbgInlineBlock, data.ty_pl.payload);
-                if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
+                const block = air.unwrapDbgBlock(inst);
+                if (!checkType(block.ty, zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]),
+                    block.body,
                     zcu,
                 )) return false;
             },
@@ -342,9 +342,9 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .call_never_tail,
             .call_never_inline,
             => {
-                const extra = air.extraData(Air.Call, data.pl_op.payload);
-                const args: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end..][0..extra.data.args_len]);
-                if (!checkRef(data.pl_op.operand, zcu)) return false;
+                const call = air.unwrapCall(inst);
+                const args = call.args;
+                if (!checkRef(call.callee, zcu)) return false;
                 for (args) |arg| if (!checkRef(arg, zcu)) return false;
             },
 
@@ -356,37 +356,37 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             },
 
             .@"try", .try_cold => {
-                const extra = air.extraData(Air.Try, data.pl_op.payload);
-                if (!checkRef(data.pl_op.operand, zcu)) return false;
+                const unwrapped_try = air.unwrapTry(inst);
+                if (!checkRef(unwrapped_try.error_union, zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]),
+                    unwrapped_try.else_body,
                     zcu,
                 )) return false;
             },
 
             .try_ptr, .try_ptr_cold => {
-                const extra = air.extraData(Air.TryPtr, data.ty_pl.payload);
-                if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
-                if (!checkRef(extra.data.ptr, zcu)) return false;
+                const unwrapped_try = air.unwrapTryPtr(inst);
+                if (!checkType(unwrapped_try.error_union_payload_ptr_ty.toType(), zcu)) return false;
+                if (!checkRef(unwrapped_try.error_union_ptr, zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]),
+                    unwrapped_try.else_body,
                     zcu,
                 )) return false;
             },
 
             .cond_br => {
-                const extra = air.extraData(Air.CondBr, data.pl_op.payload);
-                if (!checkRef(data.pl_op.operand, zcu)) return false;
+                const cond_br = air.unwrapCondBr(inst);
+                if (!checkRef(cond_br.condition, zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra.items[extra.end..][0..extra.data.then_body_len]),
+                    cond_br.then_body,
                     zcu,
                 )) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra.items[extra.end + extra.data.then_body_len ..][0..extra.data.else_body_len]),
+                    cond_br.else_body,
                     zcu,
                 )) return false;
             },
@@ -407,20 +407,20 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             },
 
             .assembly => {
-                const extra = air.extraData(Air.Asm, data.ty_pl.payload);
+                const unwrapped_asm = air.unwrapAsm(inst);
                 if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
                 // Luckily, we only care about the inputs and outputs, so we don't have to do
                 // the whole null-terminated string dance.
-                const outputs_len = extra.data.flags.outputs_len;
-                const outputs: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end..][0..outputs_len]);
-                const inputs: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end + outputs_len ..][0..extra.data.inputs_len]);
+                const outputs = unwrapped_asm.outputs;
+                const inputs = unwrapped_asm.inputs;
+
                 for (outputs) |output| if (output != .none and !checkRef(output, zcu)) return false;
                 for (inputs) |input| if (input != .none and !checkRef(input, zcu)) return false;
             },
 
             .legalize_compiler_rt_call => {
-                const extra = air.extraData(Air.Call, data.legalize_compiler_rt_call.payload);
-                const args: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end..][0..extra.data.args_len]);
+                const rt_call = air.unwrapCompilerRtCall(inst);
+                const args = rt_call.args;
                 for (args) |arg| if (!checkRef(arg, zcu)) return false;
             },
 

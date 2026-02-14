@@ -78,22 +78,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             var libc_sources = std.array_list.Managed(Compilation.CSourceFile).init(arena);
 
             {
-                // Compile emmalloc.
-                var args = std.array_list.Managed([]const u8).init(arena);
-                try addCCArgs(comp, arena, &args, .{ .want_O3 = true, .no_strict_aliasing = true });
-
-                for (emmalloc_src_files) |file_path| {
-                    try libc_sources.append(.{
-                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                            "libc", try sanitize(arena, file_path),
-                        }),
-                        .extra_flags = args.items,
-                        .owner = undefined,
-                    });
-                }
-            }
-
-            {
                 // Compile libc-bottom-half.
                 var args = std.array_list.Managed([]const u8).init(arena);
                 try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
@@ -472,10 +456,6 @@ fn addLibcTopHalfIncludes(
     });
 }
 
-const emmalloc_src_files = [_][]const u8{
-    "wasi/emmalloc/emmalloc.c",
-};
-
 const libc_bottom_half_src_files = [_][]const u8{
     "wasi/libc-bottom-half/cloudlibc/src/libc/dirent/closedir.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/dirent/dirfd.c",
@@ -684,7 +664,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/locale/strtod_l.c",
     "musl/src/locale/wcscoll.c",
     "musl/src/locale/wcsxfrm.c",
-    "musl/src/math/acosf.c",
     "musl/src/math/acosh.c",
     "musl/src/math/acoshf.c",
     "musl/src/math/acoshl.c",
@@ -698,14 +677,9 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/math/atan2.c",
     "musl/src/math/atan2f.c",
     "musl/src/math/atan2l.c",
-    "musl/src/math/atan.c",
-    "musl/src/math/atanf.c",
     "musl/src/math/atanh.c",
     "musl/src/math/atanhf.c",
     "musl/src/math/atanhl.c",
-    "musl/src/math/atanl.c",
-    "musl/src/math/cbrt.c",
-    "musl/src/math/cbrtf.c",
     "musl/src/math/cbrtl.c",
     "musl/src/math/__cos.c",
     "musl/src/math/__cosdf.c",
@@ -715,8 +689,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/math/erf.c",
     "musl/src/math/erff.c",
     "musl/src/math/erfl.c",
-    "musl/src/math/exp10.c",
-    "musl/src/math/exp10f.c",
     "musl/src/math/exp10l.c",
     "musl/src/math/exp2f_data.c",
     "musl/src/math/exp2l.c",
@@ -735,9 +707,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/math/frexp.c",
     "musl/src/math/frexpf.c",
     "musl/src/math/frexpl.c",
-    "musl/src/math/hypot.c",
-    "musl/src/math/hypotf.c",
-    "musl/src/math/hypotl.c",
     "musl/src/math/ilogb.c",
     "musl/src/math/ilogbf.c",
     "musl/src/math/ilogbl.c",
@@ -799,7 +768,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/math/nexttowardf.c",
     "musl/src/math/nexttowardl.c",
     "musl/src/math/__polevll.c",
-    "musl/src/math/pow.c",
     "musl/src/math/pow_data.c",
     "musl/src/math/powf.c",
     "musl/src/math/powf_data.c",
@@ -811,9 +779,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/math/remquof.c",
     "musl/src/math/remquol.c",
     "musl/src/math/rintl.c",
-    "musl/src/math/round.c",
-    "musl/src/math/roundf.c",
-    "musl/src/math/roundl.c",
     "musl/src/math/scalb.c",
     "musl/src/math/scalbf.c",
     "musl/src/math/scalbln.c",
@@ -882,7 +847,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/regex/fnmatch.c",
     "musl/src/regex/regerror.c",
     "musl/src/search/hsearch.c",
-    "musl/src/search/insque.c",
     "musl/src/search/lsearch.c",
     "musl/src/search/tdelete.c",
     "musl/src/search/tdestroy.c",
@@ -966,7 +930,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/string/strerror_r.c",
     "musl/src/string/strndup.c",
     "musl/src/string/strverscmp.c",
-    "musl/src/string/swab.c",
     "musl/src/string/wcscasecmp.c",
     "musl/src/string/wcscasecmp_l.c",
     "musl/src/string/wcsdup.c",
@@ -1014,7 +977,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/time/strptime.c",
     "musl/src/time/timespec_get.c",
     "musl/src/time/__year_to_secs.c",
-    "musl/src/unistd/posix_close.c",
 
     "wasi/libc-top-half/musl/src/conf/fpathconf.c",
     "wasi/libc-top-half/musl/src/conf/sysconf.c",

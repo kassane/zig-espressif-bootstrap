@@ -1,13 +1,14 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
 const floatFromInt = @import("./float_from_int.zig").floatFromInt;
+const symbol = @import("../compiler_rt.zig").symbol;
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(&__floatditf, .{ .name = "__floatdikf", .linkage = common.linkage, .visibility = common.visibility });
-    } else if (common.want_sparc_abi) {
-        @export(&_Qp_xtoq, .{ .name = "_Qp_xtoq", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&__floatditf, "__floatdikf");
+    } else if (compiler_rt.want_sparc_abi) {
+        symbol(&_Qp_xtoq, "_Qp_xtoq");
     }
-    @export(&__floatditf, .{ .name = "__floatditf", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__floatditf, "__floatditf");
 }
 
 pub fn __floatditf(a: i64) callconv(.c) f128 {

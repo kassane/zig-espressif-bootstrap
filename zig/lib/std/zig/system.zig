@@ -260,12 +260,14 @@ pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
                 var value: u32 = undefined;
                 var len: usize = @sizeOf(@TypeOf(value));
 
-                posix.sysctlbynameZ(key, &value, &len, null, 0) catch |err| switch (err) {
-                    error.PermissionDenied => unreachable, // only when setting values,
-                    error.SystemResources => unreachable, // memory already on the stack
-                    error.UnknownName => unreachable, // constant, known good value
-                    error.Unexpected => return error.OSVersionDetectionFail,
-                };
+                switch (posix.errno(posix.system.sysctlbyname(key, &value, &len, null, 0))) {
+                    .SUCCESS => {},
+                    .FAULT => unreachable,
+                    .PERM => unreachable, // only when setting values,
+                    .NOMEM => unreachable, // memory already on the stack
+                    .NOENT => unreachable, // constant, known good value
+                    else => return error.OSVersionDetectionFail,
+                }
 
                 switch (builtin.target.os.tag) {
                     .freebsd => {
@@ -418,7 +420,6 @@ pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
         error.Canceled => |e| return e,
         error.Unexpected => |e| return e,
         error.WouldBlock => return error.Unexpected,
-        error.BrokenPipe => return error.Unexpected,
         error.ConnectionResetByPeer => return error.Unexpected,
         error.NotOpenForReading => return error.Unexpected,
         error.SocketUnconnected => return error.Unexpected,
@@ -504,7 +505,6 @@ pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
     if (builtin.os.tag == .linux and result.isBionicLibC() and query.os_tag == null and query.android_api_level == null) {
         result.os.version_range.linux.android = detectAndroidApiLevel(io) catch |err| return switch (err) {
             error.InvalidWtf8,
-            error.CurrentWorkingDirectoryUnlinked,
             error.InvalidBatchScriptArg,
             => unreachable, // Windows-only
             error.ApiLevelQueryFailed => |e| e,
@@ -724,6 +724,7 @@ fn abiAndDynamicLinkerFromFile(
                 error.UnsupportedReparsePointType => unreachable, // Windows only
                 error.NetworkNotFound => unreachable, // Windows only
                 error.AntivirusInterference => unreachable, // Windows only
+                error.FileBusy => unreachable, // Windows only
 
                 error.AccessDenied,
                 error.PermissionDenied,
@@ -845,7 +846,6 @@ fn glibcVerFromRPath(io: Io, rpath: []const u8) !std.SemanticVersion {
         error.NameTooLong => return error.Unexpected,
         error.BadPathName => return error.Unexpected,
         error.PipeBusy => return error.Unexpected, // Windows-only
-        error.SharingViolation => return error.Unexpected, // Windows-only
         error.NetworkNotFound => return error.Unexpected, // Windows-only
         error.AntivirusInterference => return error.Unexpected, // Windows-only
         error.FileLocksUnsupported => return error.Unexpected, // No lock requested.
@@ -1053,7 +1053,6 @@ fn detectAbiAndDynamicLinker(io: Io, cpu: Target.Cpu, os: Target.Os, query: Targ
                 error.NoSpaceLeft => return error.Unexpected,
                 error.NameTooLong => return error.Unexpected,
                 error.PathAlreadyExists => return error.Unexpected,
-                error.SharingViolation => return error.Unexpected,
                 error.BadPathName => return error.Unexpected,
                 error.PipeBusy => return error.Unexpected,
                 error.FileLocksUnsupported => return error.Unexpected,

@@ -269,7 +269,7 @@ nav_val_analysis_queued: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, voi
 
 /// These are the modules which we initially queue for analysis in `Compilation.update`.
 /// `resolveReferences` will use these as the root of its reachability traversal.
-analysis_roots_buffer: [4]*Package.Module,
+analysis_roots_buffer: [5]*Package.Module,
 analysis_roots_len: usize = 0,
 /// This is the cached result of `Zcu.resolveReferences`. It is computed on-demand, and
 /// reset to `null` when any semantic analysis occurs (since this invalidates the data).
@@ -4754,6 +4754,7 @@ const TrackedUnitSema = struct {
     analysis_timer_decl: ?InternPool.TrackedInst.Index,
     pub fn end(tus: TrackedUnitSema, zcu: *Zcu) void {
         const comp = zcu.comp;
+        const io = comp.io;
         if (tus.old_name) |old_name| {
             zcu.sema_prog_node.completeOne(); // we're just renaming, but it's effectively completion
             zcu.cur_sema_prog_node.setName(&old_name);
@@ -4762,9 +4763,8 @@ const TrackedUnitSema = struct {
             zcu.cur_sema_prog_node = .none;
         }
         report_time: {
-            const sema_ns = zcu.cur_analysis_timer.?.finish() orelse break :report_time;
+            const sema_ns = zcu.cur_analysis_timer.?.finish(io) orelse break :report_time;
             const zir_decl = tus.analysis_timer_decl orelse break :report_time;
-            const io = comp.io;
             comp.mutex.lockUncancelable(io);
             defer comp.mutex.unlock(io);
             comp.time_report.?.stats.cpu_ns_sema += sema_ns;
@@ -4779,11 +4779,13 @@ const TrackedUnitSema = struct {
             gop.value_ptr.count += 1;
         }
         zcu.cur_analysis_timer = tus.old_analysis_timer;
-        if (zcu.cur_analysis_timer) |*t| t.@"resume"();
+        if (zcu.cur_analysis_timer) |*t| t.@"resume"(io);
     }
 };
 pub fn trackUnitSema(zcu: *Zcu, name: []const u8, zir_inst: ?InternPool.TrackedInst.Index) TrackedUnitSema {
-    if (zcu.cur_analysis_timer) |*t| t.pause();
+    const comp = zcu.comp;
+    const io = comp.io;
+    if (zcu.cur_analysis_timer) |*t| t.pause(io);
     const old_analysis_timer = zcu.cur_analysis_timer;
     zcu.cur_analysis_timer = zcu.comp.startTimer();
     const old_name: ?[std.Progress.Node.max_name_len]u8 = old_name: {
@@ -4952,8 +4954,10 @@ pub const CodegenTaskPool = struct {
         // We own `air` now, so we are responsbile for freeing it.
         var air = orig_air;
         defer air.deinit(zcu.comp.gpa);
-        const tid = Compilation.getTid();
-        const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
+        const io = zcu.comp.io;
+        const tid: Zcu.PerThread.Id = .acquire(io);
+        defer tid.release(io);
+        const pt: Zcu.PerThread = .activate(zcu, tid);
         defer pt.deactivate();
         return pt.runCodegen(func_index, &air);
     }
@@ -4962,8 +4966,10 @@ pub const CodegenTaskPool = struct {
         func_index: InternPool.Index,
         air: *Air,
     ) CodegenResult {
-        const tid = Compilation.getTid();
-        const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
+        const io = zcu.comp.io;
+        const tid: Zcu.PerThread.Id = .acquire(io);
+        defer tid.release(io);
+        const pt: Zcu.PerThread = .activate(zcu, tid);
         defer pt.deactivate();
         return pt.runCodegen(func_index, air);
     }

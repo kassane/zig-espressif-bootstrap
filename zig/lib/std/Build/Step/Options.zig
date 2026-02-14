@@ -519,7 +519,7 @@ test Options {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    const cwd = try std.process.getCwdAlloc(std.testing.allocator);
+    const cwd = try std.process.currentPathAlloc(io, std.testing.allocator);
     defer std.testing.allocator.free(cwd);
 
     var graph: std.Build.Graph = .{

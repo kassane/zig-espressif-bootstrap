@@ -67348,21 +67348,19 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             },
             .bitcast => try cg.airBitCast(inst),
             .block => {
-                const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
-                const block = cg.air.extraData(Air.Block, ty_pl.payload);
+                const block = cg.air.unwrapBlock(inst);
                 if (!cg.mod.strip) try cg.asmPseudo(.pseudo_dbg_enter_block_none);
-                try cg.lowerBlock(inst, @ptrCast(cg.air.extra.items[block.end..][0..block.data.body_len]));
+                try cg.lowerBlock(inst, block.body);
                 if (!cg.mod.strip) try cg.asmPseudo(.pseudo_dbg_leave_block_none);
             },
             .loop => {
-                const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
-                const block = cg.air.extraData(Air.Block, ty_pl.payload);
+                const block = cg.air.unwrapBlock(inst);
                 try cg.loops.putNoClobber(cg.gpa, inst, .{
                     .state = try cg.saveState(),
                     .target = @intCast(cg.mir_instructions.len),
                 });
                 defer assert(cg.loops.remove(inst));
-                try cg.genBodyBlock(@ptrCast(cg.air.extra.items[block.end..][0..block.data.body_len]));
+                try cg.genBodyBlock(block.body);
             },
             .repeat => {
                 const repeat = air_datas[@intFromEnum(inst)].repeat;
@@ -89048,17 +89046,16 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 try cg.asmOpOnly(.{ ._, .nop });
             },
             .dbg_inline_block => {
-                const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
-                const dbg_inline_block = cg.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
+                const dbg_inline_block = cg.air.unwrapDbgBlock(inst);
                 const old_inline_func = cg.inline_func;
                 defer cg.inline_func = old_inline_func;
-                cg.inline_func = dbg_inline_block.data.func;
+                cg.inline_func = dbg_inline_block.func;
                 if (!cg.mod.strip) _ = try cg.addInst(.{
                     .tag = .pseudo,
                     .ops = .pseudo_dbg_enter_inline_func,
-                    .data = .{ .ip_index = dbg_inline_block.data.func },
+                    .data = .{ .ip_index = dbg_inline_block.func },
                 });
-                try cg.lowerBlock(inst, @ptrCast(cg.air.extra.items[dbg_inline_block.end..][0..dbg_inline_block.data.body_len]));
+                try cg.lowerBlock(inst, dbg_inline_block.body);
                 if (!cg.mod.strip) _ = try cg.addInst(.{
                     .tag = .pseudo,
                     .ops = .pseudo_dbg_leave_inline_func,
@@ -175916,10 +175913,8 @@ fn genLocalDebugInfo(cg: *CodeGen, air_tag: Air.Inst.Tag, ty: Type, mcv: MCValue
 fn airCall(self: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier, opts: CopyOptions) !void {
     if (modifier == .always_tail) return self.fail("TODO implement tail calls for x86_64", .{});
 
-    const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const extra = self.air.extraData(Air.Call, pl_op.payload);
-    const arg_refs: []const Air.Inst.Ref =
-        @ptrCast(self.air.extra.items[extra.end..][0..extra.data.args_len]);
+    const call = self.air.unwrapCall(inst);
+    const arg_refs = call.args;
 
     const ExpectedContents = extern struct {
         tys: [32][@sizeOf(Type)]u8 align(@alignOf(Type)),
@@ -175937,10 +175932,10 @@ fn airCall(self: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     defer allocator.free(arg_vals);
     for (arg_vals, arg_refs) |*arg_val, arg_ref| arg_val.* = .{ .air_ref = arg_ref };
 
-    const ret = try self.genCall(.{ .air = pl_op.operand }, arg_tys, arg_vals, opts);
+    const ret = try self.genCall(.{ .air = call.callee }, arg_tys, arg_vals, opts);
 
     var bt = self.liveness.iterateBigTomb(inst);
-    try self.feed(&bt, pl_op.operand);
+    try self.feed(&bt, call.callee);
     for (arg_refs) |arg_ref| try self.feed(&bt, arg_ref);
 
     const result = if (self.liveness.isUnused(inst)) .unreach else ret;
@@ -176300,20 +176295,18 @@ fn airRetLoad(self: *CodeGen, inst: Air.Inst.Index) !void {
 }
 
 fn airTry(self: *CodeGen, inst: Air.Inst.Index) !void {
-    const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const extra = self.air.extraData(Air.Try, pl_op.payload);
-    const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]);
-    const operand_ty = self.typeOf(pl_op.operand);
-    const result = try self.genTry(inst, pl_op.operand, body, operand_ty, false);
+    const unwrapped_try = self.air.unwrapTry(inst);
+    const body = unwrapped_try.else_body;
+    const operand_ty = self.typeOf(unwrapped_try.error_union);
+    const result = try self.genTry(inst, unwrapped_try.error_union, body, operand_ty, false);
     return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
 fn airTryPtr(self: *CodeGen, inst: Air.Inst.Index) !void {
-    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = self.air.extraData(Air.TryPtr, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]);
-    const operand_ty = self.typeOf(extra.data.ptr);
-    const result = try self.genTry(inst, extra.data.ptr, body, operand_ty, true);
+    const unwrapped_try = self.air.unwrapTryPtr(inst);
+    const body = unwrapped_try.else_body;
+    const operand_ty = self.typeOf(unwrapped_try.error_union_ptr);
+    const result = try self.genTry(inst, unwrapped_try.error_union_ptr, body, operand_ty, true);
     return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
@@ -176391,21 +176384,20 @@ fn genCondBrMir(self: *CodeGen, ty: Type, mcv: MCValue) !Mir.Inst.Index {
 }
 
 fn airCondBr(self: *CodeGen, inst: Air.Inst.Index) !void {
-    const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const cond = try self.resolveInst(pl_op.operand);
-    const cond_ty = self.typeOf(pl_op.operand);
-    const extra = self.air.extraData(Air.CondBr, pl_op.payload);
-    const then_body: []const Air.Inst.Index =
-        @ptrCast(self.air.extra.items[extra.end..][0..extra.data.then_body_len]);
-    const else_body: []const Air.Inst.Index =
-        @ptrCast(self.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+    const cond_br = self.air.unwrapCondBr(inst);
+    const then_body = cond_br.then_body;
+    const else_body = cond_br.else_body;
+
+    const cond = try self.resolveInst(cond_br.condition);
+    const cond_ty = self.typeOf(cond_br.condition);
+
     const liveness_cond_br = self.liveness.getCondBr(inst);
 
     // If the condition dies here in this condbr instruction, process
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
     if (self.liveness.operandDies(inst, 0)) {
-        if (pl_op.operand.toIndex()) |op_inst| try self.processDeath(op_inst, .{});
+        if (cond_br.condition.toIndex()) |op_inst| try self.processDeath(op_inst, .{});
     }
 
     const state = try self.saveState();
@@ -177124,14 +177116,10 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
     @setEvalBranchQuota(1_100);
     const pt = self.pt;
     const zcu = pt.zcu;
-    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = self.air.extraData(Air.Asm, ty_pl.payload);
-    const outputs_len = extra.data.flags.outputs_len;
-    var extra_i: usize = extra.end;
-    const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..outputs_len]);
-    extra_i += outputs.len;
-    const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.inputs_len]);
-    extra_i += inputs.len;
+    const unwrapped_asm = self.air.unwrapAsm(inst);
+
+    const outputs = unwrapped_asm.outputs;
+    const inputs = unwrapped_asm.inputs;
 
     var result: MCValue = .none;
     var args: std.array_list.Managed(MCValue) = .init(self.gpa);
@@ -177146,36 +177134,29 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
     try arg_map.ensureTotalCapacity(@intCast(outputs.len + inputs.len));
     defer arg_map.deinit();
 
-    var outputs_extra_i = extra_i;
-    for (outputs) |output| {
-        const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
-        const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
-        const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-        // This equation accounts for the fact that even if we have exactly 4 bytes
-        // for the string, we still use the next u32 for the null terminator.
-        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
-
-        const maybe_inst = switch (output) {
+    var it = unwrapped_asm.iterateOutputs();
+    while (it.next()) |out| {
+        const maybe_inst = switch (out.operand) {
             .none => inst,
             else => null,
         };
-        const ty = switch (output) {
+        const ty = switch (out.operand) {
             .none => self.typeOfIndex(inst),
-            else => self.typeOf(output).childType(zcu),
+            else => self.typeOf(out.operand).childType(zcu),
         };
-        const is_read = switch (constraint[0]) {
+        const is_read = switch (out.constraint[0]) {
             '=' => false,
             '+' => read: {
-                if (output == .none) return self.fail(
+                if (out.operand == .none) return self.fail(
                     "read-write constraint unsupported for asm result: '{s}'",
-                    .{constraint},
+                    .{out.constraint},
                 );
                 break :read true;
             },
-            else => return self.fail("invalid constraint: '{s}'", .{constraint}),
+            else => return self.fail("invalid constraint: '{s}'", .{out.constraint}),
         };
-        const is_early_clobber = constraint[1] == '&';
-        const rest = constraint[@as(usize, 1) + @intFromBool(is_early_clobber) ..];
+        const is_early_clobber = out.constraint[1] == '&';
+        const rest = out.constraint[@as(usize, 1) + @intFromBool(is_early_clobber) ..];
         const arg_mcv: MCValue = arg_mcv: {
             const arg_maybe_reg: ?Register = if (std.mem.eql(u8, rest, "r") or
                 std.mem.eql(u8, rest, "f") or std.mem.eql(u8, rest, "x"))
@@ -177189,30 +177170,30 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                     @intCast(ty.abiSize(zcu)),
                 )
             else if (std.mem.eql(u8, rest, "m"))
-                if (output != .none) null else return self.fail(
+                if (out.operand != .none) null else return self.fail(
                     "memory constraint unsupported for asm result: '{s}'",
-                    .{constraint},
+                    .{out.constraint},
                 )
             else if (std.mem.eql(u8, rest, "g") or
                 std.mem.eql(u8, rest, "rm") or std.mem.eql(u8, rest, "mr") or
                 std.mem.eql(u8, rest, "r,m") or std.mem.eql(u8, rest, "m,r"))
                 self.register_manager.tryAllocReg(maybe_inst, abi.RegisterClass.gp) orelse
-                    if (output != .none)
+                    if (out.operand != .none)
                         null
                     else
                         return self.fail("ran out of registers lowering inline asm", .{})
             else if (std.mem.startsWith(u8, rest, "{") and std.mem.endsWith(u8, rest, "}"))
                 parseRegName(rest["{".len .. rest.len - "}".len]) orelse
-                    return self.fail("invalid register constraint: '{s}'", .{constraint})
+                    return self.fail("invalid register constraint: '{s}'", .{out.constraint})
             else if (rest.len == 1 and std.ascii.isDigit(rest[0])) {
                 const index = std.fmt.charToDigit(rest[0], 10) catch unreachable;
                 if (index >= args.items.len) return self.fail("constraint out of bounds: '{s}'", .{
-                    constraint,
+                    out.constraint,
                 });
                 break :arg_mcv args.items[index];
-            } else return self.fail("invalid constraint: '{s}'", .{constraint});
+            } else return self.fail("invalid constraint: '{s}'", .{out.constraint});
             break :arg_mcv if (arg_maybe_reg) |reg| .{ .register = reg } else arg: {
-                const ptr_mcv = try self.resolveInst(output);
+                const ptr_mcv = try self.resolveInst(out.operand);
                 switch (ptr_mcv) {
                     .immediate => |addr| if (std.math.cast(i32, @as(i64, @bitCast(addr)))) |_|
                         break :arg ptr_mcv.deref(),
@@ -177223,30 +177204,24 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
             };
         };
         if (arg_mcv.getReg()) |reg| if (RegisterManager.indexOfRegIntoTracked(reg)) |tracked_index| {
-            try self.register_manager.getRegIndex(tracked_index, if (output == .none) inst else null);
+            try self.register_manager.getRegIndex(tracked_index, if (out.operand == .none) inst else null);
             _ = self.register_manager.lockRegIndexAssumeUnused(tracked_index);
         };
-        if (!std.mem.eql(u8, name, "_"))
-            arg_map.putAssumeCapacityNoClobber(name, @intCast(args.items.len));
+        if (!std.mem.eql(u8, out.name, "_"))
+            arg_map.putAssumeCapacityNoClobber(out.name, @intCast(args.items.len));
         args.appendAssumeCapacity(arg_mcv);
-        if (output == .none) result = arg_mcv;
-        if (is_read) try self.load(arg_mcv, self.typeOf(output), .{ .air_ref = output });
+        if (out.operand == .none) result = arg_mcv;
+        if (is_read) try self.load(arg_mcv, self.typeOf(out.operand), .{ .air_ref = out.operand });
     }
 
-    for (inputs) |input| {
-        const input_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
-        const constraint = std.mem.sliceTo(input_bytes, 0);
-        const name = std.mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
-        // This equation accounts for the fact that even if we have exactly 4 bytes
-        // for the string, we still use the next u32 for the null terminator.
-        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
-
-        const ty = self.typeOf(input);
-        const input_mcv = try self.resolveInst(input);
-        const arg_mcv: MCValue = if (std.mem.eql(u8, constraint, "r") or
-            std.mem.eql(u8, constraint, "f") or std.mem.eql(u8, constraint, "x"))
+    it = unwrapped_asm.iterateInputs();
+    while (it.next()) |in| {
+        const ty = self.typeOf(in.operand);
+        const input_mcv = try self.resolveInst(in.operand);
+        const arg_mcv: MCValue = if (std.mem.eql(u8, in.constraint, "r") or
+            std.mem.eql(u8, in.constraint, "f") or std.mem.eql(u8, in.constraint, "x"))
         arg: {
-            const rc = switch (constraint[0]) {
+            const rc = switch (in.constraint[0]) {
                 'r' => abi.RegisterClass.gp,
                 'f' => abi.RegisterClass.x87,
                 'x' => abi.RegisterClass.sse,
@@ -177258,14 +177233,14 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
             const reg = try self.register_manager.allocReg(null, rc);
             try self.genSetReg(reg, ty, input_mcv, .{});
             break :arg .{ .register = registerAlias(reg, @intCast(ty.abiSize(zcu))) };
-        } else if (std.mem.eql(u8, constraint, "i") or std.mem.eql(u8, constraint, "n"))
+        } else if (std.mem.eql(u8, in.constraint, "i") or std.mem.eql(u8, in.constraint, "n"))
             switch (input_mcv) {
                 .immediate => |imm| .{ .immediate = imm },
                 else => return self.fail("immediate operand requires comptime value: '{s}'", .{
-                    constraint,
+                    in.constraint,
                 }),
             }
-        else if (std.mem.eql(u8, constraint, "m")) arg: {
+        else if (std.mem.eql(u8, in.constraint, "m")) arg: {
             switch (input_mcv) {
                 .memory => |addr| if (std.math.cast(i32, @as(i64, @bitCast(addr)))) |_|
                     break :arg input_mcv,
@@ -177284,9 +177259,9 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
             };
             try self.genSetReg(addr_reg, .usize, input_mcv.address(), .{});
             break :arg .{ .indirect = .{ .reg = addr_reg } };
-        } else if (std.mem.eql(u8, constraint, "g") or
-            std.mem.eql(u8, constraint, "rm") or std.mem.eql(u8, constraint, "mr") or
-            std.mem.eql(u8, constraint, "r,m") or std.mem.eql(u8, constraint, "m,r"))
+        } else if (std.mem.eql(u8, in.constraint, "g") or
+            std.mem.eql(u8, in.constraint, "rm") or std.mem.eql(u8, in.constraint, "mr") or
+            std.mem.eql(u8, in.constraint, "r,m") or std.mem.eql(u8, in.constraint, "m,r"))
         arg: {
             switch (input_mcv) {
                 .register, .indirect, .load_frame => break :arg input_mcv,
@@ -177297,30 +177272,30 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
             const temp_mcv = try self.allocTempRegOrMem(ty, true);
             try self.genCopy(ty, temp_mcv, input_mcv, .{});
             break :arg temp_mcv;
-        } else if (std.mem.eql(u8, constraint, "X"))
+        } else if (std.mem.eql(u8, in.constraint, "X"))
             input_mcv
-        else if (std.mem.startsWith(u8, constraint, "{") and std.mem.endsWith(u8, constraint, "}")) arg: {
-            const reg = parseRegName(constraint["{".len .. constraint.len - "}".len]) orelse
-                return self.fail("invalid register constraint: '{s}'", .{constraint});
+        else if (std.mem.startsWith(u8, in.constraint, "{") and std.mem.endsWith(u8, in.constraint, "}")) arg: {
+            const reg = parseRegName(in.constraint["{".len .. in.constraint.len - "}".len]) orelse
+                return self.fail("invalid register constraint: '{s}'", .{in.constraint});
             try self.register_manager.getReg(reg, null);
             try self.genSetReg(reg, ty, input_mcv, .{});
             break :arg .{ .register = reg };
-        } else if (constraint.len == 1 and std.ascii.isDigit(constraint[0])) arg: {
-            const index = std.fmt.charToDigit(constraint[0], 10) catch unreachable;
-            if (index >= args.items.len) return self.fail("constraint out of bounds: '{s}'", .{constraint});
+        } else if (in.constraint.len == 1 and std.ascii.isDigit(in.constraint[0])) arg: {
+            const index = std.fmt.charToDigit(in.constraint[0], 10) catch unreachable;
+            if (index >= args.items.len) return self.fail("constraint out of bounds: '{s}'", .{in.constraint});
             try self.genCopy(ty, args.items[index], input_mcv, .{});
             break :arg args.items[index];
-        } else return self.fail("invalid constraint: '{s}'", .{constraint});
+        } else return self.fail("invalid constraint: '{s}'", .{in.constraint});
         if (arg_mcv.getReg()) |reg| if (RegisterManager.indexOfRegIntoTracked(reg)) |_| {
             _ = self.register_manager.lockReg(reg);
         };
-        if (!std.mem.eql(u8, name, "_"))
-            arg_map.putAssumeCapacityNoClobber(name, @intCast(args.items.len));
+        if (!std.mem.eql(u8, in.name, "_"))
+            arg_map.putAssumeCapacityNoClobber(in.name, @intCast(args.items.len));
         args.appendAssumeCapacity(arg_mcv);
     }
 
     const ip = &zcu.intern_pool;
-    const aggregate = ip.indexToKey(extra.data.clobbers).aggregate;
+    const aggregate = ip.indexToKey(unwrapped_asm.clobbers).aggregate;
     const struct_type: Type = .fromInterned(aggregate.ty);
     switch (aggregate.storage) {
         .elems => |elems| for (elems, 0..) |elem, i| switch (elem) {
@@ -177390,7 +177365,7 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
         labels.deinit(self.gpa);
     }
 
-    const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
+    const asm_source = unwrapped_asm.source;
     var line_it = std.mem.tokenizeAny(u8, asm_source, "\n\r;");
     next_line: while (line_it.next()) |line| {
         var mnem_it = std.mem.tokenizeAny(u8, line, " \t");
@@ -177821,19 +177796,13 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
     while (label_it.next()) |label| if (label.value_ptr.pending_relocs.items.len > 0)
         return self.fail("undefined label: '{s}'", .{label.key_ptr.*});
 
-    for (outputs, args.items[0..outputs.len]) |output, arg_mcv| {
-        const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[outputs_extra_i..]);
-        const constraint =
-            std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[outputs_extra_i..]), 0);
-        const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-        // This equation accounts for the fact that even if we have exactly 4 bytes
-        // for the string, we still use the next u32 for the null terminator.
-        outputs_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
-
-        if (output == .none) continue;
+    it = unwrapped_asm.iterateOutputs();
+    while (it.next()) |out| {
+        const arg_mcv = args.items[it.current - 1];
+        if (out.operand == .none) continue;
         if (arg_mcv != .register) continue;
-        if (constraint.len == 2 and std.ascii.isDigit(constraint[1])) continue;
-        try self.store(self.typeOf(output), .{ .air_ref = output }, arg_mcv, .{});
+        if (out.constraint.len == 2 and std.ascii.isDigit(out.constraint[1])) continue;
+        try self.store(self.typeOf(out.operand), .{ .air_ref = out.operand }, arg_mcv, .{});
     }
 
     simple: {

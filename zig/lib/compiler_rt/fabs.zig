@@ -1,18 +1,19 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 comptime {
-    @export(&__fabsh, .{ .name = "__fabsh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&fabsf, .{ .name = "fabsf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&fabs, .{ .name = "fabs", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__fabsx, .{ .name = "__fabsx", .linkage = common.linkage, .visibility = common.visibility });
-    if (common.want_ppc_abi) {
-        @export(&fabsq, .{ .name = "fabsf128", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__fabsh, "__fabsh");
+    symbol(&fabsf, "fabsf");
+    symbol(&fabs, "fabs");
+    symbol(&__fabsx, "__fabsx");
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&fabsq, "fabsf128");
     }
-    @export(&fabsq, .{ .name = "fabsq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&fabsl, .{ .name = "fabsl", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&fabsq, "fabsq");
+    symbol(&fabsl, "fabsl");
 }
 
 pub fn __fabsh(a: f16) callconv(.c) f16 {

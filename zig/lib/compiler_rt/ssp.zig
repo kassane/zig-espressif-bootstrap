@@ -13,7 +13,8 @@
 //! - __vsprintf_chk
 
 const std = @import("std");
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const builtin = @import("builtin");
 
 extern fn memset(dest: ?[*]u8, c: u8, n: usize) callconv(.c) ?[*]u8;
@@ -21,16 +22,16 @@ extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) call
 extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.c) ?[*]u8;
 
 comptime {
-    @export(&__stack_chk_fail, .{ .name = if (builtin.os.tag == .openbsd) "__stack_smash_handler" else "__stack_chk_fail", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__chk_fail, .{ .name = "__chk_fail", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__strcpy_chk, .{ .name = "__strcpy_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__strncpy_chk, .{ .name = "__strncpy_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__strcat_chk, .{ .name = "__strcat_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__strncat_chk, .{ .name = "__strncat_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__memcpy_chk, .{ .name = "__memcpy_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__memmove_chk, .{ .name = "__memmove_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__memset_chk, .{ .name = "__memset_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__stack_chk_fail, .{ .name = if (builtin.os.tag == .openbsd) "__stack_smash_handler" else "__stack_chk_fail", .linkage = compiler_rt.linkage, .visibility = compiler_rt.visibility });
+    symbol(&__chk_fail, "__chk_fail");
+    symbol(&__stack_chk_guard, "__stack_chk_guard");
+    symbol(&__strcpy_chk, "__strcpy_chk");
+    symbol(&__strncpy_chk, "__strncpy_chk");
+    symbol(&__strcat_chk, "__strcat_chk");
+    symbol(&__strncat_chk, "__strncat_chk");
+    symbol(&__memcpy_chk, "__memcpy_chk");
+    symbol(&__memmove_chk, "__memmove_chk");
+    symbol(&__memset_chk, "__memset_chk");
 }
 
 fn __stack_chk_fail() callconv(.c) noreturn {

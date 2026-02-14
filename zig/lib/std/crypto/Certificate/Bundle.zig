@@ -212,7 +212,7 @@ pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, io: Io, now: Io.Timestamp, i
     }
 }
 
-pub const AddCertsFromFilePathError = Io.File.OpenError || AddCertsFromFileError || Io.Clock.Error;
+pub const AddCertsFromFilePathError = Io.File.OpenError || AddCertsFromFileError;
 
 pub fn addCertsFromFilePathAbsolute(
     cb: *Bundle,
@@ -338,7 +338,7 @@ test "scan for OS-provided certificates" {
     var bundle: Bundle = .{};
     defer bundle.deinit(gpa);
 
-    const now = try Io.Clock.real.now(io);
+    const now = Io.Clock.real.now(io);
 
     try bundle.rescan(gpa, io, now);
 }

@@ -4,49 +4,50 @@ const std = @import("std");
 const builtin = @import("builtin");
 const target = builtin.target;
 const arch = builtin.cpu.arch;
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 comptime {
     if (!builtin.is_test) {
         if (arch.isArm()) {
-            @export(&__aeabi_unwind_cpp_pr0, .{ .name = "__aeabi_unwind_cpp_pr0", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = common.linkage, .visibility = common.visibility });
+            symbol(&__aeabi_unwind_cpp_pr0, "__aeabi_unwind_cpp_pr0");
+            symbol(&__aeabi_unwind_cpp_pr1, "__aeabi_unwind_cpp_pr1");
+            symbol(&__aeabi_unwind_cpp_pr2, "__aeabi_unwind_cpp_pr2");
 
-            if (common.want_windows_arm_abi) {
-                @export(&__aeabi_ldivmod, .{ .name = "__rt_sdiv64", .linkage = common.linkage, .visibility = common.visibility });
-                @export(&__aeabi_uldivmod, .{ .name = "__rt_udiv64", .linkage = common.linkage, .visibility = common.visibility });
-                @export(&__aeabi_idivmod, .{ .name = "__rt_sdiv", .linkage = common.linkage, .visibility = common.visibility });
-                @export(&__aeabi_uidivmod, .{ .name = "__rt_udiv", .linkage = common.linkage, .visibility = common.visibility });
+            if (compiler_rt.want_windows_arm_abi) {
+                symbol(&__aeabi_ldivmod, "__rt_sdiv64");
+                symbol(&__aeabi_uldivmod, "__rt_udiv64");
+                symbol(&__aeabi_idivmod, "__rt_sdiv");
+                symbol(&__aeabi_uidivmod, "__rt_udiv");
             }
-            @export(&__aeabi_ldivmod, .{ .name = "__aeabi_ldivmod", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_uldivmod, .{ .name = "__aeabi_uldivmod", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_idivmod, .{ .name = "__aeabi_idivmod", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_uidivmod, .{ .name = "__aeabi_uidivmod", .linkage = common.linkage, .visibility = common.visibility });
+            symbol(&__aeabi_ldivmod, "__aeabi_ldivmod");
+            symbol(&__aeabi_uldivmod, "__aeabi_uldivmod");
+            symbol(&__aeabi_idivmod, "__aeabi_idivmod");
+            symbol(&__aeabi_uidivmod, "__aeabi_uidivmod");
 
-            @export(&__aeabi_memcpy, .{ .name = "__aeabi_memcpy", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_memcpy4, .{ .name = "__aeabi_memcpy4", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_memcpy8, .{ .name = "__aeabi_memcpy8", .linkage = common.linkage, .visibility = common.visibility });
+            symbol(&__aeabi_memcpy, "__aeabi_memcpy");
+            symbol(&__aeabi_memcpy4, "__aeabi_memcpy4");
+            symbol(&__aeabi_memcpy8, "__aeabi_memcpy8");
 
-            @export(&__aeabi_memmove, .{ .name = "__aeabi_memmove", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_memmove4, .{ .name = "__aeabi_memmove4", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_memmove8, .{ .name = "__aeabi_memmove8", .linkage = common.linkage, .visibility = common.visibility });
+            symbol(&__aeabi_memmove, "__aeabi_memmove");
+            symbol(&__aeabi_memmove4, "__aeabi_memmove4");
+            symbol(&__aeabi_memmove8, "__aeabi_memmove8");
 
-            @export(&__aeabi_memset, .{ .name = "__aeabi_memset", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_memset4, .{ .name = "__aeabi_memset4", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_memset8, .{ .name = "__aeabi_memset8", .linkage = common.linkage, .visibility = common.visibility });
+            symbol(&__aeabi_memset, "__aeabi_memset");
+            symbol(&__aeabi_memset4, "__aeabi_memset4");
+            symbol(&__aeabi_memset8, "__aeabi_memset8");
 
-            @export(&__aeabi_memclr, .{ .name = "__aeabi_memclr", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_memclr4, .{ .name = "__aeabi_memclr4", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_memclr8, .{ .name = "__aeabi_memclr8", .linkage = common.linkage, .visibility = common.visibility });
+            symbol(&__aeabi_memclr, "__aeabi_memclr");
+            symbol(&__aeabi_memclr4, "__aeabi_memclr4");
+            symbol(&__aeabi_memclr8, "__aeabi_memclr8");
 
             if (builtin.os.tag == .linux or builtin.os.tag == .freebsd) {
-                @export(&__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = common.linkage, .visibility = common.visibility });
+                symbol(&__aeabi_read_tp, "__aeabi_read_tp");
             }
 
             // floating-point helper functions (single+double-precision reverse subtraction, y – x), see subdf3.zig
-            @export(&__aeabi_frsub, .{ .name = "__aeabi_frsub", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_drsub, .{ .name = "__aeabi_drsub", .linkage = common.linkage, .visibility = common.visibility });
+            symbol(&__aeabi_frsub, "__aeabi_frsub");
+            symbol(&__aeabi_drsub, "__aeabi_drsub");
         }
     }
 }

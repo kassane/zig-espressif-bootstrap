@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const os_tag = builtin.os.tag;
 const arch = builtin.cpu.arch;
 const abi = builtin.abi;
@@ -9,16 +10,16 @@ comptime {
     if (builtin.os.tag == .windows) {
         // Default stack-probe functions emitted by LLVM
         if (builtin.target.isMinGW()) {
-            @export(&_chkstk, .{ .name = "_alloca", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__chkstk, .{ .name = "__chkstk", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&___chkstk, .{ .name = "__alloca", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&___chkstk, .{ .name = "___chkstk", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__chkstk_ms, .{ .name = "__chkstk_ms", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&___chkstk_ms, .{ .name = "___chkstk_ms", .linkage = common.linkage, .visibility = common.visibility });
+            symbol(&_chkstk, "_alloca");
+            symbol(&__chkstk, "__chkstk");
+            symbol(&___chkstk, "__alloca");
+            symbol(&___chkstk, "___chkstk");
+            symbol(&__chkstk_ms, "__chkstk_ms");
+            symbol(&___chkstk_ms, "___chkstk_ms");
         } else if (!builtin.link_libc) {
             // This symbols are otherwise exported by MSVCRT.lib
-            @export(&_chkstk, .{ .name = "_chkstk", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__chkstk, .{ .name = "__chkstk", .linkage = common.linkage, .visibility = common.visibility });
+            symbol(&_chkstk, "_chkstk");
+            symbol(&__chkstk, "__chkstk");
         }
     }
 
@@ -26,7 +27,7 @@ comptime {
         .x86,
         .x86_64,
         => {
-            @export(&zig_probe_stack, .{ .name = "__zig_probe_stack", .linkage = common.linkage, .visibility = common.visibility });
+            symbol(&zig_probe_stack, "__zig_probe_stack");
         },
         else => {},
     }

@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 
 const std = @import("std");
 const Io = std.Io;
+const posix = std.posix;
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
@@ -399,12 +400,14 @@ test "detect" {
 pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
     var cpu_family: std.c.CPUFAMILY = undefined;
     var len: usize = @sizeOf(std.c.CPUFAMILY);
-    std.posix.sysctlbynameZ("hw.cpufamily", &cpu_family, &len, null, 0) catch |err| switch (err) {
-        error.PermissionDenied => unreachable, // only when setting values,
-        error.SystemResources => unreachable, // memory already on the stack
-        error.UnknownName => unreachable, // constant, known good value
-        error.Unexpected => unreachable, // EFAULT: stack should be safe, EISDIR/ENOTDIR: constant, known good value
-    };
+    switch (posix.errno(posix.system.sysctlbyname("hw.cpufamily", &cpu_family, &len, null, 0))) {
+        .SUCCESS => {},
+        .FAULT => unreachable, // segmentation fault
+        .PERM => unreachable, // only when setting values,
+        .NOMEM => unreachable, // memory already on the stack
+        .NOENT => unreachable, // constant, known good value
+        else => unreachable,
+    }
 
     const current_arch = builtin.cpu.arch;
     switch (current_arch) {

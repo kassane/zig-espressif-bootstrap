@@ -26,6 +26,7 @@
 //! By limiting the thread-local metadata array to the same number as the CPU
 //! count, ensures that as threads are created and destroyed, they cycle
 //! through the full set of freelists.
+const SmpAllocator = @This();
 
 const builtin = @import("builtin");
 
@@ -34,7 +35,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const math = std.math;
 const Allocator = std.mem.Allocator;
-const SmpAllocator = @This();
+const Alignment = std.mem.Alignment;
 const PageAllocator = std.heap.PageAllocator;
 
 cpu_count: u32,
@@ -62,7 +63,7 @@ const Thread = struct {
     ///
     /// Threads lock this before accessing their own state in order
     /// to support freelist reclamation.
-    mutex: std.Thread.Mutex = .{},
+    mutex: std.atomic.Mutex = .unlocked,
 
     /// For each size class, tracks the next address to be returned from
     /// `alloc` when the freelist is empty.
@@ -114,7 +115,7 @@ comptime {
     assert(!builtin.single_threaded); // you're holding it wrong
 }
 
-fn alloc(context: *anyopaque, len: usize, alignment: mem.Alignment, ra: usize) ?[*]u8 {
+fn alloc(context: *anyopaque, len: usize, alignment: Alignment, ra: usize) ?[*]u8 {
     _ = context;
     _ = ra;
     const class = sizeClassIndex(len, alignment);
@@ -172,31 +173,31 @@ fn alloc(context: *anyopaque, len: usize, alignment: mem.Alignment, ra: usize) ?
     }
 }
 
-fn resize(context: *anyopaque, memory: []u8, alignment: mem.Alignment, new_len: usize, ra: usize) bool {
+fn resize(context: *anyopaque, memory: []u8, alignment: Alignment, new_len: usize, ra: usize) bool {
     _ = context;
     _ = ra;
     const class = sizeClassIndex(memory.len, alignment);
     const new_class = sizeClassIndex(new_len, alignment);
     if (class >= size_class_count) {
         if (new_class < size_class_count) return false;
-        return PageAllocator.realloc(memory, new_len, false) != null;
+        return PageAllocator.realloc(memory, alignment, new_len, false) != null;
     }
     return new_class == class;
 }
 
-fn remap(context: *anyopaque, memory: []u8, alignment: mem.Alignment, new_len: usize, ra: usize) ?[*]u8 {
+fn remap(context: *anyopaque, memory: []u8, alignment: Alignment, new_len: usize, ra: usize) ?[*]u8 {
     _ = context;
     _ = ra;
     const class = sizeClassIndex(memory.len, alignment);
     const new_class = sizeClassIndex(new_len, alignment);
     if (class >= size_class_count) {
         if (new_class < size_class_count) return null;
-        return PageAllocator.realloc(memory, new_len, true);
+        return PageAllocator.realloc(memory, alignment, new_len, true);
     }
     return if (new_class == class) memory.ptr else null;
 }
 
-fn free(context: *anyopaque, memory: []u8, alignment: mem.Alignment, ra: usize) void {
+fn free(context: *anyopaque, memory: []u8, alignment: Alignment, ra: usize) void {
     _ = context;
     _ = ra;
     const class = sizeClassIndex(memory.len, alignment);
@@ -214,7 +215,7 @@ fn free(context: *anyopaque, memory: []u8, alignment: mem.Alignment, ra: usize) 
     t.frees[class] = @intFromPtr(node);
 }
 
-fn sizeClassIndex(len: usize, alignment: mem.Alignment) usize {
+fn sizeClassIndex(len: usize, alignment: Alignment) usize {
     return @max(@bitSizeOf(usize) - @clz(len - 1), @intFromEnum(alignment), min_class) - min_class;
 }
 

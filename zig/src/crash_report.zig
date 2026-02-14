@@ -1,16 +1,18 @@
+pub const enabled = switch (build_options.io_mode) {
+    .threaded => build_options.enable_debug_extensions,
+    .evented => false, // would use threadlocals in a way incompatible with evented
+};
+
 /// We override the panic implementation to our own one, so we can print our own information before
 /// calling the default panic handler. This declaration must be re-exposed from `@import("root")`.
-pub const panic = if (dev.env == .bootstrap)
-    std.debug.simple_panic
-else
-    std.debug.FullPanic(panicImpl);
+pub const panic = std.debug.FullPanic(if (enabled) panicImpl else std.debug.defaultPanic);
 
 /// We let std install its segfault handler, but we override the target-agnostic handler it calls,
 /// so we can print our own information before calling the default segfault logic. This declaration
 /// must be re-exposed from `@import("root")`.
-pub const debug = struct {
+pub const debug = if (enabled) struct {
     pub const handleSegfault = handleSegfaultImpl;
-};
+} else struct {};
 
 /// Printed in panic messages when suggesting a command to run, allowing copy-pasting the command.
 /// Set by `main` as soon as arguments are known. The value here is a default in case we somehow
@@ -28,7 +30,7 @@ fn panicImpl(msg: []const u8, first_trace_addr: ?usize) noreturn {
     std.debug.defaultPanic(msg, first_trace_addr orelse @returnAddress());
 }
 
-pub const AnalyzeBody = if (build_options.enable_debug_extensions) struct {
+pub const AnalyzeBody = if (enabled) struct {
     parent: ?*AnalyzeBody,
     sema: *Sema,
     block: *Sema.Block,
@@ -63,7 +65,7 @@ pub const AnalyzeBody = if (build_options.enable_debug_extensions) struct {
     pub inline fn setBodyIndex(_: @This(), _: usize) void {}
 };
 
-pub const CodegenFunc = if (build_options.enable_debug_extensions) struct {
+pub const CodegenFunc = if (enabled) struct {
     zcu: *const Zcu,
     func_index: InternPool.Index,
     threadlocal var current: ?CodegenFunc = null;
@@ -92,6 +94,8 @@ fn dumpCrashContext() Io.Writer.Error!void {
     };
     if (S.already_dumped) return;
     S.already_dumped = true;
+
+    std.Options.debug_io.vtable.crashHandler(std.Options.debug_io.userdata);
 
     // TODO: this does mean that a different thread could grab the stderr mutex between the context
     // and the actual panic printing, which would be quite confusing.

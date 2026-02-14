@@ -7,11 +7,6 @@
 #include "lock.h"
 #include "fork_impl.h"
 
-#define malloc __libc_malloc
-#define calloc undef
-#define realloc undef
-#define free undef
-
 const char *__lctrans_impl(const char *msg, const struct __locale_map *lm)
 {
 	const char *trans = 0;

@@ -1,21 +1,23 @@
 //! drand48 functions are based off a 48-bit lcg prng: https://pubs.opengroup.org/onlinepubs/9799919799/functions/drand48.html
 
-const std = @import("std");
-const common = @import("../common.zig");
 const builtin = @import("builtin");
+
+const std = @import("std");
 const Lcg = std.Random.lcg.Wrapping(u48);
+
+const symbol = @import("../../c.zig").symbol;
 
 comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
-        @export(&erand48, .{ .name = "erand48", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&jrand48, .{ .name = "jrand48", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&nrand48, .{ .name = "nrand48", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&drand48, .{ .name = "drand48", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&lrand48, .{ .name = "lrand48", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&mrand48, .{ .name = "mrand48", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&lcong48, .{ .name = "lcong48", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&seed48, .{ .name = "seed48", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&srand48, .{ .name = "srand48", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&erand48, "erand48");
+        symbol(&jrand48, "jrand48");
+        symbol(&nrand48, "nrand48");
+        symbol(&drand48, "drand48");
+        symbol(&lrand48, "lrand48");
+        symbol(&mrand48, "mrand48");
+        symbol(&lcong48, "lcong48");
+        symbol(&seed48, "seed48");
+        symbol(&srand48, "srand48");
     }
 }
 

@@ -1,10 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const common = @import("common.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 const bigIntFromFloat = @import("int_from_float.zig").bigIntFromFloat;
 
 comptime {
-    @export(&__fixunsxfei, .{ .name = "__fixunsxfei", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__fixunsxfei, "__fixunsxfei");
 }
 
 pub fn __fixunsxfei(r: [*]u8, bits: usize, a: f80) callconv(.c) void {

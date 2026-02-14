@@ -2389,7 +2389,7 @@ pub const Pool = struct {
                             .nonstring = elem_ctype.isAnyChar() and switch (ptr_info.sentinel) {
                                 .none => true,
                                 .zero_u8 => false,
-                                else => |sentinel| Value.fromInterned(sentinel).orderAgainstZero(zcu).compare(.neq),
+                                else => |sentinel| !Value.fromInterned(sentinel).compareAllWithZero(.eq, zcu),
                             },
                         });
                     },
@@ -2438,7 +2438,7 @@ pub const Pool = struct {
                         .nonstring = elem_ctype.isAnyChar() and switch (array_info.sentinel) {
                             .none => true,
                             .zero_u8 => false,
-                            else => |sentinel| Value.fromInterned(sentinel).orderAgainstZero(zcu).compare(.neq),
+                            else => |sentinel| !Value.fromInterned(sentinel).compareAllWithZero(.eq, zcu),
                         },
                     });
                     if (!kind.isParameter()) return array_ctype;

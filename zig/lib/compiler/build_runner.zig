@@ -30,20 +30,23 @@ pub fn main(init: process.Init.Minimal) !void {
     defer _ = debug_gpa_state.deinit();
     const gpa = debug_gpa_state.allocator();
 
-    // ...but we'll back our arena by `std.heap.page_allocator` for efficiency.
-    var single_threaded_arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-    defer single_threaded_arena.deinit();
-    var thread_safe_arena: std.heap.ThreadSafeAllocator = .{ .child_allocator = single_threaded_arena.allocator() };
-    const arena = thread_safe_arena.allocator();
-
-    const args = try init.args.toSlice(arena);
-
     var threaded: std.Io.Threaded = .init(gpa, .{
         .environ = init.environ,
         .argv0 = .init(init.args),
     });
     defer threaded.deinit();
     const io = threaded.io();
+
+    // ...but we'll back our arena by `std.heap.page_allocator` for efficiency.
+    var single_threaded_arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer single_threaded_arena.deinit();
+    var thread_safe_arena: std.heap.ThreadSafeAllocator = .{
+        .child_allocator = single_threaded_arena.allocator(),
+        .io = io,
+    };
+    const arena = thread_safe_arena.allocator();
+
+    const args = try init.args.toSlice(arena);
 
     // skip my own exe name
     var arg_idx: usize = 1;
@@ -83,7 +86,7 @@ pub fn main(init: process.Init.Minimal) !void {
             .io = io,
             .gpa = gpa,
             .manifest_dir = try local_cache_directory.handle.createDirPathOpen(io, "h", .{}),
-            .cwd = try process.getCwdAlloc(single_threaded_arena.allocator()),
+            .cwd = try process.currentPathAlloc(io, single_threaded_arena.allocator()),
         },
         .zig_exe = zig_exe,
         .environ_map = try init.environ.createMap(arena),
@@ -545,7 +548,7 @@ pub fn main(init: process.Init.Minimal) !void {
         break :w try .init(graph.cache.cwd);
     };
 
-    const now = Io.Clock.Timestamp.now(io, .awake) catch |err| fatal("failed to collect timestamp: {t}", .{err});
+    const now = Io.Clock.Timestamp.now(io, .awake);
 
     run.web_server = if (webui_listen) |listen_address| ws: {
         if (builtin.single_threaded) unreachable; // `fatal` above
@@ -618,7 +621,7 @@ pub fn main(init: process.Init.Minimal) !void {
         }) catch &caption_buf;
         var debouncing_node = main_progress_node.start(caption, 0);
         var in_debounce = false;
-        while (true) switch (try w.wait(gpa, if (in_debounce) .{ .ms = debounce_interval_ms } else .none)) {
+        while (true) switch (try w.wait(gpa, io, if (in_debounce) .{ .ms = debounce_interval_ms } else .none)) {
             .timeout => {
                 assert(in_debounce);
                 debouncing_node.end();
@@ -1570,6 +1573,23 @@ fn printUsage(b: *std.Build, w: *Writer) !void {
         \\  -fsys=[name]                 Enable a system integration
         \\  -fno-sys=[name]              Disable a system integration
         \\
+        \\  -fdarling,  -fno-darling     Integration with system-installed Darling to
+        \\                               execute macOS programs on Linux hosts
+        \\                               (default: no)
+        \\  -fqemu,     -fno-qemu        Integration with system-installed QEMU to execute
+        \\                               foreign-architecture programs on Linux hosts
+        \\                               (default: no)
+        \\  --libc-runtimes [path]       Enhances QEMU integration by providing dynamic libc
+        \\                               (e.g. glibc or musl) built for multiple foreign
+        \\                               architectures, allowing execution of non-native
+        \\                               programs that link with libc.
+        \\  -frosetta,  -fno-rosetta     Rely on Rosetta to execute x86_64 programs on
+        \\                               ARM64 macOS hosts. (default: no)
+        \\  -fwasmtime, -fno-wasmtime    Integration with system-installed wasmtime to
+        \\                               execute WASI binaries. (default: no)
+        \\  -fwine,     -fno-wine        Integration with system-installed Wine to execute
+        \\                               Windows programs on Linux hosts. (default: no)
+        \\
         \\  Available System Integrations:                Enabled:
         \\
     );
@@ -1589,33 +1609,16 @@ fn printUsage(b: *std.Build, w: *Writer) !void {
     try w.writeAll(
         \\
         \\General Options:
+        \\  -h, --help                   Print this help and exit
+        \\  -l, --list-steps             Print available steps
+        \\
         \\  -p, --prefix [path]          Where to install files (default: zig-out)
         \\  --prefix-lib-dir [path]      Where to install libraries
         \\  --prefix-exe-dir [path]      Where to install executables
         \\  --prefix-include-dir [path]  Where to install C header files
-        \\
         \\  --release[=mode]             Request release mode, optionally specifying a
         \\                               preferred optimization mode: fast, safe, small
         \\
-        \\  -fdarling,  -fno-darling     Integration with system-installed Darling to
-        \\                               execute macOS programs on Linux hosts
-        \\                               (default: no)
-        \\  -fqemu,     -fno-qemu        Integration with system-installed QEMU to execute
-        \\                               foreign-architecture programs on Linux hosts
-        \\                               (default: no)
-        \\  --libc-runtimes [path]       Enhances QEMU integration by providing dynamic libc
-        \\                               (e.g. glibc or musl) built for multiple foreign
-        \\                               architectures, allowing execution of non-native
-        \\                               programs that link with libc.
-        \\  -frosetta,  -fno-rosetta     Rely on Rosetta to execute x86_64 programs on
-        \\                               ARM64 macOS hosts. (default: no)
-        \\  -fwasmtime, -fno-wasmtime    Integration with system-installed wasmtime to
-        \\                               execute WASI binaries. (default: no)
-        \\  -fwine,     -fno-wine        Integration with system-installed Wine to execute
-        \\                               Windows programs on Linux hosts. (default: no)
-        \\
-        \\  -h, --help                   Print this help and exit
-        \\  -l, --list-steps             Print available steps
         \\  --verbose                    Print commands before executing them
         \\  --color [auto|off|on]        Enable or disable colored error messages
         \\  --error-style [style]        Control how build errors are printed
@@ -1638,9 +1641,6 @@ fn printUsage(b: *std.Build, w: *Writer) !void {
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
         \\  --test-timeout <timeout>     Limit execution time of unit tests, terminating if exceeded.
         \\                               The timeout must include a unit: ns, us, ms, s, m, h
-        \\  --fetch[=mode]               Fetch dependency tree (optionally choose laziness) and exit
-        \\    needed                     (Default) Lazy dependencies are fetched as needed
-        \\    all                        Lazy dependencies are always fetched
         \\  --watch                      Continuously rebuild when source files are modified
         \\  --debounce <ms>              Delay before rebuilding after changed file detected
         \\  --webui[=ip]                 Enable the web interface on the given IP address
@@ -1652,6 +1652,12 @@ fn printUsage(b: *std.Build, w: *Writer) !void {
         \\                               compilation time of Zig source code (implies '--webui')
         \\     -fincremental             Enable incremental compilation
         \\  -fno-incremental             Disable incremental compilation
+        \\
+        \\Package Management Options:
+        \\  --fetch[=mode]               Fetch dependency tree (optionally choose laziness) and exit
+        \\    needed                     (Default) Lazy dependencies are fetched as needed
+        \\    all                        Lazy dependencies are always fetched
+        \\  --fork=[path]                Override one or more projects from dependency tree
         \\
         \\Advanced Options:
         \\  -freference-trace[=num]      How many lines of reference trace should be shown per compile error

@@ -73,6 +73,7 @@ const Abi = enum {
     nios2,
     or1k,
     riscv,
+    hexagon,
 };
 
 const __X32_SYSCALL_BIT: u32 = 0x40000000;
@@ -158,10 +159,11 @@ const architectures: []const Arch = &.{
     .{ .@"var" = "Arm64", .table = .generic, .abi = &.{ .common, .@"64", .renameat, .rlimit, .memfd_secret } },
     .{ .@"var" = "RiscV32", .table = .generic, .abi = &.{ .common, .@"32", .riscv, .memfd_secret } },
     .{ .@"var" = "RiscV64", .table = .generic, .abi = &.{ .common, .@"64", .riscv, .rlimit, .memfd_secret } },
+    .{ .@"var" = "LoongArch32", .table = .generic, .abi = &.{ .common, .@"32" } },
     .{ .@"var" = "LoongArch64", .table = .generic, .abi = &.{ .common, .@"64" } },
     .{ .@"var" = "Arc", .table = .generic, .abi = &.{ .common, .@"32", .arc, .time32, .renameat, .stat64, .rlimit } },
     .{ .@"var" = "CSky", .table = .generic, .abi = &.{ .common, .@"32", .csky, .time32, .stat64, .rlimit } },
-    .{ .@"var" = "Hexagon", .table = .generic, .abi = &.{ .common, .@"32", .time32, .stat64, .rlimit, .renameat } },
+    .{ .@"var" = "Hexagon", .table = .generic, .abi = &.{ .common, .@"32", .hexagon, .time32, .stat64, .rlimit, .renameat } },
     .{ .@"var" = "OpenRisc", .table = .generic, .abi = &.{ .common, .@"32", .or1k, .time32, .stat64, .rlimit, .renameat } },
     // .{ .@"var" = "Nios2", .table = .generic, .abi = &.{ .common, .@"32", .nios2, .time32, .stat64, .rlimit, .renameat } },
     // .{ .@"var" = "Parisc", .table = .{ .specific = "arch/parisc/kernel/syscalls/syscall.tbl" }, .abi = &.{ .common, .@"32" } },
@@ -250,8 +252,8 @@ pub fn main(init: std.process.Init) !void {
 
 fn usage(w: *std.Io.Writer, arg0: []const u8) std.Io.Writer.Error!void {
     try w.print(
-        \\Usage: {s} /path/to/zig /path/to/linux
-        \\Alternative Usage: zig run /path/to/git/zig/tools/generate_linux_syscalls.zig -- /path/to/zig /path/to/linux
+        \\Usage: {s} /path/to/linux
+        \\Alternative Usage: zig run /path/to/git/zig/tools/generate_linux_syscalls.zig -- /path/to/linux
         \\
         \\Generates the list of Linux syscalls for each supported cpu arch, using the Linux development tree.
         \\Prints to stdout Zig code which you can use to replace the file lib/std/os/linux/syscalls.zig.

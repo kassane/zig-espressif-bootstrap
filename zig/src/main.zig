@@ -21,7 +21,7 @@ const AstGen = std.zig.AstGen;
 const ZonGen = std.zig.ZonGen;
 const Server = std.zig.Server;
 
-const tracy = @import("tracy.zig");
+pub const tracy = @import("tracy.zig");
 const Compilation = @import("Compilation.zig");
 const link = @import("link.zig");
 const Package = @import("Package.zig");
@@ -158,25 +158,55 @@ pub fn log(
     std.log.defaultLog(level, scope, format, args);
 }
 
-var debug_allocator: std.heap.DebugAllocator(.{
-    .stack_trace_frames = build_options.mem_leak_frames,
-}) = .init;
-
 const use_debug_allocator = build_options.debug_gpa or
     (native_os != .wasi and !builtin.link_libc and switch (builtin.mode) {
         .Debug, .ReleaseSafe => true,
         .ReleaseFast, .ReleaseSmall => false,
     });
 
+const RootAllocator = if (use_debug_allocator) std.heap.DebugAllocator(.{
+    .stack_trace_frames = build_options.mem_leak_frames,
+    .thread_safe = switch (build_options.io_mode) {
+        .threaded => true,
+        .evented => false,
+    },
+}) else struct {
+    pub const init: RootAllocator = .{};
+    pub fn allocator(_: RootAllocator) Allocator {
+        if (native_os == .wasi) return std.heap.wasm_allocator;
+        if (builtin.link_libc) return std.heap.c_allocator;
+        return std.heap.smp_allocator;
+    }
+    pub fn deinit(_: RootAllocator) std.heap.Check {
+        return .ok;
+    }
+};
+
 pub fn main(init: std.process.Init.Minimal) anyerror!void {
-    const gpa = gpa: {
-        if (use_debug_allocator) break :gpa debug_allocator.allocator();
-        if (native_os == .wasi) break :gpa std.heap.wasm_allocator;
-        if (builtin.link_libc) break :gpa std.heap.c_allocator;
-        break :gpa std.heap.smp_allocator;
-    };
-    defer if (use_debug_allocator) {
-        _ = debug_allocator.deinit();
+    var root_allocator: RootAllocator = .init;
+    defer _ = root_allocator.deinit();
+    const root_gpa = root_allocator.allocator();
+    var io_impl: IoImpl = undefined;
+    switch (build_options.io_mode) {
+        .threaded => io_impl = .init(root_gpa, .{
+            .stack_size = thread_stack_size,
+
+            .argv0 = .init(init.args),
+            .environ = init.environ,
+        }),
+        .evented => try io_impl.init(root_gpa, .{
+            .argv0 = .init(init.args),
+            .environ = init.environ,
+
+            .backing_allocator_needs_mutex = use_debug_allocator,
+        }),
+    }
+    defer io_impl.deinit();
+    io_impl_ptr = &io_impl;
+    const io = io_impl.io();
+    const gpa = switch (build_options.io_mode) {
+        .threaded => root_gpa,
+        .evented => io_impl.allocator(),
     };
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
@@ -192,17 +222,6 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     }
 
     var environ_map = init.environ.createMap(arena) catch |err| fatal("failed to parse environment: {t}", .{err});
-
-    Compilation.setMainThread();
-
-    var threaded: Io.Threaded = .init(gpa, .{
-        .argv0 = .init(init.args),
-        .environ = init.environ,
-    });
-    defer threaded.deinit();
-    threaded_impl_ptr = &threaded;
-    threaded.stack_size = thread_stack_size;
-    const io = threaded.io();
 
     if (tracy.enable_allocation) {
         var gpa_tracy = tracy.tracyAllocator(gpa);
@@ -1809,6 +1828,9 @@ fn buildOutputType(
                             fatal("only one manifest file can be specified, found '{s}' after '{s}'", .{ arg, other });
                         } else manifest_file = arg;
                     },
+                    .def => {
+                        linker_module_definition_file = arg;
+                    },
                     .assembly, .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .ll, .bc, .m, .mm => {
                         dev.check(.c_compiler);
                         try create_module.c_source_files.append(arena, .{
@@ -1834,7 +1856,7 @@ fn buildOutputType(
                             fatal("found another zig file '{s}' after root source file '{s}'", .{ arg, other });
                         } else root_src_file = arg;
                     },
-                    .def, .unknown => {
+                    .unknown => {
                         if (std.ascii.eqlIgnoreCase(".xml", fs.path.extension(arg))) {
                             warn("embedded manifest files must have the extension '.manifest'", .{});
                         }
@@ -3397,7 +3419,7 @@ fn buildOutputType(
         @max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1),
         std.math.maxInt(Zcu.PerThread.IdBacking),
     );
-    setThreadLimit(thread_limit);
+    try setThreadLimit(arena, thread_limit);
 
     for (create_module.c_source_files.items) |*src| {
         dev.check(.c_compiler);
@@ -4728,13 +4750,13 @@ pub fn translateC(
     argv: []const []const u8,
     environ_map: *const process.Environ.Map,
     prog_node: std.Progress.Node,
+    thread_limit: usize,
     capture: ?*[]u8,
 ) !void {
-    try jitCmd(gpa, arena, io, argv, environ_map, .{
+    try jitCmdInner(gpa, arena, io, argv, environ_map, prog_node, thread_limit, .{
         .cmd_name = "translate-c",
         .root_src_path = "translate-c/main.zig",
         .depend_on_aro = true,
-        .progress_node = prog_node,
         .capture = capture,
     });
 }
@@ -4775,7 +4797,7 @@ fn cmdInit(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
         }
     }
 
-    const cwd_path = try introspect.getResolvedCwd(arena);
+    const cwd_path = try introspect.getResolvedCwd(io, arena);
     const cwd_basename = fs.path.basename(cwd_path);
     const sanitized_root_name = try sanitizeExampleName(arena, cwd_basename);
 
@@ -4896,7 +4918,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
     var override_global_cache_dir: ?[]const u8 = EnvVar.ZIG_GLOBAL_CACHE_DIR.get(environ_map);
     var override_local_cache_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_CACHE_DIR.get(environ_map);
     var override_build_runner: ?[]const u8 = EnvVar.ZIG_BUILD_RUNNER.get(environ_map);
-    var child_argv = std.array_list.Managed([]const u8).init(arena);
+    var child_argv: std.ArrayList([]const u8) = .empty;
+    var forks: std.ArrayList(Fork) = .empty;
     var reference_trace: ?u32 = null;
     var debug_compile_errors = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
@@ -4917,24 +4940,24 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
     var debug_libc_paths_file: ?[]const u8 = null;
 
     const argv_index_exe = child_argv.items.len;
-    _ = try child_argv.addOne();
+    _ = try child_argv.addOne(arena);
 
     const self_exe_path = try process.executablePathAlloc(io, arena);
-    try child_argv.append(self_exe_path);
+    try child_argv.append(arena, self_exe_path);
 
     const argv_index_zig_lib_dir = child_argv.items.len;
-    _ = try child_argv.addOne();
+    _ = try child_argv.addOne(arena);
 
     const argv_index_build_file = child_argv.items.len;
-    _ = try child_argv.addOne();
+    _ = try child_argv.addOne(arena);
 
     const argv_index_cache_dir = child_argv.items.len;
-    _ = try child_argv.addOne();
+    _ = try child_argv.addOne(arena);
 
     const argv_index_global_cache_dir = child_argv.items.len;
-    _ = try child_argv.addOne();
+    _ = try child_argv.addOne(arena);
 
-    try child_argv.appendSlice(&.{
+    try child_argv.appendSlice(arena, &.{
         "--seed",
         try std.fmt.allocPrint(arena, "0x{x}", .{randInt(io, u32)}),
     });
@@ -4955,7 +4978,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
     // read this file in the parent to obtain the results, in the case the child
     // exits with code 3.
     const results_tmp_file_nonce = std.fmt.hex(randInt(io, u64));
-    try child_argv.append("-Z" ++ results_tmp_file_nonce);
+    try child_argv.append(arena, "-Z" ++ results_tmp_file_nonce);
 
     var color: Color = .auto;
     var n_jobs: ?u32 = null;
@@ -5000,11 +5023,24 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                         fatal("expected [needed|all] after '--fetch=', found '{s}'", .{
                             sub_arg,
                         });
+                } else if (mem.cutPrefix(u8, arg, "--fork=")) |sub_arg| {
+                    try forks.append(arena, .{
+                        .manifest_ast = undefined,
+                        .manifest = undefined,
+                        .error_bundle = undefined,
+                        .arena_allocator = undefined,
+                        .path = .{
+                            .root_dir = .cwd(),
+                            .sub_path = sub_arg,
+                        },
+                        .failed = false,
+                    });
+                    continue;
                 } else if (mem.eql(u8, arg, "--system")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
                     system_pkg_dir_path = args[i];
-                    try child_argv.append("--system");
+                    try child_argv.append(arena, "--system");
                     continue;
                 } else if (mem.cutPrefix(u8, arg, "-freference-trace=")) |num| {
                     reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
@@ -5014,7 +5050,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                     reference_trace = null;
                 } else if (mem.eql(u8, arg, "--debug-log")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
-                    try child_argv.appendSlice(args[i .. i + 2]);
+                    try child_argv.appendSlice(arena, args[i .. i + 2]);
                     i += 1;
                     if (!build_options.enable_logging) {
                         warn("Zig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
@@ -5070,7 +5106,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                     color = std.meta.stringToEnum(Color, args[i]) orelse {
                         fatal("expected [auto|on|off] after {s}, found '{s}'", .{ arg, args[i] });
                     };
-                    try child_argv.appendSlice(&.{ arg, args[i] });
+                    try child_argv.appendSlice(arena, &.{ arg, args[i] });
                     continue;
                 } else if (mem.cutPrefix(u8, arg, "-j")) |str| {
                     const num = std.fmt.parseUnsigned(u32, str, 10) catch |err| {
@@ -5090,16 +5126,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                 } else if (mem.eql(u8, arg, "--")) {
                     // The rest of the args are supposed to get passed onto
                     // build runner's `build.args`
-                    try child_argv.appendSlice(args[i..]);
+                    try child_argv.appendSlice(arena, args[i..]);
                     break;
                 }
             }
-            try child_argv.append(arg);
+            try child_argv.append(arena, arg);
         }
     }
 
-    const work_around_btrfs_bug = native_os == .linux and
-        EnvVar.ZIG_BTRFS_WORKAROUND.isSet(environ_map);
     const root_prog_node = std.Progress.start(io, .{
         .disable_printing = (color == .off),
         .root_name = "Compile Build Script",
@@ -5141,7 +5175,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
 
     process.raiseFileDescriptorLimit();
 
-    const cwd_path = try introspect.getResolvedCwd(arena);
+    const cwd_path = try introspect.getResolvedCwd(io, arena);
     const build_root = try findBuildRoot(arena, io, .{
         .cwd_path = cwd_path,
         .build_file = build_file,
@@ -5172,7 +5206,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
         @max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1),
         std.math.maxInt(Zcu.PerThread.IdBacking),
     );
-    setThreadLimit(thread_limit);
+    try setThreadLimit(arena, thread_limit);
 
     // Dummy http client that is not actually used when fetch_command is unsupported.
     // Prevents bootstrap from depending on a bunch of unnecessary stuff.
@@ -5184,6 +5218,29 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
     defer http_client.deinit();
 
     var unlazy_set: Package.Fetch.JobQueue.UnlazySet = .{};
+    var fork_set: Package.Fetch.JobQueue.ForkSet = .{};
+
+    {
+        // Populate fork_set.
+        var group: Io.Group = .init;
+        defer group.cancel(io);
+
+        for (forks.items) |*fork|
+            group.async(io, Fork.load, .{ io, gpa, fork, color });
+
+        try group.await(io);
+
+        for (forks.items) |*fork| {
+            if (fork.failed) process.exit(1);
+            try fork_set.put(arena, .{
+                .path = fork.path,
+                .manifest_ast = fork.manifest_ast,
+                .manifest = fork.manifest,
+                .uses = 0,
+            }, {});
+        }
+    }
+    defer Fork.deinitList(forks.items);
 
     // This loop is re-evaluated when the build script exits with an indication that it
     // could not continue due to missing lazy dependencies.
@@ -5237,28 +5294,37 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                 const fetch_prog_node = root_prog_node.start("Fetch Packages", 0);
                 defer fetch_prog_node.end();
 
+                // Reset fork match counts.
+                for (fork_set.keys()) |*fork| fork.uses = 0;
+
                 var job_queue: Package.Fetch.JobQueue = .{
                     .io = io,
                     .http_client = &http_client,
                     .global_cache = dirs.global_cache,
+                    .local_cache = .{ .root_dir = dirs.local_cache, .sub_path = "" },
+                    .root_pkg_path = .{ .root_dir = build_root.directory, .sub_path = "zig-pkg" },
                     .read_only = false,
                     .recursive = true,
                     .debug_hash = false,
-                    .work_around_btrfs_bug = work_around_btrfs_bug,
                     .unlazy_set = unlazy_set,
+                    .fork_set = fork_set,
                     .mode = fetch_mode,
+                    .prog_node = fetch_prog_node,
                 };
                 defer job_queue.deinit();
 
                 if (system_pkg_dir_path) |p| {
-                    job_queue.global_cache = .{
-                        .path = p,
-                        .handle = Io.Dir.cwd().openDir(io, p, .{}) catch |err| {
-                            fatal("unable to open system package directory '{s}': {s}", .{
-                                p, @errorName(err),
-                            });
+                    const system_pkg_path: Path = .{
+                        .root_dir = .{
+                            .path = p,
+                            .handle = Io.Dir.cwd().openDir(io, p, .{}) catch |err| {
+                                fatal("unable to open system package directory '{s}': {t}", .{ p, err });
+                            },
                         },
+                        .sub_path = "",
                     };
+                    job_queue.global_cache = system_pkg_path.root_dir;
+                    job_queue.root_pkg_path = system_pkg_path;
                     job_queue.read_only = true;
                     cleanup_build_dir = job_queue.global_cache.handle;
                 } else {
@@ -5283,14 +5349,13 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                     .job_queue = &job_queue,
                     .omit_missing_hash_error = true,
                     .allow_missing_paths_field = false,
-                    .allow_missing_fingerprint = false,
-                    .allow_name_string = false,
                     .use_latest_commit = false,
 
                     .package_root = undefined,
                     .error_bundle = undefined,
-                    .manifest = null,
+                    .manifest = undefined,
                     .manifest_ast = undefined,
+                    .have_manifest = false,
                     .computed_hash = undefined,
                     .has_build_zig = true,
                     .oom_flag = false,
@@ -5307,6 +5372,26 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
 
                 job_queue.group.async(io, Package.Fetch.workerRun, .{ &fetch, "root" });
                 try job_queue.group.await(io);
+
+                {
+                    // Ensure that forks were actually used. This is done
+                    // before printing manifest errors because using a fork can
+                    // prevent them.
+                    var any_unused = false;
+                    for (fork_set.keys()) |*fork| {
+                        if (fork.uses == 0) {
+                            std.log.err("fork {f} matched no {s} packages", .{
+                                fork.path, fork.manifest.name,
+                            });
+                            any_unused = true;
+                        } else {
+                            std.log.info("fork {f} matched {d} {s} packages", .{
+                                fork.path, fork.uses, fork.manifest.name,
+                            });
+                        }
+                    }
+                    if (any_unused) process.exit(1);
+                }
 
                 try job_queue.consolidateErrors();
 
@@ -5368,7 +5453,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
                     // dependencies' build.zig modules by name.
                     for (fetches) |f| {
                         const mod = f.module orelse continue;
-                        const man = f.manifest orelse continue;
+                        if (!f.have_manifest) continue;
+                        const man = &f.manifest;
                         const dep_names = man.dependencies.keys();
                         try mod.deps.ensureUnusedCapacity(arena, @intCast(dep_names.len));
                         for (dep_names, man.dependencies.values()) |name, dep| {
@@ -5517,6 +5603,63 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8, 
     }
 }
 
+const Fork = struct {
+    path: Path,
+    manifest_ast: std.zig.Ast,
+    manifest: Package.Manifest,
+    error_bundle: std.zig.ErrorBundle.Wip,
+    failed: bool,
+    arena_allocator: std.heap.ArenaAllocator,
+
+    fn load(io: Io, gpa: Allocator, fork: *Fork, color: Color) Io.Cancelable!void {
+        loadFallible(io, gpa, fork, color) catch |err| switch (err) {
+            error.Canceled => |e| return e,
+            error.AlreadyReported => fork.failed = true,
+            else => |e| {
+                std.log.err("failed to load fork at {f}: {t}", .{ fork.path, e });
+                fork.failed = true;
+            },
+        };
+    }
+
+    fn loadFallible(io: Io, gpa: Allocator, fork: *Fork, color: Color) !void {
+        fork.arena_allocator = .init(gpa);
+        const arena = fork.arena_allocator.allocator();
+
+        var error_bundle: std.zig.ErrorBundle.Wip = undefined;
+        try error_bundle.init(gpa);
+        defer error_bundle.deinit();
+
+        const manifest_path = try fork.path.join(arena, Package.Manifest.basename);
+
+        Package.Manifest.load(
+            io,
+            arena,
+            manifest_path,
+            &fork.manifest_ast,
+            &error_bundle,
+            &fork.manifest,
+            true,
+        ) catch |err| switch (err) {
+            error.Canceled => |e| return e,
+            error.ErrorsBundled => {
+                assert(error_bundle.root_list.items.len > 0);
+                var errors = try error_bundle.toOwnedBundle("");
+                errors.renderToStderr(io, .{}, color) catch {};
+                return error.AlreadyReported;
+            },
+            else => |e| {
+                std.log.err("failed to load package manifest {f}: {t}", .{ manifest_path, e });
+                return error.AlreadyReported;
+            },
+        };
+    }
+
+    fn deinitList(forks: []Fork) void {
+        for (forks) |*fork| fork.arena_allocator.deinit();
+    }
+};
+
 const JitCmdOptions = struct {
     cmd_name: []const u8,
     root_src_path: []const u8,
@@ -5527,7 +5670,7 @@ const JitCmdOptions = struct {
     capture: ?*[]u8 = null,
     /// Send error bundles via std.zig.Server over stdout
     server: bool = false,
-    progress_node: ?std.Progress.Node = null,
+    color: Color = .auto,
 };
 
 fn jitCmd(
@@ -5540,12 +5683,30 @@ fn jitCmd(
 ) !void {
     dev.check(.jit_command);
 
-    const color: Color = .auto;
-    const root_prog_node = if (options.progress_node) |node| node else std.Progress.start(io, .{
-        .disable_printing = (color == .off),
+    const root_prog_node = std.Progress.start(io, .{
+        .disable_printing = (options.color == .off),
     });
     defer root_prog_node.end();
 
+    const thread_limit = @min(
+        @max(std.Thread.getCpuCount() catch 1, 1),
+        std.math.maxInt(Zcu.PerThread.IdBacking),
+    );
+    try setThreadLimit(arena, thread_limit);
+
+    return jitCmdInner(gpa, arena, io, args, environ_map, root_prog_node, thread_limit, options);
+}
+
+fn jitCmdInner(
+    gpa: Allocator,
+    arena: Allocator,
+    io: Io,
+    args: []const []const u8,
+    environ_map: *const process.Environ.Map,
+    root_prog_node: std.Progress.Node,
+    thread_limit: usize,
+    options: JitCmdOptions,
+) !void {
     const target_query: std.Target.Query = .{};
     const resolved_target: Package.Module.ResolvedTarget = .{
         .result = std.zig.resolveTargetQueryOrFatal(io, target_query),
@@ -5577,12 +5738,6 @@ fn jitCmd(
         environ_map,
     );
     defer dirs.deinit(io);
-
-    const thread_limit = @min(
-        @max(std.Thread.getCpuCount() catch 1, 1),
-        std.math.maxInt(Zcu.PerThread.IdBacking),
-    );
-    setThreadLimit(thread_limit);
 
     var child_argv: std.ArrayList([]const u8) = .empty;
     try child_argv.ensureUnusedCapacity(arena, args.len + 4);
@@ -5671,7 +5826,7 @@ fn jitCmd(
                 process.exit(2);
             }
         } else {
-            updateModule(comp, color, root_prog_node) catch |err| switch (err) {
+            updateModule(comp, options.color, root_prog_node) catch |err| switch (err) {
                 error.CompileErrorsReported => process.exit(2),
                 else => |e| return e,
             };
@@ -6938,8 +7093,6 @@ fn cmdFetch(
     dev.check(.fetch_command);
 
     const color: Color = .auto;
-    const work_around_btrfs_bug = native_os == .linux and
-        EnvVar.ZIG_BTRFS_WORKAROUND.isSet(environ_map);
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = EnvVar.ZIG_GLOBAL_CACHE_DIR.get(environ_map);
     var debug_hash: bool = false;
@@ -7003,15 +7156,32 @@ fn cmdFetch(
     };
     defer global_cache_directory.handle.close(io);
 
+    const cwd_path = try introspect.getResolvedCwd(io, arena);
+
+    var build_root = try findBuildRoot(arena, io, .{
+        .cwd_path = cwd_path,
+    });
+    defer build_root.deinit(io);
+
+    const local_cache_path: Path = .{
+        .root_dir = build_root.directory,
+        .sub_path = ".zig-cache",
+    };
+
     var job_queue: Package.Fetch.JobQueue = .{
         .io = io,
         .http_client = &http_client,
         .global_cache = global_cache_directory,
+        .local_cache = local_cache_path,
+        .root_pkg_path = .{
+            .root_dir = build_root.directory,
+            .sub_path = "zig-pkg",
+        },
         .recursive = false,
         .read_only = false,
         .debug_hash = debug_hash,
-        .work_around_btrfs_bug = work_around_btrfs_bug,
         .mode = .all,
+        .prog_node = root_prog_node,
     };
     defer job_queue.deinit();
 
@@ -7028,14 +7198,13 @@ fn cmdFetch(
         .job_queue = &job_queue,
         .omit_missing_hash_error = true,
         .allow_missing_paths_field = false,
-        .allow_missing_fingerprint = true,
-        .allow_name_string = true,
         .use_latest_commit = true,
 
         .package_root = undefined,
         .error_bundle = undefined,
-        .manifest = null,
+        .manifest = undefined,
         .manifest_ast = undefined,
+        .have_manifest = false,
         .computed_hash = undefined,
         .has_build_zig = false,
         .oom_flag = false,
@@ -7071,18 +7240,11 @@ fn cmdFetch(
         },
         .yes, .exact => |name| name: {
             if (name) |n| break :name n;
-            const fetched_manifest = fetch.manifest orelse
+            if (!fetch.have_manifest)
                 fatal("unable to determine name; fetched package has no build.zig.zon file", .{});
-            break :name fetched_manifest.name;
+            break :name fetch.manifest.name;
         },
     };
-
-    const cwd_path = try introspect.getResolvedCwd(arena);
-
-    var build_root = try findBuildRoot(arena, io, .{
-        .cwd_path = cwd_path,
-    });
-    defer build_root.deinit(io);
 
     // The name to use in case the manifest file needs to be created now.
     const init_root_name = fs.path.basename(build_root.directory.path orelse cwd_path);
@@ -7247,18 +7409,25 @@ fn createDependenciesModule(
         defer tmp_dir.close(io);
         try tmp_dir.writeFile(io, .{ .sub_path = basename, .data = source });
     }
+    const tmp_dir_path: Path = .{
+        .root_dir = dirs.local_cache,
+        .sub_path = tmp_dir_sub_path,
+    };
 
     var hh: Cache.HashHelper = .{};
     hh.addBytes(build_options.version);
     hh.addBytes(source);
     const hex_digest = hh.final();
 
-    const o_dir_sub_path = try arena.dupe(u8, "o" ++ fs.path.sep_str ++ hex_digest);
-    try Package.Fetch.renameTmpIntoCache(io, dirs.local_cache.handle, tmp_dir_sub_path, o_dir_sub_path);
+    const o_dir_path: Path = .{
+        .root_dir = dirs.local_cache,
+        .sub_path = try arena.dupe(u8, "o" ++ fs.path.sep_str ++ hex_digest),
+    };
+    try Package.Fetch.renameTmpIntoCache(io, tmp_dir_path, o_dir_path);
 
     const deps_mod = try Package.Module.create(arena, .{
         .paths = .{
-            .root = try .fromRoot(arena, dirs, .local_cache, o_dir_sub_path),
+            .root = try .fromRoot(arena, dirs, .local_cache, o_dir_path.sub_path),
             .root_src_path = basename,
         },
         .fully_qualified_name = "root.@dependencies",
@@ -7288,7 +7457,7 @@ const FindBuildRootOptions = struct {
 };
 
 fn findBuildRoot(arena: Allocator, io: Io, options: FindBuildRootOptions) !BuildRoot {
-    const cwd_path = options.cwd_path orelse try introspect.getResolvedCwd(arena);
+    const cwd_path = options.cwd_path orelse try introspect.getResolvedCwd(io, arena);
     const build_zig_basename = if (options.build_file) |bf|
         fs.path.basename(bf)
     else
@@ -7396,7 +7565,7 @@ fn loadManifest(
         process.exit(2);
     }
 
-    var manifest = try Package.Manifest.parse(gpa, ast, rng.interface(), .{});
+    var manifest = try Package.Manifest.parse(gpa, &ast, rng.interface(), .{});
     errdefer manifest.deinit(gpa);
 
     if (manifest.errors.len > 0) {
@@ -7490,7 +7659,7 @@ fn writeSimpleTemplateFile(io: Io, file_name: []const u8, comptime fmt: []const 
 }
 
 fn findTemplates(gpa: Allocator, arena: Allocator, io: Io) Templates {
-    const cwd_path = introspect.getResolvedCwd(arena) catch |err| {
+    const cwd_path = introspect.getResolvedCwd(io, arena) catch |err| {
         fatal("unable to get cwd: {t}", .{err});
     };
     const self_exe_path = process.executablePathAlloc(io, arena) catch |err| {
@@ -7639,15 +7808,25 @@ fn addLibDirectoryWarn2(
     });
 }
 
-var threaded_impl_ptr: *Io.Threaded = undefined;
-fn setThreadLimit(n: usize) void {
-    // We want a maximum of n total threads to keep the InternPool happy, but
-    // the main thread doesn't count towards the limits, so use n-1. Also, the
-    // linker can run concurrently, so we need to set both the async *and* the
-    // concurrency limit.
-    const limit: Io.Limit = .limited(n - 1);
-    threaded_impl_ptr.setAsyncLimit(limit);
-    threaded_impl_ptr.concurrent_limit = limit;
+const IoImpl = switch (build_options.io_mode) {
+    .threaded => Io.Threaded,
+    .evented => Io.Evented,
+};
+var io_impl_ptr: *IoImpl = undefined;
+fn setThreadLimit(arena: std.mem.Allocator, n: usize) Allocator.Error!void {
+    switch (build_options.io_mode) {
+        .threaded => {
+            // We want a maximum of n total threads to keep the InternPool happy, but
+            // the main thread doesn't count towards the limits, so use n-1. Also, the
+            // linker can run concurrently, so we need to set both the async *and* the
+            // concurrency limit.
+            const limit: Io.Limit = .limited(n - 1);
+            io_impl_ptr.setAsyncLimit(limit);
+            io_impl_ptr.concurrent_limit = limit;
+        },
+        .evented => {},
+    }
+    try Zcu.PerThread.Id.allocate(arena, @max(n, 2));
 }
 
 fn randInt(io: Io, comptime T: type) T {

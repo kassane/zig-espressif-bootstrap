@@ -1,8 +1,9 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const testing = @import("std").testing;
 
 comptime {
-    @export(&__addvsi3, .{ .name = "__addvsi3", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__addvsi3, "__addvsi3");
 }
 
 pub fn __addvsi3(a: i32, b: i32) callconv(.c) i32 {

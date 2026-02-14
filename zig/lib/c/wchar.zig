@@ -1,44 +1,46 @@
-const std = @import("std");
-const common = @import("common.zig");
 const builtin = @import("builtin");
+
+const std = @import("std");
 const wint_t = std.c.wint_t;
 const wchar_t = std.c.wchar_t;
 
+const symbol = @import("../c.zig").symbol;
+
 comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
-        @export(&wmemchr, .{ .name = "wmemchr", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wmemcmp, .{ .name = "wmemcmp", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wmemcpy, .{ .name = "wmemcpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wmemmove, .{ .name = "wmemmove", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wmemset, .{ .name = "wmemset", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcslen, .{ .name = "wcslen", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcsnlen, .{ .name = "wcsnlen", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcscmp, .{ .name = "wcscmp", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcsncmp, .{ .name = "wcsncmp", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcpcpy, .{ .name = "wcpcpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcpncpy, .{ .name = "wcpncpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcscpy, .{ .name = "wcscpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcsncpy, .{ .name = "wcsncpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcscat, .{ .name = "wcscat", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcsncat, .{ .name = "wcsncat", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcschr, .{ .name = "wcschr", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcsrchr, .{ .name = "wcsrchr", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcsspn, .{ .name = "wcsspn", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcscspn, .{ .name = "wcscspn", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcspbrk, .{ .name = "wcspbrk", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcstok, .{ .name = "wcstok", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcsstr, .{ .name = "wcsstr", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcswcs, .{ .name = "wcswcs", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&wmemchr, "wmemchr");
+        symbol(&wmemcmp, "wmemcmp");
+        symbol(&wmemcpy, "wmemcpy");
+        symbol(&wmemmove, "wmemmove");
+        symbol(&wmemset, "wmemset");
+        symbol(&wcslen, "wcslen");
+        symbol(&wcsnlen, "wcsnlen");
+        symbol(&wcscmp, "wcscmp");
+        symbol(&wcsncmp, "wcsncmp");
+        symbol(&wcpcpy, "wcpcpy");
+        symbol(&wcpncpy, "wcpncpy");
+        symbol(&wcscpy, "wcscpy");
+        symbol(&wcsncpy, "wcsncpy");
+        symbol(&wcscat, "wcscat");
+        symbol(&wcsncat, "wcsncat");
+        symbol(&wcschr, "wcschr");
+        symbol(&wcsrchr, "wcsrchr");
+        symbol(&wcsspn, "wcsspn");
+        symbol(&wcscspn, "wcscspn");
+        symbol(&wcspbrk, "wcspbrk");
+        symbol(&wcstok, "wcstok");
+        symbol(&wcsstr, "wcsstr");
+        symbol(&wcswcs, "wcswcs");
     }
 
     if (builtin.target.isMinGW()) {
-        @export(&wmemchr, .{ .name = "wmemchr", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wmemcmp, .{ .name = "wmemcmp", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wmemcpy, .{ .name = "wmemcpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wmempcpy, .{ .name = "wmempcpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wmemmove, .{ .name = "wmemmove", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wmemset, .{ .name = "wmemset", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&wcsnlen, .{ .name = "wcsnlen", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&wmemchr, "wmemchr");
+        symbol(&wmemcmp, "wmemcmp");
+        symbol(&wmemcpy, "wmemcpy");
+        symbol(&wmempcpy, "wmempcpy");
+        symbol(&wmemmove, "wmemmove");
+        symbol(&wmemset, "wmemset");
+        symbol(&wcsnlen, "wcsnlen");
     }
 }
 

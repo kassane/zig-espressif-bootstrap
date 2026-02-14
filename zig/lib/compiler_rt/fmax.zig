@@ -2,18 +2,19 @@ const std = @import("std");
 const builtin = @import("builtin");
 const math = std.math;
 const arch = builtin.cpu.arch;
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 comptime {
-    @export(&__fmaxh, .{ .name = "__fmaxh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&fmaxf, .{ .name = "fmaxf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&fmax, .{ .name = "fmax", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__fmaxx, .{ .name = "__fmaxx", .linkage = common.linkage, .visibility = common.visibility });
-    if (common.want_ppc_abi) {
-        @export(&fmaxq, .{ .name = "fmaxf128", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__fmaxh, "__fmaxh");
+    symbol(&fmaxf, "fmaxf");
+    symbol(&fmax, "fmax");
+    symbol(&__fmaxx, "__fmaxx");
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&fmaxq, "fmaxf128");
     }
-    @export(&fmaxq, .{ .name = "fmaxq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&fmaxl, .{ .name = "fmaxl", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&fmaxq, "fmaxq");
+    symbol(&fmaxl, "fmaxl");
 }
 
 pub fn __fmaxh(x: f16, y: f16) callconv(.c) f16 {

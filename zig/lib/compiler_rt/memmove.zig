@@ -1,17 +1,17 @@
 const std = @import("std");
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const memcpy = @import("memcpy.zig");
 
-const Element = common.PreferredLoadStoreElement;
+const Element = compiler_rt.PreferredLoadStoreElement;
 
 comptime {
     if (builtin.object_format != .c) {
         const export_options: std.builtin.ExportOptions = .{
             .name = "memmove",
-            .linkage = common.linkage,
-            .visibility = common.visibility,
+            .linkage = compiler_rt.linkage,
+            .visibility = compiler_rt.visibility,
         };
 
         if (builtin.mode == .ReleaseSmall or builtin.zig_backend == .stage2_aarch64)
@@ -39,7 +39,7 @@ fn memmoveSmall(opt_dest: ?[*]u8, opt_src: ?[*]const u8, len: usize) callconv(.c
 }
 
 fn memmoveFast(dest: ?[*]u8, src: ?[*]u8, len: usize) callconv(.c) ?[*]u8 {
-    @setRuntimeSafety(common.test_safety);
+    @setRuntimeSafety(compiler_rt.test_safety);
     const small_limit = @max(2 * @sizeOf(Element), @sizeOf(Element));
 
     if (copySmallLength(small_limit, dest.?, src.?, len)) return dest;
@@ -79,7 +79,7 @@ inline fn copyLessThan16(
     src: [*]const u8,
     len: usize,
 ) void {
-    @setRuntimeSafety(common.test_safety);
+    @setRuntimeSafety(compiler_rt.test_safety);
     if (len < 4) {
         if (len == 0) return;
         const b = len / 2;
@@ -100,7 +100,7 @@ inline fn copy16ToSmallLimit(
     src: [*]const u8,
     len: usize,
 ) bool {
-    @setRuntimeSafety(common.test_safety);
+    @setRuntimeSafety(compiler_rt.test_safety);
     inline for (2..(std.math.log2(small_limit) + 1) / 2 + 1) |p| {
         const limit = 1 << (2 * p);
         if (len < limit) {
@@ -119,7 +119,7 @@ inline fn copyRange4(
     src: [*]const u8,
     len: usize,
 ) void {
-    @setRuntimeSafety(common.test_safety);
+    @setRuntimeSafety(compiler_rt.test_safety);
     comptime assert(std.math.isPowerOfTwo(copy_len));
     assert(len >= copy_len);
     assert(len < 4 * copy_len);
@@ -147,7 +147,7 @@ inline fn copyForwards(
     src: [*]const u8,
     len: usize,
 ) void {
-    @setRuntimeSafety(common.test_safety);
+    @setRuntimeSafety(compiler_rt.test_safety);
     assert(len >= 2 * @sizeOf(Element));
 
     const head = src[0..@sizeOf(Element)].*;
@@ -181,7 +181,7 @@ inline fn copyBlocks(
     src: anytype,
     max_bytes: usize,
 ) void {
-    @setRuntimeSafety(common.test_safety);
+    @setRuntimeSafety(compiler_rt.test_safety);
 
     const T = @typeInfo(@TypeOf(dest)).pointer.child;
     comptime assert(T == @typeInfo(@TypeOf(src)).pointer.child);

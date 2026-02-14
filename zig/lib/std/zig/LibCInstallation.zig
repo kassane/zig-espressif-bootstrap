@@ -268,7 +268,8 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, gpa: Allocator, io: Io, ar
     });
 
     const run_res = std.process.run(gpa, io, .{
-        .max_output_bytes = 1024 * 1024,
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
         .argv = argv.items,
         .environ_map = &environ_map,
         // Some C compilers, such as Clang, are known to rely on argv[0] to find the path
@@ -584,7 +585,8 @@ fn ccPrintFileName(gpa: Allocator, io: Io, args: CCPrintFileNameOptions) ![]u8 {
     try argv.append(arg1);
 
     const run_res = std.process.run(gpa, io, .{
-        .max_output_bytes = 1024 * 1024,
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
         .argv = argv.items,
         .environ_map = &environ_map,
         // Some C compilers, such as Clang, are known to rely on argv[0] to find the path

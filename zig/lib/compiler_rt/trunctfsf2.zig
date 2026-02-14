@@ -1,13 +1,14 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
 const truncf = @import("./truncf.zig").truncf;
+const symbol = @import("../compiler_rt.zig").symbol;
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(&__trunctfsf2, .{ .name = "__trunckfsf2", .linkage = common.linkage, .visibility = common.visibility });
-    } else if (common.want_sparc_abi) {
-        @export(&_Qp_qtos, .{ .name = "_Qp_qtos", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&__trunctfsf2, "__trunckfsf2");
+    } else if (compiler_rt.want_sparc_abi) {
+        symbol(&_Qp_qtos, "_Qp_qtos");
     }
-    @export(&__trunctfsf2, .{ .name = "__trunctfsf2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__trunctfsf2, "__trunctfsf2");
 }
 
 pub fn __trunctfsf2(a: f128) callconv(.c) f32 {

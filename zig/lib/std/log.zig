@@ -80,7 +80,7 @@ pub fn logEnabled(comptime level: Level, comptime scope: @EnumLiteral()) bool {
     return @intFromEnum(level) <= @intFromEnum(std.options.log_level);
 }
 
-pub const terminalMode = std.options.logTerminalMode;
+pub const terminalMode = std.Options.logTerminalMode;
 
 pub fn defaultTerminalMode() std.Io.Terminal.Mode {
     const stderr = std.debug.lockStderr(&.{}).terminal();
@@ -99,6 +99,9 @@ pub fn defaultLog(
     comptime format: []const u8,
     args: anytype,
 ) void {
+    const io = std.Options.debug_io;
+    const prev = io.swapCancelProtection(.blocked);
+    defer _ = io.swapCancelProtection(prev);
     var buffer: [64]u8 = undefined;
     const stderr = std.debug.lockStderr(&buffer).terminal();
     defer std.debug.unlockStderr();

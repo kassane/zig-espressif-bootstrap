@@ -5,27 +5,26 @@
 //! https://git.musl-libc.org/cgit/musl/tree/src/math/sin.c
 
 const std = @import("std");
-const builtin = @import("builtin");
-const arch = builtin.cpu.arch;
 const math = std.math;
 const mem = std.mem;
 const expect = std.testing.expect;
-const common = @import("common.zig");
 
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 const trig = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 
 comptime {
-    @export(&__sinh, .{ .name = "__sinh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&sinf, .{ .name = "sinf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&sin, .{ .name = "sin", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__sinx, .{ .name = "__sinx", .linkage = common.linkage, .visibility = common.visibility });
-    if (common.want_ppc_abi) {
-        @export(&sinq, .{ .name = "sinf128", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__sinh, "__sinh");
+    symbol(&sinf, "sinf");
+    symbol(&sin, "sin");
+    symbol(&__sinx, "__sinx");
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&sinq, "sinf128");
     }
-    @export(&sinq, .{ .name = "sinq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&sinl, .{ .name = "sinl", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&sinq, "sinq");
+    symbol(&sinl, "sinl");
 }
 
 pub fn __sinh(x: f16) callconv(.c) f16 {
@@ -47,7 +46,7 @@ pub fn sinf(x: f32) callconv(.c) f32 {
     if (ix <= 0x3f490fda) { // |x| ~<= pi/4
         if (ix < 0x39800000) { // |x| < 2**-12
             // raise inexact if x!=0 and underflow if subnormal
-            if (common.want_float_exceptions) {
+            if (compiler_rt.want_float_exceptions) {
                 if (ix < 0x00800000) {
                     mem.doNotOptimizeAway(x / 0x1p120);
                 } else {
@@ -102,7 +101,7 @@ pub fn sin(x: f64) callconv(.c) f64 {
     if (ix <= 0x3fe921fb) {
         if (ix < 0x3e500000) { // |x| < 2**-26
             // raise inexact if x != 0 and underflow if subnormal
-            if (common.want_float_exceptions) {
+            if (compiler_rt.want_float_exceptions) {
                 if (ix < 0x00100000) {
                     mem.doNotOptimizeAway(x / 0x1p120);
                 } else {

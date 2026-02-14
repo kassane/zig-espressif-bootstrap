@@ -1,9 +1,9 @@
-const common = @import("./common.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 const comparef = @import("./comparef.zig");
 
 comptime {
-    @export(&__gexf2, .{ .name = "__gexf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__gtxf2, .{ .name = "__gtxf2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__gexf2, "__gexf2");
+    symbol(&__gtxf2, "__gtxf2");
 }
 
 fn __gexf2(a: f80, b: f80) callconv(.c) i32 {

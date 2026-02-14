@@ -18,6 +18,9 @@ comptime {
     assert(builtin.os.tag.isDarwin()); // Prevent access of std.c symbols on wrong OS.
 }
 
+// Grand Central Dispatch is exposed by libSystem.
+pub const dispatch = @import("darwin/dispatch.zig");
+
 pub const mach_port_t = c_uint;
 
 pub const EXC = enum(exception_type_t) {
@@ -895,31 +898,6 @@ pub const qos_class_t = enum(c_uint) {
 
     _,
 };
-
-// Grand Central Dispatch is exposed by libSystem.
-pub extern "c" fn dispatch_release(object: *anyopaque) void;
-
-pub const dispatch_semaphore_t = *opaque {};
-pub extern "c" fn dispatch_semaphore_create(value: isize) ?dispatch_semaphore_t;
-pub extern "c" fn dispatch_semaphore_wait(dsema: dispatch_semaphore_t, timeout: dispatch_time_t) isize;
-pub extern "c" fn dispatch_semaphore_signal(dsema: dispatch_semaphore_t) isize;
-
-pub const DISPATCH_TIME_NOW = @compileError("use dispatch_time_t.NOW");
-pub const DISPATCH_TIME_FOREVER = @compileError("use dispatch_time_t.FOREVER");
-pub const dispatch_time_t = enum(u64) {
-    NOW = 0,
-    FOREVER = ~0,
-    _,
-};
-pub extern "c" fn dispatch_time(when: dispatch_time_t, delta: i64) dispatch_time_t;
-
-pub const dispatch_once_t = usize;
-pub const dispatch_function_t = fn (?*anyopaque) callconv(.c) void;
-pub extern fn dispatch_once_f(
-    predicate: *dispatch_once_t,
-    context: ?*anyopaque,
-    function: dispatch_function_t,
-) void;
 
 /// Undocumented futex-like API available on darwin 16+
 /// (macOS 10.12+, iOS 10.0+, tvOS 10.0+, watchOS 3.0+, catalyst 13.0+).

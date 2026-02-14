@@ -21,6 +21,7 @@ const introspect = @import("introspect.zig");
 const link = @import("link.zig");
 const tracy = @import("tracy.zig");
 const trace = tracy.trace;
+const traceNamed = tracy.traceNamed;
 const build_options = @import("build_options");
 const LibCInstallation = std.zig.LibCInstallation;
 const glibc = @import("libs/glibc.zig");
@@ -80,6 +81,7 @@ sysroot: ?[]const u8,
 root_name: [:0]const u8,
 compiler_rt_strat: RtStrat,
 ubsan_rt_strat: RtStrat,
+zigc_strat: RtStrat,
 /// Resolved into known paths, any GNU ld scripts already resolved.
 link_inputs: []const link.Input,
 /// Needed only for passing -F args to clang.
@@ -330,48 +332,42 @@ const QueuedJobs = struct {
 pub const Timer = union(enum) {
     unused,
     active: struct {
-        start: std.time.Instant,
+        start: Io.Timestamp,
         saved_ns: u64,
     },
     paused: u64,
     stopped,
 
-    pub fn pause(t: *Timer) void {
+    pub fn pause(t: *Timer, io: Io) void {
         switch (t.*) {
             .unused => return,
             .active => |a| {
-                const current = std.time.Instant.now() catch unreachable;
-                const new_ns = switch (current.order(a.start)) {
-                    .lt, .eq => 0,
-                    .gt => current.since(a.start),
-                };
+                const current: Io.Timestamp = .now(io, .awake);
+                const new_ns: u64 = @intCast(current.nanoseconds -| a.start.nanoseconds);
                 t.* = .{ .paused = a.saved_ns + new_ns };
             },
             .paused => unreachable,
             .stopped => unreachable,
         }
     }
-    pub fn @"resume"(t: *Timer) void {
+    pub fn @"resume"(t: *Timer, io: Io) void {
         switch (t.*) {
             .unused => return,
             .active => unreachable,
             .paused => |saved_ns| t.* = .{ .active = .{
-                .start = std.time.Instant.now() catch unreachable,
+                .start = .now(io, .awake),
                 .saved_ns = saved_ns,
             } },
             .stopped => unreachable,
         }
     }
-    pub fn finish(t: *Timer) ?u64 {
+    pub fn finish(t: *Timer, io: Io) ?u64 {
         defer t.* = .stopped;
         switch (t.*) {
             .unused => return null,
             .active => |a| {
-                const current = std.time.Instant.now() catch unreachable;
-                const new_ns = switch (current.order(a.start)) {
-                    .lt, .eq => 0,
-                    .gt => current.since(a.start),
-                };
+                const current: Io.Timestamp = .now(io, .awake);
+                const new_ns: u64 = @intCast(current.nanoseconds -| a.start.nanoseconds);
                 return a.saved_ns + new_ns;
             },
             .paused => |ns| return ns,
@@ -386,7 +382,8 @@ pub const Timer = union(enum) {
 /// is set.
 pub fn startTimer(comp: *Compilation) Timer {
     if (comp.time_report == null) return .unused;
-    const now = std.time.Instant.now() catch @panic("std.time.Timer unsupported; cannot emit time report");
+    const io = comp.io;
+    const now: Io.Timestamp = .now(io, .awake);
     return .{ .active = .{
         .start = now,
         .saved_ns = 0,
@@ -767,7 +764,7 @@ pub const Directories = struct {
     ) Directories {
         const wasi = builtin.target.os.tag == .wasi;
 
-        const cwd = introspect.getResolvedCwd(arena) catch |err| {
+        const cwd = introspect.getResolvedCwd(io, arena) catch |err| {
             fatal("unable to get cwd: {t}", .{err});
         };
 
@@ -1851,7 +1848,6 @@ fn addModuleTableToCacheHash(
 ) error{
     OutOfMemory,
     Unexpected,
-    CurrentWorkingDirectoryUnlinked,
 }!void {
     assert(zcu.module_roots.count() != 0); // module_roots is populated
 
@@ -1919,7 +1915,6 @@ pub const CreateError = error{
     OutOfMemory,
     Canceled,
     Unexpected,
-    CurrentWorkingDirectoryUnlinked,
     /// An error has been stored to `diag`.
     CreateFail,
 };
@@ -2101,6 +2096,47 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                 error.StackProtectorUnavailableWithoutLibC => unreachable,
             };
             try options.root_mod.deps.putNoClobber(arena, "ubsan_rt", ubsan_rt_mod);
+        }
+
+        // Like with ubsan_rt we want to go through the `_ = @import("zigc")`
+        // approach if possible since it uses even more of the standard library
+        // and can thus reduce further unnecesary bloat.
+        const zigc_strat: RtStrat = s: {
+            if (options.skip_linker_dependencies) break :s .none;
+            if (target.ofmt == .c) break :s .none;
+            if (!link_libc or !is_exe_or_dyn_lib) break :s .none;
+            if (!target_util.wantsZigC(target, options.config.link_mode)) break :s .none;
+            if (have_zcu) break :s .zcu;
+            break :s .lib;
+        };
+
+        if (zigc_strat == .zcu) {
+            const zigc_mod = Package.Module.create(arena, .{
+                .paths = .{
+                    .root = .zig_lib_root,
+                    .root_src_path = "c.zig",
+                },
+                .fully_qualified_name = "zigc",
+                .cc_argv = &.{},
+                .inherited = .{},
+                .global = options.config,
+                .parent = options.root_mod,
+            }) catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
+                // None of these are possible because the configuration matches the root module
+                // which already passed these checks.
+                error.ValgrindUnsupportedOnTarget => unreachable,
+                error.TargetRequiresSingleThreaded => unreachable,
+                error.BackendRequiresSingleThreaded => unreachable,
+                error.TargetRequiresPic => unreachable,
+                error.PieRequiresPic => unreachable,
+                error.DynamicLinkingRequiresPic => unreachable,
+                error.TargetHasNoRedZone => unreachable,
+                error.StackCheckUnsupportedByTarget => unreachable,
+                error.StackProtectorUnsupportedByTarget => unreachable,
+                error.StackProtectorUnavailableWithoutLibC => unreachable,
+            };
+            try options.root_mod.deps.putNoClobber(arena, "zigc", zigc_mod);
         }
 
         if (options.verbose_llvm_cpu_features) {
@@ -2298,6 +2334,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
             .libc_installation = libc_dirs.libc_installation,
             .compiler_rt_strat = compiler_rt_strat,
             .ubsan_rt_strat = ubsan_rt_strat,
+            .zigc_strat = zigc_strat,
             .link_inputs = options.link_inputs,
             .framework_dirs = options.framework_dirs,
             .llvm_opt_bisect_limit = options.llvm_opt_bisect_limit,
@@ -2653,13 +2690,6 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                 } else {
                     return diag.fail(.cross_libc_unavailable);
                 }
-
-                if ((target.isMuslLibC() and comp.config.link_mode == .static) or
-                    target.isWasiLibC() or
-                    target.isMinGW())
-                {
-                    comp.queued_jobs.zigc_lib = true;
-                }
             }
 
             // Generate Windows import libs.
@@ -2711,6 +2741,15 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                     comp.queued_jobs.ubsan_rt_obj = true;
                 },
                 .dyn_lib => unreachable, // hack for compiler_rt only
+            }
+
+            switch (comp.zigc_strat) {
+                .none, .zcu => {},
+                .lib => {
+                    log.debug("queuing a job to build libzigc", .{});
+                    comp.queued_jobs.zigc_lib = true;
+                },
+                .obj, .dyn_lib => unreachable, // only available as a static library or inside an existing ZCU
             }
 
             if (is_exe_or_dyn_lib and comp.config.any_fuzz) {
@@ -2906,7 +2945,6 @@ pub const UpdateError = error{
     OutOfMemory,
     Canceled,
     Unexpected,
-    CurrentWorkingDirectoryUnlinked,
 };
 
 /// Detect changes to source files, perform semantic analysis, and update the output files.
@@ -3101,6 +3139,11 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
 
         if (zcu.root_mod.deps.get("ubsan_rt")) |ubsan_rt_mod| {
             zcu.analysis_roots_buffer[zcu.analysis_roots_len] = ubsan_rt_mod;
+            zcu.analysis_roots_len += 1;
+        }
+
+        if (zcu.root_mod.deps.get("zigc")) |zigc_mod| {
+            zcu.analysis_roots_buffer[zcu.analysis_roots_len] = zigc_mod;
             zcu.analysis_roots_len += 1;
         }
     }
@@ -3361,7 +3404,7 @@ fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id) (Io.Cancel
             defer sub_prog_node.end();
 
             var timer = comp.startTimer();
-            defer if (timer.finish()) |ns| {
+            defer if (timer.finish(io)) |ns| {
                 comp.mutex.lockUncancelable(io);
                 defer comp.mutex.unlock(io);
                 comp.time_report.?.stats.real_ns_llvm_emit = ns;
@@ -3406,7 +3449,7 @@ fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id) (Io.Cancel
     }
     if (comp.bin_file) |lf| {
         var timer = comp.startTimer();
-        defer if (timer.finish()) |ns| {
+        defer if (timer.finish(io)) |ns| {
             comp.mutex.lockUncancelable(io);
             defer comp.mutex.unlock(io);
             comp.time_report.?.stats.real_ns_link_flush = ns;
@@ -3534,6 +3577,7 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.add(comp.skip_linker_dependencies);
     man.hash.add(comp.compiler_rt_strat);
     man.hash.add(comp.ubsan_rt_strat);
+    man.hash.add(comp.zigc_strat);
     man.hash.add(comp.rc_includes);
     man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
     man.hash.addListOfBytes(comp.framework_dirs);
@@ -4638,7 +4682,7 @@ fn performAllTheWork(
     var decl_work_timer: ?Timer = null;
     defer commit_timer: {
         const t = &(decl_work_timer orelse break :commit_timer);
-        const ns = t.finish() orelse break :commit_timer;
+        const ns = t.finish(io) orelse break :commit_timer;
         comp.mutex.lockUncancelable(io);
         defer comp.mutex.unlock(io);
         comp.time_report.?.stats.real_ns_decls = ns;
@@ -4664,14 +4708,14 @@ fn performAllTheWork(
     }
 
     if (comp.zcu) |zcu| {
-        const astgen_frame = tracy.namedFrame("astgen");
-        defer astgen_frame.end();
+        const tracy_trace = traceNamed(@src(), "astgen");
+        defer tracy_trace.end();
 
         const zir_prog_node = main_progress_node.start("AST Lowering", 0);
         defer zir_prog_node.end();
 
         var timer = comp.startTimer();
-        defer if (timer.finish()) |ns| {
+        defer if (timer.finish(io)) |ns| {
             comp.mutex.lockUncancelable(io);
             defer comp.mutex.unlock(io);
             comp.time_report.?.stats.real_ns_files = ns;
@@ -4848,11 +4892,7 @@ fn performAllTheWork(
 
     work: while (true) {
         for (&comp.work_queues) |*work_queue| if (work_queue.popFront()) |job| {
-            try processOneJob(
-                @intFromEnum(Zcu.PerThread.Id.main),
-                comp,
-                job,
-            );
+            try processOneJob(.main, comp, job);
             continue :work;
         };
         if (comp.zcu) |zcu| {
@@ -5117,11 +5157,7 @@ pub fn queueJobs(comp: *Compilation, jobs: []const Job) !void {
     for (jobs) |job| try comp.queueJob(job);
 }
 
-fn processOneJob(
-    tid: usize,
-    comp: *Compilation,
-    job: Job,
-) JobError!void {
+fn processOneJob(tid: Zcu.PerThread.Id, comp: *Compilation, job: Job) JobError!void {
     switch (job) {
         .codegen_func => |func| {
             const zcu = comp.zcu.?;
@@ -5186,10 +5222,10 @@ fn processOneJob(
             try comp.link_queue.enqueueZcu(comp, tid, .{ .update_line_number = tracked_inst });
         },
         .analyze_func => |func| {
-            const named_frame = tracy.namedFrame("analyze_func");
-            defer named_frame.end();
+            const tracy_trace = traceNamed(@src(), "analyze_func");
+            defer tracy_trace.end();
 
-            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, tid);
             defer pt.deactivate();
 
             pt.ensureFuncBodyUpToDate(func) catch |err| switch (err) {
@@ -5199,10 +5235,10 @@ fn processOneJob(
             };
         },
         .analyze_comptime_unit => |unit| {
-            const named_frame = tracy.namedFrame("analyze_comptime_unit");
-            defer named_frame.end();
+            const tracy_trace = traceNamed(@src(), "analyze_comptime_unit");
+            defer tracy_trace.end();
 
-            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, tid);
             defer pt.deactivate();
 
             const maybe_err: Zcu.SemaError!void = switch (unit.unwrap()) {
@@ -5239,10 +5275,10 @@ fn processOneJob(
             }
         },
         .resolve_type_fully => |ty| {
-            const named_frame = tracy.namedFrame("resolve_type_fully");
-            defer named_frame.end();
+            const tracy_trace = traceNamed(@src(), "resolve_type_fully");
+            defer tracy_trace.end();
 
-            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, tid);
             defer pt.deactivate();
             Type.fromInterned(ty).resolveFully(pt) catch |err| switch (err) {
                 error.OutOfMemory, error.Canceled => |e| return e,
@@ -5250,10 +5286,10 @@ fn processOneJob(
             };
         },
         .analyze_mod => |mod| {
-            const named_frame = tracy.namedFrame("analyze_mod");
-            defer named_frame.end();
+            const tracy_trace = traceNamed(@src(), "analyze_mod");
+            defer tracy_trace.end();
 
-            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, tid);
             defer pt.deactivate();
             pt.semaMod(mod) catch |err| switch (err) {
                 error.OutOfMemory, error.Canceled => |e| return e,
@@ -5261,8 +5297,8 @@ fn processOneJob(
             };
         },
         .windows_import_lib => |index| {
-            const named_frame = tracy.namedFrame("windows_import_lib");
-            defer named_frame.end();
+            const tracy_trace = traceNamed(@src(), "windows_import_lib");
+            defer tracy_trace.end();
 
             const link_lib = comp.windows_libs.keys()[index];
             mingw.buildImportLib(comp, link_lib) catch |err| {
@@ -5599,13 +5635,14 @@ fn workerUpdateFile(
     prog_node: std.Progress.Node,
     group: *Io.Group,
 ) void {
-    const tid = Compilation.getTid();
     const io = comp.io;
+    const tid: Zcu.PerThread.Id = .acquire(io);
+    defer tid.release(io);
 
     const child_prog_node = prog_node.start(fs.path.basename(file.path.sub_path), 0);
     defer child_prog_node.end();
 
-    const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+    const pt: Zcu.PerThread = .activate(comp.zcu.?, tid);
     defer pt.deactivate();
     pt.updateFile(file_index, file) catch |err| {
         pt.reportRetryableFileError(file_index, "unable to load '{s}': {s}", .{ fs.path.basename(file.path.sub_path), @errorName(err) }) catch |oom| switch (oom) {
@@ -5665,9 +5702,10 @@ fn workerUpdateBuiltinFile(comp: *Compilation, file: *Zcu.File) void {
 }
 
 fn workerUpdateEmbedFile(comp: *Compilation, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) void {
-    const tid = Compilation.getTid();
     const io = comp.io;
-    comp.detectEmbedFileUpdate(@enumFromInt(tid), ef_index, ef) catch |err| switch (err) {
+    const tid: Zcu.PerThread.Id = .acquire(io);
+    defer tid.release(io);
+    comp.detectEmbedFileUpdate(tid, ef_index, ef) catch |err| switch (err) {
         error.OutOfMemory => {
             comp.mutex.lockUncancelable(io);
             defer comp.mutex.unlock(io);
@@ -5825,7 +5863,7 @@ pub fn translateC(
     }
 
     var stdout: []u8 = undefined;
-    try @import("main.zig").translateC(gpa, arena, io, argv.items, environ_map, prog_node, &stdout);
+    try @import("main.zig").translateC(gpa, arena, io, argv.items, environ_map, prog_node, comp.thread_limit, &stdout);
 
     if (out_dep_path) |dep_file_path| add_deps: {
         if (comp.verbose_cimport) log.info("processing dep file at {s}", .{dep_file_path});
@@ -6825,6 +6863,7 @@ fn spawnZigRc(
     child_progress_node: std.Progress.Node,
 ) !void {
     const io = comp.io;
+    const gpa = comp.gpa;
     var node_name: std.ArrayList(u8) = .empty;
     defer node_name.deinit(arena);
 
@@ -6839,55 +6878,69 @@ fn spawnZigRc(
     });
     defer child.kill(io);
 
-    var poller = std.Io.poll(comp.gpa, enum { stdout, stderr }, .{
-        .stdout = child.stdout.?,
-        .stderr = child.stderr.?,
-    });
-    defer poller.deinit();
+    var multi_reader_buffer: Io.File.MultiReader.Buffer(2) = undefined;
+    var multi_reader: Io.File.MultiReader = undefined;
+    multi_reader.init(gpa, io, multi_reader_buffer.toStreams(), &.{ child.stdout.?, child.stderr.? });
+    defer multi_reader.deinit();
 
-    const stdout = poller.reader(.stdout);
+    const stdout = multi_reader.fileReader(0);
+    const MessageHeader = std.zig.Server.Message.Header;
 
-    poll: while (true) {
-        const MessageHeader = std.zig.Server.Message.Header;
-        while (stdout.buffered().len < @sizeOf(MessageHeader)) if (!try poller.poll()) break :poll;
-        const header = stdout.takeStruct(MessageHeader, .little) catch unreachable;
-        while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll;
-        const body = stdout.take(header.bytes_len) catch unreachable;
+    var eos_err: error{EndOfStream}!void = {};
 
+    while (true) {
+        const header = stdout.interface.takeStruct(MessageHeader, .little) catch |err| switch (err) {
+            error.EndOfStream => break,
+            error.ReadFailed => return stdout.err.?,
+        };
+        const body = stdout.interface.take(header.bytes_len) catch |err| switch (err) {
+            error.EndOfStream => |e| {
+                // Better to report the crash with stderr below, but we set
+                // this in case the child exits successfully while violating
+                // this protocol.
+                eos_err = e;
+                break;
+            },
+            error.ReadFailed => return stdout.err.?,
+        };
         switch (header.tag) {
             // We expect exactly one ErrorBundle, and if any error_bundle header is
             // sent then it's a fatal error.
             .error_bundle => {
-                const error_bundle = try std.zig.Server.allocErrorBundle(comp.gpa, body);
+                const error_bundle = try std.zig.Server.allocErrorBundle(gpa, body);
                 return comp.failWin32ResourceWithOwnedBundle(win32_resource, error_bundle);
             },
             else => {}, // ignore other messages
         }
     }
 
-    // Just in case there's a failure that didn't send an ErrorBundle (e.g. an error return trace)
-    const stderr = poller.reader(.stderr);
+    try multi_reader.fillRemaining(.none);
 
+    // Just in case there's a failure that didn't send an ErrorBundle (e.g. an error return trace)
     const term = child.wait(io) catch |err| {
         return comp.failWin32Resource(win32_resource, "unable to wait for {s} rc: {t}", .{ argv[0], err });
     };
 
+    const stderr = multi_reader.reader(1).buffered();
+
     switch (term) {
         .exited => |code| {
             if (code != 0) {
-                log.err("zig rc failed with stderr:\n{s}", .{stderr.buffered()});
+                log.err("zig rc failed with stderr:\n{s}", .{stderr});
                 return comp.failWin32Resource(win32_resource, "zig rc exited with code {d}", .{code});
             }
         },
         .signal => |sig| {
-            log.err("zig rc signaled {t} with stderr:\n{s}", .{ sig, stderr.buffered() });
+            log.err("zig rc signaled {t} with stderr:\n{s}", .{ sig, stderr });
             return comp.failWin32Resource(win32_resource, "zig rc terminated unexpectedly", .{});
         },
         else => {
-            log.err("zig rc terminated with stderr:\n{s}", .{stderr.buffered()});
+            log.err("zig rc terminated with stderr:\n{s}", .{stderr});
             return comp.failWin32Resource(win32_resource, "zig rc terminated unexpectedly", .{});
         },
     }
+
+    try eos_err;
 }
 
 pub fn tmpFilePath(comp: Compilation, ally: Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
@@ -8336,17 +8389,3 @@ pub fn compilerRtOptMode(comp: Compilation) std.builtin.OptimizeMode {
 pub fn compilerRtStrip(comp: Compilation) bool {
     return comp.root_mod.strip;
 }
-
-/// This is a temporary workaround put in place to migrate from `std.Thread.Pool`
-/// to `std.Io.Threaded` for asynchronous/concurrent work. The eventual solution
-/// will likely involve significant changes to the `InternPool` implementation.
-pub fn getTid() usize {
-    if (my_tid == null) my_tid = next_tid.fetchAdd(1, .monotonic);
-    return my_tid.?;
-}
-pub fn setMainThread() void {
-    my_tid = 0;
-}
-/// TID 0 is reserved for the main thread.
-var next_tid: std.atomic.Value(usize) = .init(1);
-threadlocal var my_tid: ?usize = null;

@@ -1,34 +1,37 @@
 //! Builtin functions that operate on integer types
 
 const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
+
 const std = @import("std");
 const testing = std.testing;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
-const arch = builtin.cpu.arch;
-const common = @import("common.zig");
+
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const udivmod = @import("udivmod.zig").udivmod;
-const __divti3 = @import("divti3.zig").__divti3;
+const __divti3 = @import("udivmod.zig").__divti3;
 
 comptime {
-    @export(&__divmodti4, .{ .name = "__divmodti4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__udivmoddi4, .{ .name = "__udivmoddi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__divmoddi4, .{ .name = "__divmoddi4", .linkage = common.linkage, .visibility = common.visibility });
-    if (common.want_aeabi) {
-        @export(&__aeabi_idiv, .{ .name = "__aeabi_idiv", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__aeabi_uidiv, .{ .name = "__aeabi_uidiv", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__divmodti4, "__divmodti4");
+    symbol(&__udivmoddi4, "__udivmoddi4");
+    symbol(&__divmoddi4, "__divmoddi4");
+    if (compiler_rt.want_aeabi) {
+        symbol(&__aeabi_idiv, "__aeabi_idiv");
+        symbol(&__aeabi_uidiv, "__aeabi_uidiv");
     } else {
-        @export(&__divsi3, .{ .name = "__divsi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__udivsi3, .{ .name = "__udivsi3", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__divsi3, "__divsi3");
+        symbol(&__udivsi3, "__udivsi3");
     }
-    @export(&__divdi3, .{ .name = "__divdi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__udivdi3, .{ .name = "__udivdi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__modsi3, .{ .name = "__modsi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__moddi3, .{ .name = "__moddi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__umodsi3, .{ .name = "__umodsi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__umoddi3, .{ .name = "__umoddi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__divmodsi4, .{ .name = "__divmodsi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__udivmodsi4, .{ .name = "__udivmodsi4", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__divdi3, "__divdi3");
+    symbol(&__udivdi3, "__udivdi3");
+    symbol(&__modsi3, "__modsi3");
+    symbol(&__moddi3, "__moddi3");
+    symbol(&__umodsi3, "__umodsi3");
+    symbol(&__umoddi3, "__umoddi3");
+    symbol(&__divmodsi4, "__divmodsi4");
+    symbol(&__udivmodsi4, "__udivmodsi4");
 }
 
 pub fn __divmodti4(a: i128, b: i128, rem: *i128) callconv(.c) i128 {

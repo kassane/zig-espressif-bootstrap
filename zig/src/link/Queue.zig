@@ -96,12 +96,12 @@ pub fn enqueuePrelink(q: *Queue, comp: *Compilation, tasks: []const PrelinkTask)
 pub fn enqueueZcu(
     q: *Queue,
     comp: *Compilation,
-    tid: usize,
+    tid: Zcu.PerThread.Id,
     task: ZcuTask,
 ) Io.Cancelable!void {
     const io = comp.io;
 
-    assert(tid == 0);
+    assert(tid == .main);
 
     if (q.future != null) {
         if (q.zcu_queue.putOne(io, task)) |_| {
@@ -148,8 +148,9 @@ pub fn finishZcuQueue(q: *Queue, comp: *Compilation) void {
 }
 
 fn runLinkTasks(q: *Queue, comp: *Compilation) void {
-    const tid = Compilation.getTid();
     const io = comp.io;
+    const tid: Zcu.PerThread.Id = .acquire(io);
+    defer tid.release(io);
 
     var have_idle_tasks = true;
 
@@ -198,7 +199,7 @@ fn runLinkTasks(q: *Queue, comp: *Compilation) void {
         }
     }
 }
-fn runIdleTask(comp: *Compilation, tid: usize) bool {
+fn runIdleTask(comp: *Compilation, tid: Zcu.PerThread.Id) bool {
     return link.doIdleTask(comp, tid) catch |err| switch (err) {
         error.OutOfMemory => have_more: {
             comp.link_diags.setAllocFailure();
@@ -217,5 +218,6 @@ const Compilation = @import("../Compilation.zig");
 const InternPool = @import("../InternPool.zig");
 const link = @import("../link.zig");
 const PrelinkTask = link.PrelinkTask;
-const ZcuTask = link.ZcuTask;
 const Queue = @This();
+const Zcu = @import("../Zcu.zig");
+const ZcuTask = link.ZcuTask;

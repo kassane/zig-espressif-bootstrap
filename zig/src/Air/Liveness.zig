@@ -17,6 +17,7 @@ const trace = @import("../tracy.zig").trace;
 const Air = @import("../Air.zig");
 const InternPool = @import("../InternPool.zig");
 const Zcu = @import("../Zcu.zig");
+const Type = @import("../Type.zig");
 
 pub const Verify = @import("Liveness/Verify.zig");
 
@@ -609,13 +610,11 @@ fn analyzeInst(
         },
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
-            const inst_data = inst_datas[@intFromEnum(inst)].pl_op;
-            const callee = inst_data.operand;
-            const extra = a.air.extraData(Air.Call, inst_data.payload);
-            const args = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[extra.end..][0..extra.data.args_len]));
+            const call = a.air.unwrapCall(inst);
+            const args = call.args;
             if (args.len + 1 <= bpi - 1) {
                 var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
-                buf[0] = callee;
+                buf[0] = call.callee;
                 @memcpy(buf[1..][0..args.len], args);
                 return analyzeOperands(a, pass, data, inst, buf);
             }
@@ -627,7 +626,7 @@ fn analyzeInst(
                 i -= 1;
                 try big.feed(args[i]);
             }
-            try big.feed(callee);
+            try big.feed(call.callee);
             return big.finish();
         },
         .select => {
@@ -708,18 +707,15 @@ fn analyzeInst(
         .switch_dispatch => return analyzeInstSwitchDispatch(a, pass, data, inst),
 
         .assembly => {
-            const extra = a.air.extraData(Air.Asm, inst_datas[@intFromEnum(inst)].ty_pl.payload);
-            const outputs_len = extra.data.flags.outputs_len;
-            var extra_i: usize = extra.end;
-            const outputs = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[extra_i..][0..outputs_len]));
-            extra_i += outputs.len;
-            const inputs = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[extra_i..][0..extra.data.inputs_len]));
-            extra_i += inputs.len;
+            const unwrapped_asm = a.air.unwrapAsm(inst);
+
+            const outputs = unwrapped_asm.outputs;
+            const inputs = unwrapped_asm.inputs;
 
             const num_operands = simple: {
                 var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
                 var buf_index: usize = 0;
-                for (outputs) |output| {
+                for (unwrapped_asm.outputs) |output| {
                     if (output != .none) {
                         if (buf_index < buf.len) buf[buf_index] = output;
                         buf_index += 1;
@@ -748,15 +744,13 @@ fn analyzeInst(
             }
             return big.finish();
         },
-
-        inline .block, .dbg_inline_block => |comptime_tag| {
-            const ty_pl = inst_datas[@intFromEnum(inst)].ty_pl;
-            const extra = a.air.extraData(switch (comptime_tag) {
-                .block => Air.Block,
-                .dbg_inline_block => Air.DbgInlineBlock,
-                else => unreachable,
-            }, ty_pl.payload);
-            return analyzeInstBlock(a, pass, data, inst, ty_pl.ty, @ptrCast(a.air.extra.items[extra.end..][0..extra.data.body_len]));
+        .dbg_inline_block => {
+            const block = a.air.unwrapDbgBlock(inst);
+            return analyzeInstBlock(a, pass, data, inst, block.ty, block.body);
+        },
+        .block => {
+            const block = a.air.unwrapBlock(inst);
+            return analyzeInstBlock(a, pass, data, inst, block.ty, block.body);
         },
         .loop => return analyzeInstLoop(a, pass, data, inst),
 
@@ -778,8 +772,8 @@ fn analyzeInst(
         },
 
         .legalize_compiler_rt_call => {
-            const extra = a.air.extraData(Air.Call, inst_datas[@intFromEnum(inst)].legalize_compiler_rt_call.payload);
-            const args: []const Air.Inst.Ref = @ptrCast(a.air.extra.items[extra.end..][0..extra.data.args_len]);
+            const rt_call = a.air.unwrapCompilerRtCall(inst);
+            const args = rt_call.args;
             if (args.len <= bpi - 1) {
                 var buf: [bpi - 1]Air.Inst.Ref = @splat(.none);
                 @memcpy(buf[0..args.len], args);
@@ -972,7 +966,7 @@ fn analyzeInstBlock(
     comptime pass: LivenessPass,
     data: *LivenessPassData(pass),
     inst: Air.Inst.Index,
-    ty: Air.Inst.Ref,
+    ty: Type,
     body: []const Air.Inst.Index,
 ) !void {
     const gpa = a.gpa;
@@ -1005,7 +999,7 @@ fn analyzeInstBlock(
 
             // If the block is noreturn, block deaths not only aren't useful, they're impossible to
             // find: there could be more stuff alive after the block than before it!
-            if (!a.intern_pool.isNoReturn(ty.toType().toIntern())) {
+            if (!a.intern_pool.isNoReturn(ty.toIntern())) {
                 // The block kills the difference in the live sets
                 const block_scope = data.block_scopes.get(inst).?;
                 const num_deaths = data.live_set.count() - block_scope.live_set.count();
@@ -1139,9 +1133,8 @@ fn analyzeInstLoop(
     data: *LivenessPassData(pass),
     inst: Air.Inst.Index,
 ) !void {
-    const inst_datas = a.air.instructions.items(.data);
-    const extra = a.air.extraData(Air.Block, inst_datas[@intFromEnum(inst)].ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(a.air.extra.items[extra.end..][0..extra.data.body_len]);
+    const block = a.air.unwrapBlock(inst);
+    const body = block.body;
     const gpa = a.gpa;
 
     try analyzeOperands(a, pass, data, inst, .{ .none, .none, .none });
@@ -1187,44 +1180,38 @@ fn analyzeInstCondBr(
     inst: Air.Inst.Index,
     comptime inst_type: enum { cond_br, @"try", try_ptr },
 ) !void {
-    const inst_datas = a.air.instructions.items(.data);
     const gpa = a.gpa;
 
-    const extra = switch (inst_type) {
-        .cond_br => a.air.extraData(Air.CondBr, inst_datas[@intFromEnum(inst)].pl_op.payload),
-        .@"try" => a.air.extraData(Air.Try, inst_datas[@intFromEnum(inst)].pl_op.payload),
-        .try_ptr => a.air.extraData(Air.TryPtr, inst_datas[@intFromEnum(inst)].ty_pl.payload),
+    const unwrapped_cond = switch (inst_type) {
+        .cond_br => a.air.unwrapCondBr(inst),
+        .@"try" => a.air.unwrapTry(inst),
+        .try_ptr => a.air.unwrapTryPtr(inst),
     };
 
     const condition = switch (inst_type) {
-        .cond_br, .@"try" => inst_datas[@intFromEnum(inst)].pl_op.operand,
-        .try_ptr => extra.data.ptr,
+        .cond_br => unwrapped_cond.condition,
+        .@"try" => unwrapped_cond.error_union,
+        .try_ptr => unwrapped_cond.error_union_ptr,
     };
 
-    const then_body: []const Air.Inst.Index = switch (inst_type) {
-        .cond_br => @ptrCast(a.air.extra.items[extra.end..][0..extra.data.then_body_len]),
-        else => &.{}, // we won't use this
+    const then_body = switch (inst_type) {
+        .cond_br => unwrapped_cond.then_body,
+        // The "then body" is just the remainder of this block
+        else => &.{},
     };
 
-    const else_body: []const Air.Inst.Index = @ptrCast(switch (inst_type) {
-        .cond_br => a.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len],
-        .@"try", .try_ptr => a.air.extra.items[extra.end..][0..extra.data.body_len],
-    });
+    const else_body = switch (inst_type) {
+        .cond_br, .@"try", .try_ptr => unwrapped_cond.else_body,
+    };
 
     switch (pass) {
         .loop_analysis => {
-            switch (inst_type) {
-                .cond_br => try analyzeBody(a, pass, data, then_body),
-                .@"try", .try_ptr => {},
-            }
+            try analyzeBody(a, pass, data, then_body);
             try analyzeBody(a, pass, data, else_body);
         },
 
         .main_analysis => {
-            switch (inst_type) {
-                .cond_br => try analyzeBody(a, pass, data, then_body),
-                .@"try", .try_ptr => {}, // The "then body" is just the remainder of this block
-            }
+            try analyzeBody(a, pass, data, then_body);
             var then_live = data.live_set.move();
             defer then_live.deinit(gpa);
 

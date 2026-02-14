@@ -1,5 +1,149 @@
 const std = @import("std");
 
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
+
+comptime {
+    if (compiler_rt.want_aeabi) {
+        symbol(&__aeabi_fcmpun, "__aeabi_fcmpun");
+    } else {
+        symbol(&__unordsf2, "__unordsf2");
+    }
+
+    symbol(&__unordxf2, "__unordxf2");
+
+    symbol(&__eqhf2, "__eqhf2");
+    symbol(&__nehf2, "__nehf2");
+    symbol(&__lehf2, "__lehf2");
+    symbol(&__cmphf2, "__cmphf2");
+    symbol(&__lthf2, "__lthf2");
+
+    if (compiler_rt.want_aeabi) {
+        symbol(&__aeabi_fcmpeq, "__aeabi_fcmpeq");
+        symbol(&__aeabi_fcmplt, "__aeabi_fcmplt");
+        symbol(&__aeabi_fcmple, "__aeabi_fcmple");
+    } else {
+        symbol(&__eqsf2, "__eqsf2");
+        symbol(&__nesf2, "__nesf2");
+        symbol(&__lesf2, "__lesf2");
+        symbol(&__cmpsf2, "__cmpsf2");
+        symbol(&__ltsf2, "__ltsf2");
+    }
+
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&__unordtf2, "__unordkf2");
+    } else if (compiler_rt.want_sparc_abi) {
+        // These exports are handled in cmptf2.zig because unordered comparisons
+        // are based on calling _Qp_cmp.
+    }
+    symbol(&__unordtf2, "__unordtf2");
+    symbol(&__unordhf2, "__unordhf2");
+}
+
+pub fn __unordhf2(a: f16, b: f16) callconv(.c) i32 {
+    return unordcmp(f16, a, b);
+}
+
+pub fn __unordtf2(a: f128, b: f128) callconv(.c) i32 {
+    return unordcmp(f128, a, b);
+}
+
+/// "These functions calculate a <=> b. That is, if a is less than b, they return -1;
+/// if a is greater than b, they return 1; and if a and b are equal they return 0.
+/// If either argument is NaN they return 1..."
+///
+/// Note that this matches the definition of `__lesf2`, `__eqsf2`, `__nesf2`, `__cmpsf2`,
+/// and `__ltsf2`.
+fn __cmpsf2(a: f32, b: f32) callconv(.c) i32 {
+    return @intFromEnum(cmpf2(f32, LE, a, b));
+}
+
+/// "These functions return a value less than or equal to zero if neither argument is NaN,
+/// and a is less than or equal to b."
+pub fn __lesf2(a: f32, b: f32) callconv(.c) i32 {
+    return __cmpsf2(a, b);
+}
+
+/// "These functions return zero if neither argument is NaN, and a and b are equal."
+/// Note that due to some kind of historical accident, __eqsf2 and __nesf2 are defined
+/// to have the same return value.
+pub fn __eqsf2(a: f32, b: f32) callconv(.c) i32 {
+    return __cmpsf2(a, b);
+}
+
+/// "These functions return a nonzero value if either argument is NaN, or if a and b are unequal."
+/// Note that due to some kind of historical accident, __eqsf2 and __nesf2 are defined
+/// to have the same return value.
+pub fn __nesf2(a: f32, b: f32) callconv(.c) i32 {
+    return __cmpsf2(a, b);
+}
+
+/// "These functions return a value less than zero if neither argument is NaN, and a
+/// is strictly less than b."
+pub fn __ltsf2(a: f32, b: f32) callconv(.c) i32 {
+    return __cmpsf2(a, b);
+}
+
+fn __aeabi_fcmpeq(a: f32, b: f32) callconv(.{ .arm_aapcs = .{} }) i32 {
+    return @intFromBool(cmpf2(f32, LE, a, b) == .Equal);
+}
+
+fn __aeabi_fcmplt(a: f32, b: f32) callconv(.{ .arm_aapcs = .{} }) i32 {
+    return @intFromBool(cmpf2(f32, LE, a, b) == .Less);
+}
+
+fn __aeabi_fcmple(a: f32, b: f32) callconv(.{ .arm_aapcs = .{} }) i32 {
+    return @intFromBool(cmpf2(f32, LE, a, b) != .Greater);
+}
+
+/// "These functions calculate a <=> b. That is, if a is less than b, they return -1;
+/// if a is greater than b, they return 1; and if a and b are equal they return 0.
+/// If either argument is NaN they return 1..."
+///
+/// Note that this matches the definition of `__lehf2`, `__eqhf2`, `__nehf2`, `__cmphf2`,
+/// and `__lthf2`.
+fn __cmphf2(a: f16, b: f16) callconv(.c) i32 {
+    return @intFromEnum(cmpf2(f16, LE, a, b));
+}
+
+/// "These functions return a value less than or equal to zero if neither argument is NaN,
+/// and a is less than or equal to b."
+fn __lehf2(a: f16, b: f16) callconv(.c) i32 {
+    return __cmphf2(a, b);
+}
+
+/// "These functions return zero if neither argument is NaN, and a and b are equal."
+/// Note that due to some kind of historical accident, __eqhf2 and __nehf2 are defined
+/// to have the same return value.
+fn __eqhf2(a: f16, b: f16) callconv(.c) i32 {
+    return __cmphf2(a, b);
+}
+
+/// "These functions return a nonzero value if either argument is NaN, or if a and b are unequal."
+/// Note that due to some kind of historical accident, __eqhf2 and __nehf2 are defined
+/// to have the same return value.
+fn __nehf2(a: f16, b: f16) callconv(.c) i32 {
+    return __cmphf2(a, b);
+}
+
+/// "These functions return a value less than zero if neither argument is NaN, and a
+/// is strictly less than b."
+fn __lthf2(a: f16, b: f16) callconv(.c) i32 {
+    return __cmphf2(a, b);
+}
+
+fn __unordxf2(a: f80, b: f80) callconv(.c) i32 {
+    return unordcmp(f80, a, b);
+}
+
+pub fn __unordsf2(a: f32, b: f32) callconv(.c) i32 {
+    return unordcmp(f32, a, b);
+}
+
+fn __aeabi_fcmpun(a: f32, b: f32) callconv(.{ .arm_aapcs = .{} }) i32 {
+    return unordcmp(f32, a, b);
+}
+
 pub const LE = enum(i32) {
     Less = -1,
     Equal = 0,

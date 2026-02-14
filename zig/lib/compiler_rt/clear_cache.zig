@@ -2,7 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const os = builtin.os.tag;
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 // Ported from llvm-project d32170dbd5b0d54436537b6b75beaf44324e0c28
 
@@ -188,7 +189,7 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
 }
 
 fn exportIt() void {
-    @export(&clear_cache, .{ .name = "__clear_cache", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&clear_cache, "__clear_cache");
 }
 
 // MIPS-only

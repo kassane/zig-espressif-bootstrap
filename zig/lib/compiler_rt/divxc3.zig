@@ -1,10 +1,10 @@
-const common = @import("./common.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 const divc3 = @import("./divc3.zig");
 const Complex = @import("./mulc3.zig").Complex;
 
 comptime {
     if (@import("builtin").zig_backend != .stage2_c) {
-        @export(&__divxc3, .{ .name = "__divxc3", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__divxc3, "__divxc3");
     }
 }
 

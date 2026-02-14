@@ -1,11 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 comptime {
-    @export(&__bswapsi2, .{ .name = "__bswapsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__bswapdi2, .{ .name = "__bswapdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__bswapti2, .{ .name = "__bswapti2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__bswapsi2, "__bswapsi2");
+    symbol(&__bswapdi2, "__bswapdi2");
+    symbol(&__bswapti2, "__bswapti2");
 }
 
 // bswap - byteswap

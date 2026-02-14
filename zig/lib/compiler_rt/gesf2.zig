@@ -1,15 +1,16 @@
 ///! The quoted behavior definitions are from
 ///! https://gcc.gnu.org/onlinedocs/gcc-12.1.0/gccint/Soft-float-library-routines.html#Soft-float-library-routines
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const comparef = @import("./comparef.zig");
 
 comptime {
-    if (common.want_aeabi) {
-        @export(&__aeabi_fcmpge, .{ .name = "__aeabi_fcmpge", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__aeabi_fcmpgt, .{ .name = "__aeabi_fcmpgt", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_aeabi) {
+        symbol(&__aeabi_fcmpge, "__aeabi_fcmpge");
+        symbol(&__aeabi_fcmpgt, "__aeabi_fcmpgt");
     } else {
-        @export(&__gesf2, .{ .name = "__gesf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__gtsf2, .{ .name = "__gtsf2", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__gesf2, "__gesf2");
+        symbol(&__gtsf2, "__gtsf2");
     }
 }
 

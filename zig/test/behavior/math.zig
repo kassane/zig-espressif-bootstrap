@@ -1946,3 +1946,47 @@ test "comptime float vector multiplication of zero by nan is nan" {
     comptime assert(math.isNan((ct_zero * ct_nan)[0]));
     comptime assert(math.isNan((ct_nan * ct_zero)[0]));
 }
+
+test "i96 operations" {
+    // This is coverage for some stuff used by std.Io timestamps, to catch
+    // issues earlier than bootstrapping.
+    const Op_i96 = union(enum) {
+        a,
+        b: B,
+        c: C,
+
+        const B = struct {
+            inner: struct { x: i96 },
+            flag: bool,
+        };
+
+        const C = struct {
+            inner: struct { x: i96 },
+            flag: bool,
+        };
+
+        fn do(op: @This()) i64 {
+            switch (op) {
+                .a => {
+                    return std.math.minInt(i64);
+                },
+                .b => |b| {
+                    const x = b.inner.x;
+                    return @intCast(@divTrunc(x, 100));
+                },
+                .c => |c| {
+                    const a = get() catch unreachable;
+                    const b = a.x + c.inner.x;
+                    return @intCast(@divTrunc(b, 100));
+                },
+            }
+        }
+
+        fn get() anyerror!struct { x: i96 } {
+            return .{ .x = 999999999 };
+        }
+    };
+    try expect(-9223372036854775808 == Op_i96.do(.{ .a = {} }));
+    try expect(12345678910111213 == Op_i96.do(.{ .b = .{ .inner = .{ .x = 1234567891011121314 }, .flag = true } }));
+    try expect(1234567891021121314 == Op_i96.do(.{ .c = .{ .inner = .{ .x = 123456789101112131415 }, .flag = true } }));
+}

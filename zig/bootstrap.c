@@ -143,6 +143,7 @@ int main(int argc, char **argv) {
             "pub const skip_non_native = false;\n"
             "pub const debug_gpa = false;\n"
             "pub const dev = .core;\n"
+            "pub const io_mode: enum { threaded, evented } = .threaded;\n"
             "pub const value_interpret_mode = .direct;\n"
         , zig_version);
         if (written < 100)

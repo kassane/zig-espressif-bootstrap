@@ -243,7 +243,7 @@ pub fn finishBuild(ws: *WebServer, opts: struct {
 
 pub fn now(s: *const WebServer) i64 {
     const io = s.graph.io;
-    const ts = base_clock.now(io) catch s.base_timestamp;
+    const ts = base_clock.now(io);
     return @intCast(s.base_timestamp.durationTo(ts).toNanoseconds());
 }
 
@@ -588,11 +588,12 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
     });
     defer child.kill(io);
 
-    var poller = Io.poll(gpa, enum { stdout, stderr }, .{
-        .stdout = child.stdout.?,
-        .stderr = child.stderr.?,
-    });
-    defer poller.deinit();
+    var stderr_task = try io.concurrent(readStreamAlloc, .{ gpa, io, child.stderr.?, .unlimited });
+    defer if (stderr_task.cancel(io)) |slice| gpa.free(slice) else |_| {};
+
+    var stdout_buffer: [512]u8 = undefined;
+    var stdout_reader: Io.File.Reader = .initStreaming(child.stdout.?, io, &stdout_buffer);
+    const stdout = &stdout_reader.interface;
 
     try child.stdin.?.writeStreamingAll(io, @ptrCast(@as([]const std.zig.Client.Message.Header, &.{
         .{ .tag = .update, .bytes_len = 0 },
@@ -600,16 +601,17 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
     })));
 
     const Header = std.zig.Server.Message.Header;
+
     var result: ?Cache.Path = null;
     var result_error_bundle = std.zig.ErrorBundle.empty;
+    var body_buffer: std.ArrayList(u8) = .empty;
+    defer body_buffer.deinit(gpa);
 
-    const stdout = poller.reader(.stdout);
-
-    poll: while (true) {
-        while (stdout.buffered().len < @sizeOf(Header)) if (!(try poller.poll())) break :poll;
-        const header = stdout.takeStruct(Header, .little) catch unreachable;
-        while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll;
-        const body = stdout.take(header.bytes_len) catch unreachable;
+    while (true) {
+        const header = try stdout.takeStruct(Header, .little);
+        body_buffer.clearRetainingCapacity();
+        try stdout.appendExact(gpa, &body_buffer, header.bytes_len);
+        const body = body_buffer.items;
 
         switch (header.tag) {
             .zig_version => {
@@ -636,7 +638,7 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
         }
     }
 
-    const stderr_contents = try poller.toOwnedSlice(.stderr);
+    const stderr_contents = try stderr_task.await(io);
     if (stderr_contents.len > 0) {
         std.debug.print("{s}", .{stderr_contents});
     }
@@ -650,7 +652,7 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
             if (code != 0) {
                 log.err(
                     "the following command exited with error code {d}:\n{s}",
-                    .{ code, try Build.Step.allocPrintCmd(arena, null, null, argv.items) },
+                    .{ code, try Build.Step.allocPrintCmd(arena, .inherit, null, argv.items) },
                 );
                 return error.WasmCompilationFailed;
             }
@@ -658,14 +660,14 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
         .signal => |sig| {
             log.err(
                 "the following command terminated with signal {t}:\n{s}",
-                .{ sig, try Build.Step.allocPrintCmd(arena, null, null, argv.items) },
+                .{ sig, try Build.Step.allocPrintCmd(arena, .inherit, null, argv.items) },
             );
             return error.WasmCompilationFailed;
         },
         .stopped, .unknown => {
             log.err(
                 "the following command terminated unexpectedly:\n{s}",
-                .{try Build.Step.allocPrintCmd(arena, null, null, argv.items)},
+                .{try Build.Step.allocPrintCmd(arena, .inherit, null, argv.items)},
             );
             return error.WasmCompilationFailed;
         },
@@ -675,14 +677,14 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
         try result_error_bundle.renderToStderr(io, .{}, .auto);
         log.err("the following command failed with {d} compilation errors:\n{s}", .{
             result_error_bundle.errorMessageCount(),
-            try Build.Step.allocPrintCmd(arena, null, null, argv.items),
+            try Build.Step.allocPrintCmd(arena, .inherit, null, argv.items),
         });
         return error.WasmCompilationFailed;
     }
 
     const base_path = result orelse {
         log.err("child process failed to report result\n{s}", .{
-            try Build.Step.allocPrintCmd(arena, null, null, argv.items),
+            try Build.Step.allocPrintCmd(arena, .inherit, null, argv.items),
         });
         return error.WasmCompilationFailed;
     };
@@ -695,6 +697,14 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
         .output_mode = .Exe,
     });
     return base_path.join(arena, bin_name);
+}
+
+fn readStreamAlloc(gpa: Allocator, io: Io, file: Io.File, limit: Io.Limit) ![]u8 {
+    var file_reader: Io.File.Reader = .initStreaming(file, io, &.{});
+    return file_reader.interface.allocRemaining(gpa, limit) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        else => |e| return e,
+    };
 }
 
 pub fn updateTimeReportCompile(ws: *WebServer, opts: struct {
@@ -751,7 +761,7 @@ pub fn updateTimeReportCompile(ws: *WebServer, opts: struct {
     ws.notifyUpdate();
 }
 
-pub fn updateTimeReportGeneric(ws: *WebServer, step: *Build.Step, ns_total: u64) void {
+pub fn updateTimeReportGeneric(ws: *WebServer, step: *Build.Step, duration: Io.Duration) void {
     const gpa = ws.gpa;
     const io = ws.graph.io;
 
@@ -770,7 +780,7 @@ pub fn updateTimeReportGeneric(ws: *WebServer, step: *Build.Step, ns_total: u64)
     const out: *align(1) abi.time_report.GenericResult = @ptrCast(buf);
     out.* = .{
         .step_idx = step_idx,
-        .ns_total = ns_total,
+        .ns_total = @intCast(duration.toNanoseconds()),
     };
     {
         ws.time_report_mutex.lock(io) catch return;

@@ -3,6 +3,7 @@
 const InternPool = @This();
 
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 
 const std = @import("std");
 const Io = std.Io;
@@ -86,13 +87,11 @@ dep_entries: std.ArrayList(DepEntry),
 /// garbage collection pass.
 free_dep_entries: std.ArrayList(DepEntry.Index),
 
-/// Whether a multi-threaded intern pool is useful.
-/// Currently `false` until the intern pool is actually accessed
-/// from multiple threads to reduce the cost of this data structure.
-const want_multi_threaded = true;
-
 /// Whether a single-threaded intern pool impl is in use.
-pub const single_threaded = builtin.single_threaded or !want_multi_threaded;
+pub const single_threaded = switch (build_options.io_mode) {
+    .threaded => builtin.single_threaded,
+    .evented => false, // even without threads, evented can be access from multiple tasks at a time
+};
 
 pub const empty: InternPool = .{
     .locals = &.{},
@@ -6915,7 +6914,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, io: Io, available_threads: usize) !
     assert(ip.locals.len == 0 and ip.shards.len == 0);
     assert(available_threads > 0 and available_threads <= std.math.maxInt(u8));
 
-    const used_threads = if (single_threaded) 1 else available_threads;
+    const used_threads = if (single_threaded) 1 else @max(available_threads, 2);
     ip.locals = try gpa.alloc(Local, used_threads);
     @memset(ip.locals, .{
         .shared = .{

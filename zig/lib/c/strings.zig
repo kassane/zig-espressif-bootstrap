@@ -1,27 +1,27 @@
-const std = @import("std");
-const common = @import("common.zig");
 const builtin = @import("builtin");
+const std = @import("std");
+const symbol = @import("../c.zig").symbol;
 
 comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         // bcmp is implemented in compiler_rt
-        @export(&bcopy, .{ .name = "bcopy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&bzero, .{ .name = "bzero", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&index, .{ .name = "index", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&rindex, .{ .name = "rindex", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&bcopy, "bcopy");
+        symbol(&bzero, "bzero");
+        symbol(&index, "index");
+        symbol(&rindex, "rindex");
 
-        @export(&ffs, .{ .name = "ffs", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&ffsl, .{ .name = "ffsl", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&ffsll, .{ .name = "ffsll", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&ffs, "ffs");
+        symbol(&ffsl, "ffsl");
+        symbol(&ffsll, "ffsll");
 
-        @export(&strcasecmp, .{ .name = "strcasecmp", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strncasecmp, .{ .name = "strncasecmp", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&strcasecmp, "strcasecmp");
+        symbol(&strncasecmp, "strncasecmp");
 
-        @export(&__strcasecmp_l, .{ .name = "__strcasecmp_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__strncasecmp_l, .{ .name = "__strncasecmp_l", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__strcasecmp_l, "__strcasecmp_l");
+        symbol(&__strncasecmp_l, "__strncasecmp_l");
 
-        @export(&__strcasecmp_l, .{ .name = "strcasecmp_l", .linkage = .weak, .visibility = common.visibility });
-        @export(&__strncasecmp_l, .{ .name = "strncasecmp_l", .linkage = .weak, .visibility = common.visibility });
+        symbol(&__strcasecmp_l, "strcasecmp_l");
+        symbol(&__strncasecmp_l, "strncasecmp_l");
     }
 }
 

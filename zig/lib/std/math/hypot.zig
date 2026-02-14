@@ -6,10 +6,10 @@ const isNan = math.isNan;
 const isInf = math.isInf;
 const inf = math.inf;
 const nan = math.nan;
-const floatEpsAt = math.floatEpsAt;
 const floatEps = math.floatEps;
 const floatMin = math.floatMin;
 const floatMax = math.floatMax;
+const floatTrueMin = math.floatTrueMin;
 
 /// Returns sqrt(x * x + y * y), avoiding unnecessary overflow and underflow.
 ///
@@ -30,8 +30,7 @@ pub fn hypot(x: anytype, y: anytype) @TypeOf(x, y) {
     }
     const lower = @sqrt(floatMin(T));
     const upper = @sqrt(floatMax(T) / 2);
-    const incre = @sqrt(floatEps(T) / 2);
-    const scale = floatEpsAt(T, incre);
+    const scale = floatTrueMin(T) * upper;
     const hypfn = if (emulateFma(T)) hypotUnfused else hypotFused;
     var major: T = x;
     var minor: T = y;
@@ -46,7 +45,8 @@ pub fn hypot(x: anytype, y: anytype) @TypeOf(x, y) {
         major = minor;
         minor = tempo;
     }
-    if (major * incre >= minor) return major;
+    if (minor == 0.0) return major;
+    if (major - minor == major) return major;
     if (major > upper) return hypfn(T, major * scale, minor * scale) / scale;
     if (minor < lower) return hypfn(T, major / scale, minor / scale) * scale;
     return hypfn(T, major, minor);

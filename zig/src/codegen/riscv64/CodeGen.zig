@@ -3627,11 +3627,11 @@ fn airRuntimeNavPtr(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airTry(func: *Func, inst: Air.Inst.Index) !void {
-    const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const extra = func.air.extraData(Air.Try, pl_op.payload);
-    const body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[extra.end..][0..extra.data.body_len]);
-    const operand_ty = func.typeOf(pl_op.operand);
-    const result = try func.genTry(inst, pl_op.operand, body, operand_ty, false);
+    const zcu = func.pt.zcu;
+    const unwrapped_try = func.air.unwrapTry(inst);
+    const body = unwrapped_try.else_body;
+    const operand_ty = func.air.typeOf(unwrapped_try.error_union, &zcu.intern_pool);
+    const result = try func.genTry(inst, unwrapped_try.error_union, body, operand_ty, false);
     return func.finishAir(inst, result, .{ .none, .none, .none });
 }
 
@@ -4801,10 +4801,8 @@ fn airFrameAddress(func: *Func, inst: Air.Inst.Index) !void {
 
 fn airCall(func: *Func, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
     if (modifier == .always_tail) return func.fail("TODO implement tail calls for riscv64", .{});
-    const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const callee = pl_op.operand;
-    const extra = func.air.extraData(Air.Call, pl_op.payload);
-    const arg_refs: []const Air.Inst.Ref = @ptrCast(func.air.extra.items[extra.end..][0..extra.data.args_len]);
+    const call = func.air.unwrapCall(inst);
+    const arg_refs = call.args;
 
     const expected_num_args = 8;
     const ExpectedContents = extern struct {
@@ -4822,10 +4820,10 @@ fn airCall(func: *Func, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     defer allocator.free(arg_vals);
     for (arg_vals, arg_refs) |*arg_val, arg_ref| arg_val.* = .{ .air_ref = arg_ref };
 
-    const call_ret = try func.genCall(.{ .air = callee }, arg_tys, arg_vals);
+    const call_ret = try func.genCall(.{ .air = call.callee }, arg_tys, arg_vals);
 
     var bt = func.liveness.iterateBigTomb(inst);
-    try func.feed(&bt, pl_op.operand);
+    try func.feed(&bt, call.callee);
     for (arg_refs) |arg_ref| try func.feed(&bt, arg_ref);
 
     const result = if (func.liveness.isUnused(inst)) .unreach else call_ret;
@@ -5218,9 +5216,8 @@ fn airDbgStmt(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airDbgInlineBlock(func: *Func, inst: Air.Inst.Index) !void {
-    const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = func.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
-    try func.lowerBlock(inst, @ptrCast(func.air.extra.items[extra.end..][0..extra.data.body_len]));
+    const block = func.air.unwrapDbgBlock(inst);
+    try func.lowerBlock(inst, block.body);
 }
 
 fn airDbgVar(func: *Func, inst: Air.Inst.Index) InnerError!void {
@@ -5271,19 +5268,18 @@ fn genVarDbgInfo(
 }
 
 fn airCondBr(func: *Func, inst: Air.Inst.Index) !void {
-    const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const cond = try func.resolveInst(pl_op.operand);
-    const cond_ty = func.typeOf(pl_op.operand);
-    const extra = func.air.extraData(Air.CondBr, pl_op.payload);
-    const then_body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[extra.end..][0..extra.data.then_body_len]);
-    const else_body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+    const cond_br = func.air.unwrapCondBr(inst);
+    const cond = try func.resolveInst(cond_br.condition);
+    const cond_ty = func.typeOf(cond_br.condition);
+    const then_body = cond_br.then_body;
+    const else_body = cond_br.else_body;
     const liveness_cond_br = func.liveness.getCondBr(inst);
 
     // If the condition dies here in this condbr instruction, process
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
     if (func.liveness.operandDies(inst, 0)) {
-        if (pl_op.operand.toIndex()) |op_inst| try func.processDeath(op_inst);
+        if (cond_br.condition.toIndex()) |op_inst| try func.processDeath(op_inst);
     }
 
     func.scope_generation += 1;
@@ -5633,10 +5629,7 @@ fn airIsNonErrPtr(func: *Func, inst: Air.Inst.Index) !void {
 
 fn airLoop(func: *Func, inst: Air.Inst.Index) !void {
     // A loop is a setup to be able to jump back to the beginning.
-    const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const loop = func.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[loop.end..][0..loop.data.body_len]);
-
+    const body = func.air.unwrapBlock(inst);
     func.scope_generation += 1;
     const state = try func.saveState();
 
@@ -5646,7 +5639,7 @@ fn airLoop(func: *Func, inst: Air.Inst.Index) !void {
     });
     defer assert(func.loops.remove(inst));
 
-    try func.genBody(body);
+    try func.genBody(body.body);
 
     func.finishAirBookkeeping();
 }
@@ -5663,9 +5656,8 @@ fn jump(func: *Func, index: Mir.Inst.Index) !Mir.Inst.Index {
 }
 
 fn airBlock(func: *Func, inst: Air.Inst.Index) !void {
-    const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = func.air.extraData(Air.Block, ty_pl.payload);
-    try func.lowerBlock(inst, @ptrCast(func.air.extra.items[extra.end..][0..extra.data.body_len]));
+    const block = func.air.unwrapBlock(inst);
+    try func.lowerBlock(inst, block.body);
 }
 
 fn lowerBlock(func: *Func, inst: Air.Inst.Index, body: []const Air.Inst.Index) !void {
@@ -6053,15 +6045,9 @@ fn airBoolOp(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
-    const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = func.air.extraData(Air.Asm, ty_pl.payload);
-    const outputs_len = extra.data.flags.outputs_len;
-    var extra_i: usize = extra.end;
-    const outputs: []const Air.Inst.Ref =
-        @ptrCast(func.air.extra.items[extra_i..][0..outputs_len]);
-    extra_i += outputs.len;
-    const inputs: []const Air.Inst.Ref = @ptrCast(func.air.extra.items[extra_i..][0..extra.data.inputs_len]);
-    extra_i += inputs.len;
+    const unwrapped_asm = func.air.unwrapAsm(inst);
+    const outputs = unwrapped_asm.outputs;
+    const inputs = unwrapped_asm.inputs;
 
     var result: MCValue = .none;
     var args = std.array_list.Managed(MCValue).init(func.gpa);
@@ -6076,19 +6062,15 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     try arg_map.ensureTotalCapacity(@intCast(outputs.len + inputs.len));
     defer arg_map.deinit();
 
-    var outputs_extra_i = extra_i;
-    for (outputs) |output| {
-        const extra_bytes = mem.sliceAsBytes(func.air.extra.items[extra_i..]);
-        const constraint = mem.sliceTo(mem.sliceAsBytes(func.air.extra.items[extra_i..]), 0);
-        const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-        // This equation accounts for the fact that even if we have exactly 4 bytes
-        // for the string, we still use the next u32 for the null terminator.
-        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+    var it = unwrapped_asm.iterateOutputs();
+    while (it.next()) |output| {
+        const constraint = output.constraint;
+        const name = output.name;
 
         const is_read = switch (constraint[0]) {
             '=' => false,
             '+' => read: {
-                if (output == .none) return func.fail(
+                if (output.operand == .none) return func.fail(
                     "read-write constraint unsupported for asm result: '{s}'",
                     .{constraint},
                 );
@@ -6100,7 +6082,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
         const rest = constraint[@as(usize, 1) + @intFromBool(is_early_clobber) ..];
         const arg_mcv: MCValue = arg_mcv: {
             const arg_maybe_reg: ?Register = if (mem.eql(u8, rest, "m"))
-                if (output != .none) null else return func.fail(
+                if (output.operand != .none) null else return func.fail(
                     "memory constraint unsupported for asm result: '{s}'",
                     .{constraint},
                 )
@@ -6115,7 +6097,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
                 break :arg_mcv args.items[index];
             } else return func.fail("invalid constraint: '{s}'", .{constraint});
             break :arg_mcv if (arg_maybe_reg) |reg| .{ .register = reg } else arg: {
-                const ptr_mcv = try func.resolveInst(output);
+                const ptr_mcv = try func.resolveInst(output.operand);
                 switch (ptr_mcv) {
                     .immediate => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |_|
                         break :arg ptr_mcv.deref(),
@@ -6131,20 +6113,17 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
         if (!mem.eql(u8, name, "_"))
             arg_map.putAssumeCapacityNoClobber(name, @intCast(args.items.len));
         args.appendAssumeCapacity(arg_mcv);
-        if (output == .none) result = arg_mcv;
-        if (is_read) try func.load(arg_mcv, .{ .air_ref = output }, func.typeOf(output));
+        if (output.operand == .none) result = arg_mcv;
+        if (is_read) try func.load(arg_mcv, .{ .air_ref = output.operand }, func.typeOf(output.operand));
     }
 
-    for (inputs) |input| {
-        const input_bytes = mem.sliceAsBytes(func.air.extra.items[extra_i..]);
-        const constraint = mem.sliceTo(input_bytes, 0);
-        const name = mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
-        // This equation accounts for the fact that even if we have exactly 4 bytes
-        // for the string, we still use the next u32 for the null terminator.
-        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+    it = unwrapped_asm.iterateInputs();
+    while (it.next()) |input| {
+        const constraint = input.constraint;
+        const name = input.name;
 
-        const ty = func.typeOf(input);
-        const input_mcv = try func.resolveInst(input);
+        const ty = func.typeOf(input.operand);
+        const input_mcv = try func.resolveInst(input.operand);
         const arg_mcv: MCValue = if (mem.eql(u8, constraint, "X"))
             input_mcv
         else if (mem.startsWith(u8, constraint, "{") and mem.endsWith(u8, constraint, "}")) arg: {
@@ -6171,7 +6150,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
 
     const zcu = func.pt.zcu;
     const ip = &zcu.intern_pool;
-    const aggregate = ip.indexToKey(extra.data.clobbers).aggregate;
+    const aggregate = ip.indexToKey(unwrapped_asm.clobbers).aggregate;
     const struct_type: Type = .fromInterned(aggregate.ty);
     switch (aggregate.storage) {
         .elems => |elems| for (elems, 0..) |elem, i| {
@@ -6231,7 +6210,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
         labels.deinit(func.gpa);
     }
 
-    const asm_source = std.mem.sliceAsBytes(func.air.extra.items[extra_i..])[0..extra.data.source_len];
+    const asm_source = unwrapped_asm.source;
     var line_it = mem.tokenizeAny(u8, asm_source, "\n\r;");
     next_line: while (line_it.next()) |line| {
         var mnem_it = mem.tokenizeAny(u8, line, " \t");
@@ -6499,19 +6478,14 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     while (label_it.next()) |label| if (label.value_ptr.pending_relocs.items.len > 0)
         return func.fail("undefined label: '{s}'", .{label.key_ptr.*});
 
-    for (outputs, args.items[0..outputs.len]) |output, arg_mcv| {
-        const extra_bytes = mem.sliceAsBytes(func.air.extra.items[outputs_extra_i..]);
-        const constraint =
-            mem.sliceTo(mem.sliceAsBytes(func.air.extra.items[outputs_extra_i..]), 0);
-        const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-        // This equation accounts for the fact that even if we have exactly 4 bytes
-        // for the string, we still use the next u32 for the null terminator.
-        outputs_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+    it = unwrapped_asm.iterateOutputs();
+    while (it.next()) |output| {
+        const constraint = output.constraint;
 
-        if (output == .none) continue;
-        if (arg_mcv != .register) continue;
+        if (output.operand == .none) continue;
+        if (args.items[output.index] != .register) continue;
         if (constraint.len == 2 and std.ascii.isDigit(constraint[1])) continue;
-        try func.store(.{ .air_ref = output }, arg_mcv, func.typeOf(output));
+        try func.store(.{ .air_ref = output.operand }, args.items[output.index], func.typeOf(output.operand));
     }
 
     simple: {

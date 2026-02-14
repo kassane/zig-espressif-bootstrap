@@ -1,12 +1,12 @@
-const std = @import("std");
-const common = @import("../common.zig");
 const builtin = @import("builtin");
+const std = @import("std");
+const symbol = @import("../../c.zig").symbol;
 
 comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
-        @export(&rand, .{ .name = "rand", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&srand, .{ .name = "srand", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&rand_r, .{ .name = "rand_r", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&rand, "rand");
+        symbol(&srand, "srand");
+        symbol(&rand_r, "rand_r");
     }
 }
 

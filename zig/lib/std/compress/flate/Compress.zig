@@ -267,7 +267,7 @@ pub const Options = struct {
     pub const best = level_9;
 };
 
-/// It is asserted `buffer` is least `flate.max_history_len` bytes.
+/// It is asserted `buffer` is least `flate.max_window_len` bytes.
 /// It is asserted `output` has a capacity of at least 8 bytes.
 pub fn init(
     output: *Writer,

@@ -15,12 +15,6 @@ const math = std.math;
 const maxInt = std.math.maxInt;
 const UnexpectedError = std.posix.UnexpectedError;
 
-test {
-    if (builtin.os.tag == .windows) {
-        _ = @import("windows/test.zig");
-    }
-}
-
 pub const advapi32 = @import("windows/advapi32.zig");
 pub const kernel32 = @import("windows/kernel32.zig");
 pub const ntdll = @import("windows/ntdll.zig");
@@ -29,6 +23,66 @@ pub const crypt32 = @import("windows/crypt32.zig");
 pub const nls = @import("windows/nls.zig");
 
 pub const current_process: HANDLE = @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))));
+
+pub const OBJECT = struct {
+    // ref: um/winternl.h
+
+    pub const ATTRIBUTES = extern struct {
+        Length: ULONG = @sizeOf(ATTRIBUTES),
+        RootDirectory: ?HANDLE = null,
+        ObjectName: ?*UNICODE_STRING = @constCast(&UNICODE_STRING.empty),
+        Attributes: Flags = .{},
+        SecurityDescriptor: ?*anyopaque = null,
+        SecurityQualityOfService: ?*anyopaque = null,
+
+        // Valid values for the Attributes field
+        pub const Flags = packed struct(ULONG) {
+            Reserved0: u1 = 0,
+            INHERIT: bool = false,
+            Reserved2: u2 = 0,
+            PERMANENT: bool = false,
+            EXCLUSIVE: bool = false,
+            /// If name-lookup code should ignore the case of the ObjectName member rather than performing an exact-match search.
+            CASE_INSENSITIVE: bool = true,
+            OPENIF: bool = false,
+            OPENLINK: bool = false,
+            KERNEL_HANDLE: bool = false,
+            FORCE_ACCESS_CHECK: bool = false,
+            IGNORE_IMPERSONATED_DEVICEMAP: bool = false,
+            DONT_REPARSE: bool = false,
+            Reserved13: u19 = 0,
+
+            pub const VALID_ATTRIBUTES: ATTRIBUTES = .{
+                .INHERIT = true,
+                .PERMANENT = true,
+                .EXCLUSIVE = true,
+                .CASE_INSENSITIVE = true,
+                .OPENIF = true,
+                .OPENLINK = true,
+                .KERNEL_HANDLE = true,
+                .FORCE_ACCESS_CHECK = true,
+                .IGNORE_IMPERSONATED_DEVICEMAP = true,
+                .DONT_REPARSE = true,
+            };
+        };
+    };
+
+    pub const INFORMATION_CLASS = enum(c_int) {
+        Basic = 0,
+        Name = 1,
+        Type = 2,
+        Types = 3,
+        HandleFlag = 4,
+        Session = 5,
+        _,
+
+        pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".fields.len;
+    };
+
+    pub const NAME_INFORMATION = extern struct {
+        Name: UNICODE_STRING,
+    };
+};
 
 pub const FILE = struct {
     // ref: km/ntddk.h
@@ -78,6 +132,94 @@ pub const FILE = struct {
     };
 
     // ref: km/ntifs.h
+
+    pub const NAME_FLAGS = packed struct(UCHAR) {
+        NTFS: bool = false,
+        DOS: bool = false,
+        Reserved2: u5 = 0,
+        UNSPECIFIED: bool = false,
+    };
+
+    pub const NOTIFY = struct {
+        pub const CHANGE = packed struct(ULONG) {
+            FILE_NAME: bool = false,
+            DIR_NAME: bool = false,
+            ATTRIBUTES: bool = false,
+            SIZE: bool = false,
+            LAST_WRITE: bool = false,
+            LAST_ACCESS: bool = false,
+            CREATION: bool = false,
+            EA: bool = false,
+            SECURITY: bool = false,
+            STREAM_NAME: bool = false,
+            STREAM_SIZE: bool = false,
+            STREAM_WRITE: bool = false,
+            Reserved12: u20 = 0,
+        };
+
+        pub const INFORMATION = extern struct {
+            NextEntryOffset: ULONG,
+            Action: ULONG,
+            FileNameLength: ULONG,
+            FileName: [0]WCHAR,
+
+            pub fn fileName(info: *INFORMATION) []WCHAR {
+                const ptr: [*]WCHAR = @ptrCast(&info.FileName);
+                return ptr[0..@divExact(info.FileNameLength, @sizeOf(WCHAR))];
+            }
+        };
+
+        pub const EXTENDED_INFORMATION = extern struct {
+            NextEntryOffset: ULONG,
+            Action: ULONG,
+            CreationTime: LARGE_INTEGER,
+            LastModificationTime: LARGE_INTEGER,
+            LastChangeTime: LARGE_INTEGER,
+            LastAccessTime: LARGE_INTEGER,
+            AllocatedLength: LARGE_INTEGER,
+            FileSize: LARGE_INTEGER,
+            FileAttributes: ATTRIBUTE,
+            u: extern union {
+                ReparsePointTag: ULONG,
+                EaSize: ULONG,
+            },
+            FileId: LARGE_INTEGER,
+            ParentFileId: LARGE_INTEGER,
+            FileNameLength: ULONG,
+            FileName: [0]WCHAR,
+
+            pub fn fileName(info: *INFORMATION) []WCHAR {
+                const ptr: [*]WCHAR = @ptrCast(&info.FileName);
+                return ptr[0..@divExact(info.FileNameLength, @sizeOf(WCHAR))];
+            }
+        };
+
+        pub const FULL_INFORMATION = extern struct {
+            NextEntryOffset: ULONG,
+            Action: ULONG,
+            CreationTime: LARGE_INTEGER,
+            LastModificationTime: LARGE_INTEGER,
+            LastChangeTime: LARGE_INTEGER,
+            LastAccessTime: LARGE_INTEGER,
+            AllocatedLength: LARGE_INTEGER,
+            FileSize: LARGE_INTEGER,
+            FileAttributes: ATTRIBUTE,
+            u: extern union {
+                ReparsePointTag: ULONG,
+                EaSize: ULONG,
+            },
+            FileId: LARGE_INTEGER,
+            ParentFileId: LARGE_INTEGER,
+            FileNameLength: ULONG,
+            FileNameFlags: NAME_FLAGS,
+            FileName: [0]WCHAR,
+
+            pub fn fileName(info: *INFORMATION) []WCHAR {
+                const ptr: [*]WCHAR = @ptrCast(&info.FileName);
+                return ptr[0..@divExact(info.FileNameLength, @sizeOf(WCHAR))];
+            }
+        };
+    };
 
     pub const PIPE = struct {
         /// Define the `NamedPipeType` flags for `NtCreateNamedPipeFile`
@@ -363,6 +505,7 @@ pub const FILE = struct {
         IdAllExtdBothDirectory = 81,
         StreamReservation = 82,
         MupProvider = 83,
+        _,
 
         pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".fields.len;
     };
@@ -521,7 +664,7 @@ pub const FILE = struct {
             _,
 
             pub const VALID_FLAGS: @This() = @enumFromInt(0b11);
-        } = .ASYNCHRONOUS,
+        },
         /// The file being opened must not be a directory file or this call
         /// fails. The file object being opened can represent a data file, a
         /// logical, virtual, or physical device, or a volume.
@@ -653,145 +796,475 @@ pub const FILE = struct {
             Mode: MODE,
         };
     };
+
+    // ref: km/
+};
+
+pub const DIRECTORY = struct {
+    pub const NOTIFY_INFORMATION_CLASS = enum(c_int) {
+        Notify = 1,
+        NotifyExtended = 2,
+        NotifyFull = 3,
+        _,
+
+        pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".fields.len;
+    };
+};
+
+pub const CONSOLE = struct {
+    pub const USER_IO = struct {
+        pub const INFO = struct {
+            pub const CP = extern struct {
+                /// GetCP: output
+                /// SetCP: input
+                CodePage: UINT,
+                /// input
+                Mode: MODE,
+
+                pub const MODE = enum(BOOLEAN) {
+                    Input = FALSE,
+                    Output = TRUE,
+                };
+            };
+
+            pub const WRITE = extern struct {
+                /// output, in bytes
+                Size: DWORD,
+                /// input
+                Mode: MODE,
+
+                pub const MODE = enum(BOOLEAN) {
+                    Character = FALSE,
+                    WideCharacter = TRUE,
+                };
+            };
+
+            pub const FILL = extern struct {
+                /// input
+                dwWriteCoord: COORD,
+                /// input
+                Tag: WITH.Tag,
+                /// input
+                With: WITH.Payload,
+                /// input/output, in characters
+                nLength: DWORD,
+
+                pub const WITH = union(enum(DWORD)) {
+                    Character: CHAR = 1,
+                    WideCharacter: WCHAR = 2,
+                    Attribute: WORD = 3,
+
+                    pub const Tag = @typeInfo(WITH).@"union".tag_type.?;
+                    pub const Payload = PAYLOAD: {
+                        const with_fields = @typeInfo(WITH).@"union".fields;
+                        var field_names: [with_fields.len][]const u8 = undefined;
+                        var field_types: [with_fields.len]type = undefined;
+                        for (with_fields, &field_names, &field_types) |field, *field_name, *field_type| {
+                            field_name.* = field.name;
+                            field_type.* = field.type;
+                        }
+                        break :PAYLOAD @Union(.@"extern", null, &field_names, &field_types, &@splat(.{}));
+                    };
+                };
+            };
+
+            /// all output
+            pub const SCREEN_BUFFER = extern struct {
+                dwSize: COORD,
+                dwCursorPosition: COORD,
+                dwWindowPosition: COORD,
+                wAttributes: WORD,
+                dwWindowSize: COORD,
+                dwMaximumWindowSize: COORD,
+                wPopupAttributes: WORD,
+                bFullscreenSupported: BOOL,
+                ColorTable: [16]COLORREF,
+            };
+
+            pub const READ_OUTPUT_CHARACTER = extern struct {
+                /// input
+                dwReadCoord: COORD,
+                Mode: MODE,
+                /// output, in characters
+                nLength: DWORD,
+
+                pub const MODE = enum(DWORD) {
+                    Character = 1,
+                    WideCharacter = 2,
+                };
+            };
+        };
+
+        pub fn GET_CP(mode: INFO.CP.MODE) Header.With(INFO.CP) {
+            return .init(.GetCP, .{ .CodePage = undefined, .Mode = mode });
+        }
+        pub const GET_MODE: Header.With(DWORD) = .init(.GetMode, undefined);
+        pub fn SET_MODE(mode: DWORD) Header.With(DWORD) {
+            return .init(.SetMode, mode);
+        }
+        pub fn WRITE(mode: INFO.WRITE.MODE) Header.With(INFO.WRITE) {
+            return .init(.Write, .{ .Size = undefined, .Mode = mode });
+        }
+        pub fn FILL(with: INFO.FILL.WITH, len: DWORD, coord: COORD) Header.With(INFO.FILL) {
+            return .init(.Fill, .{
+                .dwWriteCoord = coord,
+                .Tag = with,
+                .With = switch (with) {
+                    inline else => |payload, tag| @unionInit(
+                        INFO.FILL.WITH.Payload,
+                        @tagName(tag),
+                        payload,
+                    ),
+                },
+                .nLength = len,
+            });
+        }
+        pub fn SET_CP(mode: INFO.CP.MODE, cp: UINT) Header.With(INFO.CP) {
+            return .init(.SetCP, .{ .CodePage = cp, .Mode = mode });
+        }
+        pub const GET_SCREEN_BUFFER_INFO: Header.With(INFO.SCREEN_BUFFER) =
+            .init(.GetScreenBufferInfo, undefined);
+        pub fn SET_CURSOR_POSITION(coord: COORD) Header.With(COORD) {
+            return .init(.SetCursorPosition, coord);
+        }
+        pub fn SET_TEXT_ATTRIBUTE(attribute: WORD) Header.With(WORD) {
+            return .init(.SetTextAttribute, attribute);
+        }
+        pub fn READ_OUTPUT_CHARACTER(
+            coord: COORD,
+            mode: INFO.READ_OUTPUT_CHARACTER.MODE,
+        ) Header.With(INFO.READ_OUTPUT_CHARACTER) {
+            return .init(.ReadOutputCharacter, .{
+                .dwReadCoord = coord,
+                .Mode = mode,
+                .nLength = undefined,
+            });
+        }
+
+        pub const InputBuffer = extern struct {
+            Size: u32,
+            Pointer: *const anyopaque,
+        };
+
+        pub const OutputBuffer = extern struct {
+            Size: u32,
+            Pointer: *anyopaque,
+        };
+
+        pub fn Request(comptime in_len: u32, comptime out_len: u32) type {
+            return extern struct {
+                Handle: ?HANDLE,
+                InputBuffersLength: u32,
+                OutputBuffersLength: u32,
+                InputBuffers: [in_len]InputBuffer,
+                OutputBuffers: [out_len]OutputBuffer,
+
+                pub fn init(
+                    handle: ?HANDLE,
+                    in: [in_len]InputBuffer,
+                    out: [out_len]OutputBuffer,
+                ) @This() {
+                    return .{
+                        .Handle = handle,
+                        .InputBuffersLength = in_len,
+                        .OutputBuffersLength = out_len,
+                        .InputBuffers = in,
+                        .OutputBuffers = out,
+                    };
+                }
+            };
+        }
+
+        pub const Header = extern struct {
+            Operation: Operation,
+            Size: u32,
+
+            pub fn With(comptime Data: type) type {
+                return extern struct {
+                    Header: Header,
+                    Data: Data,
+
+                    pub fn init(operation: Operation, data: Data) @This() {
+                        return .{
+                            .Header = .{ .Operation = operation, .Size = @sizeOf(Data) },
+                            .Data = data,
+                        };
+                    }
+
+                    pub fn request(
+                        with: *@This(),
+                        file: ?Io.File,
+                        comptime in_len: u32,
+                        in: [in_len]InputBuffer,
+                        comptime out_len: u32,
+                        out: [out_len]OutputBuffer,
+                    ) Request(1 + in_len, 1 + out_len) {
+                        return .init(
+                            if (file) |f| f.handle else null,
+                            [1]InputBuffer{.{
+                                .Size = @offsetOf(@This(), "Data") + @sizeOf(Data),
+                                .Pointer = with,
+                            }} ++ in,
+                            [1]OutputBuffer{.{ .Size = @sizeOf(Data), .Pointer = &with.Data }} ++ out,
+                        );
+                    }
+
+                    pub fn operate(with: *@This(), io: Io, file: ?Io.File) Io.Cancelable!NTSTATUS {
+                        return (try io.operate(.{ .device_io_control = .{
+                            .file = .{
+                                .handle = peb().ProcessParameters.ConsoleHandle,
+                                .flags = .{ .nonblocking = false },
+                            },
+                            .code = IOCTL.CONDRV.ISSUE_USER_IO,
+                            .in = @ptrCast(&with.request(file, 0, .{}, 0, .{})),
+                        } })).device_io_control.u.Status;
+                    }
+                };
+            }
+        };
+
+        pub const Operation = enum(u32) {
+            GetCP = 0x1000000,
+            GetMode = 0x1000001,
+            SetMode = 0x1000002,
+            Read = 0x1000005,
+            Write = 0x1000006,
+            Fill = 0x2000000,
+            SetCP = 0x2000004,
+            GetScreenBufferInfo = 0x2000007,
+            SetCursorPosition = 0x200000a,
+            SetTextAttribute = 0x200000d,
+            ReadOutputCharacter = 0x200000f,
+            _,
+        };
+    };
 };
 
 // ref: km/ntddk.h
 
-pub const PROCESSINFOCLASS = enum(c_int) {
-    BasicInformation = 0,
-    QuotaLimits = 1,
-    IoCounters = 2,
-    VmCounters = 3,
-    Times = 4,
-    BasePriority = 5,
-    RaisePriority = 6,
-    DebugPort = 7,
-    ExceptionPort = 8,
-    AccessToken = 9,
-    LdtInformation = 10,
-    LdtSize = 11,
-    DefaultHardErrorMode = 12,
-    IoPortHandlers = 13,
-    PooledUsageAndLimits = 14,
-    WorkingSetWatch = 15,
-    UserModeIOPL = 16,
-    EnableAlignmentFaultFixup = 17,
-    PriorityClass = 18,
-    Wx86Information = 19,
-    HandleCount = 20,
-    AffinityMask = 21,
-    PriorityBoost = 22,
-    DeviceMap = 23,
-    SessionInformation = 24,
-    ForegroundInformation = 25,
-    Wow64Information = 26,
-    ImageFileName = 27,
-    LUIDDeviceMapsEnabled = 28,
-    BreakOnTermination = 29,
-    DebugObjectHandle = 30,
-    DebugFlags = 31,
-    HandleTracing = 32,
-    IoPriority = 33,
-    ExecuteFlags = 34,
-    TlsInformation = 35,
-    Cookie = 36,
-    ImageInformation = 37,
-    CycleTime = 38,
-    PagePriority = 39,
-    InstrumentationCallback = 40,
-    ThreadStackAllocation = 41,
-    WorkingSetWatchEx = 42,
-    ImageFileNameWin32 = 43,
-    ImageFileMapping = 44,
-    AffinityUpdateMode = 45,
-    MemoryAllocationMode = 46,
-    GroupInformation = 47,
-    TokenVirtualizationEnabled = 48,
-    OwnerInformation = 49,
-    WindowInformation = 50,
-    HandleInformation = 51,
-    MitigationPolicy = 52,
-    DynamicFunctionTableInformation = 53,
-    HandleCheckingMode = 54,
-    KeepAliveCount = 55,
-    RevokeFileHandles = 56,
-    WorkingSetControl = 57,
-    HandleTable = 58,
-    CheckStackExtentsMode = 59,
-    CommandLineInformation = 60,
-    ProtectionInformation = 61,
-    MemoryExhaustion = 62,
-    FaultInformation = 63,
-    TelemetryIdInformation = 64,
-    CommitReleaseInformation = 65,
-    Reserved1Information = 66,
-    Reserved2Information = 67,
-    SubsystemProcess = 68,
-    InPrivate = 70,
-    RaiseUMExceptionOnInvalidHandleClose = 71,
-    SubsystemInformation = 75,
-    Win32kSyscallFilterInformation = 79,
-    EnergyTrackingState = 82,
-    NetworkIoCounters = 114,
-    _,
+pub const SYSTEM = struct {
+    pub const INFORMATION_CLASS = enum(c_int) {
+        Basic = 0,
+        Performance = 2,
+        TimeOfDay = 3,
+        Process = 5,
+        ProcessorPerformance = 8,
+        Interrupt = 23,
+        Exception = 33,
+        RegistryQuota = 37,
+        Lookaside = 45,
+        CodeIntegrity = 103,
+        Policy = 134,
+        _,
+    };
 
-    pub const Max: @typeInfo(@This()).@"enum".tag_type = 117;
+    pub const BASIC_INFORMATION = extern struct {
+        Reserved: ULONG,
+        TimerResolution: ULONG,
+        PageSize: ULONG,
+        NumberOfPhysicalPages: ULONG,
+        LowestPhysicalPageNumber: ULONG,
+        HighestPhysicalPageNumber: ULONG,
+        AllocationGranularity: ULONG,
+        MinimumUserModeAddress: ULONG_PTR,
+        MaximumUserModeAddress: ULONG_PTR,
+        ActiveProcessorsAffinityMask: KAFFINITY,
+        NumberOfProcessors: UCHAR,
+    };
 };
 
-pub const THREADINFOCLASS = enum(c_int) {
-    BasicInformation = 0,
-    Times = 1,
-    Priority = 2,
-    BasePriority = 3,
-    AffinityMask = 4,
-    ImpersonationToken = 5,
-    DescriptorTableEntry = 6,
-    EnableAlignmentFaultFixup = 7,
-    EventPair_Reusable = 8,
-    QuerySetWin32StartAddress = 9,
-    ZeroTlsCell = 10,
-    PerformanceCount = 11,
-    AmILastThread = 12,
-    IdealProcessor = 13,
-    PriorityBoost = 14,
-    SetTlsArrayAddress = 15,
-    IsIoPending = 16,
-    // Windows 2000+ from here
-    HideFromDebugger = 17,
-    // Windows XP+ from here
-    BreakOnTermination = 18,
-    SwitchLegacyState = 19,
-    IsTerminated = 20,
-    // Windows Vista+ from here
-    LastSystemCall = 21,
-    IoPriority = 22,
-    CycleTime = 23,
-    PagePriority = 24,
-    ActualBasePriority = 25,
-    TebInformation = 26,
-    CSwitchMon = 27,
-    // Windows 7+ from here
-    CSwitchPmu = 28,
-    Wow64Context = 29,
-    GroupInformation = 30,
-    UmsInformation = 31,
-    CounterProfiling = 32,
-    IdealProcessorEx = 33,
-    // Windows 8+ from here
-    CpuAccountingInformation = 34,
-    // Windows 8.1+ from here
-    SuspendCount = 35,
-    // Windows 10+ from here
-    HeterogeneousCpuPolicy = 36,
-    ContainerId = 37,
-    NameInformation = 38,
-    SelectedCpuSets = 39,
-    SystemThreadInformation = 40,
-    ActualGroupAffinity = 41,
-    DynamicCodePolicyInfo = 42,
-    SubsystemInformation = 45,
+pub const PROCESS = struct {
+    pub const INFORMATION = extern struct {
+        hProcess: HANDLE,
+        hThread: HANDLE,
+        dwProcessId: DWORD,
+        dwThreadId: DWORD,
+    };
 
-    pub const Max: @typeInfo(@This()).@"enum".tag_type = 60;
+    pub const INFOCLASS = enum(c_int) {
+        BasicInformation = 0,
+        QuotaLimits = 1,
+        IoCounters = 2,
+        VmCounters = 3,
+        Times = 4,
+        BasePriority = 5,
+        RaisePriority = 6,
+        DebugPort = 7,
+        ExceptionPort = 8,
+        AccessToken = 9,
+        LdtInformation = 10,
+        LdtSize = 11,
+        DefaultHardErrorMode = 12,
+        IoPortHandlers = 13,
+        PooledUsageAndLimits = 14,
+        WorkingSetWatch = 15,
+        UserModeIOPL = 16,
+        EnableAlignmentFaultFixup = 17,
+        PriorityClass = 18,
+        Wx86Information = 19,
+        HandleCount = 20,
+        AffinityMask = 21,
+        PriorityBoost = 22,
+        DeviceMap = 23,
+        SessionInformation = 24,
+        ForegroundInformation = 25,
+        Wow64Information = 26,
+        ImageFileName = 27,
+        LUIDDeviceMapsEnabled = 28,
+        BreakOnTermination = 29,
+        DebugObjectHandle = 30,
+        DebugFlags = 31,
+        HandleTracing = 32,
+        IoPriority = 33,
+        ExecuteFlags = 34,
+        TlsInformation = 35,
+        Cookie = 36,
+        ImageInformation = 37,
+        CycleTime = 38,
+        PagePriority = 39,
+        InstrumentationCallback = 40,
+        ThreadStackAllocation = 41,
+        WorkingSetWatchEx = 42,
+        ImageFileNameWin32 = 43,
+        ImageFileMapping = 44,
+        AffinityUpdateMode = 45,
+        MemoryAllocationMode = 46,
+        GroupInformation = 47,
+        TokenVirtualizationEnabled = 48,
+        OwnerInformation = 49,
+        WindowInformation = 50,
+        HandleInformation = 51,
+        MitigationPolicy = 52,
+        DynamicFunctionTableInformation = 53,
+        HandleCheckingMode = 54,
+        KeepAliveCount = 55,
+        RevokeFileHandles = 56,
+        WorkingSetControl = 57,
+        HandleTable = 58,
+        CheckStackExtentsMode = 59,
+        CommandLineInformation = 60,
+        ProtectionInformation = 61,
+        MemoryExhaustion = 62,
+        FaultInformation = 63,
+        TelemetryIdInformation = 64,
+        CommitReleaseInformation = 65,
+        Reserved1Information = 66,
+        Reserved2Information = 67,
+        SubsystemProcess = 68,
+        InPrivate = 70,
+        RaiseUMExceptionOnInvalidHandleClose = 71,
+        SubsystemInformation = 75,
+        Win32kSyscallFilterInformation = 79,
+        EnergyTrackingState = 82,
+        NetworkIoCounters = 114,
+        _,
+
+        pub const Max: @typeInfo(@This()).@"enum".tag_type = 117;
+    };
+
+    pub const BASIC_INFORMATION = extern struct {
+        ExitStatus: NTSTATUS,
+        PebBaseAddress: *PEB,
+        AffinityMask: ULONG_PTR,
+        BasePriority: KPRIORITY,
+        UniqueProcessId: ULONG_PTR,
+        InheritedFromUniqueProcessId: ULONG_PTR,
+    };
+
+    pub const VM_COUNTERS = extern struct {
+        PeakVirtualSize: SIZE_T,
+        VirtualSize: SIZE_T,
+        PageFaultCount: ULONG,
+        PeakWorkingSetSize: SIZE_T,
+        WorkingSetSize: SIZE_T,
+        QuotaPeakPagedPoolUsage: SIZE_T,
+        QuotaPagedPoolUsage: SIZE_T,
+        QuotaPeakNonPagedPoolUsage: SIZE_T,
+        QuotaNonPagedPoolUsage: SIZE_T,
+        PagefileUsage: SIZE_T,
+        PeakPagefileUsage: SIZE_T,
+    };
+};
+
+pub const THREAD = struct {
+    pub const INFOCLASS = enum(c_int) {
+        BasicInformation = 0,
+        Times = 1,
+        Priority = 2,
+        BasePriority = 3,
+        AffinityMask = 4,
+        ImpersonationToken = 5,
+        DescriptorTableEntry = 6,
+        EnableAlignmentFaultFixup = 7,
+        EventPair_Reusable = 8,
+        QuerySetWin32StartAddress = 9,
+        ZeroTlsCell = 10,
+        PerformanceCount = 11,
+        AmILastThread = 12,
+        IdealProcessor = 13,
+        PriorityBoost = 14,
+        SetTlsArrayAddress = 15,
+        IsIoPending = 16,
+        // Windows 2000+ from here
+        HideFromDebugger = 17,
+        // Windows XP+ from here
+        BreakOnTermination = 18,
+        SwitchLegacyState = 19,
+        IsTerminated = 20,
+        // Windows Vista+ from here
+        LastSystemCall = 21,
+        IoPriority = 22,
+        CycleTime = 23,
+        PagePriority = 24,
+        ActualBasePriority = 25,
+        TebInformation = 26,
+        CSwitchMon = 27,
+        // Windows 7+ from here
+        CSwitchPmu = 28,
+        Wow64Context = 29,
+        GroupInformation = 30,
+        UmsInformation = 31,
+        CounterProfiling = 32,
+        IdealProcessorEx = 33,
+        // Windows 8+ from here
+        CpuAccountingInformation = 34,
+        // Windows 8.1+ from here
+        SuspendCount = 35,
+        // Windows 10+ from here
+        HeterogeneousCpuPolicy = 36,
+        ContainerId = 37,
+        NameInformation = 38,
+        SelectedCpuSets = 39,
+        SystemThreadInformation = 40,
+        ActualGroupAffinity = 41,
+        DynamicCodePolicyInfo = 42,
+        SubsystemInformation = 45,
+        _,
+
+        pub const Max: @typeInfo(@This()).@"enum".tag_type = 60;
+    };
+
+    pub const BASIC_INFORMATION = extern struct {
+        ExitStatus: NTSTATUS,
+        TebBaseAddress: PVOID,
+        ClientId: CLIENT_ID,
+        AffinityMask: KAFFINITY,
+        Priority: KPRIORITY,
+        BasePriority: KPRIORITY,
+    };
+};
+
+pub const MEMORY = struct {
+    pub const BASIC_INFORMATION = extern struct {
+        BaseAddress: PVOID,
+        AllocationBase: PVOID,
+        AllocationProtect: DWORD,
+        PartitionId: WORD,
+        RegionSize: SIZE_T,
+        State: DWORD,
+        Protect: DWORD,
+        Type: DWORD,
+    };
 };
 
 // ref: km/ntifs.h
@@ -1135,19 +1608,7 @@ pub const CTL_CODE = packed struct(ULONG) {
 
         _,
     };
-};
 
-pub const IOCTL = struct {
-    pub const KSEC = struct {
-        pub const GEN_RANDOM: CTL_CODE = .{ .DeviceType = .KSEC, .Function = 2, .Method = .BUFFERED, .Access = .ANY };
-    };
-    pub const MOUNTMGR = struct {
-        pub const QUERY_POINTS: CTL_CODE = .{ .DeviceType = .MOUNTMGRCONTROLTYPE, .Function = 2, .Method = .BUFFERED, .Access = .ANY };
-        pub const QUERY_DOS_VOLUME_PATH: CTL_CODE = .{ .DeviceType = .MOUNTMGRCONTROLTYPE, .Function = 12, .Method = .BUFFERED, .Access = .ANY };
-    };
-};
-
-pub const FSCTL = struct {
     pub const SET_REPARSE_POINT: CTL_CODE = .{ .DeviceType = .FILE_SYSTEM, .Function = 41, .Method = .BUFFERED, .Access = .SPECIAL };
     pub const GET_REPARSE_POINT: CTL_CODE = .{ .DeviceType = .FILE_SYSTEM, .Function = 42, .Method = .BUFFERED, .Access = .ANY };
 
@@ -1174,6 +1635,32 @@ pub const FSCTL = struct {
         pub const INTERNAL_WRITE: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 2046, .Method = .BUFFERED, .Access = .{ .WRITE = true } };
         pub const INTERNAL_TRANSCEIVE: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 2047, .Method = .NEITHER, .Access = .{ .READ = true, .WRITE = true } };
         pub const INTERNAL_READ_OVFLOW: CTL_CODE = .{ .DeviceType = .NAMED_PIPE, .Function = 2048, .Method = .BUFFERED, .Access = .{ .READ = true } };
+    };
+};
+
+pub const IOCTL = struct {
+    pub const CONDRV = struct {
+        pub const READ_IO: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 1, .Method = .OUT_DIRECT, .Access = .ANY };
+        pub const COMPLETE_IO: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 2, .Method = .NEITHER, .Access = .ANY };
+        pub const READ_INPUT: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 3, .Method = .NEITHER, .Access = .ANY };
+        pub const WRITE_OUTPUT: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 4, .Method = .NEITHER, .Access = .ANY };
+        pub const ISSUE_USER_IO: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 5, .Method = .OUT_DIRECT, .Access = .ANY };
+        pub const DISCONNECT_PIPE: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 6, .Method = .NEITHER, .Access = .ANY };
+        pub const SET_SERVER_INFORMATION: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 7, .Method = .NEITHER, .Access = .ANY };
+        pub const GET_SERVER_PID: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 8, .Method = .NEITHER, .Access = .ANY };
+        pub const GET_DISPLAY_SIZE: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 9, .Method = .NEITHER, .Access = .ANY };
+        pub const UPDATE_DISPLAY: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 10, .Method = .NEITHER, .Access = .ANY };
+        pub const SET_CURSOR: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 11, .Method = .NEITHER, .Access = .ANY };
+        pub const ALLOW_VIA_UIACCESS: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 12, .Method = .NEITHER, .Access = .ANY };
+        pub const LAUNCH_SERVER: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 13, .Method = .NEITHER, .Access = .ANY };
+        pub const GET_FONT_SIZE: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 14, .Method = .NEITHER, .Access = .ANY };
+    };
+    pub const KSEC = struct {
+        pub const GEN_RANDOM: CTL_CODE = .{ .DeviceType = .KSEC, .Function = 2, .Method = .BUFFERED, .Access = .ANY };
+    };
+    pub const MOUNTMGR = struct {
+        pub const QUERY_POINTS: CTL_CODE = .{ .DeviceType = .MOUNTMGRCONTROLTYPE, .Function = 2, .Method = .BUFFERED, .Access = .ANY };
+        pub const QUERY_DOS_VOLUME_PATH: CTL_CODE = .{ .DeviceType = .MOUNTMGRCONTROLTYPE, .Function = 12, .Method = .BUFFERED, .Access = .ANY };
     };
 };
 
@@ -2323,169 +2810,7 @@ pub fn GetProcessHeap() ?*HEAP {
     return peb().ProcessHeap;
 }
 
-// ref: um/winternl.h
-
-pub const OBJECT_ATTRIBUTES = extern struct {
-    Length: ULONG,
-    RootDirectory: ?HANDLE,
-    ObjectName: ?*UNICODE_STRING,
-    Attributes: ATTRIBUTES,
-    SecurityDescriptor: ?*anyopaque,
-    SecurityQualityOfService: ?*anyopaque,
-
-    // Valid values for the Attributes field
-    pub const ATTRIBUTES = packed struct(ULONG) {
-        Reserved0: u1 = 0,
-        INHERIT: bool = false,
-        Reserved2: u2 = 0,
-        PERMANENT: bool = false,
-        EXCLUSIVE: bool = false,
-        /// If name-lookup code should ignore the case of the ObjectName member rather than performing an exact-match search.
-        CASE_INSENSITIVE: bool = true,
-        OPENIF: bool = false,
-        OPENLINK: bool = false,
-        KERNEL_HANDLE: bool = false,
-        FORCE_ACCESS_CHECK: bool = false,
-        IGNORE_IMPERSONATED_DEVICEMAP: bool = false,
-        DONT_REPARSE: bool = false,
-        Reserved13: u19 = 0,
-
-        pub const VALID_ATTRIBUTES: ATTRIBUTES = .{
-            .INHERIT = true,
-            .PERMANENT = true,
-            .EXCLUSIVE = true,
-            .CASE_INSENSITIVE = true,
-            .OPENIF = true,
-            .OPENLINK = true,
-            .KERNEL_HANDLE = true,
-            .FORCE_ACCESS_CHECK = true,
-            .IGNORE_IMPERSONATED_DEVICEMAP = true,
-            .DONT_REPARSE = true,
-        };
-    };
-};
-
 // ref none
-
-pub const OpenError = error{
-    IsDir,
-    NotDir,
-    FileNotFound,
-    NoDevice,
-    AccessDenied,
-    PipeBusy,
-    PathAlreadyExists,
-    Unexpected,
-    NameTooLong,
-    WouldBlock,
-    NetworkNotFound,
-    AntivirusInterference,
-    BadPathName,
-    OperationCanceled,
-};
-
-pub const OpenFileOptions = struct {
-    access_mask: ACCESS_MASK,
-    dir: ?HANDLE = null,
-    sa: ?*SECURITY_ATTRIBUTES = null,
-    share_access: FILE.SHARE = .VALID_FLAGS,
-    creation: FILE.CREATE_DISPOSITION,
-    filter: Filter = .non_directory_only,
-    /// If false, tries to open path as a reparse point without dereferencing it.
-    /// Defaults to true.
-    follow_symlinks: bool = true,
-
-    pub const Filter = enum {
-        /// Causes `OpenFile` to return `error.IsDir` if the opened handle would be a directory.
-        non_directory_only,
-        /// Causes `OpenFile` to return `error.NotDir` if the opened handle is not a directory.
-        dir_only,
-        /// `OpenFile` does not discriminate between opening files and directories.
-        any,
-    };
-};
-
-pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HANDLE {
-    if (mem.eql(u16, sub_path_w, &[_]u16{'.'}) and options.filter == .non_directory_only) {
-        return error.IsDir;
-    }
-    if (mem.eql(u16, sub_path_w, &[_]u16{ '.', '.' }) and options.filter == .non_directory_only) {
-        return error.IsDir;
-    }
-
-    var result: HANDLE = undefined;
-
-    const path_len_bytes = math.cast(u16, sub_path_w.len * 2) orelse return error.NameTooLong;
-    var nt_name: UNICODE_STRING = .{
-        .Length = path_len_bytes,
-        .MaximumLength = path_len_bytes,
-        .Buffer = @constCast(sub_path_w.ptr),
-    };
-    const attr: OBJECT_ATTRIBUTES = .{
-        .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(sub_path_w)) null else options.dir,
-        .Attributes = .{
-            .INHERIT = if (options.sa) |sa| sa.bInheritHandle != FALSE else false,
-        },
-        .ObjectName = &nt_name,
-        .SecurityDescriptor = if (options.sa) |ptr| ptr.lpSecurityDescriptor else null,
-        .SecurityQualityOfService = null,
-    };
-    var io: IO_STATUS_BLOCK = undefined;
-    while (true) {
-        const rc = ntdll.NtCreateFile(
-            &result,
-            options.access_mask,
-            &attr,
-            &io,
-            null,
-            .{ .NORMAL = true },
-            options.share_access,
-            options.creation,
-            .{
-                .DIRECTORY_FILE = options.filter == .dir_only,
-                .NON_DIRECTORY_FILE = options.filter == .non_directory_only,
-                .IO = if (options.follow_symlinks) .SYNCHRONOUS_NONALERT else .ASYNCHRONOUS,
-                .OPEN_REPARSE_POINT = !options.follow_symlinks,
-            },
-            null,
-            0,
-        );
-        switch (rc) {
-            .SUCCESS => return result,
-            .OBJECT_NAME_INVALID => return error.BadPathName,
-            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-            .BAD_NETWORK_PATH => return error.NetworkNotFound, // \\server was not found
-            .BAD_NETWORK_NAME => return error.NetworkNotFound, // \\server was found but \\server\share wasn't
-            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
-            .INVALID_PARAMETER => unreachable,
-            .SHARING_VIOLATION => return error.AccessDenied,
-            .ACCESS_DENIED => return error.AccessDenied,
-            .PIPE_BUSY => return error.PipeBusy,
-            .PIPE_NOT_AVAILABLE => return error.NoDevice,
-            .OBJECT_PATH_SYNTAX_BAD => unreachable,
-            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-            .FILE_IS_A_DIRECTORY => return error.IsDir,
-            .NOT_A_DIRECTORY => return error.NotDir,
-            .USER_MAPPED_FILE => return error.AccessDenied,
-            .INVALID_HANDLE => unreachable,
-            .DELETE_PENDING => {
-                // This error means that there *was* a file in this location on
-                // the file system, but it was deleted. However, the OS is not
-                // finished with the deletion operation, and so this CreateFile
-                // call has failed. There is not really a sane way to handle
-                // this other than retrying the creation after the OS finishes
-                // the deletion.
-                _ = kernel32.SleepEx(1, TRUE);
-                continue;
-            },
-            .VIRUS_INFECTED, .VIRUS_DELETED => return error.AntivirusInterference,
-            .CANCELLED => return error.OperationCanceled,
-            else => return unexpectedStatus(rc),
-        }
-    }
-}
 
 pub fn GetCurrentProcess() HANDLE {
     const process_pseudo_handle: usize = @bitCast(@as(isize, -1));
@@ -2506,1366 +2831,13 @@ pub fn GetCurrentThreadId() DWORD {
 }
 
 pub fn GetLastError() Win32Error {
-    return @enumFromInt(teb().LastErrorValue);
-}
-
-pub const CreatePipeError = error{ Unexpected, SystemResources };
-
-var npfs: ?HANDLE = null;
-
-/// A Zig wrapper around `NtCreateNamedPipeFile` and `NtCreateFile` syscalls.
-/// It implements similar behavior to `CreatePipe` and is meant to serve
-/// as a direct substitute for that call.
-pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) CreatePipeError!void {
-    // Up to NT 5.2 (Windows XP/Server 2003), `CreatePipe` would generate a pipe similar to:
-    //
-    //      \??\pipe\Win32Pipes.{pid}.{count}
-    //
-    // where `pid` is the process id and count is a incrementing counter.
-    // The implementation was changed after NT 6.0 (Vista) to open a handle to the Named Pipe File System
-    // and use that as the root directory for `NtCreateNamedPipeFile`.
-    // This object is visible under the NPFS but has no filename attached to it.
-    //
-    // This implementation replicates how `CreatePipe` works in modern Windows versions.
-    const opt_dev_handle = @atomicLoad(?HANDLE, &npfs, .seq_cst);
-    const dev_handle = opt_dev_handle orelse blk: {
-        const str = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\NamedPipe\\");
-        const len: u16 = @truncate(str.len * @sizeOf(u16));
-        const name: UNICODE_STRING = .{
-            .Length = len,
-            .MaximumLength = len,
-            .Buffer = @ptrCast(@constCast(str)),
-        };
-        const attrs: OBJECT_ATTRIBUTES = .{
-            .ObjectName = @constCast(&name),
-            .Length = @sizeOf(OBJECT_ATTRIBUTES),
-            .RootDirectory = null,
-            .Attributes = .{},
-            .SecurityDescriptor = null,
-            .SecurityQualityOfService = null,
-        };
-
-        var iosb: IO_STATUS_BLOCK = undefined;
-        var handle: HANDLE = undefined;
-        switch (ntdll.NtCreateFile(
-            &handle,
-            .{
-                .STANDARD = .{ .SYNCHRONIZE = true },
-                .GENERIC = .{ .READ = true },
-            },
-            @constCast(&attrs),
-            &iosb,
-            null,
-            .{},
-            .VALID_FLAGS,
-            .OPEN,
-            .{ .IO = .SYNCHRONOUS_NONALERT },
-            null,
-            0,
-        )) {
-            .SUCCESS => {},
-            // Judging from the ReactOS sources this is technically possible.
-            .INSUFFICIENT_RESOURCES => return error.SystemResources,
-            .INVALID_PARAMETER => unreachable,
-            else => |e| return unexpectedStatus(e),
-        }
-        if (@cmpxchgStrong(?HANDLE, &npfs, null, handle, .seq_cst, .seq_cst)) |xchg| {
-            CloseHandle(handle);
-            break :blk xchg.?;
-        } else break :blk handle;
-    };
-
-    const name: UNICODE_STRING = .{ .Buffer = null, .Length = 0, .MaximumLength = 0 };
-    var attrs: OBJECT_ATTRIBUTES = .{
-        .ObjectName = @constCast(&name),
-        .Length = @sizeOf(OBJECT_ATTRIBUTES),
-        .RootDirectory = dev_handle,
-        .Attributes = .{ .INHERIT = sattr.bInheritHandle != FALSE },
-        .SecurityDescriptor = sattr.lpSecurityDescriptor,
-        .SecurityQualityOfService = null,
-    };
-
-    // 120 second relative timeout in 100ns units.
-    const default_timeout: LARGE_INTEGER = (-120 * std.time.ns_per_s) / 100;
-    var iosb: IO_STATUS_BLOCK = undefined;
-    var read: HANDLE = undefined;
-    switch (ntdll.NtCreateNamedPipeFile(
-        &read,
-        .{
-            .SPECIFIC = .{ .FILE_PIPE = .{
-                .WRITE_ATTRIBUTES = true,
-            } },
-            .STANDARD = .{ .SYNCHRONIZE = true },
-            .GENERIC = .{ .READ = true },
-        },
-        &attrs,
-        &iosb,
-        .{ .READ = true, .WRITE = true },
-        .CREATE,
-        .{ .IO = .SYNCHRONOUS_NONALERT },
-        .{ .TYPE = .BYTE_STREAM },
-        .{ .MODE = .BYTE_STREAM },
-        .{ .OPERATION = .QUEUE },
-        1,
-        4096,
-        4096,
-        @constCast(&default_timeout),
-    )) {
-        .SUCCESS => {},
-        .INVALID_PARAMETER => unreachable,
-        .INSUFFICIENT_RESOURCES => return error.SystemResources,
-        else => |e| return unexpectedStatus(e),
-    }
-    errdefer CloseHandle(read);
-
-    attrs.RootDirectory = read;
-
-    var write: HANDLE = undefined;
-    switch (ntdll.NtCreateFile(
-        &write,
-        .{
-            .SPECIFIC = .{ .FILE_PIPE = .{
-                .READ_ATTRIBUTES = true,
-            } },
-            .STANDARD = .{ .SYNCHRONIZE = true },
-            .GENERIC = .{ .WRITE = true },
-        },
-        &attrs,
-        &iosb,
-        null,
-        .{},
-        .VALID_FLAGS,
-        .OPEN,
-        .{
-            .IO = .SYNCHRONOUS_NONALERT,
-            .NON_DIRECTORY_FILE = true,
-        },
-        null,
-        0,
-    )) {
-        .SUCCESS => {},
-        .INVALID_PARAMETER => unreachable,
-        .INSUFFICIENT_RESOURCES => return error.SystemResources,
-        else => |e| return unexpectedStatus(e),
-    }
-
-    rd.* = read;
-    wr.* = write;
-}
-
-/// A Zig wrapper around `NtDeviceIoControlFile` and `NtFsControlFile` syscalls.
-/// It implements similar behavior to `DeviceIoControl` and is meant to serve
-/// as a direct substitute for that call.
-/// TODO work out if we need to expose other arguments to the underlying syscalls.
-pub fn DeviceIoControl(
-    device: HANDLE,
-    io_control_code: CTL_CODE,
-    opts: struct {
-        event: ?HANDLE = null,
-        apc_routine: ?*const IO_APC_ROUTINE = null,
-        apc_context: ?*anyopaque = null,
-        io_status_block: ?*IO_STATUS_BLOCK = null,
-        in: []const u8 = &.{},
-        out: []u8 = &.{},
-    },
-) NTSTATUS {
-    var io_status_block: IO_STATUS_BLOCK = undefined;
-    return switch (io_control_code.DeviceType) {
-        .FILE_SYSTEM, .NAMED_PIPE => ntdll.NtFsControlFile(
-            device,
-            opts.event,
-            opts.apc_routine,
-            opts.apc_context,
-            opts.io_status_block orelse &io_status_block,
-            io_control_code,
-            if (opts.in.len > 0) opts.in.ptr else null,
-            @intCast(opts.in.len),
-            if (opts.out.len > 0) opts.out.ptr else null,
-            @intCast(opts.out.len),
-        ),
-        else => ntdll.NtDeviceIoControlFile(
-            device,
-            opts.event,
-            opts.apc_routine,
-            opts.apc_context,
-            opts.io_status_block orelse &io_status_block,
-            io_control_code,
-            if (opts.in.len > 0) opts.in.ptr else null,
-            @intCast(opts.in.len),
-            if (opts.out.len > 0) opts.out.ptr else null,
-            @intCast(opts.out.len),
-        ),
-    };
-}
-
-pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
-    var bytes: DWORD = undefined;
-    if (kernel32.GetOverlappedResult(h, overlapped, &bytes, @intFromBool(wait)) == 0) {
-        switch (GetLastError()) {
-            .IO_INCOMPLETE => if (!wait) return error.WouldBlock else unreachable,
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return bytes;
-}
-
-pub const SetHandleInformationError = error{Unexpected};
-
-pub fn SetHandleInformation(h: HANDLE, mask: DWORD, flags: DWORD) SetHandleInformationError!void {
-    if (kernel32.SetHandleInformation(h, mask, flags) == 0) {
-        switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-}
-
-pub const WaitForSingleObjectError = error{
-    WaitAbandoned,
-    WaitTimeOut,
-    Unexpected,
-};
-
-pub fn WaitForSingleObject(handle: HANDLE, milliseconds: DWORD) WaitForSingleObjectError!void {
-    return WaitForSingleObjectEx(handle, milliseconds, false);
-}
-
-pub fn WaitForSingleObjectEx(handle: HANDLE, milliseconds: DWORD, alertable: bool) WaitForSingleObjectError!void {
-    switch (kernel32.WaitForSingleObjectEx(handle, milliseconds, @intFromBool(alertable))) {
-        WAIT_ABANDONED => return error.WaitAbandoned,
-        WAIT_OBJECT_0 => return,
-        WAIT_TIMEOUT => return error.WaitTimeOut,
-        WAIT_FAILED => switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        },
-        else => return error.Unexpected,
-    }
-}
-
-pub fn WaitForMultipleObjectsEx(handles: []const HANDLE, waitAll: bool, milliseconds: DWORD, alertable: bool) !u32 {
-    assert(handles.len > 0 and handles.len <= MAXIMUM_WAIT_OBJECTS);
-    const nCount: DWORD = @as(DWORD, @intCast(handles.len));
-    switch (kernel32.WaitForMultipleObjectsEx(
-        nCount,
-        handles.ptr,
-        @intFromBool(waitAll),
-        milliseconds,
-        @intFromBool(alertable),
-    )) {
-        WAIT_OBJECT_0...WAIT_OBJECT_0 + MAXIMUM_WAIT_OBJECTS => |n| {
-            const handle_index = n - WAIT_OBJECT_0;
-            assert(handle_index < nCount);
-            return handle_index;
-        },
-        WAIT_ABANDONED_0...WAIT_ABANDONED_0 + MAXIMUM_WAIT_OBJECTS => |n| {
-            const handle_index = n - WAIT_ABANDONED_0;
-            assert(handle_index < nCount);
-            return error.WaitAbandoned;
-        },
-        WAIT_TIMEOUT => return error.WaitTimeOut,
-        WAIT_FAILED => switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        },
-        else => return error.Unexpected,
-    }
-}
-
-pub const CreateIoCompletionPortError = error{Unexpected};
-
-pub fn CreateIoCompletionPort(
-    file_handle: HANDLE,
-    existing_completion_port: ?HANDLE,
-    completion_key: usize,
-    concurrent_thread_count: DWORD,
-) CreateIoCompletionPortError!HANDLE {
-    const handle = kernel32.CreateIoCompletionPort(file_handle, existing_completion_port, completion_key, concurrent_thread_count) orelse {
-        switch (GetLastError()) {
-            .INVALID_PARAMETER => unreachable,
-            else => |err| return unexpectedError(err),
-        }
-    };
-    return handle;
-}
-
-pub const PostQueuedCompletionStatusError = error{Unexpected};
-
-pub fn PostQueuedCompletionStatus(
-    completion_port: HANDLE,
-    bytes_transferred_count: DWORD,
-    completion_key: usize,
-    lpOverlapped: ?*OVERLAPPED,
-) PostQueuedCompletionStatusError!void {
-    if (kernel32.PostQueuedCompletionStatus(completion_port, bytes_transferred_count, completion_key, lpOverlapped) == 0) {
-        switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-}
-
-pub const GetQueuedCompletionStatusResult = enum {
-    Normal,
-    Aborted,
-    Canceled,
-    EOF,
-    Timeout,
-};
-
-pub fn GetQueuedCompletionStatus(
-    completion_port: HANDLE,
-    bytes_transferred_count: *DWORD,
-    lpCompletionKey: *usize,
-    lpOverlapped: *?*OVERLAPPED,
-    dwMilliseconds: DWORD,
-) GetQueuedCompletionStatusResult {
-    if (kernel32.GetQueuedCompletionStatus(
-        completion_port,
-        bytes_transferred_count,
-        lpCompletionKey,
-        lpOverlapped,
-        dwMilliseconds,
-    ) == FALSE) {
-        switch (GetLastError()) {
-            .ABANDONED_WAIT_0 => return GetQueuedCompletionStatusResult.Aborted,
-            .OPERATION_ABORTED => return GetQueuedCompletionStatusResult.Canceled,
-            .HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
-            .WAIT_TIMEOUT => return GetQueuedCompletionStatusResult.Timeout,
-            else => |err| {
-                if (std.debug.runtime_safety) {
-                    @setEvalBranchQuota(2500);
-                    std.debug.panic("unexpected error: {}\n", .{err});
-                }
-            },
-        }
-    }
-    return GetQueuedCompletionStatusResult.Normal;
-}
-
-pub const GetQueuedCompletionStatusError = error{
-    Aborted,
-    Canceled,
-    EOF,
-    Timeout,
-} || UnexpectedError;
-
-pub fn GetQueuedCompletionStatusEx(
-    completion_port: HANDLE,
-    completion_port_entries: []OVERLAPPED_ENTRY,
-    timeout_ms: ?DWORD,
-    alertable: bool,
-) GetQueuedCompletionStatusError!u32 {
-    var num_entries_removed: u32 = 0;
-
-    const success = kernel32.GetQueuedCompletionStatusEx(
-        completion_port,
-        completion_port_entries.ptr,
-        @as(ULONG, @intCast(completion_port_entries.len)),
-        &num_entries_removed,
-        timeout_ms orelse INFINITE,
-        @intFromBool(alertable),
-    );
-
-    if (success == FALSE) {
-        return switch (GetLastError()) {
-            .ABANDONED_WAIT_0 => error.Aborted,
-            .OPERATION_ABORTED => error.Canceled,
-            .HANDLE_EOF => error.EOF,
-            .WAIT_TIMEOUT => error.Timeout,
-            else => |err| unexpectedError(err),
-        };
-    }
-
-    return num_entries_removed;
+    return teb().LastErrorValue;
 }
 
 pub fn CloseHandle(hObject: HANDLE) void {
-    assert(ntdll.NtClose(hObject) == .SUCCESS);
-}
-
-pub const GetCurrentDirectoryError = error{
-    NameTooLong,
-    Unexpected,
-};
-
-/// The result is a slice of `buffer`, indexed from 0.
-/// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
-pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
-    var wtf16le_buf: [PATH_MAX_WIDE:0]u16 = undefined;
-    const result = kernel32.GetCurrentDirectoryW(wtf16le_buf.len + 1, &wtf16le_buf);
-    if (result == 0) {
-        switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-    assert(result <= wtf16le_buf.len);
-    const wtf16le_slice = wtf16le_buf[0..result];
-    var end_index: usize = 0;
-    var it = std.unicode.Wtf16LeIterator.init(wtf16le_slice);
-    while (it.nextCodepoint()) |codepoint| {
-        const seq_len = std.unicode.utf8CodepointSequenceLength(codepoint) catch unreachable;
-        if (end_index + seq_len >= buffer.len)
-            return error.NameTooLong;
-        end_index += std.unicode.wtf8Encode(codepoint, buffer[end_index..]) catch unreachable;
-    }
-    return buffer[0..end_index];
-}
-
-pub const CreateSymbolicLinkError = error{
-    AccessDenied,
-    PathAlreadyExists,
-    FileNotFound,
-    NameTooLong,
-    NoDevice,
-    NetworkNotFound,
-    BadPathName,
-    Unexpected,
-};
-
-/// Needs either:
-/// - `SeCreateSymbolicLinkPrivilege` privilege
-/// or
-/// - Developer mode on Windows 10
-/// otherwise fails with `error.AccessDenied`. In which case `sym_link_path` may still
-/// be created on the file system but will lack reparse processing data applied to it.
-pub fn CreateSymbolicLink(
-    dir: ?HANDLE,
-    sym_link_path: []const u16,
-    target_path: [:0]const u16,
-    is_directory: bool,
-) CreateSymbolicLinkError!void {
-    const SYMLINK_DATA = extern struct {
-        ReparseTag: IO_REPARSE_TAG,
-        ReparseDataLength: USHORT,
-        Reserved: USHORT,
-        SubstituteNameOffset: USHORT,
-        SubstituteNameLength: USHORT,
-        PrintNameOffset: USHORT,
-        PrintNameLength: USHORT,
-        Flags: ULONG,
-    };
-
-    const symlink_handle = OpenFile(sym_link_path, .{
-        .access_mask = .{
-            .STANDARD = .{ .SYNCHRONIZE = true },
-            .GENERIC = .{ .WRITE = true, .READ = true },
-        },
-        .dir = dir,
-        .creation = .CREATE,
-        .filter = if (is_directory) .dir_only else .non_directory_only,
-    }) catch |err| switch (err) {
-        error.IsDir => return error.PathAlreadyExists,
-        error.NotDir => return error.Unexpected,
-        error.WouldBlock => return error.Unexpected,
-        error.PipeBusy => return error.Unexpected,
-        error.NoDevice => return error.Unexpected,
-        error.AntivirusInterference => return error.Unexpected,
-        else => |e| return e,
-    };
-    defer CloseHandle(symlink_handle);
-
-    // Relevant portions of the documentation:
-    // > Relative links are specified using the following conventions:
-    // > - Root relative—for example, "\Windows\System32" resolves to "current drive:\Windows\System32".
-    // > - Current working directory–relative—for example, if the current working directory is
-    // >   C:\Windows\System32, "C:File.txt" resolves to "C:\Windows\System32\File.txt".
-    // > Note: If you specify a current working directory–relative link, it is created as an absolute
-    // > link, due to the way the current working directory is processed based on the user and the thread.
-    // https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createsymboliclinkw
-    var is_target_absolute = false;
-    const final_target_path = target_path: {
-        if (hasCommonNtPrefix(u16, target_path)) {
-            // Already an NT path, no need to do anything to it
-            break :target_path target_path;
-        } else {
-            switch (std.fs.path.getWin32PathType(u16, target_path)) {
-                // Rooted paths need to avoid getting put through wToPrefixedFileW
-                // (and they are treated as relative in this context)
-                // Note: It seems that rooted paths in symbolic links are relative to
-                //       the drive that the symbolic exists on, not to the CWD's drive.
-                //       So, if the symlink is on C:\ and the CWD is on D:\,
-                //       it will still resolve the path relative to the root of
-                //       the C:\ drive.
-                .rooted => break :target_path target_path,
-                // Keep relative paths relative, but anything else needs to get NT-prefixed.
-                else => if (!std.fs.path.isAbsoluteWindowsWtf16(target_path))
-                    break :target_path target_path,
-            }
-        }
-        var prefixed_target_path = try wToPrefixedFileW(dir, target_path);
-        // We do this after prefixing to ensure that drive-relative paths are treated as absolute
-        is_target_absolute = std.fs.path.isAbsoluteWindowsWtf16(prefixed_target_path.span());
-        break :target_path prefixed_target_path.span();
-    };
-
-    // prepare reparse data buffer
-    var buffer: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
-    const buf_len = @sizeOf(SYMLINK_DATA) + final_target_path.len * 4;
-    const header_len = @sizeOf(ULONG) + @sizeOf(USHORT) * 2;
-    const target_is_absolute = std.fs.path.isAbsoluteWindowsWtf16(final_target_path);
-    const symlink_data: SYMLINK_DATA = .{
-        .ReparseTag = .SYMLINK,
-        .ReparseDataLength = @intCast(buf_len - header_len),
-        .Reserved = 0,
-        .SubstituteNameOffset = @intCast(final_target_path.len * 2),
-        .SubstituteNameLength = @intCast(final_target_path.len * 2),
-        .PrintNameOffset = 0,
-        .PrintNameLength = @intCast(final_target_path.len * 2),
-        .Flags = if (!target_is_absolute) SYMLINK_FLAG_RELATIVE else 0,
-    };
-
-    @memcpy(buffer[0..@sizeOf(SYMLINK_DATA)], std.mem.asBytes(&symlink_data));
-    @memcpy(buffer[@sizeOf(SYMLINK_DATA)..][0 .. final_target_path.len * 2], @as([*]const u8, @ptrCast(final_target_path)));
-    const paths_start = @sizeOf(SYMLINK_DATA) + final_target_path.len * 2;
-    @memcpy(buffer[paths_start..][0 .. final_target_path.len * 2], @as([*]const u8, @ptrCast(final_target_path)));
-    const rc = DeviceIoControl(symlink_handle, FSCTL.SET_REPARSE_POINT, .{ .in = buffer[0..buf_len] });
-    switch (rc) {
+    switch (ntdll.NtClose(hObject)) {
         .SUCCESS => {},
-        .PRIVILEGE_NOT_HELD => return error.AccessDenied,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .INVALID_DEVICE_REQUEST => return error.AccessDenied, // Not supported by the underlying filesystem
-        else => return unexpectedStatus(rc),
-    }
-}
-
-pub const ReadLinkError = error{
-    FileNotFound,
-    NetworkNotFound,
-    AccessDenied,
-    Unexpected,
-    NameTooLong,
-    BadPathName,
-    AntivirusInterference,
-    UnsupportedReparsePointType,
-    NotLink,
-    OperationCanceled,
-};
-
-/// `sub_path_w` will never be accessed after `out_buffer` has been written to, so it
-/// is safe to reuse a single buffer for both.
-pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u16) ReadLinkError![]u16 {
-    const result_handle = OpenFile(sub_path_w, .{
-        .access_mask = .{
-            .SPECIFIC = .{ .FILE = .{
-                .READ_ATTRIBUTES = true,
-            } },
-            .STANDARD = .{ .SYNCHRONIZE = true },
-        },
-        .dir = dir,
-        .creation = .OPEN,
-        .follow_symlinks = false,
-        .filter = .any,
-    }) catch |err| switch (err) {
-        error.IsDir, error.NotDir => return error.Unexpected, // filter = .any
-        error.PathAlreadyExists => return error.Unexpected, // FILE_OPEN
-        error.WouldBlock => return error.Unexpected,
-        error.NoDevice => return error.FileNotFound,
-        error.PipeBusy => return error.AccessDenied,
-        else => |e| return e,
-    };
-    defer CloseHandle(result_handle);
-
-    var reparse_buf: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 align(@alignOf(REPARSE_DATA_BUFFER)) = undefined;
-    const rc = DeviceIoControl(result_handle, FSCTL.GET_REPARSE_POINT, .{ .out = reparse_buf[0..] });
-    switch (rc) {
-        .SUCCESS => {},
-        .CANCELLED => return error.OperationCanceled,
-        .NOT_A_REPARSE_POINT => return error.NotLink,
-        else => return unexpectedStatus(rc),
-    }
-
-    const reparse_struct: *const REPARSE_DATA_BUFFER = @ptrCast(@alignCast(&reparse_buf[0]));
-    const IoReparseTagInt = @typeInfo(IO_REPARSE_TAG).@"struct".backing_integer.?;
-    switch (@as(IoReparseTagInt, @bitCast(reparse_struct.ReparseTag))) {
-        @as(IoReparseTagInt, @bitCast(IO_REPARSE_TAG.SYMLINK)) => {
-            const buf: *const SYMBOLIC_LINK_REPARSE_BUFFER = @ptrCast(@alignCast(&reparse_struct.DataBuffer[0]));
-            const offset = buf.SubstituteNameOffset >> 1;
-            const len = buf.SubstituteNameLength >> 1;
-            const path_buf = @as([*]const u16, &buf.PathBuffer);
-            const is_relative = buf.Flags & SYMLINK_FLAG_RELATIVE != 0;
-            return parseReadLinkPath(path_buf[offset..][0..len], is_relative, out_buffer);
-        },
-        @as(IoReparseTagInt, @bitCast(IO_REPARSE_TAG.MOUNT_POINT)) => {
-            const buf: *const MOUNT_POINT_REPARSE_BUFFER = @ptrCast(@alignCast(&reparse_struct.DataBuffer[0]));
-            const offset = buf.SubstituteNameOffset >> 1;
-            const len = buf.SubstituteNameLength >> 1;
-            const path_buf = @as([*]const u16, &buf.PathBuffer);
-            return parseReadLinkPath(path_buf[offset..][0..len], false, out_buffer);
-        },
-        else => return error.UnsupportedReparsePointType,
-    }
-}
-
-fn parseReadLinkPath(path: []const u16, is_relative: bool, out_buffer: []u16) error{NameTooLong}![]u16 {
-    path: {
-        if (is_relative) break :path;
-        return ntToWin32Namespace(path, out_buffer) catch |err| switch (err) {
-            error.NameTooLong => |e| return e,
-            error.NotNtPath => break :path,
-        };
-    }
-    if (out_buffer.len < path.len) return error.NameTooLong;
-    const dest = out_buffer[0..path.len];
-    @memcpy(dest, path);
-    return dest;
-}
-
-pub const DeleteFileError = error{
-    FileNotFound,
-    AccessDenied,
-    NameTooLong,
-    /// Also known as sharing violation.
-    FileBusy,
-    Unexpected,
-    NotDir,
-    IsDir,
-    DirNotEmpty,
-    NetworkNotFound,
-};
-
-pub const DeleteFileOptions = struct {
-    dir: ?HANDLE,
-    remove_dir: bool = false,
-};
-
-pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFileError!void {
-    const path_len_bytes = @as(u16, @intCast(sub_path_w.len * 2));
-    var nt_name: UNICODE_STRING = .{
-        .Length = path_len_bytes,
-        .MaximumLength = path_len_bytes,
-        // The Windows API makes this mutable, but it will not mutate here.
-        .Buffer = @constCast(sub_path_w.ptr),
-    };
-
-    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-        // Windows does not recognize this, but it does work with empty string.
-        nt_name.Length = 0;
-    }
-    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
-        // Can't remove the parent directory with an open handle.
-        return error.FileBusy;
-    }
-
-    var io: IO_STATUS_BLOCK = undefined;
-    var tmp_handle: HANDLE = undefined;
-    var rc = ntdll.NtCreateFile(
-        &tmp_handle,
-        .{ .STANDARD = .{
-            .RIGHTS = .{ .DELETE = true },
-            .SYNCHRONIZE = true,
-        } },
-        &.{
-            .Length = @sizeOf(OBJECT_ATTRIBUTES),
-            .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(sub_path_w)) null else options.dir,
-            .Attributes = .{},
-            .ObjectName = &nt_name,
-            .SecurityDescriptor = null,
-            .SecurityQualityOfService = null,
-        },
-        &io,
-        null,
-        .{},
-        .VALID_FLAGS,
-        .OPEN,
-        .{
-            .DIRECTORY_FILE = options.remove_dir,
-            .NON_DIRECTORY_FILE = !options.remove_dir,
-            .OPEN_REPARSE_POINT = true, // would we ever want to delete the target instead?
-        },
-        null,
-        0,
-    );
-    switch (rc) {
-        .SUCCESS => {},
-        .OBJECT_NAME_INVALID => unreachable,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .BAD_NETWORK_PATH => return error.NetworkNotFound, // \\server was not found
-        .BAD_NETWORK_NAME => return error.NetworkNotFound, // \\server was found but \\server\share wasn't
-        .INVALID_PARAMETER => unreachable,
-        .FILE_IS_A_DIRECTORY => return error.IsDir,
-        .NOT_A_DIRECTORY => return error.NotDir,
-        .SHARING_VIOLATION => return error.FileBusy,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .DELETE_PENDING => return,
-        else => return unexpectedStatus(rc),
-    }
-    defer CloseHandle(tmp_handle);
-
-    // FileDispositionInformationEx has varying levels of support:
-    // - FILE_DISPOSITION_INFORMATION_EX requires >= win10_rs1
-    //   (INVALID_INFO_CLASS is returned if not supported)
-    // - Requires the NTFS filesystem
-    //   (on filesystems like FAT32, INVALID_PARAMETER is returned)
-    // - FILE_DISPOSITION_POSIX_SEMANTICS requires >= win10_rs1
-    // - FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5
-    //   (NOT_SUPPORTED is returned if a flag is unsupported)
-    //
-    // The strategy here is just to try using FileDispositionInformationEx and fall back to
-    // FileDispositionInformation if the return value lets us know that some aspect of it is not supported.
-    const need_fallback = need_fallback: {
-        // Deletion with posix semantics if the filesystem supports it.
-        var info: FILE.DISPOSITION.INFORMATION.EX = .{ .Flags = .{
-            .DELETE = true,
-            .POSIX_SEMANTICS = true,
-            .IGNORE_READONLY_ATTRIBUTE = true,
-        } };
-        rc = ntdll.NtSetInformationFile(
-            tmp_handle,
-            &io,
-            &info,
-            @sizeOf(FILE.DISPOSITION.INFORMATION.EX),
-            .DispositionEx,
-        );
-        switch (rc) {
-            .SUCCESS => return,
-            // The filesystem does not support FileDispositionInformationEx
-            .INVALID_PARAMETER,
-            // The operating system does not support FileDispositionInformationEx
-            .INVALID_INFO_CLASS,
-            // The operating system does not support one of the flags
-            .NOT_SUPPORTED,
-            => break :need_fallback true,
-            // For all other statuses, fall down to the switch below to handle them.
-            else => break :need_fallback false,
-        }
-    };
-
-    if (need_fallback) {
-        // Deletion with file pending semantics, which requires waiting or moving
-        // files to get them removed (from here).
-        var file_dispo: FILE.DISPOSITION.INFORMATION = .{
-            .DeleteFile = TRUE,
-        };
-        rc = ntdll.NtSetInformationFile(
-            tmp_handle,
-            &io,
-            &file_dispo,
-            @sizeOf(FILE.DISPOSITION.INFORMATION),
-            .Disposition,
-        );
-    }
-    switch (rc) {
-        .SUCCESS => {},
-        .DIRECTORY_NOT_EMPTY => return error.DirNotEmpty,
-        .INVALID_PARAMETER => unreachable,
-        .CANNOT_DELETE => return error.AccessDenied,
-        .MEDIA_WRITE_PROTECTED => return error.AccessDenied,
-        .ACCESS_DENIED => return error.AccessDenied,
-        else => return unexpectedStatus(rc),
-    }
-}
-
-pub const RenameError = error{
-    IsDir,
-    NotDir,
-    FileNotFound,
-    NoDevice,
-    AccessDenied,
-    PipeBusy,
-    PathAlreadyExists,
-    Unexpected,
-    NameTooLong,
-    NetworkNotFound,
-    AntivirusInterference,
-    BadPathName,
-    CrossDevice,
-} || UnexpectedError;
-
-pub fn RenameFile(
-    /// May only be `null` if `old_path_w` is a fully-qualified absolute path.
-    old_dir_fd: ?HANDLE,
-    old_path_w: []const u16,
-    /// May only be `null` if `new_path_w` is a fully-qualified absolute path,
-    /// or if the file is not being moved to a different directory.
-    new_dir_fd: ?HANDLE,
-    new_path_w: []const u16,
-    replace_if_exists: bool,
-) RenameError!void {
-    const src_fd = OpenFile(old_path_w, .{
-        .dir = old_dir_fd,
-        .access_mask = .{
-            .STANDARD = .{
-                .RIGHTS = .{ .DELETE = true },
-                .SYNCHRONIZE = true,
-            },
-            .GENERIC = .{ .WRITE = true },
-        },
-        .creation = .OPEN,
-        .filter = .any, // This function is supposed to rename both files and directories.
-        .follow_symlinks = false,
-    }) catch |err| switch (err) {
-        error.WouldBlock => unreachable, // Not possible without `.share_access_nonblocking = true`.
-        else => |e| return e,
-    };
-    defer CloseHandle(src_fd);
-
-    var rc: NTSTATUS = undefined;
-    // FileRenameInformationEx has varying levels of support:
-    // - FILE_RENAME_INFORMATION_EX requires >= win10_rs1
-    //   (INVALID_INFO_CLASS is returned if not supported)
-    // - Requires the NTFS filesystem
-    //   (on filesystems like FAT32, INVALID_PARAMETER is returned)
-    // - FILE_RENAME_POSIX_SEMANTICS requires >= win10_rs1
-    // - FILE_RENAME_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5
-    //   (NOT_SUPPORTED is returned if a flag is unsupported)
-    //
-    // The strategy here is just to try using FileRenameInformationEx and fall back to
-    // FileRenameInformation if the return value lets us know that some aspect of it is not supported.
-    const need_fallback = need_fallback: {
-        var rename_info: FILE.RENAME_INFORMATION = .init(.{
-            .Flags = .{
-                .REPLACE_IF_EXISTS = replace_if_exists,
-                .POSIX_SEMANTICS = true,
-                .IGNORE_READONLY_ATTRIBUTE = true,
-            },
-            .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(new_path_w)) null else new_dir_fd,
-            .FileName = new_path_w,
-        });
-        var io_status_block: IO_STATUS_BLOCK = undefined;
-        const rename_info_buf = rename_info.toBuffer();
-        rc = ntdll.NtSetInformationFile(
-            src_fd,
-            &io_status_block,
-            rename_info_buf.ptr,
-            @intCast(rename_info_buf.len), // already checked for error.NameTooLong
-            .RenameEx,
-        );
-        switch (rc) {
-            .SUCCESS => return,
-            // The filesystem does not support FileDispositionInformationEx
-            .INVALID_PARAMETER,
-            // The operating system does not support FileDispositionInformationEx
-            .INVALID_INFO_CLASS,
-            // The operating system does not support one of the flags
-            .NOT_SUPPORTED,
-            => break :need_fallback true,
-            // For all other statuses, fall down to the switch below to handle them.
-            else => break :need_fallback false,
-        }
-    };
-
-    if (need_fallback) {
-        var rename_info: FILE.RENAME_INFORMATION = .init(.{
-            .Flags = .{ .REPLACE_IF_EXISTS = replace_if_exists },
-            .RootDirectory = if (std.fs.path.isAbsoluteWindowsWtf16(new_path_w)) null else new_dir_fd,
-            .FileName = new_path_w,
-        });
-        var io_status_block: IO_STATUS_BLOCK = undefined;
-        const rename_info_buf = rename_info.toBuffer();
-        rc = ntdll.NtSetInformationFile(
-            src_fd,
-            &io_status_block,
-            rename_info_buf.ptr,
-            @intCast(rename_info_buf.len), // already checked for error.NameTooLong
-            .Rename,
-        );
-    }
-
-    switch (rc) {
-        .SUCCESS => {},
-        .INVALID_HANDLE => unreachable,
-        .INVALID_PARAMETER => unreachable,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NOT_SAME_DEVICE => return error.CrossDevice,
-        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-        .DIRECTORY_NOT_EMPTY => return error.PathAlreadyExists,
-        .FILE_IS_A_DIRECTORY => return error.IsDir,
-        .NOT_A_DIRECTORY => return error.NotDir,
-        else => return unexpectedStatus(rc),
-    }
-}
-
-pub const GetStdHandleError = error{
-    NoStandardHandleAttached,
-    Unexpected,
-};
-
-pub fn GetStdHandle(handle_id: DWORD) GetStdHandleError!HANDLE {
-    const handle = kernel32.GetStdHandle(handle_id) orelse return error.NoStandardHandleAttached;
-    if (handle == INVALID_HANDLE_VALUE) {
-        switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return handle;
-}
-
-pub const QueryObjectNameError = error{
-    AccessDenied,
-    InvalidHandle,
-    NameTooLong,
-    Unexpected,
-};
-
-pub fn QueryObjectName(handle: HANDLE, out_buffer: []u16) QueryObjectNameError![]u16 {
-    const out_buffer_aligned = mem.alignInSlice(out_buffer, @alignOf(OBJECT_NAME_INFORMATION)) orelse return error.NameTooLong;
-
-    const info = @as(*OBJECT_NAME_INFORMATION, @ptrCast(out_buffer_aligned));
-    // buffer size is specified in bytes
-    const out_buffer_len = std.math.cast(ULONG, out_buffer_aligned.len * 2) orelse maxInt(ULONG);
-    // last argument would return the length required for full_buffer, not exposed here
-    return switch (ntdll.NtQueryObject(handle, .ObjectNameInformation, info, out_buffer_len, null)) {
-        .SUCCESS => blk: {
-            // info.Name.Buffer from ObQueryNameString is documented to be null (and MaximumLength == 0)
-            // if the object was "unnamed", not sure if this can happen for file handles
-            if (info.Name.MaximumLength == 0) break :blk error.Unexpected;
-            // resulting string length is specified in bytes
-            const path_length_unterminated = @divExact(info.Name.Length, 2);
-            break :blk info.Name.Buffer.?[0..path_length_unterminated];
-        },
-        .ACCESS_DENIED => error.AccessDenied,
-        .INVALID_HANDLE => error.InvalidHandle,
-        // triggered when the buffer is too small for the OBJECT_NAME_INFORMATION object (.INFO_LENGTH_MISMATCH),
-        // or if the buffer is too small for the file path returned (.BUFFER_OVERFLOW, .BUFFER_TOO_SMALL)
-        .INFO_LENGTH_MISMATCH, .BUFFER_OVERFLOW, .BUFFER_TOO_SMALL => error.NameTooLong,
-        else => |e| unexpectedStatus(e),
-    };
-}
-
-test QueryObjectName {
-    if (builtin.os.tag != .windows)
-        return;
-
-    //any file will do; canonicalization works on NTFS junctions and symlinks, hardlinks remain separate paths.
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const handle = tmp.dir.handle;
-    var out_buffer: [PATH_MAX_WIDE]u16 = undefined;
-
-    const result_path = try QueryObjectName(handle, &out_buffer);
-    const required_len_in_u16 = result_path.len + @divExact(@intFromPtr(result_path.ptr) - @intFromPtr(&out_buffer), 2) + 1;
-    //insufficient size
-    try std.testing.expectError(error.NameTooLong, QueryObjectName(handle, out_buffer[0 .. required_len_in_u16 - 1]));
-    //exactly-sufficient size
-    _ = try QueryObjectName(handle, out_buffer[0..required_len_in_u16]);
-}
-
-pub const GetFinalPathNameByHandleError = error{
-    AccessDenied,
-    FileNotFound,
-    NameTooLong,
-    /// The volume does not contain a recognized file system. File system
-    /// drivers might not be loaded, or the volume may be corrupt.
-    UnrecognizedVolume,
-    Unexpected,
-};
-
-/// Specifies how to format volume path in the result of `GetFinalPathNameByHandle`.
-/// Defaults to DOS volume names.
-pub const GetFinalPathNameByHandleFormat = struct {
-    volume_name: enum {
-        /// Format as DOS volume name
-        Dos,
-        /// Format as NT volume name
-        Nt,
-    } = .Dos,
-};
-
-/// Returns canonical (normalized) path of handle.
-/// Use `GetFinalPathNameByHandleFormat` to specify whether the path is meant to include
-/// NT or DOS volume name (e.g., `\Device\HarddiskVolume0\foo.txt` versus `C:\foo.txt`).
-/// If DOS volume name format is selected, note that this function does *not* prepend
-/// `\\?\` prefix to the resultant path.
-///
-/// TODO move this function into std.Io.Threaded and add cancelation checks
-pub fn GetFinalPathNameByHandle(
-    hFile: HANDLE,
-    fmt: GetFinalPathNameByHandleFormat,
-    out_buffer: []u16,
-) GetFinalPathNameByHandleError![]u16 {
-    const final_path = QueryObjectName(hFile, out_buffer) catch |err| switch (err) {
-        // we assume InvalidHandle is close enough to FileNotFound in semantics
-        // to not further complicate the error set
-        error.InvalidHandle => return error.FileNotFound,
-        else => |e| return e,
-    };
-
-    switch (fmt.volume_name) {
-        .Nt => {
-            // the returned path is already in .Nt format
-            return final_path;
-        },
-        .Dos => {
-            // parse the string to separate volume path from file path
-            const device_prefix = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\");
-
-            // We aren't entirely sure of the structure of the path returned by
-            // QueryObjectName in all contexts/environments.
-            // This code is written to cover the various cases that have
-            // been encountered and solved appropriately. But note that there's
-            // no easy way to verify that they have all been tackled!
-            // (Unless you, the reader knows of one then please do action that!)
-            if (!mem.startsWith(u16, final_path, device_prefix)) {
-                // Wine seems to return NT namespaced paths starting with \??\ from QueryObjectName
-                // (e.g. `\??\Z:\some\path\to\a\file.txt`), in which case we can just strip the
-                // prefix to turn it into an absolute path.
-                // https://github.com/ziglang/zig/issues/26029
-                // https://bugs.winehq.org/show_bug.cgi?id=39569
-                return ntToWin32Namespace(final_path, out_buffer) catch |err| switch (err) {
-                    error.NotNtPath => return error.Unexpected,
-                    error.NameTooLong => |e| return e,
-                };
-            }
-
-            const file_path_begin_index = mem.findPos(u16, final_path, device_prefix.len, &[_]u16{'\\'}) orelse unreachable;
-            const volume_name_u16 = final_path[0..file_path_begin_index];
-            const device_name_u16 = volume_name_u16[device_prefix.len..];
-            const file_name_u16 = final_path[file_path_begin_index..];
-
-            // MUP is Multiple UNC Provider, and indicates that the path is a UNC
-            // path. In this case, the canonical UNC path can be gotten by just
-            // dropping the \Device\Mup\ and making sure the path begins with \\
-            if (mem.eql(u16, device_name_u16, std.unicode.utf8ToUtf16LeStringLiteral("Mup"))) {
-                out_buffer[0] = '\\';
-                @memmove(out_buffer[1..][0..file_name_u16.len], file_name_u16);
-                return out_buffer[0 .. 1 + file_name_u16.len];
-            }
-
-            // Get DOS volume name. DOS volume names are actually symbolic link objects to the
-            // actual NT volume. For example:
-            // (NT) \Device\HarddiskVolume4 => (DOS) \DosDevices\C: == (DOS) C:
-            const MIN_SIZE = @sizeOf(MOUNTMGR_MOUNT_POINT) + MAX_PATH;
-            // We initialize the input buffer to all zeros for convenience since
-            // `DeviceIoControl` with `IOCTL_MOUNTMGR_QUERY_POINTS` expects this.
-            var input_buf: [MIN_SIZE]u8 align(@alignOf(MOUNTMGR_MOUNT_POINT)) = [_]u8{0} ** MIN_SIZE;
-            var output_buf: [MIN_SIZE * 4]u8 align(@alignOf(MOUNTMGR_MOUNT_POINTS)) = undefined;
-
-            // This surprising path is a filesystem path to the mount manager on Windows.
-            // Source: https://stackoverflow.com/questions/3012828/using-ioctl-mountmgr-query-points
-            // This is the NT namespaced version of \\.\MountPointManager
-            const mgmt_path_u16 = std.unicode.utf8ToUtf16LeStringLiteral("\\??\\MountPointManager");
-            const mgmt_handle = OpenFile(mgmt_path_u16, .{
-                .access_mask = .{ .STANDARD = .{ .SYNCHRONIZE = true } },
-                .creation = .OPEN,
-            }) catch |err| switch (err) {
-                error.IsDir => return error.Unexpected,
-                error.NotDir => return error.Unexpected,
-                error.NoDevice => return error.Unexpected,
-                error.AccessDenied => return error.Unexpected,
-                error.PipeBusy => return error.Unexpected,
-                error.PathAlreadyExists => return error.Unexpected,
-                error.WouldBlock => return error.Unexpected,
-                error.NetworkNotFound => return error.Unexpected,
-                error.AntivirusInterference => return error.Unexpected,
-                error.BadPathName => return error.Unexpected,
-                error.OperationCanceled => @panic("TODO: better integrate cancelation"),
-                else => |e| return e,
-            };
-            defer CloseHandle(mgmt_handle);
-
-            var input_struct: *MOUNTMGR_MOUNT_POINT = @ptrCast(&input_buf[0]);
-            input_struct.DeviceNameOffset = @sizeOf(MOUNTMGR_MOUNT_POINT);
-            input_struct.DeviceNameLength = @intCast(volume_name_u16.len * 2);
-            @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..][0 .. volume_name_u16.len * 2], @as([*]const u8, @ptrCast(volume_name_u16.ptr)));
-
-            {
-                const rc = DeviceIoControl(mgmt_handle, IOCTL.MOUNTMGR.QUERY_POINTS, .{ .in = &input_buf, .out = &output_buf });
-                switch (rc) {
-                    .SUCCESS => {},
-                    .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-                    else => return unexpectedStatus(rc),
-                }
-            }
-            const mount_points_struct: *const MOUNTMGR_MOUNT_POINTS = @ptrCast(&output_buf[0]);
-
-            const mount_points = @as(
-                [*]const MOUNTMGR_MOUNT_POINT,
-                @ptrCast(&mount_points_struct.MountPoints[0]),
-            )[0..mount_points_struct.NumberOfMountPoints];
-
-            for (mount_points) |mount_point| {
-                const symlink = @as(
-                    [*]const u16,
-                    @ptrCast(@alignCast(&output_buf[mount_point.SymbolicLinkNameOffset])),
-                )[0 .. mount_point.SymbolicLinkNameLength / 2];
-
-                // Look for `\DosDevices\` prefix. We don't really care if there are more than one symlinks
-                // with traditional DOS drive letters, so pick the first one available.
-                var prefix_buf = std.unicode.utf8ToUtf16LeStringLiteral("\\DosDevices\\");
-                const prefix = prefix_buf[0..prefix_buf.len];
-
-                if (mem.startsWith(u16, symlink, prefix)) {
-                    const drive_letter = symlink[prefix.len..];
-
-                    if (out_buffer.len < drive_letter.len + file_name_u16.len) return error.NameTooLong;
-
-                    @memcpy(out_buffer[0..drive_letter.len], drive_letter);
-                    @memmove(out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
-                    const total_len = drive_letter.len + file_name_u16.len;
-
-                    // Validate that DOS does not contain any spurious nul bytes.
-                    assert(mem.findScalar(u16, out_buffer[0..total_len], 0) == null);
-
-                    return out_buffer[0..total_len];
-                } else if (mountmgrIsVolumeName(symlink)) {
-                    // If the symlink is a volume GUID like \??\Volume{383da0b0-717f-41b6-8c36-00500992b58d},
-                    // then it is a volume mounted as a path rather than a drive letter. We need to
-                    // query the mount manager again to get the DOS path for the volume.
-
-                    // 49 is the maximum length accepted by mountmgrIsVolumeName
-                    const vol_input_size = @sizeOf(MOUNTMGR_TARGET_NAME) + (49 * 2);
-                    var vol_input_buf: [vol_input_size]u8 align(@alignOf(MOUNTMGR_TARGET_NAME)) = [_]u8{0} ** vol_input_size;
-                    // Note: If the path exceeds MAX_PATH, the Disk Management GUI doesn't accept the full path,
-                    // and instead if must be specified using a shortened form (e.g. C:\FOO~1\BAR~1\<...>).
-                    // However, just to be sure we can handle any path length, we use PATH_MAX_WIDE here.
-                    const min_output_size = @sizeOf(MOUNTMGR_VOLUME_PATHS) + (PATH_MAX_WIDE * 2);
-                    var vol_output_buf: [min_output_size]u8 align(@alignOf(MOUNTMGR_VOLUME_PATHS)) = undefined;
-
-                    var vol_input_struct: *MOUNTMGR_TARGET_NAME = @ptrCast(&vol_input_buf[0]);
-                    vol_input_struct.DeviceNameLength = @intCast(symlink.len * 2);
-                    @memcpy(@as([*]WCHAR, &vol_input_struct.DeviceName)[0..symlink.len], symlink);
-
-                    const rc = DeviceIoControl(mgmt_handle, IOCTL.MOUNTMGR.QUERY_DOS_VOLUME_PATH, .{ .in = &vol_input_buf, .out = &vol_output_buf });
-                    switch (rc) {
-                        .SUCCESS => {},
-                        .UNRECOGNIZED_VOLUME => return error.UnrecognizedVolume,
-                        else => return unexpectedStatus(rc),
-                    }
-                    const volume_paths_struct: *const MOUNTMGR_VOLUME_PATHS = @ptrCast(&vol_output_buf[0]);
-                    const volume_path = std.mem.sliceTo(@as(
-                        [*]const u16,
-                        &volume_paths_struct.MultiSz,
-                    )[0 .. volume_paths_struct.MultiSzLength / 2], 0);
-
-                    if (out_buffer.len < volume_path.len + file_name_u16.len) return error.NameTooLong;
-
-                    // `out_buffer` currently contains the memory of `file_name_u16`, so it can overlap with where
-                    // we want to place the filename before returning. Here are the possible overlapping cases:
-                    //
-                    // out_buffer:       [filename]
-                    //       dest: [___(a)___] [___(b)___]
-                    //
-                    // In the case of (a), we need to copy forwards, and in the case of (b) we need
-                    // to copy backwards. We also need to do this before copying the volume path because
-                    // it could overwrite the file_name_u16 memory.
-                    const file_name_dest = out_buffer[volume_path.len..][0..file_name_u16.len];
-                    @memmove(file_name_dest, file_name_u16);
-                    @memcpy(out_buffer[0..volume_path.len], volume_path);
-                    const total_len = volume_path.len + file_name_u16.len;
-
-                    // Validate that DOS does not contain any spurious nul bytes.
-                    assert(mem.findScalar(u16, out_buffer[0..total_len], 0) == null);
-
-                    return out_buffer[0..total_len];
-                }
-            }
-
-            // If we've ended up here, then something went wrong/is corrupted in the OS,
-            // so error out!
-            return error.FileNotFound;
-        },
-    }
-}
-
-/// Equivalent to the MOUNTMGR_IS_VOLUME_NAME macro in mountmgr.h
-fn mountmgrIsVolumeName(name: []const u16) bool {
-    return (name.len == 48 or (name.len == 49 and name[48] == mem.nativeToLittle(u16, '\\'))) and
-        name[0] == mem.nativeToLittle(u16, '\\') and
-        (name[1] == mem.nativeToLittle(u16, '?') or name[1] == mem.nativeToLittle(u16, '\\')) and
-        name[2] == mem.nativeToLittle(u16, '?') and
-        name[3] == mem.nativeToLittle(u16, '\\') and
-        mem.startsWith(u16, name[4..], std.unicode.utf8ToUtf16LeStringLiteral("Volume{")) and
-        name[19] == mem.nativeToLittle(u16, '-') and
-        name[24] == mem.nativeToLittle(u16, '-') and
-        name[29] == mem.nativeToLittle(u16, '-') and
-        name[34] == mem.nativeToLittle(u16, '-') and
-        name[47] == mem.nativeToLittle(u16, '}');
-}
-
-test mountmgrIsVolumeName {
-    @setEvalBranchQuota(2000);
-    const L = std.unicode.utf8ToUtf16LeStringLiteral;
-    try std.testing.expect(mountmgrIsVolumeName(L("\\\\?\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}")));
-    try std.testing.expect(mountmgrIsVolumeName(L("\\??\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}")));
-    try std.testing.expect(mountmgrIsVolumeName(L("\\\\?\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}\\")));
-    try std.testing.expect(mountmgrIsVolumeName(L("\\??\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}\\")));
-    try std.testing.expect(!mountmgrIsVolumeName(L("\\\\.\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}")));
-    try std.testing.expect(!mountmgrIsVolumeName(L("\\??\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}\\foo")));
-    try std.testing.expect(!mountmgrIsVolumeName(L("\\??\\Volume{383da0b0-717f-41b6-8c36-00500992b58}")));
-}
-
-test GetFinalPathNameByHandle {
-    if (builtin.os.tag != .windows)
-        return;
-
-    //any file will do
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const handle = tmp.dir.handle;
-    var buffer: [PATH_MAX_WIDE]u16 = undefined;
-
-    //check with sufficient size
-    const nt_path = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, &buffer);
-    _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, &buffer);
-
-    const required_len_in_u16 = nt_path.len + @divExact(@intFromPtr(nt_path.ptr) - @intFromPtr(&buffer), 2) + 1;
-    //check with insufficient size
-    try std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0 .. required_len_in_u16 - 1]));
-    try std.testing.expectError(error.NameTooLong, GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0 .. required_len_in_u16 - 1]));
-
-    //check with exactly-sufficient size
-    _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0..required_len_in_u16]);
-    _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0..required_len_in_u16]);
-}
-
-pub const GetFileSizeError = error{Unexpected};
-
-pub fn GetFileSizeEx(hFile: HANDLE) GetFileSizeError!u64 {
-    var file_size: LARGE_INTEGER = undefined;
-    if (kernel32.GetFileSizeEx(hFile, &file_size) == 0) {
-        switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return @as(u64, @bitCast(file_size));
-}
-
-pub fn getpeername(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.socklen_t) i32 {
-    return ws2_32.getpeername(s, name, @as(*i32, @ptrCast(namelen)));
-}
-
-pub fn sendmsg(
-    s: ws2_32.SOCKET,
-    msg: *ws2_32.WSAMSG_const,
-    flags: u32,
-) i32 {
-    var bytes_send: DWORD = undefined;
-    if (ws2_32.WSASendMsg(s, msg, flags, &bytes_send, null, null) == ws2_32.SOCKET_ERROR) {
-        return ws2_32.SOCKET_ERROR;
-    } else {
-        return @as(i32, @as(u31, @intCast(bytes_send)));
-    }
-}
-
-pub fn sendto(s: ws2_32.SOCKET, buf: [*]const u8, len: usize, flags: u32, to: ?*const ws2_32.sockaddr, to_len: ws2_32.socklen_t) i32 {
-    var buffer = ws2_32.WSABUF{ .len = @as(u31, @truncate(len)), .buf = @constCast(buf) };
-    var bytes_send: DWORD = undefined;
-    if (ws2_32.WSASendTo(s, @as([*]ws2_32.WSABUF, @ptrCast(&buffer)), 1, &bytes_send, flags, to, @as(i32, @intCast(to_len)), null, null) == ws2_32.SOCKET_ERROR) {
-        return ws2_32.SOCKET_ERROR;
-    } else {
-        return @as(i32, @as(u31, @intCast(bytes_send)));
-    }
-}
-
-pub fn recvfrom(s: ws2_32.SOCKET, buf: [*]u8, len: usize, flags: u32, from: ?*ws2_32.sockaddr, from_len: ?*ws2_32.socklen_t) i32 {
-    var buffer = ws2_32.WSABUF{ .len = @as(u31, @truncate(len)), .buf = buf };
-    var bytes_received: DWORD = undefined;
-    var flags_inout = flags;
-    if (ws2_32.WSARecvFrom(s, @as([*]ws2_32.WSABUF, @ptrCast(&buffer)), 1, &bytes_received, &flags_inout, from, @as(?*i32, @ptrCast(from_len)), null, null) == ws2_32.SOCKET_ERROR) {
-        return ws2_32.SOCKET_ERROR;
-    } else {
-        return @as(i32, @as(u31, @intCast(bytes_received)));
-    }
-}
-
-pub fn poll(fds: [*]ws2_32.pollfd, n: c_ulong, timeout: i32) i32 {
-    return ws2_32.WSAPoll(fds, n, timeout);
-}
-
-pub fn WSAIoctl(
-    s: ws2_32.SOCKET,
-    dwIoControlCode: DWORD,
-    inBuffer: ?[]const u8,
-    outBuffer: []u8,
-    overlapped: ?*OVERLAPPED,
-    completionRoutine: ?ws2_32.LPWSAOVERLAPPED_COMPLETION_ROUTINE,
-) !DWORD {
-    var bytes: DWORD = undefined;
-    switch (ws2_32.WSAIoctl(
-        s,
-        dwIoControlCode,
-        if (inBuffer) |i| i.ptr else null,
-        if (inBuffer) |i| @as(DWORD, @intCast(i.len)) else 0,
-        outBuffer.ptr,
-        @as(DWORD, @intCast(outBuffer.len)),
-        &bytes,
-        overlapped,
-        completionRoutine,
-    )) {
-        0 => {},
-        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
-            else => |err| return unexpectedWSAError(err),
-        },
-        else => unreachable,
-    }
-    return bytes;
-}
-
-const GetModuleFileNameError = error{Unexpected};
-
-pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) GetModuleFileNameError![:0]u16 {
-    const rc = kernel32.GetModuleFileNameW(hModule, buf_ptr, buf_len);
-    if (rc == 0) {
-        switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return buf_ptr[0..rc :0];
-}
-
-pub const NtAllocateVirtualMemoryError = error{
-    AccessDenied,
-    InvalidParameter,
-    NoMemory,
-    Unexpected,
-};
-
-pub fn NtAllocateVirtualMemory(hProcess: HANDLE, addr: ?*PVOID, zero_bits: ULONG_PTR, size: ?*SIZE_T, alloc_type: ULONG, protect: ULONG) NtAllocateVirtualMemoryError!void {
-    return switch (ntdll.NtAllocateVirtualMemory(hProcess, addr, zero_bits, size, alloc_type, protect)) {
-        .SUCCESS => return,
-        .ACCESS_DENIED => NtAllocateVirtualMemoryError.AccessDenied,
-        .INVALID_PARAMETER => NtAllocateVirtualMemoryError.InvalidParameter,
-        .NO_MEMORY => NtAllocateVirtualMemoryError.NoMemory,
-        else => |st| unexpectedStatus(st),
-    };
-}
-
-pub const NtFreeVirtualMemoryError = error{
-    AccessDenied,
-    InvalidParameter,
-    Unexpected,
-};
-
-pub fn NtFreeVirtualMemory(hProcess: HANDLE, addr: ?*PVOID, size: *SIZE_T, free_type: ULONG) NtFreeVirtualMemoryError!void {
-    // TODO: If the return value is .INVALID_PAGE_PROTECTION, call RtlFlushSecureMemoryCache and try again.
-    return switch (ntdll.NtFreeVirtualMemory(hProcess, addr, size, free_type)) {
-        .SUCCESS => return,
-        .ACCESS_DENIED => NtFreeVirtualMemoryError.AccessDenied,
-        .INVALID_PARAMETER => NtFreeVirtualMemoryError.InvalidParameter,
-        else => NtFreeVirtualMemoryError.Unexpected,
-    };
-}
-
-pub const SetConsoleTextAttributeError = error{Unexpected};
-
-pub fn SetConsoleTextAttribute(hConsoleOutput: HANDLE, wAttributes: WORD) SetConsoleTextAttributeError!void {
-    if (kernel32.SetConsoleTextAttribute(hConsoleOutput, wAttributes) == 0) {
-        switch (GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-}
-
-pub fn SetConsoleCtrlHandler(handler_routine: ?HANDLER_ROUTINE, add: bool) !void {
-    const success = kernel32.SetConsoleCtrlHandler(
-        handler_routine,
-        if (add) TRUE else FALSE,
-    );
-
-    if (success == FALSE) {
-        return switch (GetLastError()) {
-            else => |err| unexpectedError(err),
-        };
-    }
-}
-
-pub fn SetFileCompletionNotificationModes(handle: HANDLE, flags: UCHAR) !void {
-    const success = kernel32.SetFileCompletionNotificationModes(handle, flags);
-    if (success == FALSE) {
-        return switch (GetLastError()) {
-            else => |err| unexpectedError(err),
-        };
+        else => |status| unexpectedStatus(status) catch {},
     }
 }
 
@@ -3915,181 +2887,75 @@ pub const CreateProcessFlags = packed struct(u32) {
     create_ignore_system_default: bool = false,
 };
 
-pub fn CreateProcessW(
-    lpApplicationName: ?LPCWSTR,
-    lpCommandLine: ?LPWSTR,
-    lpProcessAttributes: ?*SECURITY_ATTRIBUTES,
-    lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
-    bInheritHandles: BOOL,
-    dwCreationFlags: CreateProcessFlags,
-    lpEnvironment: ?[*:0]u16,
-    lpCurrentDirectory: ?LPCWSTR,
-    lpStartupInfo: *STARTUPINFOW,
-    lpProcessInformation: *PROCESS_INFORMATION,
-) CreateProcessError!void {
-    if (kernel32.CreateProcessW(
-        lpApplicationName,
-        lpCommandLine,
-        lpProcessAttributes,
-        lpThreadAttributes,
-        bInheritHandles,
-        dwCreationFlags,
-        lpEnvironment,
-        lpCurrentDirectory,
-        lpStartupInfo,
-        lpProcessInformation,
-    ) == 0) {
-        switch (GetLastError()) {
-            .FILE_NOT_FOUND => return error.FileNotFound,
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            .DIRECTORY => return error.FileNotFound,
-            .ACCESS_DENIED => return error.AccessDenied,
-            .INVALID_PARAMETER => unreachable,
-            .INVALID_NAME => return error.InvalidName,
-            .FILENAME_EXCED_RANGE => return error.NameTooLong,
-            .SHARING_VIOLATION => return error.FileBusy,
-            // These are all the system errors that are mapped to ENOEXEC by
-            // the undocumented _dosmaperr (old CRT) or __acrt_errno_map_os_error
-            // (newer CRT) functions. Their code can be found in crt/src/dosmap.c (old SDK)
-            // or urt/misc/errno.cpp (newer SDK) in the Windows SDK.
-            .BAD_FORMAT,
-            .INVALID_STARTING_CODESEG, // MIN_EXEC_ERROR in errno.cpp
-            .INVALID_STACKSEG,
-            .INVALID_MODULETYPE,
-            .INVALID_EXE_SIGNATURE,
-            .EXE_MARKED_INVALID,
-            .BAD_EXE_FORMAT,
-            .ITERATED_DATA_EXCEEDS_64k,
-            .INVALID_MINALLOCSIZE,
-            .DYNLINK_FROM_INVALID_RING,
-            .IOPL_NOT_ENABLED,
-            .INVALID_SEGDPL,
-            .AUTODATASEG_EXCEEDS_64k,
-            .RING2SEG_MUST_BE_MOVABLE,
-            .RELOC_CHAIN_XEEDS_SEGLIM,
-            .INFLOOP_IN_RELOC_CHAIN, // MAX_EXEC_ERROR in errno.cpp
-            // This one is not mapped to ENOEXEC but it is possible, for example
-            // when calling CreateProcessW on a plain text file with a .exe extension
-            .EXE_MACHINE_TYPE_MISMATCH,
-            => return error.InvalidExe,
-            .COMMITMENT_LIMIT => return error.SystemResources,
-            else => |err| return unexpectedError(err),
-        }
+pub fn teb() *TEB {
+    if (builtin.zig_backend == .stage2_c) return @ptrCast(@alignCast(struct {
+        /// This is a workaround for the C backend until zig has the ability to put
+        /// C code in inline assembly.
+        extern fn zig_windows_teb() callconv(.c) *anyopaque;
+    }.zig_windows_teb()));
+    switch (native_arch) {
+        .thumb => return asm (
+            \\ mrc p15, 0, %[ptr], c13, c0, 2
+            : [ptr] "=r" (-> *TEB),
+        ),
+        .aarch64 => return asm (
+            \\ mov %[ptr], x18
+            : [ptr] "=r" (-> *TEB),
+        ),
+        .x86 => {
+            comptime assert(
+                @offsetOf(TEB, "NtTib") + @offsetOf(@FieldType(TEB, "NtTib"), "Self") == 0x18,
+            );
+            return asm (
+                \\ movl %%fs:0x18, %[ptr]
+                : [ptr] "=r" (-> *TEB),
+            );
+        },
+        .x86_64 => {
+            comptime assert(
+                @offsetOf(TEB, "NtTib") + @offsetOf(@FieldType(TEB, "NtTib"), "Self") == 0x30,
+            );
+            return asm (
+                \\ movq %%gs:0x30, %[ptr]
+                : [ptr] "=r" (-> *TEB),
+            );
+        },
+        else => @compileError("unsupported arch"),
     }
 }
 
-pub const LoadLibraryError = error{
-    FileNotFound,
-    Unexpected,
-};
-
-pub fn LoadLibraryW(lpLibFileName: [*:0]const u16) LoadLibraryError!HMODULE {
-    return kernel32.LoadLibraryW(lpLibFileName) orelse {
-        switch (GetLastError()) {
-            .FILE_NOT_FOUND => return error.FileNotFound,
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            .MOD_NOT_FOUND => return error.FileNotFound,
-            else => |err| return unexpectedError(err),
-        }
-    };
-}
-
-pub const LoadLibraryFlags = enum(DWORD) {
-    none = 0,
-    dont_resolve_dll_references = 0x00000001,
-    load_ignore_code_authz_level = 0x00000010,
-    load_library_as_datafile = 0x00000002,
-    load_library_as_datafile_exclusive = 0x00000040,
-    load_library_as_image_resource = 0x00000020,
-    load_library_search_application_dir = 0x00000200,
-    load_library_search_default_dirs = 0x00001000,
-    load_library_search_dll_load_dir = 0x00000100,
-    load_library_search_system32 = 0x00000800,
-    load_library_search_user_dirs = 0x00000400,
-    load_with_altered_search_path = 0x00000008,
-    load_library_require_signed_target = 0x00000080,
-    load_library_safe_current_dirs = 0x00002000,
-};
-
-pub fn LoadLibraryExW(lpLibFileName: [*:0]const u16, dwFlags: LoadLibraryFlags) LoadLibraryError!HMODULE {
-    return kernel32.LoadLibraryExW(lpLibFileName, null, @intFromEnum(dwFlags)) orelse {
-        switch (GetLastError()) {
-            .FILE_NOT_FOUND => return error.FileNotFound,
-            .PATH_NOT_FOUND => return error.FileNotFound,
-            .MOD_NOT_FOUND => return error.FileNotFound,
-            else => |err| return unexpectedError(err),
-        }
-    };
-}
-
-pub fn FreeLibrary(hModule: HMODULE) void {
-    assert(kernel32.FreeLibrary(hModule) != 0);
-}
-
-pub fn QueryPerformanceFrequency() u64 {
-    // "On systems that run Windows XP or later, the function will always succeed"
-    // https://docs.microsoft.com/en-us/windows/desktop/api/profileapi/nf-profileapi-queryperformancefrequency
-    var result: LARGE_INTEGER = undefined;
-    assert(ntdll.RtlQueryPerformanceFrequency(&result) != 0);
-    // The kernel treats this integer as unsigned.
-    return @as(u64, @bitCast(result));
-}
-
-pub fn QueryPerformanceCounter() u64 {
-    // "On systems that run Windows XP or later, the function will always succeed"
-    // https://docs.microsoft.com/en-us/windows/desktop/api/profileapi/nf-profileapi-queryperformancecounter
-    var result: LARGE_INTEGER = undefined;
-    assert(ntdll.RtlQueryPerformanceCounter(&result) != 0);
-    // The kernel treats this integer as unsigned.
-    return @as(u64, @bitCast(result));
-}
-
-pub fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*anyopaque, Context: ?*anyopaque) void {
-    assert(kernel32.InitOnceExecuteOnce(InitOnce, InitFn, Parameter, Context) != 0);
-}
-
-/// This is a workaround for the C backend until zig has the ability to put
-/// C code in inline assembly.
-extern fn zig_thumb_windows_teb() callconv(.c) *anyopaque;
-extern fn zig_aarch64_windows_teb() callconv(.c) *anyopaque;
-extern fn zig_x86_windows_teb() callconv(.c) *anyopaque;
-extern fn zig_x86_64_windows_teb() callconv(.c) *anyopaque;
-
-pub fn teb() *TEB {
-    return switch (native_arch) {
-        .thumb => if (builtin.zig_backend == .stage2_c)
-            @ptrCast(@alignCast(zig_thumb_windows_teb()))
-        else
-            asm (
-                \\ mrc p15, 0, %[ptr], c13, c0, 2
-                : [ptr] "=r" (-> *TEB),
-            ),
-        .aarch64 => if (builtin.zig_backend == .stage2_c)
-            @ptrCast(@alignCast(zig_aarch64_windows_teb()))
-        else
-            asm (
-                \\ mov %[ptr], x18
-                : [ptr] "=r" (-> *TEB),
-            ),
-        .x86 => if (builtin.zig_backend == .stage2_c)
-            @ptrCast(@alignCast(zig_x86_windows_teb()))
-        else
-            asm (
-                \\ movl %%fs:0x18, %[ptr]
-                : [ptr] "=r" (-> *TEB),
-            ),
-        .x86_64 => if (builtin.zig_backend == .stage2_c)
-            @ptrCast(@alignCast(zig_x86_64_windows_teb()))
-        else
-            asm (
-                \\ movq %%gs:0x30, %[ptr]
-                : [ptr] "=r" (-> *TEB),
-            ),
-        else => @compileError("unsupported arch"),
-    };
-}
-
 pub fn peb() *PEB {
+    if (builtin.zig_backend == .stage2_c) switch (native_arch) {
+        .x86, .x86_64 => return @ptrCast(@alignCast(struct {
+            /// This is a workaround for the C backend until zig has the ability to put
+            /// C code in inline assembly.
+            extern fn zig_windows_peb() callconv(.c) *anyopaque;
+        }.zig_windows_peb())),
+        else => {},
+    } else switch (native_arch) {
+        .aarch64 => {
+            comptime assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x60);
+            return asm (
+                \\ ldr %[ptr], [x18, #0x60]
+                : [ptr] "=r" (-> *PEB),
+            );
+        },
+        .x86 => {
+            comptime assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x30);
+            return asm (
+                \\ movl %%fs:0x30, %[ptr]
+                : [ptr] "=r" (-> *PEB),
+            );
+        },
+        .x86_64 => {
+            comptime assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x60);
+            return asm (
+                \\ movq %%gs:0x60, %[ptr]
+                : [ptr] "=r" (-> *PEB),
+            );
+        },
+        else => {},
+    }
     return teb().ProcessEnvironmentBlock;
 }
 
@@ -4108,18 +2974,10 @@ pub fn toSysTime(ns: Io.Timestamp) i64 {
     return @as(i64, @intCast(hns)) - std.time.epoch.windows * (std.time.ns_per_s / 100);
 }
 
-pub fn fileTimeToNanoSeconds(ft: FILETIME) Io.Timestamp {
-    const hns = (@as(i64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-    return fromSysTime(hns);
-}
-
-/// Converts a number of nanoseconds since the POSIX epoch to a Windows FILETIME.
-pub fn nanoSecondsToFileTime(ns: Io.Timestamp) FILETIME {
-    const adjusted: u64 = @bitCast(toSysTime(ns));
-    return .{
-        .dwHighDateTime = @as(u32, @truncate(adjusted >> 32)),
-        .dwLowDateTime = @as(u32, @truncate(adjusted)),
-    };
+/// Use RtlUpcaseUnicodeChar on Windows when not in comptime to avoid including a
+/// redundant copy of the uppercase data.
+pub inline fn toUpperWtf16(c: u16) u16 {
+    return (if (builtin.os.tag != .windows or @inComptime()) nls.upcaseW else ntdll.RtlUpcaseUnicodeChar)(c);
 }
 
 /// Compares two WTF16 strings using the equivalent functionality of
@@ -4139,7 +2997,7 @@ pub fn eqlIgnoreCaseWtf16(a: []const u16, b: []const u16) bool {
             // endianness for the uppercasing
             const a_c_native = std.mem.littleToNative(u16, a_c);
             const b_c_native = std.mem.littleToNative(u16, b_c);
-            if (a_c != b_c and nls.upcaseW(a_c_native) != nls.upcaseW(b_c_native)) {
+            if (a_c != b_c and toUpperWtf16(a_c_native) != toUpperWtf16(b_c_native)) {
                 return false;
             }
         }
@@ -4147,19 +3005,7 @@ pub fn eqlIgnoreCaseWtf16(a: []const u16, b: []const u16) bool {
     }
     // Use RtlEqualUnicodeString on Windows when not in comptime to avoid including a
     // redundant copy of the uppercase data.
-    const a_bytes = @as(u16, @intCast(a.len * 2));
-    const a_string: UNICODE_STRING = .{
-        .Length = a_bytes,
-        .MaximumLength = a_bytes,
-        .Buffer = @constCast(a.ptr),
-    };
-    const b_bytes = @as(u16, @intCast(b.len * 2));
-    const b_string: UNICODE_STRING = .{
-        .Length = b_bytes,
-        .MaximumLength = b_bytes,
-        .Buffer = @constCast(b.ptr),
-    };
-    return ntdll.RtlEqualUnicodeString(&a_string, &b_string, TRUE) == TRUE;
+    return ntdll.RtlEqualUnicodeString(&.init(a), &.init(b), TRUE) == TRUE;
 }
 
 /// Compares two WTF-8 strings using the equivalent functionality of
@@ -4175,19 +3021,12 @@ pub fn eqlIgnoreCaseWtf8(a: []const u8, b: []const u8) bool {
     var a_wtf8_it = std.unicode.Wtf8View.initUnchecked(a).iterator();
     var b_wtf8_it = std.unicode.Wtf8View.initUnchecked(b).iterator();
 
-    // Use RtlUpcaseUnicodeChar on Windows when not in comptime to avoid including a
-    // redundant copy of the uppercase data.
-    const upcaseImpl = switch (builtin.os.tag) {
-        .windows => if (@inComptime()) nls.upcaseW else ntdll.RtlUpcaseUnicodeChar,
-        else => nls.upcaseW,
-    };
-
     while (true) {
         const a_cp = a_wtf8_it.nextCodepoint() orelse break;
         const b_cp = b_wtf8_it.nextCodepoint() orelse return false;
 
         if (a_cp <= maxInt(u16) and b_cp <= maxInt(u16)) {
-            if (a_cp != b_cp and upcaseImpl(@intCast(a_cp)) != upcaseImpl(@intCast(b_cp))) {
+            if (a_cp != b_cp and toUpperWtf16(@intCast(a_cp)) != toUpperWtf16(@intCast(b_cp))) {
                 return false;
             }
         } else if (a_cp != b_cp) {
@@ -4219,15 +3058,6 @@ test "eqlIgnoreCaseWtf16/Wtf8" {
     // does not do case-insensitive comparison for codepoints >= U+10000
     try testEqlIgnoreCase(false, "𐓏", "𐓷");
 }
-
-pub const PathSpace = struct {
-    data: [PATH_MAX_WIDE:0]u16,
-    len: usize,
-
-    pub fn span(self: *const PathSpace) [:0]const u16 {
-        return self.data[0..self.len :0];
-    }
-};
 
 /// The error type for `removeDotDirsSanitized`
 pub const RemoveDotDirsError = error{TooManyParentDirs};
@@ -4304,205 +3134,6 @@ pub fn normalizePath(comptime T: type, path: []T) RemoveDotDirsError!usize {
     return prefix_len + try removeDotDirsSanitized(T, path[prefix_len..new_len]);
 }
 
-pub const Wtf8ToPrefixedFileWError = Wtf16ToPrefixedFileWError;
-
-/// Same as `sliceToPrefixedFileW` but accepts a pointer
-/// to a null-terminated WTF-8 encoded path.
-/// https://wtf-8.codeberg.page/
-pub fn cStrToPrefixedFileW(dir: ?HANDLE, s: [*:0]const u8) Wtf8ToPrefixedFileWError!PathSpace {
-    return sliceToPrefixedFileW(dir, mem.sliceTo(s, 0));
-}
-
-/// Same as `wToPrefixedFileW` but accepts a WTF-8 encoded path.
-/// https://wtf-8.codeberg.page/
-pub fn sliceToPrefixedFileW(dir: ?HANDLE, path: []const u8) Wtf8ToPrefixedFileWError!PathSpace {
-    var temp_path: PathSpace = undefined;
-    temp_path.len = std.unicode.wtf8ToWtf16Le(&temp_path.data, path) catch |err| switch (err) {
-        error.InvalidWtf8 => return error.BadPathName,
-    };
-    temp_path.data[temp_path.len] = 0;
-    return wToPrefixedFileW(dir, temp_path.span());
-}
-
-pub const Wtf16ToPrefixedFileWError = error{
-    AccessDenied,
-    BadPathName,
-    FileNotFound,
-    NameTooLong,
-    Unexpected,
-};
-
-/// Converts the `path` to WTF16, null-terminated. If the path contains any
-/// namespace prefix, or is anything but a relative path (rooted, drive relative,
-/// etc) the result will have the NT-style prefix `\??\`.
-///
-/// Similar to RtlDosPathNameToNtPathName_U with a few differences:
-/// - Does not allocate on the heap.
-/// - Relative paths are kept as relative unless they contain too many ..
-///   components, in which case they are resolved against the `dir` if it
-///   is non-null, or the CWD if it is null.
-/// - Special case device names like COM1, NUL, etc are not handled specially (TODO)
-/// - . and space are not stripped from the end of relative paths (potential TODO)
-pub fn wToPrefixedFileW(dir: ?HANDLE, path: [:0]const u16) Wtf16ToPrefixedFileWError!PathSpace {
-    const nt_prefix = [_]u16{ '\\', '?', '?', '\\' };
-    if (hasCommonNtPrefix(u16, path)) {
-        // TODO: Figure out a way to design an API that can avoid the copy for NT,
-        //       since it is always returned fully unmodified.
-        var path_space: PathSpace = undefined;
-        path_space.data[0..nt_prefix.len].* = nt_prefix;
-        const len_after_prefix = path.len - nt_prefix.len;
-        @memcpy(path_space.data[nt_prefix.len..][0..len_after_prefix], path[nt_prefix.len..]);
-        path_space.len = path.len;
-        path_space.data[path_space.len] = 0;
-        return path_space;
-    } else {
-        const path_type = std.fs.path.getWin32PathType(u16, path);
-        var path_space: PathSpace = undefined;
-        if (path_type == .local_device) {
-            switch (getLocalDevicePathType(u16, path)) {
-                .verbatim => {
-                    path_space.data[0..nt_prefix.len].* = nt_prefix;
-                    const len_after_prefix = path.len - nt_prefix.len;
-                    @memcpy(path_space.data[nt_prefix.len..][0..len_after_prefix], path[nt_prefix.len..]);
-                    path_space.len = path.len;
-                    path_space.data[path_space.len] = 0;
-                    return path_space;
-                },
-                .local_device, .fake_verbatim => {
-                    const path_byte_len = ntdll.RtlGetFullPathName_U(
-                        path.ptr,
-                        path_space.data.len * 2,
-                        &path_space.data,
-                        null,
-                    );
-                    if (path_byte_len == 0) {
-                        // TODO: This may not be the right error
-                        return error.BadPathName;
-                    } else if (path_byte_len / 2 > path_space.data.len) {
-                        return error.NameTooLong;
-                    }
-                    path_space.len = path_byte_len / 2;
-                    // Both prefixes will be normalized but retained, so all
-                    // we need to do now is replace them with the NT prefix
-                    path_space.data[0..nt_prefix.len].* = nt_prefix;
-                    return path_space;
-                },
-            }
-        }
-        relative: {
-            if (path_type == .relative) {
-                // TODO: Handle special case device names like COM1, AUX, NUL, CONIN$, CONOUT$, etc.
-                //       See https://googleprojectzero.blogspot.com/2016/02/the-definitive-guide-on-win32-to-nt.html
-
-                // TODO: Potentially strip all trailing . and space characters from the
-                //       end of the path. This is something that both RtlDosPathNameToNtPathName_U
-                //       and RtlGetFullPathName_U do. Technically, trailing . and spaces
-                //       are allowed, but such paths may not interact well with Windows (i.e.
-                //       files with these paths can't be deleted from explorer.exe, etc).
-                //       This could be something that normalizePath may want to do.
-
-                @memcpy(path_space.data[0..path.len], path);
-                // Try to normalize, but if we get too many parent directories,
-                // then we need to start over and use RtlGetFullPathName_U instead.
-                path_space.len = normalizePath(u16, path_space.data[0..path.len]) catch |err| switch (err) {
-                    error.TooManyParentDirs => break :relative,
-                };
-                path_space.data[path_space.len] = 0;
-                return path_space;
-            }
-        }
-        // We now know we are going to return an absolute NT path, so
-        // we can unconditionally prefix it with the NT prefix.
-        path_space.data[0..nt_prefix.len].* = nt_prefix;
-        if (path_type == .root_local_device) {
-            // `\\.` and `\\?` always get converted to `\??\` exactly, so
-            // we can just stop here
-            path_space.len = nt_prefix.len;
-            path_space.data[path_space.len] = 0;
-            return path_space;
-        }
-        const path_buf_offset = switch (path_type) {
-            // UNC paths will always start with `\\`. However, we want to
-            // end up with something like `\??\UNC\server\share`, so to get
-            // RtlGetFullPathName to write into the spot we want the `server`
-            // part to end up, we need to provide an offset such that
-            // the `\\` part gets written where the `C\` of `UNC\` will be
-            // in the final NT path.
-            .unc_absolute => nt_prefix.len + 2,
-            else => nt_prefix.len,
-        };
-        const buf_len: u32 = @intCast(path_space.data.len - path_buf_offset);
-        const path_to_get: [:0]const u16 = path_to_get: {
-            // If dir is null, then we don't need to bother with GetFinalPathNameByHandle because
-            // RtlGetFullPathName_U will resolve relative paths against the CWD for us.
-            if (path_type != .relative or dir == null) {
-                break :path_to_get path;
-            }
-            // We can also skip GetFinalPathNameByHandle if the handle matches
-            // the handle returned by Io.Dir.cwd()
-            if (dir.? == Io.Dir.cwd().handle) {
-                break :path_to_get path;
-            }
-            // At this point, we know we have a relative path that had too many
-            // `..` components to be resolved by normalizePath, so we need to
-            // convert it into an absolute path and let RtlGetFullPathName_U
-            // canonicalize it. We do this by getting the path of the `dir`
-            // and appending the relative path to it.
-            var dir_path_buf: [PATH_MAX_WIDE:0]u16 = undefined;
-            const dir_path = GetFinalPathNameByHandle(dir.?, .{}, &dir_path_buf) catch |err| switch (err) {
-                // This mapping is not correct; it is actually expected
-                // that calling GetFinalPathNameByHandle might return
-                // error.UnrecognizedVolume, and in fact has been observed
-                // in the wild. The problem is that wToPrefixedFileW was
-                // never intended to make *any* OS syscall APIs. It's only
-                // supposed to convert a string to one that is eligible to
-                // be used in the ntdll syscalls.
-                //
-                // To solve this, this function needs to no longer call
-                // GetFinalPathNameByHandle under any conditions, or the
-                // calling function needs to get reworked to not need to
-                // call this function.
-                //
-                // This may involve making breaking API changes.
-                error.UnrecognizedVolume => return error.Unexpected,
-                else => |e| return e,
-            };
-            if (dir_path.len + 1 + path.len > PATH_MAX_WIDE) {
-                return error.NameTooLong;
-            }
-            // We don't have to worry about potentially doubling up path separators
-            // here since RtlGetFullPathName_U will handle canonicalizing it.
-            dir_path_buf[dir_path.len] = '\\';
-            @memcpy(dir_path_buf[dir_path.len + 1 ..][0..path.len], path);
-            const full_len = dir_path.len + 1 + path.len;
-            dir_path_buf[full_len] = 0;
-            break :path_to_get dir_path_buf[0..full_len :0];
-        };
-        const path_byte_len = ntdll.RtlGetFullPathName_U(
-            path_to_get.ptr,
-            buf_len * 2,
-            path_space.data[path_buf_offset..].ptr,
-            null,
-        );
-        if (path_byte_len == 0) {
-            // TODO: This may not be the right error
-            return error.BadPathName;
-        } else if (path_byte_len / 2 > buf_len) {
-            return error.NameTooLong;
-        }
-        path_space.len = path_buf_offset + (path_byte_len / 2);
-        if (path_type == .unc_absolute) {
-            // Now add in the UNC, the `C` should overwrite the first `\` of the
-            // FullPathName, ultimately resulting in `\??\UNC\<the rest of the path>`
-            assert(path_space.data[path_buf_offset] == '\\');
-            assert(path_space.data[path_buf_offset + 1] == '\\');
-            const unc = [_]u16{ 'U', 'N', 'C' };
-            path_space.data[nt_prefix.len..][0..unc.len].* = unc;
-        }
-        return path_space;
-    }
-}
-
 /// Returns true if the path starts with `\??\`, which is indicative of an NT path
 /// but is not enough to fully distinguish between NT paths and Win32 paths, as
 /// `\??\` is not actually a distinct prefix but rather the path to a special virtual
@@ -4524,39 +3155,6 @@ pub fn hasCommonNtPrefix(comptime T: type, path: []const T) bool {
         else => @compileError("unsupported type: " ++ @typeName(T)),
     };
     return mem.startsWith(T, path, expected_prefix);
-}
-
-const LocalDevicePathType = enum {
-    /// `\\.\` (path separators can be `\` or `/`)
-    local_device,
-    /// `\\?\`
-    /// When converted to an NT path, everything past the prefix is left
-    /// untouched and `\\?\` is replaced by `\??\`.
-    verbatim,
-    /// `\\?\` without all path separators being `\`.
-    /// This seems to be recognized as a prefix, but the 'verbatim' aspect
-    /// is not respected (i.e. if `//?/C:/foo` is converted to an NT path,
-    /// it will become `\??\C:\foo` [it will be canonicalized and the //?/ won't
-    /// be treated as part of the final path])
-    fake_verbatim,
-};
-
-/// Only relevant for Win32 -> NT path conversion.
-/// Asserts `path` is of type `std.fs.path.Win32PathType.local_device`.
-fn getLocalDevicePathType(comptime T: type, path: []const T) LocalDevicePathType {
-    if (std.debug.runtime_safety) {
-        assert(std.fs.path.getWin32PathType(T, path) == .local_device);
-    }
-
-    const backslash = mem.nativeToLittle(T, '\\');
-    const all_backslash = path[0] == backslash and
-        path[1] == backslash and
-        path[3] == backslash;
-    return switch (path[2]) {
-        mem.nativeToLittle(T, '?') => if (all_backslash) .verbatim else .fake_verbatim,
-        mem.nativeToLittle(T, '.') => .local_device,
-        else => unreachable,
-    };
 }
 
 /// Similar to `RtlNtPathNameToDosPathName` but does not do any heap allocation.
@@ -4675,15 +3273,6 @@ pub const Win32Error = @import("windows/win32error.zig").Win32Error;
 pub const LANG = @import("windows/lang.zig");
 pub const SUBLANG = @import("windows/sublang.zig");
 
-/// The standard input device. Initially, this is the console input buffer, CONIN$.
-pub const STD_INPUT_HANDLE = maxInt(DWORD) - 10 + 1;
-
-/// The standard output device. Initially, this is the active console screen buffer, CONOUT$.
-pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
-
-/// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
-pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
-
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
 pub const BYTE = u8;
@@ -4734,12 +3323,10 @@ pub const LONG = i32;
 pub const ULONG64 = u64;
 pub const ULONGLONG = u64;
 pub const LONGLONG = i64;
-pub const HLOCAL = HANDLE;
 pub const LANGID = c_ushort;
+pub const COLORREF = DWORD;
 
-pub const WPARAM = usize;
 pub const LPARAM = LONG_PTR;
-pub const LRESULT = LONG_PTR;
 
 pub const va_list = *opaque {};
 
@@ -4748,6 +3335,40 @@ pub const LPTSTR = @compileError("Deprecated: choose between `LPSTR` or `LPWSTR`
 pub const LPCTSTR = @compileError("Deprecated: choose between `LPCSTR` or `LPCWSTR` directly instead.");
 pub const PTSTR = @compileError("Deprecated: choose between `PSTR` or `PWSTR` directly instead.");
 pub const PCTSTR = @compileError("Deprecated: choose between `PCSTR` or `PCWSTR` directly instead.");
+
+fn STRING(comptime C: type) type {
+    return extern struct {
+        Length: USHORT,
+        MaximumLength: USHORT,
+        Buffer: ?[*]C,
+
+        pub const empty: @This() = .{ .Length = 0, .MaximumLength = 0, .Buffer = null };
+
+        pub fn init(string: []const C) @This() {
+            const len: USHORT = @intCast(@sizeOf(C) * string.len);
+            return .{
+                .Length = len,
+                .MaximumLength = len,
+                .Buffer = @constCast(string.ptr),
+            };
+        }
+
+        pub fn isEmpty(string: *const @This()) bool {
+            return string.Length == 0;
+        }
+
+        pub fn slice(string: *const @This()) []C {
+            return if (string.isEmpty()) &.{} else string.Buffer.?[0..@divExact(string.Length, @sizeOf(C))];
+        }
+
+        pub fn sliceZ(string: *const @This()) [:0]C {
+            assert(string.Length + @sizeOf(C) <= string.MaximumLength);
+            return string.Buffer.?[0..@divExact(string.Length, @sizeOf(C)) :0];
+        }
+    };
+}
+pub const ANSI_STRING = STRING(CHAR);
+pub const UNICODE_STRING = STRING(WCHAR);
 
 pub const TRUE = 1;
 pub const FALSE = 0;
@@ -4778,109 +3399,12 @@ pub const OVERLAPPED = extern struct {
     hEvent: ?HANDLE,
 };
 
-pub const OVERLAPPED_ENTRY = extern struct {
-    lpCompletionKey: ULONG_PTR,
-    lpOverlapped: *OVERLAPPED,
-    Internal: ULONG_PTR,
-    dwNumberOfBytesTransferred: DWORD,
-};
-
 pub const MAX_PATH = 260;
-
-pub const FILE_INFO_BY_HANDLE_CLASS = enum(u32) {
-    FileBasicInfo = 0,
-    FileStandardInfo = 1,
-    FileNameInfo = 2,
-    FileRenameInfo = 3,
-    FileDispositionInfo = 4,
-    FileAllocationInfo = 5,
-    FileEndOfFileInfo = 6,
-    FileStreamInfo = 7,
-    FileCompressionInfo = 8,
-    FileAttributeTagInfo = 9,
-    FileIdBothDirectoryInfo = 10,
-    FileIdBothDirectoryRestartInfo = 11,
-    FileIoPriorityHintInfo = 12,
-    FileRemoteProtocolInfo = 13,
-    FileFullDirectoryInfo = 14,
-    FileFullDirectoryRestartInfo = 15,
-    FileStorageInfo = 16,
-    FileAlignmentInfo = 17,
-    FileIdInfo = 18,
-    FileIdExtdDirectoryInfo = 19,
-    FileIdExtdDirectoryRestartInfo = 20,
-};
-
-pub const BY_HANDLE_FILE_INFORMATION = extern struct {
-    dwFileAttributes: DWORD,
-    ftCreationTime: FILETIME,
-    ftLastAccessTime: FILETIME,
-    ftLastWriteTime: FILETIME,
-    dwVolumeSerialNumber: DWORD,
-    nFileSizeHigh: DWORD,
-    nFileSizeLow: DWORD,
-    nNumberOfLinks: DWORD,
-    nFileIndexHigh: DWORD,
-    nFileIndexLow: DWORD,
-};
-
-pub const FILE_NAME_INFO = extern struct {
-    FileNameLength: DWORD,
-    FileName: [1]WCHAR,
-};
-
-/// Return the normalized drive name. This is the default.
-pub const FILE_NAME_NORMALIZED = 0x0;
-
-/// Return the opened file name (not normalized).
-pub const FILE_NAME_OPENED = 0x8;
-
-/// Return the path with the drive letter. This is the default.
-pub const VOLUME_NAME_DOS = 0x0;
-
-/// Return the path with a volume GUID path instead of the drive name.
-pub const VOLUME_NAME_GUID = 0x1;
-
-/// Return the path with no drive information.
-pub const VOLUME_NAME_NONE = 0x4;
-
-/// Return the path with the volume device path.
-pub const VOLUME_NAME_NT = 0x2;
 
 pub const SECURITY_ATTRIBUTES = extern struct {
     nLength: DWORD,
     lpSecurityDescriptor: ?*anyopaque,
     bInheritHandle: BOOL,
-};
-
-pub const PIPE_ACCESS_INBOUND = 0x00000001;
-pub const PIPE_ACCESS_OUTBOUND = 0x00000002;
-pub const PIPE_ACCESS_DUPLEX = 0x00000003;
-
-pub const PIPE_TYPE_BYTE = 0x00000000;
-pub const PIPE_TYPE_MESSAGE = 0x00000004;
-
-pub const PIPE_READMODE_BYTE = 0x00000000;
-pub const PIPE_READMODE_MESSAGE = 0x00000002;
-
-pub const PIPE_WAIT = 0x00000000;
-pub const PIPE_NOWAIT = 0x00000001;
-
-pub const CREATE_ALWAYS = 2;
-pub const CREATE_NEW = 1;
-pub const OPEN_ALWAYS = 4;
-pub const OPEN_EXISTING = 3;
-pub const TRUNCATE_EXISTING = 5;
-
-// flags for CreateEvent
-pub const CREATE_EVENT_INITIAL_SET = 0x00000002;
-pub const CREATE_EVENT_MANUAL_RESET = 0x00000001;
-
-pub const PROCESS_INFORMATION = extern struct {
-    hProcess: HANDLE,
-    hThread: HANDLE,
-    dwProcessId: DWORD,
-    dwThreadId: DWORD,
 };
 
 pub const STARTUPINFOW = extern struct {
@@ -4919,50 +3443,7 @@ pub const STARTF_USESHOWWINDOW = 0x00000001;
 pub const STARTF_USESIZE = 0x00000002;
 pub const STARTF_USESTDHANDLES = 0x00000100;
 
-pub const INFINITE = 4294967295;
-
-pub const MAXIMUM_WAIT_OBJECTS = 64;
-
-pub const WAIT_ABANDONED = 0x00000080;
-pub const WAIT_ABANDONED_0 = WAIT_ABANDONED + 0;
-pub const WAIT_OBJECT_0 = 0x00000000;
-pub const WAIT_TIMEOUT = 0x00000102;
-pub const WAIT_FAILED = 0xFFFFFFFF;
-
-pub const HANDLE_FLAG_INHERIT = 0x00000001;
-pub const HANDLE_FLAG_PROTECT_FROM_CLOSE = 0x00000002;
-
-pub const MOVEFILE_COPY_ALLOWED = 2;
-pub const MOVEFILE_CREATE_HARDLINK = 16;
-pub const MOVEFILE_DELAY_UNTIL_REBOOT = 4;
-pub const MOVEFILE_FAIL_IF_NOT_TRACKABLE = 32;
-pub const MOVEFILE_REPLACE_EXISTING = 1;
-pub const MOVEFILE_WRITE_THROUGH = 8;
-
-pub const FILE_BEGIN = 0;
-pub const FILE_CURRENT = 1;
-pub const FILE_END = 2;
-
-pub const PTHREAD_START_ROUTINE = *const fn (LPVOID) callconv(.winapi) DWORD;
-pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
-
-pub const WIN32_FIND_DATAW = extern struct {
-    dwFileAttributes: DWORD,
-    ftCreationTime: FILETIME,
-    ftLastAccessTime: FILETIME,
-    ftLastWriteTime: FILETIME,
-    nFileSizeHigh: DWORD,
-    nFileSizeLow: DWORD,
-    dwReserved0: DWORD,
-    dwReserved1: DWORD,
-    cFileName: [260]u16,
-    cAlternateFileName: [14]u16,
-};
-
-pub const FILETIME = extern struct {
-    dwLowDateTime: DWORD,
-    dwHighDateTime: DWORD,
-};
+pub const THREAD_START_ROUTINE = fn (LPVOID) callconv(.winapi) DWORD;
 
 pub const SYSTEM_INFO = extern struct {
     anon1: extern union {
@@ -4985,7 +3466,6 @@ pub const SYSTEM_INFO = extern struct {
 
 pub const HRESULT = c_long;
 
-pub const KNOWNFOLDERID = GUID;
 pub const GUID = extern struct {
     Data1: u32,
     Data2: u16,
@@ -5040,74 +3520,10 @@ test GUID {
     );
 }
 
-pub const FOLDERID_LocalAppData = GUID.parse("{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}");
-
-pub const KF_FLAG_DEFAULT = 0;
-pub const KF_FLAG_NO_APPCONTAINER_REDIRECTION = 65536;
-pub const KF_FLAG_CREATE = 32768;
-pub const KF_FLAG_DONT_VERIFY = 16384;
-pub const KF_FLAG_DONT_UNEXPAND = 8192;
-pub const KF_FLAG_NO_ALIAS = 4096;
-pub const KF_FLAG_INIT = 2048;
-pub const KF_FLAG_DEFAULT_PATH = 1024;
-pub const KF_FLAG_NOT_PARENT_RELATIVE = 512;
-pub const KF_FLAG_SIMPLE_IDLIST = 256;
-pub const KF_FLAG_ALIAS_ONLY = -2147483648;
-
-pub const S_OK = 0;
-pub const S_FALSE = 0x00000001;
-pub const E_NOTIMPL = @as(c_long, @bitCast(@as(c_ulong, 0x80004001)));
-pub const E_NOINTERFACE = @as(c_long, @bitCast(@as(c_ulong, 0x80004002)));
-pub const E_POINTER = @as(c_long, @bitCast(@as(c_ulong, 0x80004003)));
-pub const E_ABORT = @as(c_long, @bitCast(@as(c_ulong, 0x80004004)));
-pub const E_FAIL = @as(c_long, @bitCast(@as(c_ulong, 0x80004005)));
-pub const E_UNEXPECTED = @as(c_long, @bitCast(@as(c_ulong, 0x8000FFFF)));
-pub const E_ACCESSDENIED = @as(c_long, @bitCast(@as(c_ulong, 0x80070005)));
-pub const E_HANDLE = @as(c_long, @bitCast(@as(c_ulong, 0x80070006)));
-pub const E_OUTOFMEMORY = @as(c_long, @bitCast(@as(c_ulong, 0x8007000E)));
-pub const E_INVALIDARG = @as(c_long, @bitCast(@as(c_ulong, 0x80070057)));
-
-pub fn HRESULT_CODE(hr: HRESULT) Win32Error {
-    return @enumFromInt(hr & 0xFFFF);
-}
-
-pub const FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
-pub const FILE_FLAG_DELETE_ON_CLOSE = 0x04000000;
-pub const FILE_FLAG_NO_BUFFERING = 0x20000000;
-pub const FILE_FLAG_OPEN_NO_RECALL = 0x00100000;
-pub const FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
-pub const FILE_FLAG_OVERLAPPED = 0x40000000;
-pub const FILE_FLAG_POSIX_SEMANTICS = 0x0100000;
-pub const FILE_FLAG_RANDOM_ACCESS = 0x10000000;
-pub const FILE_FLAG_SESSION_AWARE = 0x00800000;
-pub const FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000;
-pub const FILE_FLAG_WRITE_THROUGH = 0x80000000;
-
-pub const RECT = extern struct {
-    left: LONG,
-    top: LONG,
-    right: LONG,
-    bottom: LONG,
-};
-
-pub const SMALL_RECT = extern struct {
-    Left: SHORT,
-    Top: SHORT,
-    Right: SHORT,
-    Bottom: SHORT,
-};
-
-pub const POINT = extern struct {
-    x: LONG,
-    y: LONG,
-};
-
 pub const COORD = extern struct {
     X: SHORT,
     Y: SHORT,
 };
-
-pub const CREATE_UNICODE_ENVIRONMENT = 1024;
 
 pub const TLS_OUT_OF_INDEXES = 4294967295;
 pub const IMAGE_TLS_DIRECTORY = extern struct {
@@ -5122,8 +3538,6 @@ pub const IMAGE_TLS_DIRECTORY64 = IMAGE_TLS_DIRECTORY;
 pub const IMAGE_TLS_DIRECTORY32 = IMAGE_TLS_DIRECTORY;
 
 pub const PIMAGE_TLS_CALLBACK = ?*const fn (PVOID, DWORD, PVOID) callconv(.winapi) void;
-
-pub const PROV_RSA_FULL = 1;
 
 pub const REGSAM = ACCESS_MASK;
 pub const LSTATUS = LONG;
@@ -5140,9 +3554,6 @@ pub const HKEY_PERFORMANCE_NLSTEXT: HKEY = @ptrFromInt(0x80000060);
 pub const HKEY_CURRENT_CONFIG: HKEY = @ptrFromInt(0x80000005);
 pub const HKEY_DYN_DATA: HKEY = @ptrFromInt(0x80000006);
 pub const HKEY_CURRENT_USER_LOCAL_SETTINGS: HKEY = @ptrFromInt(0x80000007);
-
-/// Open symbolic link.
-pub const REG_OPTION_OPEN_LINK: DWORD = 0x8;
 
 pub const RTL_QUERY_REGISTRY_TABLE = extern struct {
     QueryRoutine: RTL_QUERY_REGISTRY_ROUTINE,
@@ -5244,53 +3655,17 @@ pub const REG = struct {
     pub const QWORD_LITTLE_ENDIAN: ULONG = 11;
 };
 
-pub const FILE_NOTIFY_INFORMATION = extern struct {
-    NextEntryOffset: DWORD,
-    Action: DWORD,
-    FileNameLength: DWORD,
-    // Flexible array member
-    // FileName: [1]WCHAR,
-};
-
-pub const FILE_ACTION_ADDED = 0x00000001;
-pub const FILE_ACTION_REMOVED = 0x00000002;
-pub const FILE_ACTION_MODIFIED = 0x00000003;
-pub const FILE_ACTION_RENAMED_OLD_NAME = 0x00000004;
-pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
-
-pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?*const fn (DWORD, DWORD, *OVERLAPPED) callconv(.winapi) void;
-
-pub const FileNotifyChangeFilter = packed struct(DWORD) {
-    file_name: bool = false,
-    dir_name: bool = false,
-    attributes: bool = false,
-    size: bool = false,
-    last_write: bool = false,
-    last_access: bool = false,
-    creation: bool = false,
-    ea: bool = false,
-    security: bool = false,
-    stream_name: bool = false,
-    stream_size: bool = false,
-    stream_write: bool = false,
-    _pad: u20 = 0,
-};
-
-pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
-    dwSize: COORD,
-    dwCursorPosition: COORD,
-    wAttributes: WORD,
-    srWindow: SMALL_RECT,
-    dwMaximumWindowSize: COORD,
-};
-
 pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x4;
 pub const DISABLE_NEWLINE_AUTO_RETURN = 0x8;
 
-pub const FOREGROUND_BLUE = 1;
-pub const FOREGROUND_GREEN = 2;
-pub const FOREGROUND_RED = 4;
-pub const FOREGROUND_INTENSITY = 8;
+pub const FOREGROUND_BLUE = 0x0001;
+pub const FOREGROUND_GREEN = 0x0002;
+pub const FOREGROUND_RED = 0x0004;
+pub const FOREGROUND_INTENSITY = 0x0008;
+pub const BACKGROUND_BLUE = 0x0010;
+pub const BACKGROUND_GREEN = 0x0020;
+pub const BACKGROUND_RED = 0x0040;
+pub const BACKGROUND_INTENSITY = 0x0080;
 
 pub const LIST_ENTRY = extern struct {
     Flink: *LIST_ENTRY,
@@ -5328,26 +3703,6 @@ pub const RTL_RUN_ONCE = extern struct {
 };
 
 pub const RTL_RUN_ONCE_INIT = RTL_RUN_ONCE{ .Ptr = null };
-
-pub const COINIT = struct {
-    pub const APARTMENTTHREADED = 2;
-    pub const MULTITHREADED = 0;
-    pub const DISABLE_OLE1DDE = 4;
-    pub const SPEED_OVER_MEMORY = 8;
-};
-
-pub const MEMORY_BASIC_INFORMATION = extern struct {
-    BaseAddress: PVOID,
-    AllocationBase: PVOID,
-    AllocationProtect: DWORD,
-    PartitionId: WORD,
-    RegionSize: SIZE_T,
-    State: DWORD,
-    Protect: DWORD,
-    Type: DWORD,
-};
-
-pub const PMEMORY_BASIC_INFORMATION = *MEMORY_BASIC_INFORMATION;
 
 /// > The maximum path of 32,767 characters is approximate, because the "\\?\"
 /// > prefix may be expanded to a longer string by the system at run time, and
@@ -5817,12 +4172,6 @@ pub const UNW_FLAG_EHANDLER = 0x1;
 pub const UNW_FLAG_UHANDLER = 0x2;
 pub const UNW_FLAG_CHAININFO = 0x4;
 
-pub const UNICODE_STRING = extern struct {
-    Length: c_ushort,
-    MaximumLength: c_ushort,
-    Buffer: ?[*]WCHAR,
-};
-
 pub const ACTIVATION_CONTEXT_DATA = opaque {};
 pub const ASSEMBLY_STORAGE_MAP = opaque {};
 pub const FLS_CALLBACK_INFO = opaque {};
@@ -5835,15 +4184,6 @@ pub const CLIENT_ID = extern struct {
     UniqueThread: HANDLE,
 };
 
-pub const THREAD_BASIC_INFORMATION = extern struct {
-    ExitStatus: NTSTATUS,
-    TebBaseAddress: PVOID,
-    ClientId: CLIENT_ID,
-    AffinityMask: KAFFINITY,
-    Priority: KPRIORITY,
-    BasePriority: KPRIORITY,
-};
-
 pub const TEB = extern struct {
     NtTib: NT_TIB,
     EnvironmentPointer: PVOID,
@@ -5851,7 +4191,7 @@ pub const TEB = extern struct {
     ActiveRpcHandle: PVOID,
     ThreadLocalStoragePointer: PVOID,
     ProcessEnvironmentBlock: *PEB,
-    LastErrorValue: ULONG,
+    LastErrorValue: Win32Error,
     Reserved2: [399 * @sizeOf(PVOID) - @sizeOf(ULONG)]u8,
     Reserved3: [1952]u8,
     TlsSlots: [64]PVOID,
@@ -6064,7 +4404,7 @@ pub const PEB = extern struct {
 };
 
 /// The `PEB_LDR_DATA` structure is the main record of what modules are loaded in a process.
-/// It is essentially the head of three double-linked lists of `LDR_DATA_TABLE_ENTRY` structures which each represent one loaded module.
+/// It is essentially the head of three double-linked lists of `LDR.DATA_TABLE_ENTRY` structures which each represent one loaded module.
 ///
 /// Microsoft documentation of this is incomplete, the fields here are taken from various resources including:
 ///  - https://www.geoffchappell.com/studies/windows/win32/ntdll/structs/peb_ldr_data.htm
@@ -6096,24 +4436,89 @@ pub const PEB_LDR_DATA = extern struct {
     ShutdownThreadId: HANDLE,
 };
 
-/// Microsoft documentation of this is incomplete, the fields here are taken from various resources including:
-///  - https://docs.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb_ldr_data
-///  - https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntldr/ldr_data_table_entry.htm
-pub const LDR_DATA_TABLE_ENTRY = extern struct {
-    InLoadOrderLinks: LIST_ENTRY,
-    InMemoryOrderLinks: LIST_ENTRY,
-    InInitializationOrderLinks: LIST_ENTRY,
-    DllBase: PVOID,
-    EntryPoint: PVOID,
-    SizeOfImage: ULONG,
-    FullDllName: UNICODE_STRING,
-    BaseDllName: UNICODE_STRING,
-    Reserved5: [3]PVOID,
-    DUMMYUNIONNAME: extern union {
-        CheckSum: ULONG,
-        Reserved6: PVOID,
-    },
-    TimeDateStamp: ULONG,
+pub const LDR = struct {
+    /// Microsoft documentation of this is incomplete, the fields here are taken from various resources including:
+    ///  - https://docs.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb_ldr_data
+    ///  - https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntldr/ldr_data_table_entry.htm
+    pub const DATA_TABLE_ENTRY = extern struct {
+        InLoadOrderLinks: LIST_ENTRY,
+        InMemoryOrderLinks: LIST_ENTRY,
+        InInitializationOrderLinks: LIST_ENTRY,
+        DllBase: PVOID,
+        EntryPoint: PVOID,
+        SizeOfImage: ULONG,
+        FullDllName: UNICODE_STRING,
+        BaseDllName: UNICODE_STRING,
+        Reserved5: [3]PVOID,
+        DUMMYUNIONNAME: extern union {
+            CheckSum: ULONG,
+            Reserved6: PVOID,
+        },
+        TimeDateStamp: ULONG,
+    };
+
+    pub const DLL_NOTIFICATION = struct {
+        pub const REASON = enum(ULONG) { LOADED = 1, UNLOADED = 2 };
+
+        pub const DATA = extern union {
+            Loaded: LOADED,
+            Unloaded: UNLOADED,
+
+            pub const LOADED = extern struct {
+                Flags: REGISTER,
+                FullDllName: *const UNICODE_STRING,
+                BaseDllName: *const UNICODE_STRING,
+                DllBase: PVOID,
+                SizeOfImage: ULONG,
+            };
+
+            pub const UNLOADED = extern struct {
+                Flags: REGISTER,
+                FullDllName: *const UNICODE_STRING,
+                BaseDllName: *const UNICODE_STRING,
+                DllBase: PVOID,
+                SizeOfImage: ULONG,
+            };
+        };
+
+        pub const COOKIE = *opaque {};
+
+        pub const FUNCTION = fn (
+            NotificationReason: REASON,
+            NotificationData: *const DATA,
+            Context: ?PVOID,
+        ) callconv(.winapi) void;
+
+        pub const REGISTER = packed struct(ULONG) {
+            Reserved0: u32 = 0,
+        };
+    };
+
+    pub const GET_DLL_HANDLE_EX = packed struct(ULONG) {
+        UNCHANGED_REFCOUNT: bool = false,
+        PIN: bool = false,
+        Reserved2: u30 = 0,
+    };
+
+    pub const GET_PROCEDURE_ADDRESS = packed struct(ULONG) {
+        DONT_RECORD_FORWARDER: bool = false,
+        Reserved1: u31 = 0,
+    };
+
+    pub const LOAD = packed struct(ULONG) {
+        DONT_RESOLVE_DLL_REFERENCES: bool = false,
+        LIBRARY_AS_DATAFILE: bool = false,
+        PACKAGED_LIBRARY: bool = false,
+        WITH_ALTERED_SEARCH_PATH: bool = false,
+        IGNORE_CODE_AUTHZ_LEVEL: bool = false,
+        LIBRARY_AS_IMAGE_RESOURCE: bool = false,
+        LIBRARY_AS_DATAFILE_EXCLUSIVE: bool = false,
+        LIBRARY_REQUERE_SIGNED_TARGET: bool = false,
+        LIBRARY_SEARCH_DLL_LOAD_DIR: bool = false,
+        LIBRARY_SEARCH_USER_DIRS: bool = false,
+        LIBRARY_SEARCH_SYSTEM32: bool = false,
+        LIBRARY_SEARCH_DEFAULT_DIRS: bool = false,
+    };
 };
 
 pub const RTL_USER_PROCESS_PARAMETERS = extern struct {
@@ -6227,104 +4632,6 @@ pub const MODULEINFO = extern struct {
     EntryPoint: LPVOID,
 };
 
-pub const PSAPI_WS_WATCH_INFORMATION = extern struct {
-    FaultingPc: LPVOID,
-    FaultingVa: LPVOID,
-};
-
-pub const VM_COUNTERS = extern struct {
-    PeakVirtualSize: SIZE_T,
-    VirtualSize: SIZE_T,
-    PageFaultCount: ULONG,
-    PeakWorkingSetSize: SIZE_T,
-    WorkingSetSize: SIZE_T,
-    QuotaPeakPagedPoolUsage: SIZE_T,
-    QuotaPagedPoolUsage: SIZE_T,
-    QuotaPeakNonPagedPoolUsage: SIZE_T,
-    QuotaNonPagedPoolUsage: SIZE_T,
-    PagefileUsage: SIZE_T,
-    PeakPagefileUsage: SIZE_T,
-};
-
-pub const PROCESS_MEMORY_COUNTERS = extern struct {
-    cb: DWORD,
-    PageFaultCount: DWORD,
-    PeakWorkingSetSize: SIZE_T,
-    WorkingSetSize: SIZE_T,
-    QuotaPeakPagedPoolUsage: SIZE_T,
-    QuotaPagedPoolUsage: SIZE_T,
-    QuotaPeakNonPagedPoolUsage: SIZE_T,
-    QuotaNonPagedPoolUsage: SIZE_T,
-    PagefileUsage: SIZE_T,
-    PeakPagefileUsage: SIZE_T,
-};
-
-pub const PROCESS_MEMORY_COUNTERS_EX = extern struct {
-    cb: DWORD,
-    PageFaultCount: DWORD,
-    PeakWorkingSetSize: SIZE_T,
-    WorkingSetSize: SIZE_T,
-    QuotaPeakPagedPoolUsage: SIZE_T,
-    QuotaPagedPoolUsage: SIZE_T,
-    QuotaPeakNonPagedPoolUsage: SIZE_T,
-    QuotaNonPagedPoolUsage: SIZE_T,
-    PagefileUsage: SIZE_T,
-    PeakPagefileUsage: SIZE_T,
-    PrivateUsage: SIZE_T,
-};
-
-pub const GetProcessMemoryInfoError = error{
-    AccessDenied,
-    InvalidHandle,
-    Unexpected,
-};
-
-pub fn GetProcessMemoryInfo(hProcess: HANDLE) GetProcessMemoryInfoError!VM_COUNTERS {
-    var vmc: VM_COUNTERS = undefined;
-    const rc = ntdll.NtQueryInformationProcess(hProcess, .VmCounters, &vmc, @sizeOf(VM_COUNTERS), null);
-    switch (rc) {
-        .SUCCESS => return vmc,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .INVALID_HANDLE => return error.InvalidHandle,
-        .INVALID_PARAMETER => unreachable,
-        else => return unexpectedStatus(rc),
-    }
-}
-
-pub const PERFORMANCE_INFORMATION = extern struct {
-    cb: DWORD,
-    CommitTotal: SIZE_T,
-    CommitLimit: SIZE_T,
-    CommitPeak: SIZE_T,
-    PhysicalTotal: SIZE_T,
-    PhysicalAvailable: SIZE_T,
-    SystemCache: SIZE_T,
-    KernelTotal: SIZE_T,
-    KernelPaged: SIZE_T,
-    KernelNonpaged: SIZE_T,
-    PageSize: SIZE_T,
-    HandleCount: DWORD,
-    ProcessCount: DWORD,
-    ThreadCount: DWORD,
-};
-
-pub const ENUM_PAGE_FILE_INFORMATION = extern struct {
-    cb: DWORD,
-    Reserved: DWORD,
-    TotalSize: SIZE_T,
-    TotalInUse: SIZE_T,
-    PeakUsage: SIZE_T,
-};
-
-pub const PENUM_PAGE_FILE_CALLBACKW = ?*const fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCWSTR) callconv(.winapi) BOOL;
-pub const PENUM_PAGE_FILE_CALLBACKA = ?*const fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCSTR) callconv(.winapi) BOOL;
-
-pub const PSAPI_WS_WATCH_INFORMATION_EX = extern struct {
-    BasicInfo: PSAPI_WS_WATCH_INFORMATION,
-    FaultingThreadId: ULONG_PTR,
-    Flags: ULONG_PTR,
-};
-
 pub const OSVERSIONINFOW = extern struct {
     dwOSVersionInfoSize: ULONG,
     dwMajorVersion: ULONG,
@@ -6387,20 +4694,6 @@ pub const MOUNTMGR_VOLUME_PATHS = extern struct {
     MultiSz: [1]WCHAR,
 };
 
-pub const OBJECT_INFORMATION_CLASS = enum(c_int) {
-    ObjectBasicInformation = 0,
-    ObjectNameInformation = 1,
-    ObjectTypeInformation = 2,
-    ObjectTypesInformation = 3,
-    ObjectHandleFlagInformation = 4,
-    ObjectSessionInformation = 5,
-    MaxObjectInfoClass,
-};
-
-pub const OBJECT_NAME_INFORMATION = extern struct {
-    Name: UNICODE_STRING,
-};
-
 pub const SRWLOCK_INIT = SRWLOCK{};
 pub const SRWLOCK = extern struct {
     Ptr: ?PVOID = null,
@@ -6410,17 +4703,6 @@ pub const CONDITION_VARIABLE_INIT = CONDITION_VARIABLE{};
 pub const CONDITION_VARIABLE = extern struct {
     Ptr: ?PVOID = null,
 };
-
-pub const FILE_SKIP_COMPLETION_PORT_ON_SUCCESS = 0x1;
-pub const FILE_SKIP_SET_EVENT_ON_HANDLE = 0x2;
-
-pub const CTRL_C_EVENT: DWORD = 0;
-pub const CTRL_BREAK_EVENT: DWORD = 1;
-pub const CTRL_CLOSE_EVENT: DWORD = 2;
-pub const CTRL_LOGOFF_EVENT: DWORD = 5;
-pub const CTRL_SHUTDOWN_EVENT: DWORD = 6;
-
-pub const HANDLER_ROUTINE = *const fn (dwCtrlType: DWORD) callconv(.winapi) BOOL;
 
 /// Processor feature enumeration.
 pub const PF = enum(DWORD) {
@@ -6720,136 +5002,20 @@ pub const KUSER_SHARED_DATA = extern struct {
 /// Read-only user-mode address for the shared data.
 /// https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
 /// https://msrc-blog.microsoft.com/2022/04/05/randomizing-the-kuser_shared_data-structure-on-windows/
-pub const SharedUserData: *const KUSER_SHARED_DATA = @as(*const KUSER_SHARED_DATA, @ptrFromInt(0x7FFE0000));
+pub const SharedUserData: *const KUSER_SHARED_DATA = @ptrFromInt(0x7FFE0000);
 
 pub fn IsProcessorFeaturePresent(feature: PF) bool {
     if (@intFromEnum(feature) >= PROCESSOR_FEATURE_MAX) return false;
     return SharedUserData.ProcessorFeatures[@intFromEnum(feature)] == 1;
 }
 
-pub const TH32CS_SNAPHEAPLIST = 0x00000001;
-pub const TH32CS_SNAPPROCESS = 0x00000002;
-pub const TH32CS_SNAPTHREAD = 0x00000004;
-pub const TH32CS_SNAPMODULE = 0x00000008;
-pub const TH32CS_SNAPMODULE32 = 0x00000010;
-pub const TH32CS_SNAPALL = TH32CS_SNAPHEAPLIST | TH32CS_SNAPPROCESS | TH32CS_SNAPTHREAD | TH32CS_SNAPMODULE;
-pub const TH32CS_INHERIT = 0x80000000;
-
-pub const MAX_MODULE_NAME32 = 255;
-pub const MODULEENTRY32 = extern struct {
-    dwSize: DWORD,
-    th32ModuleID: DWORD,
-    th32ProcessID: DWORD,
-    GlblcntUsage: DWORD,
-    ProccntUsage: DWORD,
-    modBaseAddr: *BYTE,
-    modBaseSize: DWORD,
-    hModule: HMODULE,
-    szModule: [MAX_MODULE_NAME32 + 1]CHAR,
-    szExePath: [MAX_PATH]CHAR,
+// https://github.com/reactos/reactos/blob/master/sdk/include/ndk/pstypes.h#L977-L983
+pub const KERNEL_USER_TIMES = extern struct {
+    CreationTime: LARGE_INTEGER,
+    ExitTime: LARGE_INTEGER,
+    KernelTime: LARGE_INTEGER,
+    UserTime: LARGE_INTEGER,
 };
-
-pub const SYSTEM_INFORMATION_CLASS = enum(c_int) {
-    SystemBasicInformation = 0,
-    SystemPerformanceInformation = 2,
-    SystemTimeOfDayInformation = 3,
-    SystemProcessInformation = 5,
-    SystemProcessorPerformanceInformation = 8,
-    SystemInterruptInformation = 23,
-    SystemExceptionInformation = 33,
-    SystemRegistryQuotaInformation = 37,
-    SystemLookasideInformation = 45,
-    SystemCodeIntegrityInformation = 103,
-    SystemPolicyInformation = 134,
-};
-
-pub const SYSTEM_BASIC_INFORMATION = extern struct {
-    Reserved: ULONG,
-    TimerResolution: ULONG,
-    PageSize: ULONG,
-    NumberOfPhysicalPages: ULONG,
-    LowestPhysicalPageNumber: ULONG,
-    HighestPhysicalPageNumber: ULONG,
-    AllocationGranularity: ULONG,
-    MinimumUserModeAddress: ULONG_PTR,
-    MaximumUserModeAddress: ULONG_PTR,
-    ActiveProcessorsAffinityMask: KAFFINITY,
-    NumberOfProcessors: UCHAR,
-};
-
-pub const PROCESS_BASIC_INFORMATION = extern struct {
-    ExitStatus: NTSTATUS,
-    PebBaseAddress: *PEB,
-    AffinityMask: ULONG_PTR,
-    BasePriority: KPRIORITY,
-    UniqueProcessId: ULONG_PTR,
-    InheritedFromUniqueProcessId: ULONG_PTR,
-};
-
-pub const ReadMemoryError = error{
-    Unexpected,
-};
-
-pub fn ReadProcessMemory(handle: HANDLE, addr: ?LPVOID, buffer: []u8) ReadMemoryError![]u8 {
-    var nread: usize = 0;
-    switch (ntdll.NtReadVirtualMemory(
-        handle,
-        addr,
-        buffer.ptr,
-        buffer.len,
-        &nread,
-    )) {
-        .SUCCESS => return buffer[0..nread],
-        // TODO: map errors
-        else => |rc| return unexpectedStatus(rc),
-    }
-}
-
-pub const WriteMemoryError = error{
-    Unexpected,
-};
-
-pub fn WriteProcessMemory(handle: HANDLE, addr: ?LPVOID, buffer: []const u8) WriteMemoryError!usize {
-    var nwritten: usize = 0;
-    switch (ntdll.NtWriteVirtualMemory(
-        handle,
-        addr,
-        buffer.ptr,
-        buffer.len,
-        &nwritten,
-    )) {
-        .SUCCESS => return nwritten,
-        // TODO: map errors
-        else => |rc| return unexpectedStatus(rc),
-    }
-}
-
-pub const ProcessBaseAddressError = GetProcessMemoryInfoError || ReadMemoryError;
-
-/// Returns the base address of the process loaded into memory.
-pub fn ProcessBaseAddress(handle: HANDLE) ProcessBaseAddressError!HMODULE {
-    var info: PROCESS_BASIC_INFORMATION = undefined;
-    var nread: DWORD = 0;
-    const rc = ntdll.NtQueryInformationProcess(
-        handle,
-        .BasicInformation,
-        &info,
-        @sizeOf(PROCESS_BASIC_INFORMATION),
-        &nread,
-    );
-    switch (rc) {
-        .SUCCESS => {},
-        .ACCESS_DENIED => return error.AccessDenied,
-        .INVALID_HANDLE => return error.InvalidHandle,
-        .INVALID_PARAMETER => unreachable,
-        else => return unexpectedStatus(rc),
-    }
-
-    var peb_buf: [@sizeOf(PEB)]u8 align(@alignOf(PEB)) = undefined;
-    const peb_out = try ReadProcessMemory(handle, info.PebBaseAddress, &peb_buf);
-    const ppeb: *const PEB = @ptrCast(@alignCast(peb_out.ptr));
-    return ppeb.ImageBaseAddress;
-}
 
 pub fn wtf8ToWtf16Le(wtf16le: []u16, wtf8: []const u8) error{ BadPathName, NameTooLong }!usize {
     // Each u8 in UTF-8/WTF-8 correlates to at most one u16 in UTF-16LE/WTF-16LE.

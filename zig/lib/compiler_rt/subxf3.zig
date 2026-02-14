@@ -1,8 +1,8 @@
 const std = @import("std");
-const common = @import("./common.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 
 comptime {
-    @export(&__subxf3, .{ .name = "__subxf3", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__subxf3, "__subxf3");
 }
 
 fn __subxf3(a: f80, b: f80) callconv(.c) f80 {

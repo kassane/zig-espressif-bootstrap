@@ -9,7 +9,6 @@ const process = std.process;
 const File = std.Io.File;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 
 pub const Id = switch (native_os) {
     .windows => std.os.windows.HANDLE,
@@ -87,7 +86,7 @@ pub const ResourceUsageStatistics = struct {
         .visionos,
         .watchos,
         => @as(?std.posix.rusage, null),
-        .windows => @as(?std.os.windows.VM_COUNTERS, null),
+        .windows => @as(?std.os.windows.PROCESS.VM_COUNTERS, null),
         else => {},
     };
 };
@@ -97,6 +96,17 @@ pub const Term = union(enum) {
     signal: std.posix.SIG,
     stopped: u32,
     unknown: u32,
+};
+
+pub const Cwd = union(enum) {
+    /// CWD of the child is the same as the current CWD.
+    inherit,
+    /// On POSIX systems, `fchdir` is called after `fork` using this handle.
+    /// On Windows, the path is inferred from the provided handle and that path is used when calling `CreateProcessW`.
+    dir: Io.Dir,
+    /// On POSIX systems, `chdir` is called after `fork` using this path.
+    /// On Windows, this path is used when calling `CreateProcessW`.
+    path: []const u8,
 };
 
 /// Requests for the operating system to forcibly terminate the child process,
@@ -124,55 +134,4 @@ pub const WaitError = error{
 pub fn wait(child: *Child, io: Io) WaitError!Term {
     assert(child.id != null);
     return io.vtable.childWait(io.userdata, child);
-}
-
-/// Collect the output from the process's stdout and stderr. Will return once all output
-/// has been collected. This does not mean that the process has ended. `wait` should still
-/// be called to wait for and clean up the process.
-///
-/// The process must have been started with stdout and stderr set to
-/// `process.SpawnOptions.StdIo.pipe`.
-pub fn collectOutput(
-    child: *const Child,
-    /// Used for `stdout` and `stderr`.
-    allocator: Allocator,
-    stdout: *ArrayList(u8),
-    stderr: *ArrayList(u8),
-    max_output_bytes: usize,
-) !void {
-    var poller = std.Io.poll(allocator, enum { stdout, stderr }, .{
-        .stdout = child.stdout.?,
-        .stderr = child.stderr.?,
-    });
-    defer poller.deinit();
-
-    const stdout_r = poller.reader(.stdout);
-    stdout_r.buffer = stdout.allocatedSlice();
-    stdout_r.seek = 0;
-    stdout_r.end = stdout.items.len;
-
-    const stderr_r = poller.reader(.stderr);
-    stderr_r.buffer = stderr.allocatedSlice();
-    stderr_r.seek = 0;
-    stderr_r.end = stderr.items.len;
-
-    defer {
-        stdout.* = .{
-            .items = stdout_r.buffer[0..stdout_r.end],
-            .capacity = stdout_r.buffer.len,
-        };
-        stderr.* = .{
-            .items = stderr_r.buffer[0..stderr_r.end],
-            .capacity = stderr_r.buffer.len,
-        };
-        stdout_r.buffer = &.{};
-        stderr_r.buffer = &.{};
-    }
-
-    while (try poller.poll()) {
-        if (stdout_r.bufferedLen() > max_output_bytes)
-            return error.StdoutStreamTooLong;
-        if (stderr_r.bufferedLen() > max_output_bytes)
-            return error.StderrStreamTooLong;
-    }
 }

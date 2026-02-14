@@ -9,7 +9,14 @@ pub fn main(init: std.process.Init.Minimal) !void {
     };
     const gpa = gpa_state.allocator();
 
-    const process_cwd_path = try std.process.getCwdAlloc(gpa);
+    var threaded: Io.Threaded = .init(gpa, .{
+        .argv0 = .init(init.args),
+        .environ = init.environ,
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const process_cwd_path = try std.process.currentPathAlloc(io, gpa);
     defer gpa.free(process_cwd_path);
 
     var environ_map = try init.environ.createMap(gpa);
@@ -26,13 +33,6 @@ pub fn main(init: std.process.Init.Minimal) !void {
         break :child_path .{ try std.fs.path.relative(gpa, process_cwd_path, &environ_map, cwd_path, child_path), true };
     };
     defer if (needs_free) gpa.free(child_path);
-
-    var threaded: Io.Threaded = .init(gpa, .{
-        .argv0 = .init(init.args),
-        .environ = init.environ,
-    });
-    defer threaded.deinit();
-    const io = threaded.io();
 
     var child = try std.process.spawn(io, .{
         .argv = &.{ child_path, "hello arg" },

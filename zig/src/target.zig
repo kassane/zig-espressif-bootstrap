@@ -423,6 +423,12 @@ pub fn canBuildLibUbsanRt(target: *const std.Target) enum { no, yes, llvm_only, 
     };
 }
 
+/// Whether libzigc can fill-in the gaps of an existing libc
+/// or *is* the libc of the target.
+pub fn wantsZigC(target: *const std.Target, link_mode: std.builtin.LinkMode) bool {
+    return (target.isMuslLibC() and link_mode == .static) or target.isWasiLibC() or target.isMinGW();
+}
+
 pub fn hasRedZone(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         .aarch64,

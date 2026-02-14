@@ -4622,9 +4622,8 @@ fn airCall(
     const gpa = f.object.dg.gpa;
     const w = &f.object.code.writer;
 
-    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const extra = f.air.extraData(Air.Call, pl_op.payload);
-    const args: []const Air.Inst.Ref = @ptrCast(f.air.extra.items[extra.end..][0..extra.data.args_len]);
+    const call = f.air.unwrapCall(inst);
+    const args = call.args;
 
     const resolved_args = try gpa.alloc(CValue, args.len);
     defer gpa.free(resolved_args);
@@ -4653,15 +4652,15 @@ fn airCall(
         }
     }
 
-    const callee = try f.resolveInst(pl_op.operand);
+    const callee = try f.resolveInst(call.callee);
 
     {
         var bt = iterateBigTomb(f, inst);
-        try bt.feed(pl_op.operand);
+        try bt.feed(call.callee);
         for (args) |arg| try bt.feed(arg);
     }
 
-    const callee_ty = f.typeOf(pl_op.operand);
+    const callee_ty = f.typeOf(call.callee);
     const callee_is_ptr = switch (callee_ty.zigTypeTag(zcu)) {
         .@"fn" => false,
         .pointer => true,
@@ -4698,7 +4697,7 @@ fn airCall(
 
     callee: {
         known: {
-            const callee_val = (try f.air.value(pl_op.operand, pt)) orelse break :known;
+            const callee_val = (try f.air.value(call.callee, pt)) orelse break :known;
             const fn_nav, const need_cast = switch (ip.indexToKey(callee_val.toIntern())) {
                 .@"extern" => |@"extern"| .{ @"extern".owner_nav, false },
                 .func => |func| .{ func.owner_nav, Type.fromInterned(func.ty).fnCallingConvention(zcu) != .naked and
@@ -4796,13 +4795,12 @@ fn airDbgInlineBlock(f: *Function, inst: Air.Inst.Index) !CValue {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
-    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = f.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
-    const owner_nav = ip.getNav(zcu.funcInfo(extra.data.func).owner_nav);
+    const block = f.air.unwrapDbgBlock(inst);
+    const owner_nav = ip.getNav(zcu.funcInfo(block.func).owner_nav);
     const w = &f.object.code.writer;
     try w.print("/* inline:{f} */", .{owner_nav.fqn.fmt(&zcu.intern_pool)});
     try f.object.newline();
-    return lowerBlock(f, inst, @ptrCast(f.air.extra.items[extra.end..][0..extra.data.body_len]));
+    return lowerBlock(f, inst, block.body);
 }
 
 fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -4822,9 +4820,8 @@ fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airBlock(f: *Function, inst: Air.Inst.Index) !CValue {
-    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = f.air.extraData(Air.Block, ty_pl.payload);
-    return lowerBlock(f, inst, @ptrCast(f.air.extra.items[extra.end..][0..extra.data.body_len]));
+    const block = f.air.unwrapBlock(inst);
+    return lowerBlock(f, inst, block.body);
 }
 
 fn lowerBlock(f: *Function, inst: Air.Inst.Index, body: []const Air.Inst.Index) !CValue {
@@ -4873,21 +4870,19 @@ fn lowerBlock(f: *Function, inst: Air.Inst.Index, body: []const Air.Inst.Index) 
 }
 
 fn airTry(f: *Function, inst: Air.Inst.Index) !CValue {
-    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const extra = f.air.extraData(Air.Try, pl_op.payload);
-    const body: []const Air.Inst.Index = @ptrCast(f.air.extra.items[extra.end..][0..extra.data.body_len]);
-    const err_union_ty = f.typeOf(pl_op.operand);
-    return lowerTry(f, inst, pl_op.operand, body, err_union_ty, false);
+    const pt = f.object.dg.pt;
+    const unwrapped_try = f.air.unwrapTry(inst);
+    const body = unwrapped_try.else_body;
+    const err_union_ty = f.air.typeOf(unwrapped_try.error_union, &pt.zcu.intern_pool);
+    return lowerTry(f, inst, unwrapped_try.error_union, body, err_union_ty, false);
 }
 
 fn airTryPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const pt = f.object.dg.pt;
-    const zcu = pt.zcu;
-    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = f.air.extraData(Air.TryPtr, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(f.air.extra.items[extra.end..][0..extra.data.body_len]);
-    const err_union_ty = f.typeOf(extra.data.ptr).childType(zcu);
-    return lowerTry(f, inst, extra.data.ptr, body, err_union_ty, true);
+    const unwrapped_try = f.air.unwrapTryPtr(inst);
+    const body = unwrapped_try.else_body;
+    const err_union_ty = f.air.typeOf(unwrapped_try.error_union_ptr, &pt.zcu.intern_pool).childType(pt.zcu);
+    return lowerTry(f, inst, unwrapped_try.error_union_ptr, body, err_union_ty, true);
 }
 
 fn lowerTry(
@@ -5216,9 +5211,7 @@ fn airUnreach(o: *Object) !void {
 }
 
 fn airLoop(f: *Function, inst: Air.Inst.Index) !void {
-    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const loop = f.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(f.air.extra.items[loop.end..][0..loop.data.body_len]);
+    const block = f.air.unwrapBlock(inst);
     const w = &f.object.code.writer;
 
     // `repeat` instructions matching this loop will branch to
@@ -5227,16 +5220,15 @@ fn airLoop(f: *Function, inst: Air.Inst.Index) !void {
     // construct at all!
     try w.print("zig_loop_{d}:", .{@intFromEnum(inst)});
     try f.object.newline();
-    try genBodyInner(f, body); // no need to restore state, we're noreturn
+    try genBodyInner(f, block.body); // no need to restore state, we're noreturn
 }
 
 fn airCondBr(f: *Function, inst: Air.Inst.Index) !void {
-    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const cond = try f.resolveInst(pl_op.operand);
-    try reap(f, inst, &.{pl_op.operand});
-    const extra = f.air.extraData(Air.CondBr, pl_op.payload);
-    const then_body: []const Air.Inst.Index = @ptrCast(f.air.extra.items[extra.end..][0..extra.data.then_body_len]);
-    const else_body: []const Air.Inst.Index = @ptrCast(f.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+    const cond_br = f.air.unwrapCondBr(inst);
+    const cond = try f.resolveInst(cond_br.condition);
+    try reap(f, inst, &.{cond_br.condition});
+    const then_body = cond_br.then_body;
+    const else_body = cond_br.else_body;
     const liveness_condbr = f.liveness.getCondBr(inst);
     const w = &f.object.code.writer;
 
@@ -5439,16 +5431,11 @@ fn asmInputNeedsLocal(f: *Function, constraint: []const u8, value: CValue) bool 
 fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
-    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = f.air.extraData(Air.Asm, ty_pl.payload);
-    const is_volatile = extra.data.flags.is_volatile;
-    const outputs_len = extra.data.flags.outputs_len;
+    const unwrapped_asm = f.air.unwrapAsm(inst);
+    const is_volatile = unwrapped_asm.is_volatile;
     const gpa = f.object.dg.gpa;
-    var extra_i: usize = extra.end;
-    const outputs: []const Air.Inst.Ref = @ptrCast(f.air.extra.items[extra_i..][0..outputs_len]);
-    extra_i += outputs.len;
-    const inputs: []const Air.Inst.Ref = @ptrCast(f.air.extra.items[extra_i..][0..extra.data.inputs_len]);
-    extra_i += inputs.len;
+    const outputs = unwrapped_asm.outputs;
+    const inputs = unwrapped_asm.inputs;
 
     const result = result: {
         const w = &f.object.code.writer;
@@ -5469,14 +5456,9 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         } else .none;
 
         const locals_begin: LocalIndex = @intCast(f.locals.items.len);
-        const constraints_extra_begin = extra_i;
-        for (outputs) |output| {
-            const extra_bytes = mem.sliceAsBytes(f.air.extra.items[extra_i..]);
-            const constraint = mem.sliceTo(extra_bytes, 0);
-            const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+        var it = unwrapped_asm.iterateOutputs();
+        while (it.next()) |output| {
+            const constraint = output.constraint;
 
             if (constraint.len < 2 or constraint[0] != '=' or
                 (constraint[1] == '{' and constraint[constraint.len - 1] != '}'))
@@ -5486,7 +5468,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
             const is_reg = constraint[1] == '{';
             if (is_reg) {
-                const output_ty = if (output == .none) inst_ty else f.typeOf(output).childType(zcu);
+                const output_ty = if (output.operand == .none) inst_ty else f.typeOf(output.operand).childType(zcu);
                 try w.writeAll("register ");
                 const output_local = try f.allocLocalValue(.{
                     .ctype = try f.ctypeFromType(output_ty, .complete),
@@ -5505,13 +5487,10 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 try f.object.newline();
             }
         }
-        for (inputs) |input| {
-            const extra_bytes = mem.sliceAsBytes(f.air.extra.items[extra_i..]);
-            const constraint = mem.sliceTo(extra_bytes, 0);
-            const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+
+        it = unwrapped_asm.iterateInputs();
+        while (it.next()) |input| {
+            const constraint = input.constraint;
 
             if (constraint.len < 1 or mem.indexOfScalar(u8, "=+&%", constraint[0]) != null or
                 (constraint[0] == '{' and constraint[constraint.len - 1] != '}'))
@@ -5520,9 +5499,9 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             }
 
             const is_reg = constraint[0] == '{';
-            const input_val = try f.resolveInst(input);
+            const input_val = try f.resolveInst(input.operand);
             if (asmInputNeedsLocal(f, constraint, input_val)) {
-                const input_ty = f.typeOf(input);
+                const input_ty = f.typeOf(input.operand);
                 if (is_reg) try w.writeAll("register ");
                 const input_local = try f.allocLocalValue(.{
                     .ctype = try f.ctypeFromType(input_ty, .complete),
@@ -5545,7 +5524,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         }
 
         {
-            const asm_source = mem.sliceAsBytes(f.air.extra.items[extra_i..])[0..extra.data.source_len];
+            const asm_source = unwrapped_asm.source;
 
             var stack = std.heap.stackFallback(256, f.object.dg.gpa);
             const allocator = stack.get();
@@ -5599,18 +5578,15 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             try w.print("({f}", .{fmtStringLiteral(fixed_asm_source[0..dst_i], null)});
         }
 
-        extra_i = constraints_extra_begin;
         var locals_index = locals_begin;
         try w.writeByte(':');
-        for (outputs, 0..) |output, index| {
-            const extra_bytes = mem.sliceAsBytes(f.air.extra.items[extra_i..]);
-            const constraint = mem.sliceTo(extra_bytes, 0);
-            const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-            if (index > 0) try w.writeByte(',');
+        it = unwrapped_asm.iterateOutputs();
+        while (it.next()) |output| {
+            const constraint = output.constraint;
+            const name = output.name;
+
+            if (output.index > 0) try w.writeByte(',');
             try w.writeByte(' ');
             if (!mem.eql(u8, name, "_")) try w.print("[{s}]", .{name});
             const is_reg = constraint[1] == '{';
@@ -5618,28 +5594,26 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             if (is_reg) {
                 try f.writeCValue(w, .{ .local = locals_index }, .Other);
                 locals_index += 1;
-            } else if (output == .none) {
+            } else if (output.operand == .none) {
                 try f.writeCValue(w, inst_local, .FunctionArgument);
             } else {
-                try f.writeCValueDeref(w, try f.resolveInst(output));
+                try f.writeCValueDeref(w, try f.resolveInst(output.operand));
             }
             try w.writeByte(')');
         }
         try w.writeByte(':');
-        for (inputs, 0..) |input, index| {
-            const extra_bytes = mem.sliceAsBytes(f.air.extra.items[extra_i..]);
-            const constraint = mem.sliceTo(extra_bytes, 0);
-            const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-            if (index > 0) try w.writeByte(',');
+        it = unwrapped_asm.iterateInputs();
+        while (it.next()) |input| {
+            const constraint = input.constraint;
+            const name = input.name;
+
+            if (input.index > 0) try w.writeByte(',');
             try w.writeByte(' ');
             if (!mem.eql(u8, name, "_")) try w.print("[{s}]", .{name});
 
             const is_reg = constraint[0] == '{';
-            const input_val = try f.resolveInst(input);
+            const input_val = try f.resolveInst(input.operand);
             try w.print("{f}(", .{fmtStringLiteral(if (is_reg) "r" else constraint, null)});
             try f.writeCValue(w, if (asmInputNeedsLocal(f, constraint, input_val)) local: {
                 const input_local_idx = locals_index;
@@ -5650,7 +5624,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         }
         try w.writeByte(':');
         const ip = &zcu.intern_pool;
-        const aggregate = ip.indexToKey(extra.data.clobbers).aggregate;
+        const aggregate = ip.indexToKey(unwrapped_asm.clobbers).aggregate;
         const struct_type: Type = .fromInterned(aggregate.ty);
         switch (aggregate.storage) {
             .elems => |elems| for (elems, 0..) |elem, i| switch (elem) {
@@ -5697,22 +5671,17 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         try w.writeAll(");");
         try f.object.newline();
 
-        extra_i = constraints_extra_begin;
         locals_index = locals_begin;
-        for (outputs) |output| {
-            const extra_bytes = mem.sliceAsBytes(f.air.extra.items[extra_i..]);
-            const constraint = mem.sliceTo(extra_bytes, 0);
-            const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+        it = unwrapped_asm.iterateOutputs();
+        while (it.next()) |output| {
+            const constraint = output.constraint;
 
             const is_reg = constraint[1] == '{';
             if (is_reg) {
-                try f.writeCValueDeref(w, if (output == .none)
+                try f.writeCValueDeref(w, if (output.operand == .none)
                     .{ .local_ref = inst_local.new_local }
                 else
-                    try f.resolveInst(output));
+                    try f.resolveInst(output.operand));
                 try w.writeAll(" = ");
                 try f.writeCValue(w, .{ .local = locals_index }, .Other);
                 locals_index += 1;

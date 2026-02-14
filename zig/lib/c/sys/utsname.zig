@@ -1,19 +1,22 @@
-const std = @import("std");
-const common = @import("../common.zig");
 const builtin = @import("builtin");
+
+const std = @import("std");
+
+const symbol = @import("../../c.zig").symbol;
+const errno = @import("../../c.zig").errno;
 
 comptime {
     if (builtin.target.isMuslLibC()) {
-        @export(&unameLinux, .{ .name = "uname", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&unameLinux, "uname");
     }
 
     if (builtin.target.isWasiLibC()) {
-        @export(&unameWasi, .{ .name = "uname", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&unameWasi, "uname");
     }
 }
 
 fn unameLinux(uts: *std.os.linux.utsname) callconv(.c) c_int {
-    return common.errno(std.os.linux.uname(uts));
+    return errno(std.os.linux.uname(uts));
 }
 
 fn unameWasi(uts: *std.c.utsname) callconv(.c) c_int {

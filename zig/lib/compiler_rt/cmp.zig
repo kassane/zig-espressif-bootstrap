@@ -1,14 +1,15 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 comptime {
-    @export(&__cmpsi2, .{ .name = "__cmpsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__cmpdi2, .{ .name = "__cmpdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__cmpti2, .{ .name = "__cmpti2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__ucmpsi2, .{ .name = "__ucmpsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__ucmpdi2, .{ .name = "__ucmpdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__ucmpti2, .{ .name = "__ucmpti2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__cmpsi2, "__cmpsi2");
+    symbol(&__cmpdi2, "__cmpdi2");
+    symbol(&__cmpti2, "__cmpti2");
+    symbol(&__ucmpsi2, "__ucmpsi2");
+    symbol(&__ucmpdi2, "__ucmpdi2");
+    symbol(&__ucmpti2, "__ucmpti2");
 }
 
 // cmp - signed compare

@@ -1,8 +1,8 @@
-const common = @import("./common.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 const intFromFloat = @import("./int_from_float.zig").intFromFloat;
 
 comptime {
-    @export(&__fixxfdi, .{ .name = "__fixxfdi", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__fixxfdi, "__fixxfdi");
 }
 
 fn __fixxfdi(a: f80) callconv(.c) i64 {

@@ -8,7 +8,7 @@
 #ifndef _REGULATOR_H
 #define _REGULATOR_H
 
-#include <stdint.h>
+#include <linux/types.h>
 
 /*
  * Regulator notifier events.
@@ -58,7 +58,7 @@
 
 struct reg_genl_event {
 	char reg_name[32];
-	uint64_t event;
+	__u64 event;
 };
 
 /* attributes of reg_genl_family */

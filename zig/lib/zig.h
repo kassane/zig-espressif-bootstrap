@@ -4148,7 +4148,7 @@ static inline void zig_msvc_atomic_store_i128(zig_i128 volatile* obj, zig_i128 a
 
 #if defined(zig_thumb)
 
-static inline void* zig_thumb_windows_teb(void) {
+static inline void* zig_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)_MoveFromCoprocessor(15, 0, 13, 0, 2);
@@ -4160,7 +4160,7 @@ static inline void* zig_thumb_windows_teb(void) {
 
 #elif defined(zig_aarch64)
 
-static inline void* zig_aarch64_windows_teb(void) {
+static inline void* zig_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)__readx18qword(0x0);
@@ -4172,7 +4172,7 @@ static inline void* zig_aarch64_windows_teb(void) {
 
 #elif defined(zig_x86_32)
 
-static inline void* zig_x86_windows_teb(void) {
+static inline void* zig_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)__readfsdword(0x18);
@@ -4182,9 +4182,19 @@ static inline void* zig_x86_windows_teb(void) {
     return teb;
 }
 
+static inline void* zig_windows_peb(void) {
+    void* peb = 0;
+#if defined(zig_msvc)
+    peb = (void*)__readfsdword(0x30);
+#elif defined(zig_gnuc_asm)
+    __asm__ ("movl %%fs:0x30, %[ptr]" : [ptr] "=r" (peb));
+#endif
+    return peb;
+}
+
 #elif defined(zig_x86_64)
 
-static inline void* zig_x86_64_windows_teb(void) {
+static inline void* zig_windows_teb(void) {
     void* teb = 0;
 #if defined(zig_msvc)
     teb = (void*)__readgsqword(0x30);
@@ -4192,6 +4202,16 @@ static inline void* zig_x86_64_windows_teb(void) {
     __asm__ ("movq %%gs:0x30, %[ptr]" : [ptr] "=r" (teb));
 #endif
     return teb;
+}
+
+static inline void* zig_windows_peb(void) {
+    void* peb = 0;
+#if defined(zig_msvc)
+    peb = (void*)__readgsqword(0x60);
+#elif defined(zig_gnuc_asm)
+    __asm__ ("movq %%gs:0x60, %[ptr]" : [ptr] "=r" (peb));
+#endif
+    return peb;
 }
 
 #endif

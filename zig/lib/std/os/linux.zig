@@ -118,6 +118,7 @@ pub const SYS = switch (native_arch) {
     .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
     .csky => syscalls.CSky,
     .hexagon => syscalls.Hexagon,
+    .loongarch32 => syscalls.LoongArch32,
     .loongarch64 => syscalls.LoongArch64,
     .m68k => syscalls.M68k,
     .mips, .mipsel => syscalls.MipsO32,
@@ -146,6 +147,7 @@ pub const MAP_TYPE = enum(u4) {
     SHARED = 0x01,
     PRIVATE = 0x02,
     SHARED_VALIDATE = 0x03,
+    DROPPABLE = 0x08,
 };
 
 pub const MAP = switch (native_arch) {
@@ -590,6 +592,10 @@ pub fn errno(r: usize) E {
     const signed_r: isize = @bitCast(r);
     const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
     return @enumFromInt(int);
+}
+
+pub fn brk(addr: usize) usize {
+    return syscall1(.brk, addr);
 }
 
 pub fn dup(old: i32) usize {
@@ -1569,7 +1575,7 @@ pub fn clone2(flags: u32, child_stack_ptr: usize) usize {
     return syscall2(.clone, flags, child_stack_ptr);
 }
 
-pub fn close(fd: i32) usize {
+pub fn close(fd: fd_t) usize {
     return syscall1(.close, @as(usize, @bitCast(@as(isize, fd))));
 }
 
@@ -1847,6 +1853,32 @@ pub const F = struct {
     pub const RDLCK = if (is_sparc) 1 else 0;
     pub const WRLCK = if (is_sparc) 2 else 1;
     pub const UNLCK = if (is_sparc) 3 else 2;
+
+    pub const LINUX_SPECIFIC_BASE = 1024;
+
+    pub const SETLEASE = LINUX_SPECIFIC_BASE + 0;
+    pub const GETLEASE = LINUX_SPECIFIC_BASE + 1;
+    pub const NOTIFY = LINUX_SPECIFIC_BASE + 2;
+    pub const DUPFD_QUERY = LINUX_SPECIFIC_BASE + 3;
+    pub const CREATED_QUERY = LINUX_SPECIFIC_BASE + 4;
+    pub const CANCELLK = LINUX_SPECIFIC_BASE + 5;
+    pub const DUPFD_CLOEXEC = LINUX_SPECIFIC_BASE + 6;
+    pub const SETPIPE_SZ = LINUX_SPECIFIC_BASE + 7;
+    pub const GETPIPE_SZ = LINUX_SPECIFIC_BASE + 8;
+    pub const ADD_SEALS = LINUX_SPECIFIC_BASE + 9;
+    pub const GET_SEALS = LINUX_SPECIFIC_BASE + 10;
+
+    pub const SEAL_SEAL = 0x0001;
+    pub const SEAL_SHRINK = 0x0002;
+    pub const SEAL_GROW = 0x0004;
+    pub const SEAL_WRITE = 0x0008;
+    pub const SEAL_FUTURE_WRITE = 0x0010;
+    pub const SEAL_EXEC = 0x0020;
+
+    pub const GET_RW_HINT = LINUX_SPECIFIC_BASE + 11;
+    pub const SET_RW_HINT = LINUX_SPECIFIC_BASE + 12;
+    pub const GET_FILE_RW_HINT = LINUX_SPECIFIC_BASE + 13;
+    pub const SET_FILE_RW_HINT = LINUX_SPECIFIC_BASE + 14;
 };
 
 pub const F_OWNER = enum(i32) {
@@ -1913,21 +1945,21 @@ fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.c) usize {
     @atomicStore(?VdsoClockGettime, &vdso_clock_gettime, ptr, .monotonic);
     // Call into the VDSO if available
     if (ptr) |f| return f(clk, ts);
-    return @as(usize, @bitCast(-@as(isize, @intFromEnum(E.NOSYS))));
+    return @bitCast(-@as(isize, @intFromEnum(E.NOSYS)));
 }
 
-pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
+pub fn clock_getres(clk_id: clockid_t, tp: *timespec) usize {
     return syscall2(
         if (@hasField(SYS, "clock_getres") and native_arch != .hexagon) .clock_getres else .clock_getres_time64,
-        @as(usize, @bitCast(@as(isize, clk_id))),
+        @as(usize, @intFromEnum(clk_id)),
         @intFromPtr(tp),
     );
 }
 
-pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
+pub fn clock_settime(clk_id: clockid_t, tp: *const timespec) usize {
     return syscall2(
         if (@hasField(SYS, "clock_settime") and native_arch != .hexagon) .clock_settime else .clock_settime64,
-        @as(usize, @bitCast(@as(isize, clk_id))),
+        @as(usize, @intFromEnum(clk_id)),
         @intFromPtr(tp),
     );
 }
@@ -6690,9 +6722,10 @@ pub const IORING_ACCEPT_MULTISHOT = 1 << 0;
 /// IORING_OP_MSG_RING command types, stored in sqe->addr
 pub const IORING_MSG_RING_COMMAND = enum(u8) {
     /// pass sqe->len as 'res' and off as user_data
-    DATA,
+    DATA = 0,
     /// send a registered fd to another ring
-    SEND_FD,
+    SEND_FD = 1,
+    _,
 };
 
 // io_uring_sqe.msg_ring_flags (rw_flags in the Zig struct)
@@ -6745,6 +6778,8 @@ pub const IORING_CQE_F_SOCK_NONEMPTY = 1 << 2;
 pub const IORING_CQE_F_NOTIF = 1 << 3;
 /// If set, the buffer ID set in the completion will get more completions.
 pub const IORING_CQE_F_BUF_MORE = 1 << 4;
+pub const IORING_CQE_F_SKIP = 1 << 5;
+pub const IORING_CQE_F_32 = 1 << 15;
 
 pub const IORING_CQE_BUFFER_SHIFT = 16;
 
@@ -7041,7 +7076,7 @@ pub const IORING_RESTRICTION = enum(u16) {
     _,
 };
 
-pub const IO_URING_SOCKET_OP = enum(u16) {
+pub const IO_URING_SOCKET_OP = enum(u32) {
     SIOCIN = 0,
     SIOCOUTQ = 1,
     GETSOCKOPT = 2,

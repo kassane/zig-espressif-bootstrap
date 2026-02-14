@@ -1,28 +1,29 @@
 ///! The quoted behavior definitions are from
 ///! https://gcc.gnu.org/onlinedocs/gcc-12.1.0/gccint/Soft-float-library-routines.html#Soft-float-library-routines
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
 const comparef = @import("./comparef.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(&__eqtf2, .{ .name = "__eqkf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__netf2, .{ .name = "__nekf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__lttf2, .{ .name = "__ltkf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__letf2, .{ .name = "__lekf2", .linkage = common.linkage, .visibility = common.visibility });
-    } else if (common.want_sparc_abi) {
-        @export(&_Qp_cmp, .{ .name = "_Qp_cmp", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&_Qp_feq, .{ .name = "_Qp_feq", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&_Qp_fne, .{ .name = "_Qp_fne", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&_Qp_flt, .{ .name = "_Qp_flt", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&_Qp_fle, .{ .name = "_Qp_fle", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&_Qp_fgt, .{ .name = "_Qp_fgt", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&_Qp_fge, .{ .name = "_Qp_fge", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&__eqtf2, "__eqkf2");
+        symbol(&__netf2, "__nekf2");
+        symbol(&__lttf2, "__ltkf2");
+        symbol(&__letf2, "__lekf2");
+    } else if (compiler_rt.want_sparc_abi) {
+        symbol(&_Qp_cmp, "_Qp_cmp");
+        symbol(&_Qp_feq, "_Qp_feq");
+        symbol(&_Qp_fne, "_Qp_fne");
+        symbol(&_Qp_flt, "_Qp_flt");
+        symbol(&_Qp_fle, "_Qp_fle");
+        symbol(&_Qp_fgt, "_Qp_fgt");
+        symbol(&_Qp_fge, "_Qp_fge");
     }
-    @export(&__eqtf2, .{ .name = "__eqtf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__netf2, .{ .name = "__netf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__letf2, .{ .name = "__letf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__cmptf2, .{ .name = "__cmptf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__lttf2, .{ .name = "__lttf2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__eqtf2, "__eqtf2");
+    symbol(&__netf2, "__netf2");
+    symbol(&__letf2, "__letf2");
+    symbol(&__cmptf2, "__cmptf2");
+    symbol(&__lttf2, "__lttf2");
 }
 
 /// "These functions calculate a <=> b. That is, if a is less than b, they return -1;

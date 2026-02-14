@@ -1,12 +1,14 @@
+const builtin = @import("builtin");
+
 const std = @import("std");
 const math = std.math;
-const builtin = @import("builtin");
+
 const __extendhfsf2 = @import("extendhfsf2.zig").__extendhfsf2;
 const __extendhftf2 = @import("extendhftf2.zig").__extendhftf2;
 const __extendsftf2 = @import("extendsftf2.zig").__extendsftf2;
 const __extenddftf2 = @import("extenddftf2.zig").__extenddftf2;
 const __extenddfxf2 = @import("extenddfxf2.zig").__extenddfxf2;
-const F16T = @import("./common.zig").F16T;
+const F16T = @import("../compiler_rt.zig").F16T;
 
 fn test__extenddfxf2(a: f64, expected: u80) !void {
     const x = __extenddfxf2(a);

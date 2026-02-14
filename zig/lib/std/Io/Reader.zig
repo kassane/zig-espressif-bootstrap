@@ -127,9 +127,7 @@ pub const ShortError = error{
     ReadFailed,
 };
 
-pub const RebaseError = error{
-    EndOfStream,
-};
+pub const RebaseError = Error;
 
 pub const failing: Reader = .{
     .vtable = &.{
@@ -315,6 +313,27 @@ pub fn allocRemainingAlignedSentinel(
     }
 }
 
+pub const AppendExactError = Allocator.Error || Error;
+
+/// Transfers exactly `n` bytes from the reader to the `ArrayList`.
+///
+/// See also:
+/// * `appendRemaining`
+pub fn appendExact(
+    r: *Reader,
+    gpa: Allocator,
+    list: *ArrayList(u8),
+    n: usize,
+) AppendExactError!void {
+    try list.ensureUnusedCapacity(gpa, n);
+    var a = std.Io.Writer.Allocating.fromArrayList(gpa, list);
+    defer list.* = a.toArrayList();
+    streamExact(r, &a.writer, n) catch |err| switch (err) {
+        error.ReadFailed, error.EndOfStream => |e| return e,
+        error.WriteFailed => unreachable,
+    };
+}
+
 /// Transfers all bytes from the current position to the end of the stream, up
 /// to `limit`, appending them to `list`.
 ///
@@ -356,7 +375,7 @@ pub fn appendRemainingAligned(
     defer list.* = a.toArrayListAligned(alignment);
 
     var remaining = limit;
-    while (remaining.nonzero()) {
+    while (remaining != .nothing) {
         const n = stream(r, &a.writer, remaining) catch |err| switch (err) {
             error.EndOfStream => return,
             error.WriteFailed => return error.OutOfMemory,
@@ -1381,7 +1400,7 @@ pub fn takeLeb128(r: *Reader, comptime T: type) TakeLeb128Error!T {
 }
 
 /// Ensures `capacity` data can be buffered without rebasing.
-pub fn rebase(r: *Reader, capacity: usize) RebaseError!void {
+pub fn rebase(r: *Reader, capacity: usize) Error!void {
     if (r.buffer.len - r.seek >= capacity) {
         @branchHint(.likely);
         return;
@@ -1389,7 +1408,7 @@ pub fn rebase(r: *Reader, capacity: usize) RebaseError!void {
     return r.vtable.rebase(r, capacity);
 }
 
-pub fn defaultRebase(r: *Reader, capacity: usize) RebaseError!void {
+pub fn defaultRebase(r: *Reader, capacity: usize) Error!void {
     assert(r.buffer.len - r.seek < capacity);
     const data = r.buffer[r.seek..r.end];
     @memmove(r.buffer[0..data.len], data);

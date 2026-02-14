@@ -402,7 +402,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
             st.pad();
             mem.writeInt(u128, out[0..16], st.acc, endian);
 
-            std.crypto.secureZero(u8, @as([*]u8, @ptrCast(st))[0..@sizeOf(Self)]);
+            std.crypto.secureZero(Self, st[0..1]);
         }
 
         /// Compute the GHASH of a message.

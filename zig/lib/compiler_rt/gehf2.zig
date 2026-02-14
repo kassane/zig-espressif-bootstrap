@@ -1,11 +1,11 @@
 ///! The quoted behavior definitions are from
 ///! https://gcc.gnu.org/onlinedocs/gcc-12.1.0/gccint/Soft-float-library-routines.html#Soft-float-library-routines
-const common = @import("./common.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 const comparef = @import("./comparef.zig");
 
 comptime {
-    @export(&__gehf2, .{ .name = "__gehf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__gthf2, .{ .name = "__gthf2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__gehf2, "__gehf2");
+    symbol(&__gthf2, "__gthf2");
 }
 
 /// "These functions return a value greater than or equal to zero if neither

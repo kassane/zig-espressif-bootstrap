@@ -1,11 +1,12 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
 const floatFromInt = @import("./float_from_int.zig").floatFromInt;
+const symbol = @import("../compiler_rt.zig").symbol;
 
 comptime {
-    if (common.want_aeabi) {
-        @export(&__aeabi_ui2f, .{ .name = "__aeabi_ui2f", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_aeabi) {
+        symbol(&__aeabi_ui2f, "__aeabi_ui2f");
     } else {
-        @export(&__floatunsisf, .{ .name = "__floatunsisf", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__floatunsisf, "__floatunsisf");
     }
 }
 

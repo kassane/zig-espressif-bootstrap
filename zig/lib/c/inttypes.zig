@@ -1,14 +1,16 @@
-const std = @import("std");
-const common = @import("common.zig");
 const builtin = @import("builtin");
+
+const std = @import("std");
 const intmax_t = std.c.intmax_t;
 const imaxdiv_t = std.c.imaxdiv_t;
+
+const symbol = @import("../c.zig").symbol;
 
 comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         // Functions specific to musl and wasi-libc.
-        @export(&imaxabs, .{ .name = "imaxabs", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&imaxdiv, .{ .name = "imaxdiv", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&imaxabs, "imaxabs");
+        symbol(&imaxdiv, "imaxdiv");
     }
 }
 

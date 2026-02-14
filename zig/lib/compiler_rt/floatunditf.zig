@@ -1,13 +1,14 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const floatFromInt = @import("./float_from_int.zig").floatFromInt;
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(&__floatunditf, .{ .name = "__floatundikf", .linkage = common.linkage, .visibility = common.visibility });
-    } else if (common.want_sparc_abi) {
-        @export(&_Qp_uxtoq, .{ .name = "_Qp_uxtoq", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&__floatunditf, "__floatundikf");
+    } else if (compiler_rt.want_sparc_abi) {
+        symbol(&_Qp_uxtoq, "_Qp_uxtoq");
     }
-    @export(&__floatunditf, .{ .name = "__floatunditf", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__floatunditf, "__floatunditf");
 }
 
 pub fn __floatunditf(a: u64) callconv(.c) f128 {

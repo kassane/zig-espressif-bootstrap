@@ -1,41 +1,53 @@
-mutex: std.Thread.Mutex,
+mutex: Io.Mutex,
+ntdll_handle: ?if (load_dll_notification_procs) *anyopaque else noreturn,
+notification_cookie: ?LDR.DLL_NOTIFICATION.COOKIE,
 modules: std.ArrayList(Module),
-module_name_arena: std.heap.ArenaAllocator.State,
 
 pub const init: SelfInfo = .{
-    .mutex = .{},
+    .mutex = .init,
+    .ntdll_handle = null,
+    .notification_cookie = null,
     .modules = .empty,
-    .module_name_arena = .{},
 };
-pub fn deinit(si: *SelfInfo, gpa: Allocator) void {
-    for (si.modules.items) |*module| {
-        di: {
-            const di = &(module.di orelse break :di catch break :di);
-            di.deinit(gpa);
+pub fn deinit(si: *SelfInfo, io: Io) void {
+    const gpa = std.debug.getDebugInfoAllocator();
+    if (si.notification_cookie) |cookie| unregister: {
+        switch ((si.getNtdllProc(.LdrUnregisterDllNotification) catch break :unregister)(cookie)) {
+            .SUCCESS => {},
+            else => |status| windows.unexpectedStatus(status) catch break :unregister,
         }
     }
+    if (si.ntdll_handle) |handle| switch (windows.ntdll.LdrUnloadDll(handle)) {
+        .SUCCESS => {},
+        else => |status| windows.unexpectedStatus(status) catch {},
+    };
+    for (si.modules.items) |*module| module.deinit(gpa, io);
     si.modules.deinit(gpa);
-
-    var module_name_arena = si.module_name_arena.promote(gpa);
-    module_name_arena.deinit();
 }
 
-pub fn getSymbol(si: *SelfInfo, gpa: Allocator, io: Io, address: usize) Error!std.debug.Symbol {
-    si.mutex.lock();
-    defer si.mutex.unlock();
+pub fn getSymbol(si: *SelfInfo, io: Io, address: usize) Error!std.debug.Symbol {
+    const gpa = std.debug.getDebugInfoAllocator();
+    try si.mutex.lock(io);
+    defer si.mutex.unlock(io);
     const module = try si.findModule(gpa, address);
     const di = try module.getDebugInfo(gpa, io);
-    return di.getSymbol(gpa, address - module.base_address);
+    return di.getSymbol(gpa, address - @intFromPtr(module.entry.DllBase));
 }
-pub fn getModuleName(si: *SelfInfo, gpa: Allocator, address: usize) Error![]const u8 {
-    si.mutex.lock();
-    defer si.mutex.unlock();
+pub fn getModuleName(si: *SelfInfo, io: Io, address: usize) Error![]const u8 {
+    const gpa = std.debug.getDebugInfoAllocator();
+    try si.mutex.lock(io);
+    defer si.mutex.unlock(io);
     const module = try si.findModule(gpa, address);
-    return module.name;
+    return module.name orelse {
+        const name = try std.unicode.wtf16LeToWtf8Alloc(gpa, module.entry.BaseDllName.slice());
+        module.name = name;
+        return name;
+    };
 }
-pub fn getModuleSlide(si: *SelfInfo, gpa: Allocator, address: usize) Error!usize {
-    si.mutex.lock();
-    defer si.mutex.unlock();
+pub fn getModuleSlide(si: *SelfInfo, io: Io, address: usize) Error!usize {
+    const gpa = std.debug.getDebugInfoAllocator();
+    try si.mutex.lock(io);
+    defer si.mutex.unlock(io);
     const module = try si.findModule(gpa, address);
     return module.base_address;
 }
@@ -141,18 +153,16 @@ pub const UnwindContext = struct {
             .history_table = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE),
         };
     }
-    pub fn deinit(ctx: *UnwindContext, gpa: Allocator) void {
+    pub fn deinit(ctx: *UnwindContext) void {
         _ = ctx;
-        _ = gpa;
     }
     pub fn getFp(ctx: *UnwindContext) usize {
         return ctx.cur.getRegs().bp;
     }
 };
-pub fn unwindFrame(si: *SelfInfo, gpa: Allocator, io: Io, context: *UnwindContext) Error!usize {
+pub fn unwindFrame(si: *SelfInfo, io: Io, context: *UnwindContext) Error!usize {
     _ = si;
     _ = io;
-    _ = gpa;
 
     const current_regs = context.cur.getRegs();
     var image_base: usize = undefined;
@@ -188,16 +198,12 @@ pub fn unwindFrame(si: *SelfInfo, gpa: Allocator, io: Io, context: *UnwindContex
 }
 
 const Module = struct {
-    base_address: usize,
-    size: u32,
-    name: []const u8,
-    handle: windows.HMODULE,
-
+    entry: *const LDR.DATA_TABLE_ENTRY,
+    name: ?[]const u8,
     di: ?(Error!DebugInfo),
 
     const DebugInfo = struct {
         arena: std.heap.ArenaAllocator.State,
-        io: Io,
         coff_image_base: u64,
         mapped_file: ?MappedFile,
         dwarf: ?Dwarf,
@@ -210,14 +216,19 @@ const Module = struct {
             section_view: []const u8,
             fn deinit(mf: *const MappedFile, io: Io) void {
                 const process_handle = windows.GetCurrentProcess();
-                assert(windows.ntdll.NtUnmapViewOfSection(process_handle, @constCast(mf.section_view.ptr)) == .SUCCESS);
+                switch (windows.ntdll.NtUnmapViewOfSection(
+                    process_handle,
+                    @constCast(mf.section_view.ptr),
+                )) {
+                    .SUCCESS => {},
+                    else => |status| windows.unexpectedStatus(status) catch {},
+                }
                 windows.CloseHandle(mf.section_handle);
                 mf.file.close(io);
             }
         };
 
-        fn deinit(di: *DebugInfo, gpa: Allocator) void {
-            const io = di.io;
+        fn deinit(di: *DebugInfo, gpa: Allocator, io: Io) void {
             if (di.dwarf) |*dwarf| dwarf.deinit(gpa);
             if (di.pdb) |*pdb| {
                 pdb.file_reader.file.close(io);
@@ -262,7 +273,10 @@ const Module = struct {
                 return .{
                     .name = pdb.getSymbolName(module, vaddr - coff_section.virtual_address),
                     .compile_unit_name = fs.path.basename(module.obj_file_name),
-                    .source_location = pdb.getLineNumberInfo(module, vaddr - coff_section.virtual_address) catch null,
+                    .source_location = pdb.getLineNumberInfo(
+                        module,
+                        vaddr - coff_section.virtual_address,
+                    ) catch null,
                 };
             }
             dwarf: {
@@ -286,13 +300,19 @@ const Module = struct {
         }
     };
 
+    fn deinit(module: *Module, gpa: Allocator, io: Io) void {
+        if (module.name) |name| gpa.free(name);
+        if (module.di) |*di_or_err| if (di_or_err.*) |*di| di.deinit(gpa, io) else |_| {};
+        module.* = undefined;
+    }
+
     fn getDebugInfo(module: *Module, gpa: Allocator, io: Io) Error!*DebugInfo {
         if (module.di == null) module.di = loadDebugInfo(module, gpa, io);
         return if (module.di.?) |*di| di else |err| err;
     }
     fn loadDebugInfo(module: *const Module, gpa: Allocator, io: Io) Error!DebugInfo {
-        const mapped_ptr: [*]const u8 = @ptrFromInt(module.base_address);
-        const mapped = mapped_ptr[0..module.size];
+        const mapped_ptr: [*]const u8 = @ptrCast(module.entry.DllBase);
+        const mapped = mapped_ptr[0..module.entry.SizeOfImage];
         var coff_obj = coff.Coff.init(mapped, true) catch return error.InvalidDebugInfo;
 
         var arena_instance: std.heap.ArenaAllocator = .init(gpa);
@@ -304,18 +324,15 @@ const Module = struct {
         // a binary is produced with -gdwarf, since the section names are longer than 8 bytes.
         const mapped_file: ?DebugInfo.MappedFile = mapped: {
             if (!coff_obj.strtabRequired()) break :mapped null;
-            var name_buffer: [windows.PATH_MAX_WIDE + 4:0]u16 = undefined;
-            name_buffer[0..4].* = .{ '\\', '?', '?', '\\' }; // openFileAbsoluteW requires the prefix to be present
-            const process_handle = windows.GetCurrentProcess();
-            const len = windows.kernel32.GetModuleFileNameExW(
-                process_handle,
-                module.handle,
-                name_buffer[4..],
-                windows.PATH_MAX_WIDE,
-            );
-            if (len == 0) return error.MissingDebugInfo;
-            const name_w = name_buffer[0 .. len + 4 :0];
-            const coff_file = Io.Threaded.dirOpenFileWtf16(null, name_w, .{}) catch |err| switch (err) {
+            var path_buffer: [4 + windows.PATH_MAX_WIDE]u16 = undefined;
+            path_buffer[0..4].* = .{ '\\', '?', '?', '\\' }; // openFileAbsoluteW requires the prefix to be present
+            const path_slice = module.entry.FullDllName.slice();
+            @memcpy(path_buffer[4..][0..path_slice.len], path_slice);
+            const coff_file = Io.Threaded.dirOpenFileWtf16(
+                null,
+                path_buffer[0 .. 4 + path_slice.len],
+                .{},
+            ) catch |err| switch (err) {
                 error.Canceled => |e| return e,
                 error.Unexpected => |e| return e,
                 error.FileNotFound => return error.MissingDebugInfo,
@@ -335,7 +352,6 @@ const Module = struct {
                 error.NoSpaceLeft,
                 error.DeviceBusy,
                 error.NoDevice,
-                error.SharingViolation,
                 error.PathAlreadyExists,
                 error.PipeBusy,
                 error.NetworkNotFound,
@@ -360,7 +376,8 @@ const Module = struct {
                 null,
                 null,
                 .{ .READONLY = true },
-                // The documentation states that if no AllocationAttribute is specified, then SEC_COMMIT is the default.
+                // The documentation states that if no AllocationAttribute is specified,
+                // then SEC_COMMIT is the default.
                 // In practice, this isn't the case and specifying 0 will result in INVALID_PARAMETER_6.
                 .{ .COMMIT = true },
                 coff_file.handle,
@@ -369,6 +386,7 @@ const Module = struct {
             errdefer windows.CloseHandle(section_handle);
             var coff_len: usize = 0;
             var section_view_ptr: ?[*]const u8 = null;
+            const process_handle = windows.GetCurrentProcess();
             const map_section_rc = windows.ntdll.NtMapViewOfSection(
                 section_handle,
                 process_handle,
@@ -382,7 +400,13 @@ const Module = struct {
                 .{ .READONLY = true },
             );
             if (map_section_rc != .SUCCESS) return error.MissingDebugInfo;
-            errdefer assert(windows.ntdll.NtUnmapViewOfSection(process_handle, @constCast(section_view_ptr.?)) == .SUCCESS);
+            errdefer switch (windows.ntdll.NtUnmapViewOfSection(
+                process_handle,
+                @constCast(section_view_ptr.?),
+            )) {
+                .SUCCESS => {},
+                else => |status| windows.unexpectedStatus(status) catch {},
+            };
             const section_view = section_view_ptr.?[0..coff_len];
             coff_obj = coff.Coff.init(section_view, false) catch return error.InvalidDebugInfo;
             break :mapped .{
@@ -497,7 +521,6 @@ const Module = struct {
 
         return .{
             .arena = arena_instance.state,
-            .io = io,
             .coff_image_base = coff_image_base,
             .mapped_file = mapped_file,
             .dwarf = opt_dwarf,
@@ -510,52 +533,82 @@ const Module = struct {
 /// Assumes we already hold `si.mutex`.
 fn findModule(si: *SelfInfo, gpa: Allocator, address: usize) error{ MissingDebugInfo, OutOfMemory, Unexpected }!*Module {
     for (si.modules.items) |*mod| {
-        if (address >= mod.base_address and address < mod.base_address + mod.size) {
-            return mod;
+        const base = @intFromPtr(mod.entry.DllBase);
+        if (address >= base and address < base + mod.entry.SizeOfImage) return mod;
+    }
+    try si.modules.ensureUnusedCapacity(gpa, 1);
+    var entry: *LDR.DATA_TABLE_ENTRY = undefined;
+    switch (windows.ntdll.LdrFindEntryForAddress(@ptrFromInt(address), &entry)) {
+        .SUCCESS => {},
+        .DLL_NOT_FOUND => return error.MissingDebugInfo,
+        else => |status| return windows.unexpectedStatus(status),
+    }
+    if (si.notification_cookie == null) {
+        var notification_cookie: LDR.DLL_NOTIFICATION.COOKIE = undefined;
+        switch ((try si.getNtdllProc(.LdrRegisterDllNotification))(
+            .{},
+            &dllNotification,
+            si,
+            &notification_cookie,
+        )) {
+            .SUCCESS => si.notification_cookie = notification_cookie,
+            else => |status| return windows.unexpectedStatus(status),
         }
     }
+    const mod = si.modules.addOneAssumeCapacity();
+    mod.* = .{ .entry = entry, .name = null, .di = null };
+    return mod;
+}
 
-    // A new module might have been loaded; rebuild the list.
-    {
-        for (si.modules.items) |*mod| {
-            const di = &(mod.di orelse continue catch continue);
-            di.deinit(gpa);
+inline fn getNtdllProc(
+    si: *SelfInfo,
+    comptime proc: std.meta.DeclEnum(windows.ntdll),
+) !@TypeOf(&@field(windows.ntdll, @tagName(proc))) {
+    return if (load_dll_notification_procs)
+        @ptrCast(try si.loadNtdllProc(@tagName(proc)))
+    else
+        &@field(windows.ntdll, @tagName(proc));
+}
+fn loadNtdllProc(si: *SelfInfo, name: []const u8) Io.UnexpectedError!*anyopaque {
+    const ntdll_handle = si.ntdll_handle orelse ntdll_handle: {
+        var ntdll_handle: *anyopaque = undefined;
+        switch (windows.ntdll.LdrLoadDll(null, null, &.init(
+            &.{ 'n', 't', 'd', 'l', 'l', '.', 'd', 'l', 'l' },
+        ), &ntdll_handle)) {
+            .SUCCESS => {},
+            else => |status| return windows.unexpectedStatus(status),
         }
-        si.modules.clearRetainingCapacity();
-
-        var module_name_arena = si.module_name_arena.promote(gpa);
-        defer si.module_name_arena = module_name_arena.state;
-        _ = module_name_arena.reset(.retain_capacity);
-
-        const handle = windows.kernel32.CreateToolhelp32Snapshot(windows.TH32CS_SNAPMODULE | windows.TH32CS_SNAPMODULE32, 0);
-        if (handle == windows.INVALID_HANDLE_VALUE) {
-            return windows.unexpectedError(windows.GetLastError());
-        }
-        defer windows.CloseHandle(handle);
-        var entry: windows.MODULEENTRY32 = undefined;
-        entry.dwSize = @sizeOf(windows.MODULEENTRY32);
-        var result = windows.kernel32.Module32First(handle, &entry);
-        while (result != 0) : (result = windows.kernel32.Module32Next(handle, &entry)) {
-            try si.modules.append(gpa, .{
-                .base_address = @intFromPtr(entry.modBaseAddr),
-                .size = entry.modBaseSize,
-                .name = try module_name_arena.allocator().dupe(
-                    u8,
-                    std.mem.sliceTo(&entry.szModule, 0),
-                ),
-                .handle = entry.hModule,
-                .di = null,
-            });
-        }
+        si.ntdll_handle = ntdll_handle;
+        break :ntdll_handle ntdll_handle;
+    };
+    var proc_addr: *anyopaque = undefined;
+    switch (windows.ntdll.LdrGetProcedureAddress(ntdll_handle, &.init(name), 0, &proc_addr)) {
+        .SUCCESS => {},
+        else => |status| return windows.unexpectedStatus(status),
     }
+    return proc_addr;
+}
 
-    for (si.modules.items) |*mod| {
-        if (address >= mod.base_address and address < mod.base_address + mod.size) {
-            return mod;
-        }
+fn dllNotification(
+    reason: LDR.DLL_NOTIFICATION.REASON,
+    data: *const LDR.DLL_NOTIFICATION.DATA,
+    context: ?*anyopaque,
+) callconv(.winapi) void {
+    const si: *SelfInfo = @ptrCast(@alignCast(context));
+    switch (reason) {
+        .LOADED => {},
+        .UNLOADED => {
+            const io = std.Options.debug_io;
+            si.mutex.lockUncancelable(io);
+            defer si.mutex.unlock(io);
+            for (si.modules.items, 0..) |*mod, mod_index| {
+                if (mod.entry.DllBase != data.Unloaded.DllBase) continue;
+                mod.deinit(std.debug.getDebugInfoAllocator(), io);
+                _ = si.modules.swapRemove(mod_index);
+                break;
+            }
+        },
     }
-
-    return error.MissingDebugInfo;
 }
 
 const std = @import("std");
@@ -564,12 +617,23 @@ const Allocator = std.mem.Allocator;
 const Dwarf = std.debug.Dwarf;
 const Pdb = std.debug.Pdb;
 const Error = std.debug.SelfInfoError;
-const assert = std.debug.assert;
 const coff = std.coff;
 const fs = std.fs;
 const windows = std.os.windows;
+const LDR = windows.LDR;
 
 const builtin = @import("builtin");
 const native_endian = builtin.target.cpu.arch.endian();
+const load_dll_notification_procs = builtin.abi == .msvc and switch (builtin.zig_backend) {
+    .stage2_c => true,
+    else => switch (builtin.output_mode) {
+        .Exe => false,
+        .Lib => switch (builtin.link_mode) {
+            .static => true,
+            .dynamic => false,
+        },
+        .Obj => true,
+    },
+};
 
 const SelfInfo = @This();

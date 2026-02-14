@@ -1,9 +1,10 @@
-const mulv = @import("mulo.zig");
-const common = @import("./common.zig");
 const testing = @import("std").testing;
 
+const mulv = @import("mulo.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
+
 comptime {
-    @export(&__mulvsi3, .{ .name = "__mulvsi3", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__mulvsi3, "__mulvsi3");
 }
 
 pub fn __mulvsi3(a: i32, b: i32) callconv(.c) i32 {

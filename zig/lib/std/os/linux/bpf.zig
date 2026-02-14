@@ -1555,7 +1555,7 @@ pub fn map_create(map_type: MapType, key_size: u32, value_size: u32, max_entries
 
 test "map_create" {
     const map = try map_create(.hash, 4, 4, 32);
-    defer std.os.close(map);
+    defer _ = std.os.linux.close(map);
 }
 
 pub fn map_lookup_elem(fd: fd_t, key: []const u8, value: []u8) !void {
@@ -1647,7 +1647,7 @@ test "map lookup, update, and delete" {
     const key_size = 4;
     const value_size = 4;
     const map = try map_create(.hash, key_size, value_size, 1);
-    defer std.os.close(map);
+    defer _ = std.os.linux.close(map);
 
     const key = std.mem.zeroes([key_size]u8);
     var value = std.mem.zeroes([value_size]u8);
@@ -1729,7 +1729,7 @@ test "prog_load" {
     };
 
     const prog = try prog_load(.socket_filter, &good_prog, null, "MIT", 0, 0);
-    defer std.os.close(prog);
+    defer _ = std.os.linux.close(prog);
 
     try expectError(error.UnsafeProgram, prog_load(.socket_filter, &bad_prog, null, "MIT", 0, 0));
 }

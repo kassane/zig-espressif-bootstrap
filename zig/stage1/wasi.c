@@ -924,6 +924,15 @@ uint32_t wasi_snapshot_preview1_clock_time_get(uint32_t id, uint64_t precision, 
     return wasi_errno_success;
 }
 
+uint32_t wasi_snapshot_preview1_clock_res_get(uint32_t id, uint32_t res_timestamp) {
+    uint8_t *const m = *wasm_memory;
+    uint64_t *res_timestamp_ptr = (uint64_t *)&m[res_timestamp];
+#if LOG_TRACE
+    fprintf(stderr, "wasi_snapshot_preview1_clock_res_get(%u, %llu)\n", id, (unsigned long long)res_timestamp);
+#endif
+    return wasi_errno_notcapable;
+}
+
 uint32_t wasi_snapshot_preview1_path_remove_directory(uint32_t fd, uint32_t path, uint32_t path_len) {
     uint8_t *const m = *wasm_memory;
     const char *path_ptr = (const char *)&m[path];

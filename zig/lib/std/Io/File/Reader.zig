@@ -26,29 +26,9 @@ size_err: ?SizeError = null,
 seek_err: ?SeekError = null,
 interface: Io.Reader,
 
-pub const Error = error{
-    InputOutput,
-    SystemResources,
-    /// Trying to read a directory file descriptor as if it were a file.
-    IsDir,
-    BrokenPipe,
-    ConnectionResetByPeer,
-    /// File was not opened with read capability.
-    NotOpenForReading,
-    SocketUnconnected,
-    /// Non-blocking has been enabled, and reading from the file descriptor
-    /// would block.
-    WouldBlock,
-    /// In WASI, this error occurs when the file descriptor does
-    /// not hold the required rights to read from it.
-    AccessDenied,
-    /// Unable to read file due to lock. Depending on the `Io` implementation,
-    /// reading from a locked file may return this error, or may ignore the
-    /// lock.
-    LockViolation,
-} || Io.Cancelable || Io.UnexpectedError;
+pub const Error = Io.Operation.FileReadStreaming.UnendingError || Io.Cancelable;
 
-pub const SizeError = std.os.windows.GetFileSizeError || File.StatError || error{
+pub const SizeError = File.StatError || error{
     /// Occurs if, for example, the file handle is a network socket and therefore does not have a size.
     Streaming,
 };
@@ -300,14 +280,16 @@ fn readVecStreaming(r: *Reader, data: [][]u8) Io.Reader.Error!usize {
     const dest_n, const data_size = try r.interface.writableVector(&iovecs_buffer, data);
     const dest = iovecs_buffer[0..dest_n];
     assert(dest[0].len > 0);
-    const n = io.vtable.fileReadStreaming(io.userdata, r.file, dest) catch |err| {
-        r.err = err;
-        return error.ReadFailed;
+    const n = r.file.readStreaming(io, dest) catch |err| switch (err) {
+        error.EndOfStream => {
+            r.size = r.pos;
+            return error.EndOfStream;
+        },
+        else => |e| {
+            r.err = e;
+            return error.ReadFailed;
+        },
     };
-    if (n == 0) {
-        r.size = r.pos;
-        return error.EndOfStream;
-    }
     r.pos += n;
     if (n > data_size) {
         r.interface.end += n - data_size;
@@ -355,14 +337,16 @@ fn discard(io_reader: *Io.Reader, limit: Io.Limit) Io.Reader.Error!usize {
                 const dest_n, const data_size = try r.interface.writableVector(&iovecs_buffer, &data);
                 const dest = iovecs_buffer[0..dest_n];
                 assert(dest[0].len > 0);
-                const n = io.vtable.fileReadStreaming(io.userdata, file, dest) catch |err| {
-                    r.err = err;
-                    return error.ReadFailed;
+                const n = file.readStreaming(io, dest) catch |err| switch (err) {
+                    error.EndOfStream => {
+                        r.size = r.pos;
+                        return error.EndOfStream;
+                    },
+                    else => |e| {
+                        r.err = e;
+                        return error.ReadFailed;
+                    },
                 };
-                if (n == 0) {
-                    r.size = r.pos;
-                    return error.EndOfStream;
-                }
                 r.pos += n;
                 if (n > data_size) {
                     r.interface.end += n - data_size;

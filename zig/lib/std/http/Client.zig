@@ -3,21 +3,24 @@
 //! Connections are opened in a thread-safe manner, but individual Requests are not.
 //!
 //! TLS support may be disabled via `std.options.http_disable_tls`.
+//!
+//! TODO all the lockUncancelable in this file should be changed to regular lock and
+//! `error.Canceled` added to more error sets.
+const Client = @This();
+
+const builtin = @import("builtin");
 
 const std = @import("../std.zig");
-const builtin = @import("builtin");
+const Io = std.Io;
 const testing = std.testing;
 const http = std.http;
 const mem = std.mem;
 const Uri = std.Uri;
-const Allocator = mem.Allocator;
+const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const Io = std.Io;
 const Writer = std.Io.Writer;
 const Reader = std.Io.Reader;
 const HostName = std.Io.net.HostName;
-
-const Client = @This();
 
 pub const disable_tls = std.options.http_disable_tls;
 
@@ -27,7 +30,7 @@ allocator: Allocator,
 io: Io,
 
 ca_bundle: if (disable_tls) void else std.crypto.Certificate.Bundle = if (disable_tls) {} else .{},
-ca_bundle_mutex: std.Thread.Mutex = .{},
+ca_bundle_mutex: Io.Mutex = .init,
 /// Used both for the reader and writer buffers.
 tls_buffer_size: if (disable_tls) u0 else usize = if (disable_tls) 0 else std.crypto.tls.Client.min_buffer_len,
 /// If non-null, ssl secrets are logged to a stream. Creating such a stream
@@ -62,7 +65,7 @@ https_proxy: ?*Proxy = null,
 
 /// A Least-Recently-Used cache of open connections to be reused.
 pub const ConnectionPool = struct {
-    mutex: std.Thread.Mutex = .{},
+    mutex: Io.Mutex = .init,
     /// Open connections that are currently in use.
     used: std.DoublyLinkedList = .{},
     /// Open connections that are not currently in use.
@@ -81,9 +84,9 @@ pub const ConnectionPool = struct {
     /// If no connection is found, null is returned.
     ///
     /// Threadsafe.
-    pub fn findConnection(pool: *ConnectionPool, criteria: Criteria) ?*Connection {
-        pool.mutex.lock();
-        defer pool.mutex.unlock();
+    pub fn findConnection(pool: *ConnectionPool, io: Io, criteria: Criteria) ?*Connection {
+        pool.mutex.lockUncancelable(io);
+        defer pool.mutex.unlock(io);
 
         var next = pool.free.last;
         while (next) |node| : (next = node.prev) {
@@ -110,9 +113,9 @@ pub const ConnectionPool = struct {
     }
 
     /// Acquires an existing connection from the connection pool. This function is threadsafe.
-    pub fn acquire(pool: *ConnectionPool, connection: *Connection) void {
-        pool.mutex.lock();
-        defer pool.mutex.unlock();
+    pub fn acquire(pool: *ConnectionPool, io: Io, connection: *Connection) void {
+        pool.mutex.lockUncancelable(io);
+        defer pool.mutex.unlock(io);
 
         return pool.acquireUnsafe(connection);
     }
@@ -122,8 +125,8 @@ pub const ConnectionPool = struct {
     ///
     /// Threadsafe.
     pub fn release(pool: *ConnectionPool, connection: *Connection, io: Io) void {
-        pool.mutex.lock();
-        defer pool.mutex.unlock();
+        pool.mutex.lockUncancelable(io);
+        defer pool.mutex.unlock(io);
 
         pool.used.remove(&connection.pool_node);
 
@@ -147,9 +150,9 @@ pub const ConnectionPool = struct {
     }
 
     /// Adds a newly created node to the pool of used connections. This function is threadsafe.
-    pub fn addUsed(pool: *ConnectionPool, connection: *Connection) void {
-        pool.mutex.lock();
-        defer pool.mutex.unlock();
+    pub fn addUsed(pool: *ConnectionPool, io: Io, connection: *Connection) void {
+        pool.mutex.lockUncancelable(io);
+        defer pool.mutex.unlock(io);
 
         pool.used.append(&connection.pool_node);
     }
@@ -159,9 +162,9 @@ pub const ConnectionPool = struct {
     /// If the new size is smaller than the current size, then idle connections will be closed until the pool is the new size.
     ///
     /// Threadsafe.
-    pub fn resize(pool: *ConnectionPool, allocator: Allocator, new_size: usize) void {
-        pool.mutex.lock();
-        defer pool.mutex.unlock();
+    pub fn resize(pool: *ConnectionPool, io: Io, allocator: Allocator, new_size: usize) void {
+        pool.mutex.lockUncancelable(io);
+        defer pool.mutex.unlock(io);
 
         const next = pool.free.first;
         _ = next;
@@ -182,7 +185,7 @@ pub const ConnectionPool = struct {
     ///
     /// Threadsafe.
     pub fn deinit(pool: *ConnectionPool, io: Io) void {
-        pool.mutex.lock();
+        pool.mutex.lockUncancelable(io);
 
         var next = pool.free.first;
         while (next) |node| {
@@ -1308,9 +1311,11 @@ pub fn deinit(client: *Client) void {
 /// Uses `arena` for a few small allocations that must outlive the client, or
 /// at least until those fields are set to different values.
 pub fn initDefaultProxies(client: *Client, arena: Allocator, environ_map: *std.process.Environ.Map) !void {
+    const io = client.io;
+
     // Prevent any new connections from being created.
-    client.connection_pool.mutex.lock();
-    defer client.connection_pool.mutex.unlock();
+    client.connection_pool.mutex.lockUncancelable(io);
+    defer client.connection_pool.mutex.unlock(io);
 
     assert(client.connection_pool.used.first == null); // There are active requests.
 
@@ -1437,7 +1442,7 @@ pub fn connectTcpOptions(client: *Client, options: ConnectTcpOptions) ConnectTcp
     const proxied_host = options.proxied_host orelse host;
     const proxied_port = options.proxied_port orelse port;
 
-    if (client.connection_pool.findConnection(.{
+    if (client.connection_pool.findConnection(io, .{
         .host = proxied_host,
         .port = proxied_port,
         .protocol = protocol,
@@ -1455,12 +1460,12 @@ pub fn connectTcpOptions(client: *Client, options: ConnectTcpOptions) ConnectTcp
                 error.Canceled => |e| return e,
                 else => return error.TlsInitializationFailed,
             };
-            client.connection_pool.addUsed(&tc.connection);
+            client.connection_pool.addUsed(io, &tc.connection);
             return &tc.connection;
         },
         .plain => {
             const pc = try Connection.Plain.create(client, proxied_host, proxied_port, stream);
-            client.connection_pool.addUsed(&pc.connection);
+            client.connection_pool.addUsed(io, &pc.connection);
             return &pc.connection;
         },
     }
@@ -1474,7 +1479,7 @@ pub const ConnectUnixError = Allocator.Error || std.posix.SocketError || error{N
 pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connection {
     const io = client.io;
 
-    if (client.connection_pool.findConnection(.{
+    if (client.connection_pool.findConnection(io, .{
         .host = path,
         .port = 0,
         .protocol = .plain,
@@ -1516,7 +1521,7 @@ pub fn connectProxied(
     const io = client.io;
     if (!proxy.supports_connect) return error.TunnelNotSupported;
 
-    if (client.connection_pool.findConnection(.{
+    if (client.connection_pool.findConnection(io, .{
         .host = proxied_host,
         .port = proxied_port,
         .protocol = proxy.protocol,
@@ -1691,11 +1696,11 @@ pub fn request(
     if (protocol == .tls) {
         if (disable_tls) unreachable;
         {
-            client.ca_bundle_mutex.lock();
-            defer client.ca_bundle_mutex.unlock();
+            client.ca_bundle_mutex.lockUncancelable(io);
+            defer client.ca_bundle_mutex.unlock(io);
 
             if (client.now == null) {
-                const now = try Io.Clock.real.now(io);
+                const now = Io.Clock.real.now(io);
                 client.now = now;
                 client.ca_bundle.rescan(client.allocator, io, now) catch
                     return error.CertificateBundleLoadFailure;

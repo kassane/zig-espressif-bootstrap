@@ -1,14 +1,15 @@
 const builtin = @import("builtin");
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const intFromFloat = @import("./int_from_float.zig").intFromFloat;
 
 comptime {
-    if (common.want_windows_v2u64_abi) {
-        @export(&__fixunstfti_windows_x86_64, .{ .name = "__fixunstfti", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_windows_v2u64_abi) {
+        symbol(&__fixunstfti_windows_x86_64, "__fixunstfti");
     } else {
-        if (common.want_ppc_abi)
-            @export(&__fixunstfti, .{ .name = "__fixunskfti", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__fixunstfti, .{ .name = "__fixunstfti", .linkage = common.linkage, .visibility = common.visibility });
+        if (compiler_rt.want_ppc_abi)
+            symbol(&__fixunstfti, "__fixunskfti");
+        symbol(&__fixunstfti, "__fixunstfti");
     }
 }
 

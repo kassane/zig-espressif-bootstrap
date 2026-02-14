@@ -1,56 +1,59 @@
-const std = @import("std");
-const common = @import("../common.zig");
 const builtin = @import("builtin");
+
+const std = @import("std");
+
+const symbol = @import("../../c.zig").symbol;
+const errno = @import("../../c.zig").errno;
 
 comptime {
     if (builtin.target.isMuslLibC()) {
-        @export(&madviseLinux, .{ .name = "madvise", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&madviseLinux, .{ .name = "__madvise", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&madviseLinux, "madvise");
+        symbol(&madviseLinux, "__madvise");
 
-        @export(&mincoreLinux, .{ .name = "mincore", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&mincoreLinux, "mincore");
 
-        @export(&mlockLinux, .{ .name = "mlock", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&mlockallLinux, .{ .name = "mlockall", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&mlockLinux, "mlock");
+        symbol(&mlockallLinux, "mlockall");
 
-        @export(&mprotectLinux, .{ .name = "mprotect", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&mprotectLinux, .{ .name = "__mprotect", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&mprotectLinux, "mprotect");
+        symbol(&mprotectLinux, "__mprotect");
 
-        @export(&munlockLinux, .{ .name = "munlock", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&munlockallLinux, .{ .name = "munlockall", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&munlockLinux, "munlock");
+        symbol(&munlockallLinux, "munlockall");
 
-        @export(&posix_madviseLinux, .{ .name = "posix_madvise", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&posix_madviseLinux, "posix_madvise");
     }
 }
 
 fn madviseLinux(addr: *anyopaque, len: usize, advice: c_int) callconv(.c) c_int {
-    return common.errno(std.os.linux.madvise(@ptrCast(addr), len, @bitCast(advice)));
+    return errno(std.os.linux.madvise(@ptrCast(addr), len, @bitCast(advice)));
 }
 
 fn mincoreLinux(addr: *anyopaque, len: usize, vec: [*]u8) callconv(.c) c_int {
-    return common.errno(std.os.linux.mincore(@ptrCast(addr), len, vec));
+    return errno(std.os.linux.mincore(@ptrCast(addr), len, vec));
 }
 
 fn mlockLinux(addr: *const anyopaque, len: usize) callconv(.c) c_int {
-    return common.errno(std.os.linux.mlock(@ptrCast(addr), len));
+    return errno(std.os.linux.mlock(@ptrCast(addr), len));
 }
 
 fn mlockallLinux(flags: c_int) callconv(.c) c_int {
-    return common.errno(std.os.linux.mlockall(@bitCast(flags)));
+    return errno(std.os.linux.mlockall(@bitCast(flags)));
 }
 
 fn mprotectLinux(addr: *anyopaque, len: usize, prot: c_int) callconv(.c) c_int {
     const page_size = std.heap.pageSize();
     const start = std.mem.alignBackward(usize, @intFromPtr(addr), page_size);
     const aligned_len = std.mem.alignForward(usize, len, page_size);
-    return common.errno(std.os.linux.mprotect(@ptrFromInt(start), aligned_len, @bitCast(prot)));
+    return errno(std.os.linux.mprotect(@ptrFromInt(start), aligned_len, @bitCast(prot)));
 }
 
 fn munlockLinux(addr: *const anyopaque, len: usize) callconv(.c) c_int {
-    return common.errno(std.os.linux.munlock(@ptrCast(addr), len));
+    return errno(std.os.linux.munlock(@ptrCast(addr), len));
 }
 
 fn munlockallLinux() callconv(.c) c_int {
-    return common.errno(std.os.linux.munlockall());
+    return errno(std.os.linux.munlockall());
 }
 
 fn posix_madviseLinux(addr: *anyopaque, len: usize, advice: c_int) callconv(.c) c_int {

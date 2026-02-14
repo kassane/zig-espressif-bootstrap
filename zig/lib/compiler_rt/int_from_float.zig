@@ -1,13 +1,58 @@
 const std = @import("std");
-const Int = std.meta.Int;
 const math = std.math;
-const Log2Int = math.Log2Int;
+const Log2Int = std.math.Log2Int;
+
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
+
+comptime {
+    if (compiler_rt.want_windows_v2u64_abi) {
+        symbol(&__fixxfti_windows_x86_64, "__fixxfti");
+    } else {
+        symbol(&__fixxfti, "__fixxfti");
+    }
+
+    symbol(&__fixhfsi, "__fixhfsi");
+    symbol(&__fixhfdi, "__fixhfdi");
+
+    if (compiler_rt.want_windows_v2u64_abi) {
+        symbol(&__fixhfti_windows_x86_64, "__fixhfti");
+    } else {
+        symbol(&__fixhfti, "__fixhfti");
+    }
+}
+
+const v2u64 = @Vector(2, u64);
+
+pub fn __fixhfti(a: f16) callconv(.c) i128 {
+    return intFromFloat(i128, a);
+}
+
+fn __fixhfti_windows_x86_64(a: f16) callconv(.c) v2u64 {
+    return @bitCast(intFromFloat(i128, a));
+}
+
+fn __fixhfdi(a: f16) callconv(.c) i64 {
+    return intFromFloat(i64, a);
+}
+
+fn __fixhfsi(a: f16) callconv(.c) i32 {
+    return intFromFloat(i32, a);
+}
+
+pub fn __fixxfti(a: f80) callconv(.c) i128 {
+    return intFromFloat(i128, a);
+}
+
+fn __fixxfti_windows_x86_64(a: f80) callconv(.c) v2u64 {
+    return @bitCast(intFromFloat(i128, a));
+}
 
 pub inline fn intFromFloat(comptime I: type, a: anytype) I {
     const F = @TypeOf(a);
     const float_bits = @typeInfo(F).float.bits;
     const int_bits = @typeInfo(I).int.bits;
-    const rep_t = Int(.unsigned, float_bits);
+    const rep_t = @Int(.unsigned, float_bits);
     const sig_bits = math.floatMantissaBits(F);
     const exp_bits = math.floatExponentBits(F);
     const fractional_bits = math.floatFractionalBits(F);

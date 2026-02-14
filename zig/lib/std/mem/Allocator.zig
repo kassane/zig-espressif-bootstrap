@@ -452,12 +452,23 @@ pub fn dupe(allocator: Allocator, comptime T: type, m: []const T) Error![]T {
     return new_buf;
 }
 
+/// Deprecated in favor of `dupeSentinel`
 /// Copies `m` to newly allocated memory, with a null-terminated element. Caller owns the memory.
 pub fn dupeZ(allocator: Allocator, comptime T: type, m: []const T) Error![:0]T {
+    return allocator.dupeSentinel(T, m, 0);
+}
+
+/// Copies `m` to newly allocated memory, with a null-terminated element. Caller owns the memory.
+pub fn dupeSentinel(
+    allocator: Allocator,
+    comptime T: type,
+    m: []const T,
+    comptime sentinel: T,
+) Error![:sentinel]T {
     const new_buf = try allocator.alloc(T, m.len + 1);
     @memcpy(new_buf[0..m.len], m);
-    new_buf[m.len] = 0;
-    return new_buf[0..m.len :0];
+    new_buf[m.len] = sentinel;
+    return new_buf[0..m.len :sentinel];
 }
 
 /// An allocator that always fails to allocate.

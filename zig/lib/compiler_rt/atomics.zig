@@ -1,10 +1,11 @@
-const std = @import("std");
 const builtin = @import("builtin");
-const common = @import("./common.zig");
 const cpu = builtin.cpu;
 const arch = cpu.arch;
-const linkage = common.linkage;
-const visibility = common.visibility;
+
+const std = @import("std");
+
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 
 // This parameter is true iff the target architecture supports the bare minimum
 // to implement the atomic load/store intrinsics.
@@ -225,7 +226,7 @@ fn __atomic_store_16(dst: *u128, value: u128, model: i32) callconv(.c) void {
 }
 
 fn wideUpdate(comptime T: type, ptr: *T, val: T, update: anytype) T {
-    const WideAtomic = std.meta.Int(.unsigned, smallest_atomic_fetch_exch_size * 8);
+    const WideAtomic = @Int(.unsigned, smallest_atomic_fetch_exch_size * 8);
 
     const addr = @intFromPtr(ptr);
     const wide_addr = addr & ~(@as(T, smallest_atomic_fetch_exch_size) - 1);
@@ -535,81 +536,81 @@ fn __atomic_fetch_umin_16(ptr: *u128, val: u128, model: i32) callconv(.c) u128 {
 
 comptime {
     if (supports_atomic_ops and builtin.object_format != .c) {
-        @export(&__atomic_load, .{ .name = "__atomic_load", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_store, .{ .name = "__atomic_store", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_exchange, .{ .name = "__atomic_exchange", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_compare_exchange, .{ .name = "__atomic_compare_exchange", .linkage = linkage, .visibility = visibility });
+        symbol(&__atomic_load, "__atomic_load");
+        symbol(&__atomic_store, "__atomic_store");
+        symbol(&__atomic_exchange, "__atomic_exchange");
+        symbol(&__atomic_compare_exchange, "__atomic_compare_exchange");
 
-        @export(&__atomic_fetch_add_1, .{ .name = "__atomic_fetch_add_1", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_add_2, .{ .name = "__atomic_fetch_add_2", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_add_4, .{ .name = "__atomic_fetch_add_4", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_add_8, .{ .name = "__atomic_fetch_add_8", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_add_16, .{ .name = "__atomic_fetch_add_16", .linkage = linkage, .visibility = visibility });
+        symbol(&__atomic_fetch_add_1, "__atomic_fetch_add_1");
+        symbol(&__atomic_fetch_add_2, "__atomic_fetch_add_2");
+        symbol(&__atomic_fetch_add_4, "__atomic_fetch_add_4");
+        symbol(&__atomic_fetch_add_8, "__atomic_fetch_add_8");
+        symbol(&__atomic_fetch_add_16, "__atomic_fetch_add_16");
 
-        @export(&__atomic_fetch_sub_1, .{ .name = "__atomic_fetch_sub_1", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_sub_2, .{ .name = "__atomic_fetch_sub_2", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_sub_4, .{ .name = "__atomic_fetch_sub_4", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_sub_8, .{ .name = "__atomic_fetch_sub_8", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_sub_16, .{ .name = "__atomic_fetch_sub_16", .linkage = linkage, .visibility = visibility });
+        symbol(&__atomic_fetch_sub_1, "__atomic_fetch_sub_1");
+        symbol(&__atomic_fetch_sub_2, "__atomic_fetch_sub_2");
+        symbol(&__atomic_fetch_sub_4, "__atomic_fetch_sub_4");
+        symbol(&__atomic_fetch_sub_8, "__atomic_fetch_sub_8");
+        symbol(&__atomic_fetch_sub_16, "__atomic_fetch_sub_16");
 
-        @export(&__atomic_fetch_and_1, .{ .name = "__atomic_fetch_and_1", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_and_2, .{ .name = "__atomic_fetch_and_2", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_and_4, .{ .name = "__atomic_fetch_and_4", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_and_8, .{ .name = "__atomic_fetch_and_8", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_and_16, .{ .name = "__atomic_fetch_and_16", .linkage = linkage, .visibility = visibility });
+        symbol(&__atomic_fetch_and_1, "__atomic_fetch_and_1");
+        symbol(&__atomic_fetch_and_2, "__atomic_fetch_and_2");
+        symbol(&__atomic_fetch_and_4, "__atomic_fetch_and_4");
+        symbol(&__atomic_fetch_and_8, "__atomic_fetch_and_8");
+        symbol(&__atomic_fetch_and_16, "__atomic_fetch_and_16");
 
-        @export(&__atomic_fetch_or_1, .{ .name = "__atomic_fetch_or_1", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_or_2, .{ .name = "__atomic_fetch_or_2", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_or_4, .{ .name = "__atomic_fetch_or_4", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_or_8, .{ .name = "__atomic_fetch_or_8", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_or_16, .{ .name = "__atomic_fetch_or_16", .linkage = linkage, .visibility = visibility });
+        symbol(&__atomic_fetch_or_1, "__atomic_fetch_or_1");
+        symbol(&__atomic_fetch_or_2, "__atomic_fetch_or_2");
+        symbol(&__atomic_fetch_or_4, "__atomic_fetch_or_4");
+        symbol(&__atomic_fetch_or_8, "__atomic_fetch_or_8");
+        symbol(&__atomic_fetch_or_16, "__atomic_fetch_or_16");
 
-        @export(&__atomic_fetch_xor_1, .{ .name = "__atomic_fetch_xor_1", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_xor_2, .{ .name = "__atomic_fetch_xor_2", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_xor_4, .{ .name = "__atomic_fetch_xor_4", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_xor_8, .{ .name = "__atomic_fetch_xor_8", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_xor_16, .{ .name = "__atomic_fetch_xor_16", .linkage = linkage, .visibility = visibility });
+        symbol(&__atomic_fetch_xor_1, "__atomic_fetch_xor_1");
+        symbol(&__atomic_fetch_xor_2, "__atomic_fetch_xor_2");
+        symbol(&__atomic_fetch_xor_4, "__atomic_fetch_xor_4");
+        symbol(&__atomic_fetch_xor_8, "__atomic_fetch_xor_8");
+        symbol(&__atomic_fetch_xor_16, "__atomic_fetch_xor_16");
 
-        @export(&__atomic_fetch_nand_1, .{ .name = "__atomic_fetch_nand_1", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_nand_2, .{ .name = "__atomic_fetch_nand_2", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_nand_4, .{ .name = "__atomic_fetch_nand_4", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_nand_8, .{ .name = "__atomic_fetch_nand_8", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_nand_16, .{ .name = "__atomic_fetch_nand_16", .linkage = linkage, .visibility = visibility });
+        symbol(&__atomic_fetch_nand_1, "__atomic_fetch_nand_1");
+        symbol(&__atomic_fetch_nand_2, "__atomic_fetch_nand_2");
+        symbol(&__atomic_fetch_nand_4, "__atomic_fetch_nand_4");
+        symbol(&__atomic_fetch_nand_8, "__atomic_fetch_nand_8");
+        symbol(&__atomic_fetch_nand_16, "__atomic_fetch_nand_16");
 
-        @export(&__atomic_fetch_umax_1, .{ .name = "__atomic_fetch_umax_1", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_umax_2, .{ .name = "__atomic_fetch_umax_2", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_umax_4, .{ .name = "__atomic_fetch_umax_4", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_umax_8, .{ .name = "__atomic_fetch_umax_8", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_umax_16, .{ .name = "__atomic_fetch_umax_16", .linkage = linkage, .visibility = visibility });
+        symbol(&__atomic_fetch_umax_1, "__atomic_fetch_umax_1");
+        symbol(&__atomic_fetch_umax_2, "__atomic_fetch_umax_2");
+        symbol(&__atomic_fetch_umax_4, "__atomic_fetch_umax_4");
+        symbol(&__atomic_fetch_umax_8, "__atomic_fetch_umax_8");
+        symbol(&__atomic_fetch_umax_16, "__atomic_fetch_umax_16");
 
-        @export(&__atomic_fetch_umin_1, .{ .name = "__atomic_fetch_umin_1", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_umin_2, .{ .name = "__atomic_fetch_umin_2", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_umin_4, .{ .name = "__atomic_fetch_umin_4", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_umin_8, .{ .name = "__atomic_fetch_umin_8", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_fetch_umin_16, .{ .name = "__atomic_fetch_umin_16", .linkage = linkage, .visibility = visibility });
+        symbol(&__atomic_fetch_umin_1, "__atomic_fetch_umin_1");
+        symbol(&__atomic_fetch_umin_2, "__atomic_fetch_umin_2");
+        symbol(&__atomic_fetch_umin_4, "__atomic_fetch_umin_4");
+        symbol(&__atomic_fetch_umin_8, "__atomic_fetch_umin_8");
+        symbol(&__atomic_fetch_umin_16, "__atomic_fetch_umin_16");
 
-        @export(&__atomic_load_1, .{ .name = "__atomic_load_1", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_load_2, .{ .name = "__atomic_load_2", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_load_4, .{ .name = "__atomic_load_4", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_load_8, .{ .name = "__atomic_load_8", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_load_16, .{ .name = "__atomic_load_16", .linkage = linkage, .visibility = visibility });
+        symbol(&__atomic_load_1, "__atomic_load_1");
+        symbol(&__atomic_load_2, "__atomic_load_2");
+        symbol(&__atomic_load_4, "__atomic_load_4");
+        symbol(&__atomic_load_8, "__atomic_load_8");
+        symbol(&__atomic_load_16, "__atomic_load_16");
 
-        @export(&__atomic_store_1, .{ .name = "__atomic_store_1", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_store_2, .{ .name = "__atomic_store_2", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_store_4, .{ .name = "__atomic_store_4", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_store_8, .{ .name = "__atomic_store_8", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_store_16, .{ .name = "__atomic_store_16", .linkage = linkage, .visibility = visibility });
+        symbol(&__atomic_store_1, "__atomic_store_1");
+        symbol(&__atomic_store_2, "__atomic_store_2");
+        symbol(&__atomic_store_4, "__atomic_store_4");
+        symbol(&__atomic_store_8, "__atomic_store_8");
+        symbol(&__atomic_store_16, "__atomic_store_16");
 
-        @export(&__atomic_exchange_1, .{ .name = "__atomic_exchange_1", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_exchange_2, .{ .name = "__atomic_exchange_2", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_exchange_4, .{ .name = "__atomic_exchange_4", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_exchange_8, .{ .name = "__atomic_exchange_8", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_exchange_16, .{ .name = "__atomic_exchange_16", .linkage = linkage, .visibility = visibility });
+        symbol(&__atomic_exchange_1, "__atomic_exchange_1");
+        symbol(&__atomic_exchange_2, "__atomic_exchange_2");
+        symbol(&__atomic_exchange_4, "__atomic_exchange_4");
+        symbol(&__atomic_exchange_8, "__atomic_exchange_8");
+        symbol(&__atomic_exchange_16, "__atomic_exchange_16");
 
-        @export(&__atomic_compare_exchange_1, .{ .name = "__atomic_compare_exchange_1", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_compare_exchange_2, .{ .name = "__atomic_compare_exchange_2", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_compare_exchange_4, .{ .name = "__atomic_compare_exchange_4", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_compare_exchange_8, .{ .name = "__atomic_compare_exchange_8", .linkage = linkage, .visibility = visibility });
-        @export(&__atomic_compare_exchange_16, .{ .name = "__atomic_compare_exchange_16", .linkage = linkage, .visibility = visibility });
+        symbol(&__atomic_compare_exchange_1, "__atomic_compare_exchange_1");
+        symbol(&__atomic_compare_exchange_2, "__atomic_compare_exchange_2");
+        symbol(&__atomic_compare_exchange_4, "__atomic_compare_exchange_4");
+        symbol(&__atomic_compare_exchange_8, "__atomic_compare_exchange_8");
+        symbol(&__atomic_compare_exchange_16, "__atomic_compare_exchange_16");
     }
 }

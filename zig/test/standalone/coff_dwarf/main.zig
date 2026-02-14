@@ -4,17 +4,16 @@ const fatal = std.process.fatal;
 extern fn add(a: u32, b: u32, addr: *usize) u32;
 
 pub fn main(init: std.process.Init) void {
-    const gpa = init.gpa;
     const io = init.io;
 
     var di: std.debug.SelfInfo = .init;
-    defer di.deinit(gpa);
+    defer di.deinit(io);
 
     var add_addr: usize = undefined;
     _ = add(1, 2, &add_addr);
 
-    const symbol = di.getSymbol(gpa, io, add_addr) catch |err| fatal("failed to get symbol: {t}", .{err});
-    defer if (symbol.source_location) |sl| gpa.free(sl.file_name);
+    const symbol = di.getSymbol(io, add_addr) catch |err| fatal("failed to get symbol: {t}", .{err});
+    defer if (symbol.source_location) |sl| std.debug.getDebugInfoAllocator().free(sl.file_name);
 
     if (symbol.name == null) fatal("failed to resolve symbol name", .{});
     if (symbol.compile_unit_name == null) fatal("failed to resolve compile unit", .{});

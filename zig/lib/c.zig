@@ -1,7 +1,9 @@
-//! This is Zig's multi-target implementation of libc.
+//! Multi-target implementation of libc, providing ABI compatibility with
+//! bundled libcs.
 //!
-//! When `builtin.link_libc` is true, we need to export all the functions and
-//! provide a libc API compatible with the target (e.g. musl, wasi-libc, ...).
+//! mingw-w64 libc is not fully statically linked, so some symbols don't need
+//! to be exported. However, a future enhancement could be eliminating Zig's
+//! dependency on msvcrt dll even when linking libc and targeting Windows.
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -13,34 +15,70 @@ pub const panic = if (builtin.is_test)
 else
     std.debug.no_panic;
 
-// NOTE: `libzigc` aims to be a standalone libc and provide ABI compatibility with its bundled libc's.
-// Some of them like `mingw` are not fully statically linked so some symbols don't need to be exported.
+/// It is possible that this libc is being linked into a different test
+/// compilation, as opposed to being tested itself. In such case,
+/// `builtin.link_libc` will be `true` along with `builtin.is_test`.
+///
+/// When we don't have a complete libc, `builtin.link_libc` will be `false` and
+/// we will be missing externally provided symbols, such as `_errno` from
+/// ucrtbase.dll. In such case, we must avoid analyzing otherwise exported
+/// functions because it would cause undefined symbol usage.
+///
+/// Unfortunately such logic cannot be automatically done in this function body
+/// since `func` will always be analyzed by the time we get here, so `comptime`
+/// blocks will need to each check for `builtin.link_libc` and skip exports
+/// when the exported functions have libc dependencies not provided by this
+/// compilation unit.
+pub inline fn symbol(comptime func: *const anyopaque, comptime name: []const u8) void {
+    @export(func, .{
+        .name = name,
+        // Normally, libc goes into a static archive, making all symbols
+        // overridable. However, Zig supports including the libc functions as part
+        // of the Zig Compilation Unit, so to support this use case we make all
+        // symbols weak.
+        .linkage = .weak,
+        // For WebAssembly, hidden visibility allows the symbol to be resolved to
+        // other modules, but will not export it to the host runtime.
+        .visibility = .hidden,
+    });
+}
+
+/// Given a low-level syscall return value, sets errno and returns `-1`, or on
+/// success returns the result.
+pub fn errno(syscall_return_value: usize) c_int {
+    return switch (builtin.os.tag) {
+        .linux => {
+            const signed: isize = @bitCast(syscall_return_value);
+            const casted: c_int = @intCast(signed);
+            if (casted < 0) {
+                @branchHint(.unlikely);
+                std.c._errno().* = -casted;
+                return -1;
+            }
+            return casted;
+        },
+        else => comptime unreachable,
+    };
+}
 
 comptime {
-    _ = @import("c/inttypes.zig");
     _ = @import("c/ctype.zig");
-    _ = @import("c/stdlib.zig");
+    _ = @import("c/inttypes.zig");
+    if (!builtin.target.isMinGW()) {
+        _ = @import("c/malloc.zig");
+    }
     _ = @import("c/math.zig");
+    _ = @import("c/search.zig");
+    _ = @import("c/stdlib.zig");
     _ = @import("c/string.zig");
     _ = @import("c/strings.zig");
-    _ = @import("c/wchar.zig");
 
-    _ = @import("c/sys.zig");
+    _ = @import("c/sys/capability.zig");
+    _ = @import("c/sys/file.zig");
+    _ = @import("c/sys/mman.zig");
+    _ = @import("c/sys/reboot.zig");
+    _ = @import("c/sys/utsname.zig");
+
     _ = @import("c/unistd.zig");
-
-    if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
-        // Files specific to musl and wasi-libc.
-    }
-
-    if (builtin.target.isMuslLibC()) {
-        // Files specific to musl.
-    }
-
-    if (builtin.target.isWasiLibC()) {
-        // Files specific to wasi-libc.
-    }
-
-    if (builtin.target.isMinGW()) {
-        // Files specific to MinGW-w64.
-    }
+    _ = @import("c/wchar.zig");
 }

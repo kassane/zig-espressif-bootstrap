@@ -605,8 +605,8 @@ pub const File = struct {
         switch (base.tag) {
             .lld => assert(base.file == null),
             .elf, .macho, .wasm => {
-                if (base.file != null) return;
                 dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker });
+                if (base.file != null) return;
                 const emit = base.emit;
                 if (base.child_pid) |pid| {
                     if (builtin.os.tag == .windows) {
@@ -645,6 +645,7 @@ pub const File = struct {
                 base.file = try emit.root_dir.handle.openFile(io, emit.sub_path, .{ .mode = .read_write });
             },
             .elf2, .coff2 => if (base.file == null) {
+                dev.checkAny(&.{ .elf2_linker, .coff2_linker });
                 const mf = if (base.cast(.elf2)) |elf|
                     &elf.mf
                 else if (base.cast(.coff2)) |coff|
@@ -657,7 +658,13 @@ pub const File = struct {
                 base.file = mf.memory_map.file;
                 try mf.ensureTotalCapacity(@intCast(mf.nodes.items[0].location().resolve(mf)[1]));
             },
-            .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
+            .c => if (base.file == null) {
+                dev.check(.c_linker);
+                base.file = try base.emit.root_dir.handle.openFile(io, base.emit.sub_path, .{
+                    .mode = .write_only,
+                });
+            },
+            .spirv => dev.check(.spirv_linker),
             .plan9 => unreachable,
         }
     }
@@ -1381,7 +1388,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
     };
 
     var timer = comp.startTimer();
-    defer if (timer.finish()) |ns| {
+    defer if (timer.finish(io)) |ns| {
         comp.mutex.lockUncancelable(io);
         defer comp.mutex.unlock(io);
         comp.time_report.?.stats.cpu_ns_link += ns;
@@ -1493,12 +1500,12 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
         },
     }
 }
-pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
+pub fn doZcuTask(comp: *Compilation, tid: Zcu.PerThread.Id, task: ZcuTask) void {
     const io = comp.io;
     const diags = &comp.link_diags;
     const zcu = comp.zcu.?;
     const ip = &zcu.intern_pool;
-    const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
+    const pt: Zcu.PerThread = .activate(zcu, tid);
     defer pt.deactivate();
 
     var timer = comp.startTimer();
@@ -1528,12 +1535,12 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
             break :nav nav_index;
         },
         .link_func => |codegen_task| nav: {
-            timer.pause();
+            timer.pause(io);
             const func, var mir = codegen_task.wait(&zcu.codegen_task_pool, io) catch |err| switch (err) {
                 error.Canceled, error.AlreadyReported => return,
             };
             defer mir.deinit(zcu);
-            timer.@"resume"();
+            timer.@"resume"(io);
 
             const nav = zcu.funcInfo(func).owner_nav;
             const fqn_slice = ip.getNav(nav).fqn.toSlice(ip);
@@ -1585,7 +1592,7 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
         },
     };
 
-    if (timer.finish()) |ns_link| report_time: {
+    if (timer.finish(io)) |ns_link| report_time: {
         comp.mutex.lockUncancelable(io);
         defer comp.mutex.unlock(io);
         const tr = &zcu.comp.time_report.?;
@@ -1603,8 +1610,8 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
         }
     }
 }
-pub fn doIdleTask(comp: *Compilation, tid: usize) error{ OutOfMemory, LinkFailure }!bool {
-    return if (comp.bin_file) |lf| lf.idle(@enumFromInt(tid)) else false;
+pub fn doIdleTask(comp: *Compilation, tid: Zcu.PerThread.Id) error{ OutOfMemory, LinkFailure }!bool {
+    return if (comp.bin_file) |lf| lf.idle(tid) else false;
 }
 /// After the main pipeline is done, but before flush, the compilation may need to link one final
 /// `Nav` into the binary: the `builtin.test_functions` value. Since the link thread isn't running

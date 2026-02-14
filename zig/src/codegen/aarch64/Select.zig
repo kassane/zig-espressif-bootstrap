@@ -274,10 +274,9 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
         },
         .assembly => {
             const ty_pl = air_data[@intFromEnum(air_inst_index)].ty_pl;
-            const extra = isel.air.extraData(Air.Asm, ty_pl.payload);
-            const operands: []const Air.Inst.Ref = @ptrCast(isel.air.extra.items[extra.end..][0 .. extra.data.flags.outputs_len + extra.data.inputs_len]);
+            const unwrapped_asm = isel.air.unwrapAsm(air_inst_index);
 
-            for (operands) |operand| if (operand != .none) try isel.analyzeUse(operand);
+            for (unwrapped_asm.outputs) |operand| if (operand != .none) try isel.analyzeUse(operand);
             if (ty_pl.ty != .void_type) try isel.def_order.putNoClobber(gpa, air_inst_index, {});
 
             air_body_index += 1;
@@ -355,23 +354,23 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
             continue :air_tag air_tags[@intFromEnum(air_inst_index)];
         },
         inline .block, .dbg_inline_block => |air_tag| {
-            const ty_pl = air_data[@intFromEnum(air_inst_index)].ty_pl;
-            const extra = isel.air.extraData(switch (air_tag) {
+            const air_body_block = switch (air_tag) {
                 else => comptime unreachable,
-                .block => Air.Block,
-                .dbg_inline_block => Air.DbgInlineBlock,
-            }, ty_pl.payload);
-            const result_ty = ty_pl.ty.toInterned().?;
+                .block => isel.air.unwrapBlock(air_inst_index),
+                .dbg_inline_block => isel.air.unwrapDbgBlock(air_inst_index),
+            };
+
+            const result_ty = air_body_block.ty.toIntern();
 
             if (result_ty == .noreturn_type) {
-                try isel.analyze(@ptrCast(isel.air.extra.items[extra.end..][0..extra.data.body_len]));
+                try isel.analyze(air_body_block.body);
 
                 air_body_index += 1;
                 break :air_tag;
             }
 
             assert(!(try isel.blocks.getOrPut(gpa, air_inst_index)).found_existing);
-            try isel.analyze(@ptrCast(isel.air.extra.items[extra.end..][0..extra.data.body_len]));
+            try isel.analyze(air_body_block.body);
             const block_entry = isel.blocks.pop().?;
             assert(block_entry.key == air_inst_index);
 
@@ -382,8 +381,7 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
             continue :air_tag air_tags[@intFromEnum(air_inst_index)];
         },
         .loop => {
-            const ty_pl = air_data[@intFromEnum(air_inst_index)].ty_pl;
-            const extra = isel.air.extraData(Air.Block, ty_pl.payload);
+            const air_body_block = isel.air.unwrapBlock(air_inst_index);
 
             const initial_dom_start = isel.dom_start;
             const initial_dom_len = isel.dom_len;
@@ -399,7 +397,7 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
                 .repeat_list = undefined,
             });
             try isel.dom.appendNTimes(gpa, 0, std.math.divCeil(usize, isel.dom_len, @bitSizeOf(DomInt)) catch unreachable);
-            try isel.analyze(@ptrCast(isel.air.extra.items[extra.end..][0..extra.data.body_len]));
+            try isel.analyze(air_body_block.body);
             for (
                 isel.dom.items[initial_dom_start..].ptr,
                 isel.dom.items[isel.dom_start..][0 .. std.math.divCeil(usize, initial_dom_len, @bitSizeOf(DomInt)) catch unreachable],
@@ -429,18 +427,17 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
         .call_never_tail,
         .call_never_inline,
         => {
-            const pl_op = air_data[@intFromEnum(air_inst_index)].pl_op;
-            const extra = isel.air.extraData(Air.Call, pl_op.payload);
-            const args: []const Air.Inst.Ref = @ptrCast(isel.air.extra.items[extra.end..][0..extra.data.args_len]);
+            const air_call = isel.air.unwrapCall(air_inst_index);
+            const args = air_call.args;
             isel.saved_registers.insert(.lr);
-            const callee_ty = isel.air.typeOf(pl_op.operand, ip);
+            const callee_ty = isel.air.typeOf(air_call.callee, ip);
             const func_info = switch (ip.indexToKey(callee_ty.toIntern())) {
                 else => unreachable,
                 .func_type => |func_type| func_type,
                 .ptr_type => |ptr_type| ip.indexToKey(ptr_type.child).func_type,
             };
 
-            try isel.analyzeUse(pl_op.operand);
+            try isel.analyzeUse(air_call.callee);
             var param_it: CallAbiIterator = .init;
             for (args, 0..) |arg, arg_index| {
                 const restore_values_len = isel.values.items.len;
@@ -549,13 +546,12 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
             continue :air_tag air_tags[@intFromEnum(air_inst_index)];
         },
         .cond_br => {
-            const pl_op = air_data[@intFromEnum(air_inst_index)].pl_op;
-            const extra = isel.air.extraData(Air.CondBr, pl_op.payload);
+            const cond_br = isel.air.unwrapCondBr(air_inst_index);
 
-            try isel.analyzeUse(pl_op.operand);
+            try isel.analyzeUse(cond_br.condition);
 
-            try isel.analyze(@ptrCast(isel.air.extra.items[extra.end..][0..extra.data.then_body_len]));
-            try isel.analyze(@ptrCast(isel.air.extra.items[extra.end + extra.data.then_body_len ..][0..extra.data.else_body_len]));
+            try isel.analyze(cond_br.then_body);
+            try isel.analyze(cond_br.else_body);
 
             air_body_index += 1;
         },
@@ -610,11 +606,10 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
             air_body_index += 1;
         },
         .@"try", .try_cold => {
-            const pl_op = air_data[@intFromEnum(air_inst_index)].pl_op;
-            const extra = isel.air.extraData(Air.Try, pl_op.payload);
+            const unwrapped_try = isel.air.unwrapTry(air_inst_index);
 
-            try isel.analyzeUse(pl_op.operand);
-            try isel.analyze(@ptrCast(isel.air.extra.items[extra.end..][0..extra.data.body_len]));
+            try isel.analyzeUse(unwrapped_try.error_union);
+            try isel.analyze(unwrapped_try.else_body);
             try isel.def_order.putNoClobber(gpa, air_inst_index, {});
 
             air_body_index += 1;
@@ -622,11 +617,10 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
             continue :air_tag air_tags[@intFromEnum(air_inst_index)];
         },
         .try_ptr, .try_ptr_cold => {
-            const ty_pl = air_data[@intFromEnum(air_inst_index)].ty_pl;
-            const extra = isel.air.extraData(Air.TryPtr, ty_pl.payload);
+            const unwrapped_try = isel.air.unwrapTryPtr(air_inst_index);
 
-            try isel.analyzeUse(extra.data.ptr);
-            try isel.analyze(@ptrCast(isel.air.extra.items[extra.end..][0..extra.data.body_len]));
+            try isel.analyzeUse(unwrapped_try.error_union_ptr);
+            try isel.analyze(unwrapped_try.else_body);
             try isel.def_order.putNoClobber(gpa, air_inst_index, {});
 
             air_body_index += 1;
@@ -2698,12 +2692,8 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
         .inferred_alloc, .inferred_alloc_comptime => unreachable,
         .assembly => {
             const ty_pl = air.data(air.inst_index).ty_pl;
-            const extra = isel.air.extraData(Air.Asm, ty_pl.payload);
-            var extra_index = extra.end;
-            const outputs: []const Air.Inst.Ref = @ptrCast(isel.air.extra.items[extra_index..][0..extra.data.flags.outputs_len]);
-            extra_index += outputs.len;
-            const inputs: []const Air.Inst.Ref = @ptrCast(isel.air.extra.items[extra_index..][0..extra.data.inputs_len]);
-            extra_index += inputs.len;
+            const unwrapped_asm = isel.air.unwrapAsm(air.inst_index);
+            const inputs = unwrapped_asm.inputs;
 
             var as: codegen.aarch64.Assemble = .{
                 .source = undefined,
@@ -2711,15 +2701,12 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             };
             defer as.operands.deinit(gpa);
 
-            for (outputs) |output| {
-                const extra_bytes = std.mem.sliceAsBytes(isel.air.extra.items[extra_index..]);
-                const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(isel.air.extra.items[extra_index..]), 0);
-                const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-                // This equation accounts for the fact that even if we have exactly 4 bytes
-                // for the string, we still use the next u32 for the null terminator.
-                extra_index += (constraint.len + name.len + (2 + 3)) / 4;
+            var it = unwrapped_asm.iterateOutputs();
+            while (it.next()) |output| {
+                const constraint = output.constraint;
+                const name = output.name;
 
-                switch (output) {
+                switch (output.operand) {
                     else => return isel.fail("invalid constraint: '{s}'", .{constraint}),
                     .none => if (std.mem.startsWith(u8, constraint, "={") and std.mem.endsWith(u8, constraint, "}")) {
                         const output_reg = Register.parse(constraint["={".len .. constraint.len - "}".len]) orelse
@@ -2760,54 +2747,51 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             }
 
             const input_mats = try gpa.alloc(Value.Materialize, inputs.len);
+            var index: u32 = 0;
             defer gpa.free(input_mats);
-            const inputs_extra_index = extra_index;
-            for (inputs, input_mats) |input, *input_mat| {
-                const extra_bytes = std.mem.sliceAsBytes(isel.air.extra.items[extra_index..]);
-                const constraint = std.mem.sliceTo(extra_bytes, 0);
-                const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-                // This equation accounts for the fact that even if we have exactly 4 bytes
-                // for the string, we still use the next u32 for the null terminator.
-                extra_index += (constraint.len + name.len + (2 + 3)) / 4;
+            it = unwrapped_asm.iterateInputs();
+            while (it.next()) |input| : (index += 1) {
+                const constraint = input.constraint;
+                const name = input.name;
 
                 if (std.mem.startsWith(u8, constraint, "{") and std.mem.endsWith(u8, constraint, "}")) {
                     const input_reg = Register.parse(constraint["{".len .. constraint.len - "}".len]) orelse
                         return isel.fail("invalid constraint: '{s}'", .{constraint});
-                    input_mat.* = .{ .vi = try isel.use(input), .ra = input_reg.alias };
+                    input_mats[index] = .{ .vi = try isel.use(input.operand), .ra = input_reg.alias };
                     if (!std.mem.eql(u8, name, "_")) {
                         const operand_gop = try as.operands.getOrPut(gpa, name);
                         if (operand_gop.found_existing) return isel.fail("duplicate input name: '{s}'", .{name});
-                        const input_ty = isel.air.typeOf(input, ip);
+                        const input_ty = isel.air.typeOf(input.operand, ip);
                         operand_gop.value_ptr.* = .{ .register = switch (input_ty.abiSize(zcu)) {
                             0 => unreachable,
                             1...4 => input_reg.alias.w(),
                             5...8 => input_reg.alias.x(),
                             else => return isel.fail("too big input type: '{f}'", .{
-                                isel.fmtType(isel.air.typeOf(input, ip)),
+                                isel.fmtType(isel.air.typeOf(input.operand, ip)),
                             }),
                         } };
                     }
                 } else if (std.mem.eql(u8, constraint, "r")) {
-                    const input_vi = try isel.use(input);
-                    input_mat.* = try input_vi.matReg(isel);
+                    const input_vi = try isel.use(input.operand);
+                    input_mats[index] = try input_vi.matReg(isel);
                     if (!std.mem.eql(u8, name, "_")) {
                         const operand_gop = try as.operands.getOrPut(gpa, name);
                         if (operand_gop.found_existing) return isel.fail("duplicate input name: '{s}'", .{name});
                         operand_gop.value_ptr.* = .{ .register = switch (input_vi.size(isel)) {
                             0 => unreachable,
-                            1...4 => input_mat.ra.w(),
-                            5...8 => input_mat.ra.x(),
+                            1...4 => input_mats[index].ra.w(),
+                            5...8 => input_mats[index].ra.x(),
                             else => return isel.fail("too big input type: '{f}'", .{
-                                isel.fmtType(isel.air.typeOf(input, ip)),
+                                isel.fmtType(isel.air.typeOf(input.operand, ip)),
                             }),
                         } };
                     }
                 } else if (std.mem.eql(u8, name, "_")) {
-                    input_mat.vi = try isel.use(input);
+                    input_mats[index].vi = try isel.use(input.operand);
                 } else return isel.fail("invalid constraint: '{s}'", .{constraint});
             }
 
-            const clobbers = ip.indexToKey(extra.data.clobbers).aggregate;
+            const clobbers = ip.indexToKey(unwrapped_asm.clobbers).aggregate;
             const clobbers_ty: ZigType = .fromInterned(clobbers.ty);
             for (0..clobbers_ty.structFieldCount(zcu)) |field_index| {
                 switch (switch (clobbers.storage) {
@@ -2858,7 +2842,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 }
             }
 
-            as.source = std.mem.sliceAsBytes(isel.air.extra.items[extra_index..])[0..extra.data.source_len :0];
+            as.source = unwrapped_asm.source;
             const asm_start = isel.instructions.items.len;
             while (as.nextInstruction() catch |err| switch (err) {
                 error.InvalidSyntax => {
@@ -2872,21 +2856,18 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             }) |instruction| try isel.emit(instruction);
             std.mem.reverse(codegen.aarch64.encoding.Instruction, isel.instructions.items[asm_start..]);
 
-            extra_index = inputs_extra_index;
-            for (input_mats) |input_mat| {
-                const extra_bytes = std.mem.sliceAsBytes(isel.air.extra.items[extra_index..]);
-                const constraint = std.mem.sliceTo(extra_bytes, 0);
-                const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-                // This equation accounts for the fact that even if we have exactly 4 bytes
-                // for the string, we still use the next u32 for the null terminator.
-                extra_index += (constraint.len + name.len + (2 + 3)) / 4;
+            it = unwrapped_asm.iterateInputs();
+            index = 0;
+            while (it.next()) |input| : (index += 1) {
+                const constraint = input.constraint;
+                const name = input.name;
 
                 if (std.mem.startsWith(u8, constraint, "{") and std.mem.endsWith(u8, constraint, "}")) {
-                    try input_mat.vi.liveOut(isel, input_mat.ra);
+                    try input_mats[index].vi.liveOut(isel, input_mats[index].ra);
                 } else if (std.mem.eql(u8, constraint, "r")) {
-                    try input_mat.finish(isel);
+                    try input_mats[index].finish(isel);
                 } else if (std.mem.eql(u8, name, "_")) {
-                    try input_mat.vi.mat(isel);
+                    try input_mats[index].vi.mat(isel);
                 } else unreachable;
             }
 
@@ -3515,16 +3496,16 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .block => {
-            const ty_pl = air.data(air.inst_index).ty_pl;
-            const extra = isel.air.extraData(Air.Block, ty_pl.payload);
-            try isel.block(air.inst_index, ty_pl.ty.toType(), @ptrCast(
-                isel.air.extra.items[extra.end..][0..extra.data.body_len],
-            ));
+            const unwrapped_block = isel.air.unwrapBlock(air.inst_index);
+            try isel.block(
+                air.inst_index,
+                unwrapped_block.ty,
+                unwrapped_block.body,
+            );
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .loop => {
-            const ty_pl = air.data(air.inst_index).ty_pl;
-            const extra = isel.air.extraData(Air.Block, ty_pl.payload);
+            const unwrapped_block = isel.air.unwrapBlock(air.inst_index);
             const loops = isel.loops.values();
             const loop_index = isel.loops.getIndex(air.inst_index).?;
             const loop = &loops[loop_index];
@@ -3558,7 +3539,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
 
             loop.live_registers = isel.live_registers;
             loop.repeat_list = Loop.empty_list;
-            try isel.body(@ptrCast(isel.air.extra.items[extra.end..][0..extra.data.body_len]));
+            try isel.body(unwrapped_block.body);
             try isel.merge(&loop.live_registers, .{ .fill_extra = true });
 
             var repeat_label = loop.repeat_list;
@@ -3608,10 +3589,9 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .call => {
-            const pl_op = air.data(air.inst_index).pl_op;
-            const extra = isel.air.extraData(Air.Call, pl_op.payload);
-            const args: []const Air.Inst.Ref = @ptrCast(isel.air.extra.items[extra.end..][0..extra.data.args_len]);
-            const callee_ty = isel.air.typeOf(pl_op.operand, ip);
+            const air_call = isel.air.unwrapCall(air.inst_index);
+            const args = air_call.args;
+            const callee_ty = isel.air.typeOf(air_call.callee, ip);
             const func_info = switch (ip.indexToKey(callee_ty.toIntern())) {
                 else => unreachable,
                 .func_type => |func_type| func_type,
@@ -3649,7 +3629,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             try call.finishReturn(isel);
 
             try call.prepareCallee(isel);
-            if (pl_op.operand.toInterned()) |ct_callee| {
+            if (air_call.callee.toInterned()) |ct_callee| {
                 try isel.nav_relocs.append(gpa, switch (ip.indexToKey(ct_callee)) {
                     else => unreachable,
                     inline .@"extern", .func => |func| .{
@@ -3666,7 +3646,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 });
                 try isel.emit(.bl(0));
             } else {
-                const callee_vi = try isel.use(pl_op.operand);
+                const callee_vi = try isel.use(air_call.callee);
                 const callee_mat = try callee_vi.matReg(isel);
                 try isel.emit(.blr(callee_mat.ra.x()));
                 try callee_mat.finish(isel);
@@ -4523,16 +4503,15 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .cond_br => {
-            const pl_op = air.data(air.inst_index).pl_op;
-            const extra = isel.air.extraData(Air.CondBr, pl_op.payload);
+            const cond_br = isel.air.unwrapCondBr(air.inst_index);
 
-            try isel.body(@ptrCast(isel.air.extra.items[extra.end + extra.data.then_body_len ..][0..extra.data.else_body_len]));
+            try isel.body(cond_br.then_body);
             const else_label = isel.instructions.items.len;
             const else_live_registers = isel.live_registers;
-            try isel.body(@ptrCast(isel.air.extra.items[extra.end..][0..extra.data.then_body_len]));
+            try isel.body(cond_br.else_body);
             try isel.merge(&else_live_registers, .{});
 
-            const cond_vi = try isel.use(pl_op.operand);
+            const cond_vi = try isel.use(cond_br.condition);
             const cond_mat = try cond_vi.matReg(isel);
             try isel.emit(.tbz(
                 cond_mat.ra.x(),
@@ -4819,13 +4798,12 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .@"try", .try_cold => {
-            const pl_op = air.data(air.inst_index).pl_op;
-            const extra = isel.air.extraData(Air.Try, pl_op.payload);
-            const error_union_ty = isel.air.typeOf(pl_op.operand, ip);
+            const unwrapped_try = isel.air.unwrapTry(air.inst_index);
+            const error_union_ty = isel.air.typeOf(unwrapped_try.error_union, &zcu.intern_pool);
             const error_union_info = ip.indexToKey(error_union_ty.toIntern()).error_union_type;
             const payload_ty: ZigType = .fromInterned(error_union_info.payload_type);
 
-            const error_union_vi = try isel.use(pl_op.operand);
+            const error_union_vi = try isel.use(unwrapped_try.error_union);
             if (isel.live_values.fetchRemove(air.inst_index)) |payload_vi| {
                 defer payload_vi.value.deref(isel);
 
@@ -4840,7 +4818,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
 
             const cont_label = isel.instructions.items.len;
             const cont_live_registers = isel.live_registers;
-            try isel.body(@ptrCast(isel.air.extra.items[extra.end..][0..extra.data.body_len]));
+            try isel.body(unwrapped_try.else_body);
             try isel.merge(&cont_live_registers, .{});
 
             var error_set_part_it = error_union_vi.field(
@@ -4859,18 +4837,17 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .try_ptr, .try_ptr_cold => {
-            const ty_pl = air.data(air.inst_index).ty_pl;
-            const extra = isel.air.extraData(Air.TryPtr, ty_pl.payload);
-            const error_union_ty = isel.air.typeOf(extra.data.ptr, ip).childType(zcu);
+            const unwrapped_try = isel.air.unwrapTryPtr(air.inst_index);
+            const error_union_ty = isel.air.typeOf(unwrapped_try.error_union_ptr, ip).childType(zcu);
             const error_union_info = ip.indexToKey(error_union_ty.toIntern()).error_union_type;
             const payload_ty: ZigType = .fromInterned(error_union_info.payload_type);
 
-            const error_union_ptr_vi = try isel.use(extra.data.ptr);
+            const error_union_ptr_vi = try isel.use(unwrapped_try.error_union_ptr);
             const error_union_ptr_mat = try error_union_ptr_vi.matReg(isel);
             if (isel.live_values.fetchRemove(air.inst_index)) |payload_ptr_vi| unused: {
                 defer payload_ptr_vi.value.deref(isel);
-                switch (codegen.errUnionPayloadOffset(ty_pl.ty.toType().childType(zcu), zcu)) {
-                    0 => try payload_ptr_vi.value.move(isel, extra.data.ptr),
+                switch (codegen.errUnionPayloadOffset(unwrapped_try.error_union_payload_ptr_ty.toType().childType(zcu), zcu)) {
+                    0 => try payload_ptr_vi.value.move(isel, unwrapped_try.error_union_ptr),
                     else => |payload_offset| {
                         const payload_ptr_ra = try payload_ptr_vi.value.defReg(isel) orelse break :unused;
                         const lo12: u12 = @truncate(payload_offset >> 0);
@@ -4887,7 +4864,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
 
             const cont_label = isel.instructions.items.len;
             const cont_live_registers = isel.live_registers;
-            try isel.body(@ptrCast(isel.air.extra.items[extra.end..][0..extra.data.body_len]));
+            try isel.body(unwrapped_try.else_body);
             try isel.merge(&cont_live_registers, .{});
 
             const error_set_ra = try isel.allocIntReg();
@@ -4913,11 +4890,8 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .dbg_inline_block => {
-            const ty_pl = air.data(air.inst_index).ty_pl;
-            const extra = isel.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
-            try isel.block(air.inst_index, ty_pl.ty.toType(), @ptrCast(
-                isel.air.extra.items[extra.end..][0..extra.data.body_len],
-            ));
+            const dbg_block = isel.air.unwrapDbgBlock(air.inst_index);
+            try isel.block(air.inst_index, dbg_block.ty, dbg_block.body);
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => {

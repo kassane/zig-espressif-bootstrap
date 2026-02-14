@@ -5002,9 +5002,8 @@ fn genStructuredBody(
 }
 
 fn airBlock(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
-    const inst_datas = cg.air.instructions.items(.data);
-    const extra = cg.air.extraData(Air.Block, inst_datas[@intFromEnum(inst)].ty_pl.payload);
-    return cg.lowerBlock(inst, @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]));
+    const block = cg.air.unwrapBlock(inst);
+    return cg.lowerBlock(inst, block.body);
 }
 
 fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, body: []const Air.Inst.Index) !?Id {
@@ -5188,11 +5187,10 @@ fn airBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
 
 fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const gpa = cg.module.gpa;
-    const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const cond_br = cg.air.extraData(Air.CondBr, pl_op.payload);
-    const then_body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[cond_br.end..][0..cond_br.data.then_body_len]);
-    const else_body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[cond_br.end + then_body.len ..][0..cond_br.data.else_body_len]);
-    const condition_id = try cg.resolve(pl_op.operand);
+    const cond_br = cg.air.unwrapCondBr(inst);
+    const then_body = cond_br.then_body;
+    const else_body = cond_br.else_body;
+    const condition_id = try cg.resolve(cond_br.condition);
 
     const then_label = cg.module.allocId();
     const else_label = cg.module.allocId();
@@ -5251,9 +5249,7 @@ fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
 
 fn airLoop(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const gpa = cg.module.gpa;
-    const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const loop = cg.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[loop.end..][0..loop.data.body_len]);
+    const block = cg.air.unwrapBlock(inst);
 
     const body_label = cg.module.allocId();
 
@@ -5284,7 +5280,7 @@ fn airLoop(cg: *CodeGen, inst: Air.Inst.Index) !void {
             const next_block = try cg.genStructuredBody(.{ .loop = .{
                 .merge_label = merge_label,
                 .continue_label = continue_label,
-            } }, body);
+            } }, block.body);
             try cg.structuredBreak(next_block);
 
             try cg.beginSpvBlock(continue_label);
@@ -5294,7 +5290,7 @@ fn airLoop(cg: *CodeGen, inst: Air.Inst.Index) !void {
         .unstructured => {
             try cg.body.emit(gpa, .OpBranch, .{ .target_label = body_label });
             try cg.beginSpvBlock(body_label);
-            try cg.genBody(body);
+            try cg.genBody(block.body);
 
             try cg.body.emit(gpa, .OpBranch, .{ .target_label = body_label });
         },
@@ -5375,12 +5371,11 @@ fn airRetLoad(cg: *CodeGen, inst: Air.Inst.Index) !void {
 fn airTry(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     const gpa = cg.module.gpa;
     const zcu = cg.module.zcu;
-    const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const err_union_id = try cg.resolve(pl_op.operand);
-    const extra = cg.air.extraData(Air.Try, pl_op.payload);
-    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]);
+    const unwrapped_try = cg.air.unwrapTry(inst);
+    const body = unwrapped_try.else_body;
 
-    const err_union_ty = cg.typeOf(pl_op.operand);
+    const err_union_id = try cg.resolve(unwrapped_try.error_union);
+    const err_union_ty = cg.air.typeOf(unwrapped_try.error_union, &zcu.intern_pool);
     const payload_ty = cg.typeOfIndex(inst);
 
     const bool_ty_id = try cg.resolveType(.bool, .direct);
@@ -5882,12 +5877,11 @@ fn airDbgStmt(cg: *CodeGen, inst: Air.Inst.Index) !void {
 
 fn airDbgInlineBlock(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     const zcu = cg.module.zcu;
-    const inst_datas = cg.air.instructions.items(.data);
-    const extra = cg.air.extraData(Air.DbgInlineBlock, inst_datas[@intFromEnum(inst)].ty_pl.payload);
+    const block = cg.air.unwrapDbgBlock(inst);
     const old_base_line = cg.base_line;
     defer cg.base_line = old_base_line;
-    cg.base_line = zcu.navSrcLine(zcu.funcInfo(extra.data.func).owner_nav);
-    return cg.lowerBlock(inst, @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]));
+    cg.base_line = zcu.navSrcLine(zcu.funcInfo(block.func).owner_nav);
+    return cg.lowerBlock(inst, block.body);
 }
 
 fn airDbgVar(cg: *CodeGen, inst: Air.Inst.Index) !void {
@@ -5900,52 +5894,34 @@ fn airDbgVar(cg: *CodeGen, inst: Air.Inst.Index) !void {
 fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     const gpa = cg.module.gpa;
     const zcu = cg.module.zcu;
-    const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = cg.air.extraData(Air.Asm, ty_pl.payload);
+    const unwrapped_asm = cg.air.unwrapAsm(inst);
 
-    const is_volatile = extra.data.flags.is_volatile;
-    const outputs_len = extra.data.flags.outputs_len;
+    const is_volatile = unwrapped_asm.is_volatile;
+    const outputs_len = unwrapped_asm.outputs.len;
 
     if (!is_volatile and cg.liveness.isUnused(inst)) return null;
 
-    var extra_i: usize = extra.end;
-    const outputs: []const Air.Inst.Ref = @ptrCast(cg.air.extra.items[extra_i..][0..outputs_len]);
-    extra_i += outputs.len;
-    const inputs: []const Air.Inst.Ref = @ptrCast(cg.air.extra.items[extra_i..][0..extra.data.inputs_len]);
-    extra_i += inputs.len;
-
-    if (outputs.len > 1) {
+    if (outputs_len > 1) {
         return cg.todo("implement inline asm with more than 1 output", .{});
     }
 
     var ass: Assembler = .{ .cg = cg };
     defer ass.deinit();
 
-    var output_extra_i = extra_i;
-    for (outputs) |output| {
-        if (output != .none) {
+    var it = unwrapped_asm.iterateOutputs();
+    while (it.next()) |out| {
+        if (out.operand != .none) {
             return cg.todo("implement inline asm with non-returned output", .{});
         }
-        const extra_bytes = std.mem.sliceAsBytes(cg.air.extra.items[extra_i..]);
-        const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(cg.air.extra.items[extra_i..]), 0);
-        const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
-        // TODO: Record output and use it somewhere.
     }
 
-    for (inputs) |input| {
-        const extra_bytes = std.mem.sliceAsBytes(cg.air.extra.items[extra_i..]);
-        const constraint = std.mem.sliceTo(extra_bytes, 0);
-        const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-        // This equation accounts for the fact that even if we have exactly 4 bytes
-        // for the string, we still use the next u32 for the null terminator.
-        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+    it = unwrapped_asm.iterateInputs();
+    while (it.next()) |in| {
+        const input_ty = cg.typeOf(in.operand);
 
-        const input_ty = cg.typeOf(input);
-
-        if (std.mem.eql(u8, constraint, "c")) {
+        if (std.mem.eql(u8, in.constraint, "c")) {
             // constant
-            const val = (try cg.air.value(input, cg.pt)) orelse {
+            const val = (try cg.air.value(in.operand, cg.pt)) orelse {
                 return cg.fail("assembly inputs with 'c' constraint have to be compile-time known", .{});
             };
 
@@ -5971,37 +5947,36 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
 
                 .undef => return cg.fail("assembly input with 'c' constraint cannot be undefined", .{}),
 
-                .int => try ass.value_map.put(gpa, name, .{ .constant = @intCast(val.toUnsignedInt(zcu)) }),
-                .enum_literal => |str| try ass.value_map.put(gpa, name, .{ .string = str.toSlice(ip) }),
+                .int => try ass.value_map.put(gpa, in.name, .{ .constant = @intCast(val.toUnsignedInt(zcu)) }),
+                .enum_literal => |str| try ass.value_map.put(gpa, in.name, .{ .string = str.toSlice(ip) }),
 
                 else => unreachable, // TODO
             }
-        } else if (std.mem.eql(u8, constraint, "t")) {
+        } else if (std.mem.eql(u8, in.constraint, "t")) {
             // type
             if (input_ty.zigTypeTag(zcu) == .type) {
                 // This assembly input is a type instead of a value.
                 // That's fine for now, just make sure to resolve it as such.
-                const val = (try cg.air.value(input, cg.pt)).?;
+                const val = (try cg.air.value(in.operand, cg.pt)).?;
                 const ty_id = try cg.resolveType(val.toType(), .direct);
-                try ass.value_map.put(gpa, name, .{ .ty = ty_id });
+                try ass.value_map.put(gpa, in.name, .{ .ty = ty_id });
             } else {
                 const ty_id = try cg.resolveType(input_ty, .direct);
-                try ass.value_map.put(gpa, name, .{ .ty = ty_id });
+                try ass.value_map.put(gpa, in.name, .{ .ty = ty_id });
             }
         } else {
             if (input_ty.zigTypeTag(zcu) == .type) {
                 return cg.fail("use the 't' constraint to supply types to SPIR-V inline assembly", .{});
             }
 
-            const val_id = try cg.resolve(input);
-            try ass.value_map.put(gpa, name, .{ .value = val_id });
+            const val_id = try cg.resolve(in.operand);
+            try ass.value_map.put(gpa, in.name, .{ .value = val_id });
         }
     }
-
     // TODO: do something with clobbers
-    _ = extra.data.clobbers;
+    _ = unwrapped_asm.clobbers;
 
-    const asm_source = std.mem.sliceAsBytes(cg.air.extra.items[extra_i..])[0..extra.data.source_len];
+    const asm_source = unwrapped_asm.source;
 
     ass.assemble(asm_source) catch |err| switch (err) {
         error.AssembleFail => {
@@ -6033,26 +6008,20 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
         else => |others| return others,
     };
 
-    for (outputs) |output| {
-        _ = output;
-        const extra_bytes = std.mem.sliceAsBytes(cg.air.extra.items[output_extra_i..]);
-        const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(cg.air.extra.items[output_extra_i..]), 0);
-        const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-        output_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
-
-        const result = ass.value_map.get(name) orelse return {
-            return cg.fail("invalid asm output '{s}'", .{name});
+    it = unwrapped_asm.iterateOutputs();
+    while (it.next()) |out| {
+        const result = ass.value_map.get(out.name) orelse return {
+            return cg.fail("invalid asm output '{s}'", .{out.name});
         };
-
         switch (result) {
             .just_declared, .unresolved_forward_reference => unreachable,
             .ty => return cg.fail("cannot return spir-v type as value from assembly", .{}),
             .value => |ref| return ref,
             .constant, .string => return cg.fail("cannot return constant from assembly", .{}),
         }
-
         // TODO: Multiple results
         // TODO: Check that the output type from assembly is the same as the type actually expected by Zig.
+
     }
 
     return null;
@@ -6063,10 +6032,9 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
 
     const gpa = cg.module.gpa;
     const zcu = cg.module.zcu;
-    const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const extra = cg.air.extraData(Air.Call, pl_op.payload);
-    const args: []const Air.Inst.Ref = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.args_len]);
-    const callee_ty = cg.typeOf(pl_op.operand);
+    const air_call = cg.air.unwrapCall(inst);
+    const args = air_call.args;
+    const callee_ty = cg.typeOf(air_call.callee);
     const zig_fn_ty = switch (callee_ty.zigTypeTag(zcu)) {
         .@"fn" => callee_ty,
         .pointer => return cg.fail("cannot call function pointers", .{}),
@@ -6077,7 +6045,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
 
     const result_type_id = try cg.resolveFnReturnType(.fromInterned(return_type));
     const result_id = cg.module.allocId();
-    const callee_id = try cg.resolve(pl_op.operand);
+    const callee_id = try cg.resolve(air_call.callee);
 
     comptime assert(zig_call_abi_ver == 3);
 

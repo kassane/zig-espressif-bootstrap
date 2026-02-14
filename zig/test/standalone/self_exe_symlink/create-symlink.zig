@@ -9,7 +9,7 @@ pub fn main(init: std.process.Init) !void {
     const exe_path = it.next() orelse unreachable;
     const symlink_path = it.next() orelse unreachable;
 
-    const cwd = try std.process.getCwdAlloc(init.arena.allocator());
+    const cwd = try std.process.currentPathAlloc(io, init.arena.allocator());
 
     // If `exe_path` is relative to our cwd, we need to convert it to be relative to the dirname of `symlink_path`.
     const exe_rel_path = try std.fs.path.relative(gpa, cwd, init.environ_map, std.fs.path.dirname(symlink_path) orelse ".", exe_path);

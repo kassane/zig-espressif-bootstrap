@@ -20,7 +20,7 @@ pub const EnumMap = enums.EnumMap;
 pub const EnumSet = enums.EnumSet;
 pub const HashMap = hash_map.HashMap;
 pub const HashMapUnmanaged = hash_map.HashMapUnmanaged;
-pub const Io = @import("Io.zig");
+pub const Io = if (@hasDecl(root, "std_options_Io")) root.std_options_Io else @import("Io.zig");
 pub const MultiArrayList = @import("multi_array_list.zig").MultiArrayList;
 pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
 pub const PriorityDequeue = @import("priority_dequeue.zig").PriorityDequeue;
@@ -86,7 +86,6 @@ pub const math = @import("math.zig");
 pub const mem = @import("mem.zig");
 pub const meta = @import("meta.zig");
 pub const os = @import("os.zig");
-pub const once = @import("once.zig").once;
 pub const pdb = @import("pdb.zig");
 pub const pie = @import("pie.zig");
 pub const posix = @import("posix.zig");
@@ -136,8 +135,6 @@ pub const Options = struct {
         args: anytype,
     ) void = log.defaultLog,
 
-    logTerminalMode: fn () Io.Terminal.Mode = log.defaultTerminalMode,
-
     /// Overrides `std.heap.page_size_min`.
     page_size_min: ?usize = null,
     /// Overrides `std.heap.page_size_max`.
@@ -176,6 +173,10 @@ pub const Options = struct {
     /// If this is `false`, then captured stack traces will always be empty, and attempts to write
     /// stack traces will just print an error to the relevant `Io.Writer` and return.
     allow_stack_tracing: bool = !@import("builtin").strip_debug_info,
+
+    /// TODO This is a separate decl instead of a field as a workaround around
+    /// compilation errors due to zig not being lazy enough.
+    pub const logTerminalMode: fn () Io.Terminal.Mode = log.defaultTerminalMode;
 
     /// TODO This is a separate decl instead of a field as a workaround around
     /// compilation errors due to zig not being lazy enough.

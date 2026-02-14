@@ -29,7 +29,10 @@ pub fn get(p: *const Preopens, name: []const u8) ?Resource {
     switch (native_os) {
         .wasi => {
             const index = p.map.getIndex(name) orelse return null;
-            if (index <= 2) return .{ .file = .{ .handle = @intCast(index) } };
+            if (index <= 2) return .{ .file = .{
+                .handle = @intCast(index),
+                .flags = .{ .nonblocking = false },
+            } };
             return .{ .dir = .{ .handle = @intCast(index) } };
         },
         else => {

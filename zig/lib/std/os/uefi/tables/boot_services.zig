@@ -235,9 +235,7 @@ pub const BootServices = extern struct {
         InvalidParameter,
     };
 
-    pub const NumHandlesError = uefi.UnexpectedError || error{
-        OutOfResources,
-    };
+    pub const NumHandlesError = uefi.UnexpectedError;
 
     pub const LocateHandleError = uefi.UnexpectedError || error{
         BufferTooSmall,
@@ -702,8 +700,17 @@ pub const BootServices = extern struct {
             &len,
             null,
         )) {
-            .success => return @divExact(len, @sizeOf(Handle)),
-            .out_of_resources => return error.OutOfResources,
+            // If len is zero, it should return not_found, otherwise buffer_too_small.
+            // This is because it can/should only return success when a valid buffer is
+            // passed with a non zero size, which is not the case.
+            // Thus this status is considered unreachable and will return error.Unexpected
+            // .success => unreachable,
+            .buffer_too_small => return @divExact(len, @sizeOf(uefi.Handle)),
+            .not_found => return 0,
+            // This function accounts for all possible causes of this error code
+            // as per the most recent UEFI spec 2.10A, therefore this branch is
+            // considered unreachable and will return error.Unexpected instead
+            // .invalid_parameter => unreachable
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

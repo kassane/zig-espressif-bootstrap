@@ -20,13 +20,6 @@ pub const Args = @import("process/Args.zig");
 pub const Environ = @import("process/Environ.zig");
 pub const Preopens = @import("process/Preopens.zig");
 
-/// This is the global, process-wide protection to coordinate stderr writes.
-///
-/// The primary motivation for recursive mutex here is so that a panic while
-/// stderr mutex is held still dumps the stack trace and other debug
-/// information.
-pub var stderr_thread_mutex: std.Thread.Mutex.Recursive = .init;
-
 /// A standard set of pre-initialized useful APIs for programs to take
 /// advantage of. This is the type of the first parameter of the main function.
 /// Applications wanting more flexibility can accept `Init.Minimal` instead.
@@ -63,50 +56,40 @@ pub const Init = struct {
     };
 };
 
-pub const GetCwdError = posix.GetCwdError;
+pub const CurrentPathError = error{
+    NameTooLong,
+    /// Not possible on Windows. Always returned on WASI.
+    CurrentDirUnlinked,
+} || Io.Cancelable || Io.UnexpectedError;
 
-/// The result is a slice of `out_buffer`, from index `0`.
 /// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
-/// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
-pub fn getCwd(out_buffer: []u8) GetCwdError![]u8 {
-    return posix.getcwd(out_buffer);
+/// On other platforms, the result is an opaque sequence of bytes with no
+/// particular encoding.
+pub fn currentPath(io: Io, buffer: []u8) CurrentPathError!usize {
+    return io.vtable.processCurrentPath(io.userdata, buffer);
 }
 
-// Same as GetCwdError, minus error.NameTooLong + Allocator.Error
-pub const GetCwdAllocError = Allocator.Error || error{CurrentWorkingDirectoryUnlinked} || posix.UnexpectedError;
+pub const CurrentPathAllocError = Allocator.Error || error{
+    /// Not possible on Windows. Always returned on WASI.
+    CurrentDirUnlinked,
+} || Io.Cancelable || Io.UnexpectedError;
 
-/// Caller must free the returned memory.
 /// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
-/// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
-pub fn getCwdAlloc(allocator: Allocator) GetCwdAllocError![]u8 {
-    // The use of max_path_bytes here is just a heuristic: most paths will fit
-    // in stack_buf, avoiding an extra allocation in the common case.
-    var stack_buf: [max_path_bytes]u8 = undefined;
-    var heap_buf: ?[]u8 = null;
-    defer if (heap_buf) |buf| allocator.free(buf);
-
-    var current_buf: []u8 = &stack_buf;
-    while (true) {
-        if (posix.getcwd(current_buf)) |slice| {
-            return allocator.dupe(u8, slice);
-        } else |err| switch (err) {
-            error.NameTooLong => {
-                // The path is too long to fit in stack_buf. Allocate geometrically
-                // increasing buffers until we find one that works
-                const new_capacity = current_buf.len * 2;
-                if (heap_buf) |buf| allocator.free(buf);
-                current_buf = try allocator.alloc(u8, new_capacity);
-                heap_buf = current_buf;
-            },
-            else => |e| return e,
-        }
-    }
+/// On other platforms, the result is an opaque sequence of bytes with no
+/// particular encoding.
+///
+/// Caller owns returned memory.
+pub fn currentPathAlloc(io: Io, allocator: Allocator) CurrentPathAllocError![:0]u8 {
+    var buffer: [max_path_bytes]u8 = undefined;
+    const n = currentPath(io, &buffer) catch |err| switch (err) {
+        error.NameTooLong => unreachable,
+        else => |e| return e,
+    };
+    return allocator.dupeZ(u8, buffer[0..n]);
 }
 
-test getCwdAlloc {
-    if (native_os == .wasi) return error.SkipZigTest;
-
-    const cwd = try getCwdAlloc(testing.allocator);
+test currentPathAlloc {
+    const cwd = try currentPathAlloc(testing.io, testing.allocator);
     testing.allocator.free(cwd);
 }
 
@@ -260,7 +243,7 @@ pub fn getBaseAddress() usize {
         .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             return @intFromPtr(&std.c._mh_execute_header);
         },
-        .windows => return @intFromPtr(windows.kernel32.GetModuleHandleW(null)),
+        .windows => return @intFromPtr(windows.peb().ImageBaseAddress),
         else => @compileError("Unsupported OS"),
     }
 }
@@ -342,8 +325,6 @@ pub const SpawnError = error{
     /// Windows-only. `cwd` or `argv` was provided and it was invalid WTF-8.
     /// https://wtf-8.codeberg.page/
     InvalidWtf8,
-    /// Windows-only. `cwd` was provided, but the path did not exist when spawning the child process.
-    CurrentWorkingDirectoryUnlinked,
     /// Windows-only. NUL (U+0000), LF (U+000A), CR (U+000D) are not allowed
     /// within arguments when executing a `.bat`/`.cmd` script.
     /// - NUL/LF signifiies end of arguments, so anything afterwards
@@ -371,17 +352,16 @@ pub const SpawnError = error{
     /// children of the calling process and the child had already performed an
     /// image replacement.
     ProcessAlreadyExec,
-} || Io.Dir.PathNameError || Io.Cancelable || Io.UnexpectedError;
+    /// On Windows, the volume does not contain a recognized file system. File
+    /// system drivers might not be loaded, or the volume may be corrupt.
+    UnrecognizedVolume,
+} || Io.File.OpenError || Io.Dir.PathNameError || Io.Cancelable || Io.UnexpectedError;
 
 pub const SpawnOptions = struct {
     argv: []const []const u8,
 
     /// Set to change the current working directory when spawning the child process.
-    cwd: ?[]const u8 = null,
-    /// Set to change the current working directory when spawning the child process.
-    /// This is not yet implemented for Windows. See https://github.com/ziglang/zig/issues/5190
-    /// Once that is done, `cwd` will be deprecated in favor of this field.
-    cwd_dir: ?Io.Dir = null,
+    cwd: Child.Cwd = .inherit,
     /// Replaces the child environment when provided. The PATH value from here
     /// is not used to resolve `argv[0]`; that resolution always uses parent
     /// environment.
@@ -465,21 +445,19 @@ pub fn spawnPath(io: Io, dir: Io.Dir, options: SpawnOptions) SpawnError!Child {
     return io.vtable.processSpawnPath(io.userdata, dir, options);
 }
 
-pub const RunError = posix.GetCwdError || posix.ReadError || SpawnError || posix.PollError || error{
-    StdoutStreamTooLong,
-    StderrStreamTooLong,
-};
+pub const RunError = error{
+    StreamTooLong,
+} || SpawnError || Io.File.MultiReader.UnendingError || Io.Timeout.Error;
 
 pub const RunOptions = struct {
     argv: []const []const u8,
-    max_output_bytes: usize = 50 * 1024,
+    stderr_limit: Io.Limit = .unlimited,
+    stdout_limit: Io.Limit = .unlimited,
+    /// How many bytes to initially allocate for stderr and stdout.
+    reserve_amount: usize = 64,
 
     /// Set to change the current working directory when spawning the child process.
-    cwd: ?[]const u8 = null,
-    /// Set to change the current working directory when spawning the child process.
-    /// This is not yet implemented for Windows. See https://github.com/ziglang/zig/issues/5190
-    /// Once that is done, `cwd` will be deprecated in favor of this field.
-    cwd_dir: ?Io.Dir = null,
+    cwd: Child.Cwd = .inherit,
     /// Replaces the child environment when provided. The PATH value from here
     /// is not used to resolve `argv[0]`; that resolution always uses parent
     /// environment.
@@ -498,6 +476,7 @@ pub const RunOptions = struct {
     create_no_window: bool = true,
     /// Darwin-only. Disable ASLR for the child process.
     disable_aslr: bool = false,
+    timeout: Io.Timeout = .none,
 };
 
 pub const RunResult = struct {
@@ -512,7 +491,6 @@ pub fn run(gpa: Allocator, io: Io, options: RunOptions) RunError!RunResult {
     var child = try spawn(io, .{
         .argv = options.argv,
         .cwd = options.cwd,
-        .cwd_dir = options.cwd_dir,
         .environ_map = options.environ_map,
         .expand_arg0 = options.expand_arg0,
         .progress_node = options.progress_node,
@@ -525,17 +503,42 @@ pub fn run(gpa: Allocator, io: Io, options: RunOptions) RunError!RunResult {
     });
     defer child.kill(io);
 
-    var stdout: std.ArrayList(u8) = .empty;
-    defer stdout.deinit(gpa);
-    var stderr: std.ArrayList(u8) = .empty;
-    defer stderr.deinit(gpa);
+    var multi_reader_buffer: Io.File.MultiReader.Buffer(2) = undefined;
+    var multi_reader: Io.File.MultiReader = undefined;
+    multi_reader.init(gpa, io, multi_reader_buffer.toStreams(), &.{ child.stdout.?, child.stderr.? });
+    defer multi_reader.deinit();
 
-    try child.collectOutput(gpa, &stdout, &stderr, options.max_output_bytes);
+    const stdout_reader = multi_reader.reader(0);
+    const stderr_reader = multi_reader.reader(1);
+
+    while (multi_reader.fill(options.reserve_amount, options.timeout)) |_| {
+        if (options.stdout_limit.toInt()) |limit| {
+            if (stdout_reader.buffered().len > limit)
+                return error.StreamTooLong;
+        }
+        if (options.stderr_limit.toInt()) |limit| {
+            if (stderr_reader.buffered().len > limit)
+                return error.StreamTooLong;
+        }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return e,
+    }
+
+    try multi_reader.checkAnyError();
+
+    const term = try child.wait(io);
+
+    const stdout_slice = try multi_reader.toOwnedSlice(0);
+    errdefer gpa.free(stdout_slice);
+
+    const stderr_slice = try multi_reader.toOwnedSlice(1);
+    errdefer gpa.free(stderr_slice);
 
     return .{
-        .stdout = try stdout.toOwnedSlice(gpa),
-        .stderr = try stderr.toOwnedSlice(gpa),
-        .term = try child.wait(io),
+        .stdout = stdout_slice,
+        .stderr = stderr_slice,
+        .term = term,
     };
 }
 
@@ -562,26 +565,28 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
             const name = if (native_os == .netbsd) "hw.physmem64" else "hw.physmem";
             var physmem: c_ulong = undefined;
             var len: usize = @sizeOf(c_ulong);
-            posix.sysctlbynameZ(name, &physmem, &len, null, 0) catch |err| switch (err) {
-                error.PermissionDenied => unreachable, // only when setting values,
-                error.SystemResources => unreachable, // memory already on the stack
-                error.UnknownName => unreachable,
+            switch (posix.errno(posix.system.sysctlbyname(name, &physmem, &len, null, 0))) {
+                .SUCCESS => return @intCast(physmem),
+                .FAULT => unreachable,
+                .PERM => unreachable, // only when setting values
+                .NOMEM => unreachable, // memory already on the stack
+                .NOENT => unreachable,
                 else => return error.UnknownTotalSystemMemory,
-            };
-            return @intCast(physmem);
+            }
         },
         // whole Darwin family
         .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             // "hw.memsize" returns uint64_t
             var physmem: u64 = undefined;
             var len: usize = @sizeOf(u64);
-            posix.sysctlbynameZ("hw.memsize", &physmem, &len, null, 0) catch |err| switch (err) {
-                error.PermissionDenied => unreachable, // only when setting values,
-                error.SystemResources => unreachable, // memory already on the stack
-                error.UnknownName => unreachable, // constant, known good value
+            switch (posix.errno(posix.system.sysctlbyname("hw.memsize", &physmem, &len, null, 0))) {
+                .SUCCESS => return physmem,
+                .FAULT => unreachable,
+                .PERM => unreachable, // only when setting values
+                .NOMEM => unreachable, // memory already on the stack
+                .NOENT => unreachable, // constant, known good value
                 else => return error.UnknownTotalSystemMemory,
-            };
-            return physmem;
+            }
         },
         .openbsd => {
             const mib: [2]c_int = [_]c_int{
@@ -601,11 +606,11 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
             return @as(u64, @bitCast(physmem));
         },
         .windows => {
-            var sbi: windows.SYSTEM_BASIC_INFORMATION = undefined;
+            var sbi: windows.SYSTEM.BASIC_INFORMATION = undefined;
             const rc = windows.ntdll.NtQuerySystemInformation(
-                .SystemBasicInformation,
+                .Basic,
                 &sbi,
-                @sizeOf(windows.SYSTEM_BASIC_INFORMATION),
+                @sizeOf(windows.SYSTEM.BASIC_INFORMATION),
                 null,
             );
             if (rc != .SUCCESS) {
@@ -697,7 +702,6 @@ pub const ExecutablePathBaseError = error{
     FileSystem,
     BadPathName,
     DeviceBusy,
-    SharingViolation,
     PipeBusy,
     NotLink,
     PathAlreadyExists,

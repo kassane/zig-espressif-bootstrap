@@ -3,17 +3,16 @@
 //! https://github.com/llvm/llvm-project/commit/d674d96bc56c0f377879d01c9d8dfdaaa7859cdb/compiler-rt/lib/builtins/divsf3.c
 
 const std = @import("std");
-const builtin = @import("builtin");
-const arch = builtin.cpu.arch;
 
-const common = @import("common.zig");
-const normalize = common.normalize;
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
+const normalize = compiler_rt.normalize;
 
 comptime {
-    if (common.want_aeabi) {
-        @export(&__aeabi_fdiv, .{ .name = "__aeabi_fdiv", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_aeabi) {
+        symbol(&__aeabi_fdiv, "__aeabi_fdiv");
     } else {
-        @export(&__divsf3, .{ .name = "__divsf3", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__divsf3, "__divsf3");
     }
 }
 

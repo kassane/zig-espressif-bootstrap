@@ -37,12 +37,13 @@ pub const cpu_context = @import("debug/cpu_context.zig");
 ///
 /// ```
 /// pub const init: SelfInfo;
-/// pub fn deinit(si: *SelfInfo, gpa: Allocator) void;
+/// pub fn deinit(si: *SelfInfo, io: Io) void;
 ///
 /// /// Returns the symbol and source location of the instruction at `address`.
-/// pub fn getSymbol(si: *SelfInfo, gpa: Allocator, io: Io, address: usize) SelfInfoError!Symbol;
+/// pub fn getSymbol(si: *SelfInfo, io: Io, address: usize) SelfInfoError!Symbol;
 /// /// Returns a name for the "module" (e.g. shared library or executable image) containing `address`.
-/// pub fn getModuleName(si: *SelfInfo, gpa: Allocator, address: usize) SelfInfoError![]const u8;
+/// pub fn getModuleName(si: *SelfInfo, io: Io, address: usize) SelfInfoError![]const u8;
+/// pub fn getModuleSlide(si: *SelfInfo, io: Io, address: usize) SelfInfoError!usize;
 ///
 /// /// Whether a reliable stack unwinding strategy, such as DWARF unwinding, is available.
 /// pub const can_unwind: bool;
@@ -51,15 +52,15 @@ pub const cpu_context = @import("debug/cpu_context.zig");
 ///     /// An address representing the instruction pointer in the last frame.
 ///     pc: usize,
 ///
-///     pub fn init(ctx: *cpu_context.Native, gpa: Allocator) Allocator.Error!UnwindContext;
-///     pub fn deinit(ctx: *UnwindContext, gpa: Allocator) void;
+///     pub fn init(ctx: *cpu_context.Native) Allocator.Error!UnwindContext;
+///     pub fn deinit(ctx: *UnwindContext) void;
 ///     /// Returns the frame pointer associated with the last unwound stack frame.
 ///     /// If the frame pointer is unknown, 0 may be returned instead.
 ///     pub fn getFp(uc: *UnwindContext) usize;
 /// };
 /// /// Only required if `can_unwind == true`. Unwinds a single stack frame, returning the frame's
 /// /// return address, or 0 if the end of the stack has been reached.
-/// pub fn unwindFrame(si: *SelfInfo, gpa: Allocator, io: Io, context: *UnwindContext) SelfInfoError!usize;
+/// pub fn unwindFrame(si: *SelfInfo, io: Io, context: *UnwindContext) SelfInfoError!usize;
 /// ```
 pub const SelfInfo = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "SelfInfo"))
     root.debug.SelfInfo
@@ -532,9 +533,7 @@ pub fn defaultPanic(msg: []const u8, first_trace_addr: ?usize) noreturn {
         else => {},
     }
 
-    // Don't try to cancel during a panic. No need to re-enable cancelation,
-    // because the panic handler doesn't return.
-    _ = std.Options.debug_io.swapCancelProtection(.blocked);
+    std.Options.debug_io.vtable.crashHandler(std.Options.debug_io.userdata);
 
     if (enable_segfault_handler) {
         // If a segfault happens while panicking, we want it to actually segfault, not trigger
@@ -669,7 +668,6 @@ pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, t: Io.Termin
         t.setColor(.reset) catch {};
         return;
     }
-    const di_gpa = getDebugInfoAllocator();
     const di = getSelfDebugInfo() catch |err| switch (err) {
         error.UnsupportedTarget => {
             t.setColor(.dim) catch {};
@@ -696,7 +694,7 @@ pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, t: Io.Termin
                 .useless, .unsafe => {},
                 .safe, .ideal => continue, // no need to even warn
             }
-            const module_name = di.getModuleName(di_gpa, unwind_error.address) catch "???";
+            const module_name = di.getModuleName(io, unwind_error.address) catch "???";
             const caption: []const u8 = switch (unwind_error.err) {
                 error.MissingDebugInfo => "unwind info unavailable",
                 error.InvalidDebugInfo => "unwind info invalid",
@@ -741,7 +739,7 @@ pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, t: Io.Termin
             }
             // `ret_addr` is the return address, which is *after* the function call.
             // Subtract 1 to get an address *in* the function call for a better source location.
-            try printSourceAtAddress(di_gpa, io, di, t, ret_addr -| StackIterator.ra_call_offset);
+            try printSourceAtAddress(io, di, t, ret_addr -| StackIterator.ra_call_offset);
             printed_any_frame = true;
         },
     };
@@ -788,7 +786,6 @@ pub fn writeStackTrace(st: *const StackTrace, t: Io.Terminal) Writer.Error!void 
     // `st` is `@errorReturnTrace()` and errors are encountered while writing the stack trace.
     const n_frames = st.index;
     if (n_frames == 0) return writer.writeAll("(empty stack trace)\n");
-    const di_gpa = getDebugInfoAllocator();
     const di = getSelfDebugInfo() catch |err| switch (err) {
         error.UnsupportedTarget => {
             t.setColor(.dim) catch {};
@@ -802,7 +799,7 @@ pub fn writeStackTrace(st: *const StackTrace, t: Io.Terminal) Writer.Error!void 
     for (st.instruction_addresses[0..captured_frames]) |ret_addr| {
         // `ret_addr` is the return address, which is *after* the function call.
         // Subtract 1 to get an address *in* the function call for a better source location.
-        try printSourceAtAddress(di_gpa, io, di, t, ret_addr -| StackIterator.ra_call_offset);
+        try printSourceAtAddress(io, di, t, ret_addr -| StackIterator.ra_call_offset);
     }
     if (n_frames > captured_frames) {
         t.setColor(.bold) catch {};
@@ -875,7 +872,7 @@ const StackIterator = union(enum) {
         switch (si.*) {
             .ctx_first => {},
             .fp => {},
-            .di => |*unwind_context| unwind_context.deinit(getDebugInfoAllocator()),
+            .di => |*unwind_context| unwind_context.deinit(),
         }
     }
 
@@ -980,8 +977,7 @@ const StackIterator = union(enum) {
             },
             .di => |*unwind_context| {
                 const di = getSelfDebugInfo() catch unreachable;
-                const di_gpa = getDebugInfoAllocator();
-                const ret_addr = di.unwindFrame(di_gpa, io, unwind_context) catch |err| {
+                const ret_addr = di.unwindFrame(io, unwind_context) catch |err| {
                     const pc = unwind_context.pc;
                     const fp = unwind_context.getFp();
                     it.* = .{ .fp = fp };
@@ -1109,14 +1105,8 @@ pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
     return ptr;
 }
 
-fn printSourceAtAddress(
-    gpa: Allocator,
-    io: Io,
-    debug_info: *SelfInfo,
-    t: Io.Terminal,
-    address: usize,
-) Writer.Error!void {
-    const symbol: Symbol = debug_info.getSymbol(gpa, io, address) catch |err| switch (err) {
+fn printSourceAtAddress(io: Io, debug_info: *SelfInfo, t: Io.Terminal, address: usize) Writer.Error!void {
+    const symbol: Symbol = debug_info.getSymbol(io, address) catch |err| switch (err) {
         error.MissingDebugInfo,
         error.UnsupportedDebugInfo,
         error.InvalidDebugInfo,
@@ -1134,14 +1124,14 @@ fn printSourceAtAddress(
             break :s .unknown;
         },
     };
-    defer if (symbol.source_location) |sl| gpa.free(sl.file_name);
+    defer if (symbol.source_location) |sl| getDebugInfoAllocator().free(sl.file_name);
     return printLineInfo(
         io,
         t,
         symbol.source_location,
         address,
         symbol.name orelse "???",
-        symbol.compile_unit_name orelse debug_info.getModuleName(gpa, address) catch "???",
+        symbol.compile_unit_name orelse debug_info.getModuleName(io, address) catch "???",
     );
 }
 fn printLineInfo(
@@ -1356,7 +1346,10 @@ pub fn getDebugInfoAllocator() Allocator {
     // Otherwise, use a global arena backed by the page allocator
     const S = struct {
         var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-        var ts_arena: std.heap.ThreadSafeAllocator = .{ .child_allocator = arena.allocator() };
+        var ts_arena: std.heap.ThreadSafeAllocator = .{
+            .child_allocator = arena.allocator(),
+            .io = std.Options.debug_io,
+        };
     };
     return S.ts_arena.allocator();
 }
@@ -1540,9 +1533,7 @@ fn handleSegfault(addr: ?usize, name: []const u8, opt_ctx: ?CpuContextPtr) noret
 }
 
 pub fn defaultHandleSegfault(addr: ?usize, name: []const u8, opt_ctx: ?CpuContextPtr) noreturn {
-    // Don't try to cancel during a segfault. No need to re-enable cancelation,
-    // because the segfault handler doesn't return.
-    _ = std.Options.debug_io.swapCancelProtection(.blocked);
+    std.Options.debug_io.vtable.crashHandler(std.Options.debug_io.userdata);
 
     // There is very similar logic to the following in `defaultPanic`.
     switch (panic_stage) {
@@ -1605,14 +1596,13 @@ test "manage resources correctly" {
             return @returnAddress();
         }
     };
-    const gpa = testing.allocator;
     const io = testing.io;
 
     var discarding: Writer.Discarding = .init(&.{});
     var di: SelfInfo = .init;
-    defer di.deinit(gpa);
+    defer di.deinit(io);
     const t: Io.Terminal = .{ .writer = &discarding.writer, .mode = .no_color };
-    try printSourceAtAddress(gpa, io, &di, t, S.showMyTrace());
+    try printSourceAtAddress(io, &di, t, S.showMyTrace());
 }
 
 /// This API helps you track where a value originated and where it was mutated,

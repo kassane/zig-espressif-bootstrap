@@ -9,20 +9,21 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const math = std.math;
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 comptime {
-    @export(&__sqrth, .{ .name = "__sqrth", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&sqrtf, .{ .name = "sqrtf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&sqrt, .{ .name = "sqrt", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__sqrtx, .{ .name = "__sqrtx", .linkage = common.linkage, .visibility = common.visibility });
-    if (common.want_ppc_abi) {
-        @export(&sqrtq, .{ .name = "sqrtf128", .linkage = common.linkage, .visibility = common.visibility });
-    } else if (common.want_sparc_abi) {
-        @export(&_Qp_sqrt, .{ .name = "_Qp_sqrt", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__sqrth, "__sqrth");
+    symbol(&sqrtf, "sqrtf");
+    symbol(&sqrt, "sqrt");
+    symbol(&__sqrtx, "__sqrtx");
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&sqrtq, "sqrtf128");
+    } else if (compiler_rt.want_sparc_abi) {
+        symbol(&_Qp_sqrt, "_Qp_sqrt");
     }
-    @export(&sqrtq, .{ .name = "sqrtq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&sqrtl, .{ .name = "sqrtl", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&sqrtq, "sqrtq");
+    symbol(&sqrtl, "sqrtl");
 }
 
 pub fn __sqrth(x: f16) callconv(.c) f16 {
@@ -103,7 +104,7 @@ pub fn sqrtf(x: f32) callconv(.c) f32 {
             return x;
 
         if (ix > @as(u32, @bitCast(std.math.inf(f32))))
-            return if (common.want_float_exceptions) (x - x) / 0.0 else math.nan(f32);
+            return if (compiler_rt.want_float_exceptions) (x - x) / 0.0 else math.nan(f32);
 
         ix = @as(u32, @bitCast(@as(i32, @bitCast(x * 0x1p23)) - (23 << 23)));
     }
@@ -154,7 +155,7 @@ pub fn sqrt(x: f64) callconv(.c) f64 {
         // x < 0x1p-1022 or inf or nan.
         if (ix & 0x7FFF_FFFF_FFFF_FFFF == 0) return x;
         if (ix == 0x7FF0_0000_0000_0000) return x;
-        if (ix > 0x7FF0_0000_0000_0000) return if (common.want_float_exceptions) (x - x) / 0.0 else math.nan(f64);
+        if (ix > 0x7FF0_0000_0000_0000) return if (compiler_rt.want_float_exceptions) (x - x) / 0.0 else math.nan(f64);
         // x is subnormal, normalize it.
         ix = @bitCast(x * 0x1p52);
         top = (ix >> 52) -% 52;
@@ -291,7 +292,7 @@ pub fn __sqrtx(x: f80) callconv(.c) f80 {
         // x < 0x1p-16382 or inf or nan.
         if (ix & 0x7FFF_FFFF_FFFF_FFFF_FFFF == 0) return x;
         if (ix == 0x7FFF_8000_0000_0000_0000) return x;
-        if (ix > 0x7FFF_8000_0000_0000_0000) return if (common.want_float_exceptions) (x - x) / 0.0 else math.nan(f80);
+        if (ix > 0x7FFF_8000_0000_0000_0000) return if (compiler_rt.want_float_exceptions) (x - x) / 0.0 else math.nan(f80);
         // x is subnormal, normalize it.
         ix = @bitCast(x * 0x1p63);
         top = (ix >> 64) -% 63;

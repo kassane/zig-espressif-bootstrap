@@ -1033,8 +1033,8 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     if (any_output) {
         const o_sub_path = "o" ++ Dir.path.sep_str ++ &digest;
 
-        b.cache_root.handle.rename(tmp_dir_path, b.cache_root.handle, o_sub_path, io) catch |err| {
-            if (err == error.PathAlreadyExists) {
+        b.cache_root.handle.rename(tmp_dir_path, b.cache_root.handle, o_sub_path, io) catch |err| switch (err) {
+            Dir.RenameError.DirNotEmpty => {
                 b.cache_root.handle.deleteTree(io, o_sub_path) catch |del_err| {
                     return step.fail("unable to remove dir '{f}'{s}: {t}", .{
                         b.cache_root, tmp_dir_path, del_err,
@@ -1045,11 +1045,10 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                         b.cache_root, tmp_dir_path, b.cache_root, o_sub_path, retry_err,
                     });
                 };
-            } else {
-                return step.fail("unable to rename dir '{f}{s}' to '{f}{s}': {t}", .{
-                    b.cache_root, tmp_dir_path, b.cache_root, o_sub_path, err,
-                });
-            }
+            },
+            else => return step.fail("unable to rename dir '{f}{s}' to '{f}{s}': {t}", .{
+                b.cache_root, tmp_dir_path, b.cache_root, o_sub_path, err,
+            }),
         };
     }
 
@@ -1228,7 +1227,7 @@ fn runCommand(
     const gpa = options.gpa;
     const io = b.graph.io;
 
-    const cwd: ?[]const u8 = if (run.cwd) |lazy_cwd| lazy_cwd.getPath2(b, step) else null;
+    const cwd: process.Child.Cwd = if (run.cwd) |lazy_cwd| .{ .path = lazy_cwd.getPath2(b, step) } else .inherit;
 
     try step.handleChildProcUnsupported();
     try Step.handleVerbose2(step.owner, cwd, run.environ_map, argv);
@@ -1386,14 +1385,12 @@ fn runCommand(
             break :term spawnChildAndCollect(run, interp_argv.items, &environ_map, has_side_effects, options, fuzz_context) catch |e| {
                 if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
                 if (e == error.MakeFailed) return error.MakeFailed; // error already reported
-                return step.fail("unable to spawn interpreter {s}: {s}", .{
-                    interp_argv.items[0], @errorName(e),
-                });
+                return step.fail("unable to spawn interpreter {s}: {t}", .{ interp_argv.items[0], e });
             };
         }
         if (err == error.MakeFailed) return error.MakeFailed; // error already reported
 
-        return step.fail("failed to spawn and capture stdio from {s}: {s}", .{ argv[0], @errorName(err) });
+        return step.fail("failed to spawn and capture stdio from {s}: {t}", .{ argv[0], err });
     };
 
     const generic_result = opt_generic_result orelse {
@@ -1552,7 +1549,7 @@ fn spawnChildAndCollect(
         assert(run.stdio == .zig_test);
     }
 
-    const child_cwd = if (run.cwd) |lazy_cwd| lazy_cwd.getPath2(b, &run.step) else null;
+    const child_cwd: process.Child.Cwd = if (run.cwd) |lazy_cwd| .{ .path = lazy_cwd.getPath2(b, &run.step) } else .inherit;
 
     // If an error occurs, it's caused by this command:
     assert(run.step.result_failed_command == null);
@@ -1590,9 +1587,13 @@ fn spawnChildAndCollect(
     };
 
     if (run.stdio == .zig_test) {
-        var timer = try std.time.Timer.start();
-        defer run.step.result_duration_ns = timer.read();
-        try evalZigTest(run, spawn_options, options, fuzz_context);
+        const started: Io.Clock.Timestamp = .now(io, .awake);
+        const result = evalZigTest(run, spawn_options, options, fuzz_context) catch |err| switch (err) {
+            error.Canceled => |e| return e,
+            else => |e| e,
+        };
+        run.step.result_duration_ns = @intCast(started.untilNow(io).raw.nanoseconds);
+        try result;
         return null;
     } else {
         const inherit = spawn_options.stdout == .inherit or spawn_options.stderr == .inherit;
@@ -1605,10 +1606,14 @@ fn spawnChildAndCollect(
         } else .no_color;
         defer if (inherit) io.unlockStderr();
         try setColorEnvironmentVariables(run, environ_map, terminal_mode);
-        var timer = try std.time.Timer.start();
-        const res = try evalGeneric(run, spawn_options);
-        run.step.result_duration_ns = timer.read();
-        return .{ .term = res.term, .stdout = res.stdout, .stderr = res.stderr };
+
+        const started: Io.Clock.Timestamp = .now(io, .awake);
+        const result = evalGeneric(run, spawn_options) catch |err| switch (err) {
+            error.Canceled => |e| return e,
+            else => |e| e,
+        };
+        run.step.result_duration_ns = @intCast(started.untilNow(io).raw.nanoseconds);
+        return try result;
     }
 }
 
@@ -1670,39 +1675,42 @@ fn evalZigTest(
 
     while (true) {
         var child = try process.spawn(io, spawn_options);
-        var poller = std.Io.poll(gpa, StdioPollEnum, .{
-            .stdout = child.stdout.?,
-            .stderr = child.stderr.?,
-        });
+        var multi_reader_buffer: Io.File.MultiReader.Buffer(2) = undefined;
+        var multi_reader: Io.File.MultiReader = undefined;
+        multi_reader.init(gpa, io, multi_reader_buffer.toStreams(), &.{ child.stdout.?, child.stderr.? });
         var child_killed = false;
         defer if (!child_killed) {
             child.kill(io);
-            poller.deinit();
+            multi_reader.deinit();
             run.step.result_peak_rss = @max(
                 run.step.result_peak_rss,
                 child.resource_usage_statistics.getMaxRss() orelse 0,
             );
         };
 
-        switch (try pollZigTest(
+        switch (try waitZigTest(
             run,
             &child,
             options,
             fuzz_context,
-            &poller,
+            &multi_reader,
             &test_metadata,
             &test_results,
         )) {
             .write_failed => |err| {
                 // The runner unexpectedly closed a stdio pipe, which means a crash. Make sure we've captured
                 // all available stderr to make our error output as useful as possible.
-                while (try poller.poll()) {}
-                run.step.result_stderr = try arena.dupe(u8, poller.reader(.stderr).buffered());
+                const stderr_fr = multi_reader.fileReader(1);
+                while (stderr_fr.interface.fillMore()) |_| {} else |e| switch (e) {
+                    error.ReadFailed => return stderr_fr.err.?,
+                    error.EndOfStream => {},
+                }
+                run.step.result_stderr = try arena.dupe(u8, stderr_fr.interface.buffered());
 
                 // Clean up everything and wait for the child to exit.
                 child.stdin.?.close(io);
                 child.stdin = null;
-                poller.deinit();
+                multi_reader.deinit();
                 child_killed = true;
                 const term = try child.wait(io);
                 run.step.result_peak_rss = @max(
@@ -1717,13 +1725,13 @@ fn evalZigTest(
             .no_poll => |no_poll| {
                 // This might be a success (we requested exit and the child dutifully closed stdout) or
                 // a crash of some kind. Either way, the child will terminate by itself -- wait for it.
-                const stderr_owned = try arena.dupe(u8, poller.reader(.stderr).buffered());
-                poller.reader(.stderr).tossBuffered();
+                const stderr_reader = multi_reader.reader(1);
+                const stderr_owned = try arena.dupe(u8, stderr_reader.buffered());
 
                 // Clean up everything and wait for the child to exit.
                 child.stdin.?.close(io);
                 child.stdin = null;
-                poller.deinit();
+                multi_reader.deinit();
                 child_killed = true;
                 const term = try child.wait(io);
                 run.step.result_peak_rss = @max(
@@ -1771,8 +1779,9 @@ fn evalZigTest(
                 return;
             },
             .timeout => |timeout| {
-                const stderr = poller.reader(.stderr).buffered();
-                poller.reader(.stderr).tossBuffered();
+                const stderr_reader = multi_reader.reader(1);
+                const stderr = stderr_reader.buffered();
+                stderr_reader.tossBuffered();
                 if (timeout.active_test_index) |test_index| {
                     // A test was running. Report the timeout against that test, and continue on to
                     // the next test.
@@ -1797,16 +1806,16 @@ fn evalZigTest(
     }
 }
 
-/// Polls stdout of a Zig test process until a termination condition is reached:
+/// Reads stdout of a Zig test process until a termination condition is reached:
 /// * A write fails, indicating the child unexpectedly closed stdin
 /// * A test (or a response from the test runner) times out
-/// * `poll` fails, indicating the child closed stdout and stderr
-fn pollZigTest(
+/// * The wait fails, indicating the child closed stdout and stderr
+fn waitZigTest(
     run: *Run,
     child: *process.Child,
     options: Step.MakeOptions,
     fuzz_context: ?FuzzContext,
-    poller: *std.Io.Poller(StdioPollEnum),
+    multi_reader: *Io.File.MultiReader,
     opt_metadata: *?TestMetadata,
     results: *Step.TestResults,
 ) !union(enum) {
@@ -1860,9 +1869,7 @@ fn pollZigTest(
 
     var active_test_index: ?u32 = null;
 
-    // `null` means this host does not support `std.time.Timer`. This timer is `reset()` whenever we
-    // change `active_test_index`, i.e. whenever a test starts or finishes.
-    var timer: ?std.time.Timer = std.time.Timer.start() catch null;
+    var last_update: Io.Clock.Timestamp = .now(io, .awake);
 
     var coverage_id: ?u64 = null;
 
@@ -1870,16 +1877,26 @@ fn pollZigTest(
     // test. For instance, if the test runner leaves this much time between us requesting a test to
     // start and it acknowledging the test starting, we terminate the child and raise an error. This
     // *should* never happen, but could in theory be caused by some very unlucky IB in a test.
-    const response_timeout_ns: ?u64 = ns: {
-        if (fuzz_context != null) break :ns null; // don't timeout fuzz tests
-        break :ns @max(options.unit_test_timeout_ns orelse 0, 60 * std.time.ns_per_s);
+    const response_timeout: ?Io.Clock.Duration = t: {
+        if (fuzz_context != null) break :t null; // don't timeout fuzz tests
+        const ns = @max(options.unit_test_timeout_ns orelse 0, 60 * std.time.ns_per_s);
+        break :t .{ .clock = .awake, .raw = .fromNanoseconds(ns) };
     };
+    const test_timeout: ?Io.Clock.Duration = if (options.unit_test_timeout_ns) |ns| .{
+        .clock = .awake,
+        .raw = .fromNanoseconds(ns),
+    } else null;
 
-    const stdout = poller.reader(.stdout);
-    const stderr = poller.reader(.stderr);
+    const stdout = multi_reader.reader(0);
+    const stderr = multi_reader.reader(1);
+    const Header = std.zig.Server.Message.Header;
 
     while (true) {
-        const Header = std.zig.Server.Message.Header;
+        const timeout: Io.Timeout = t: {
+            const opt_duration = if (active_test_index == null) response_timeout else test_timeout;
+            const duration = opt_duration orelse break :t .none;
+            break :t .{ .deadline = last_update.addDuration(duration) };
+        };
 
         // This block is exited when `stdout` contains enough bytes for a `Header`.
         header_ready: {
@@ -1888,47 +1905,37 @@ fn pollZigTest(
                 break :header_ready;
             }
 
-            // Always `null` if `timer` is `null`.
-            const opt_timeout_ns: ?u64 = ns: {
-                if (timer == null) break :ns null;
-                if (active_test_index == null) break :ns response_timeout_ns;
-                break :ns options.unit_test_timeout_ns;
+            multi_reader.fill(64, timeout) catch |err| switch (err) {
+                error.Timeout => return .{ .timeout = .{
+                    .active_test_index = active_test_index,
+                    .ns_elapsed = @intCast(last_update.untilNow(io).raw.nanoseconds),
+                } },
+                error.EndOfStream => return .{ .no_poll = .{
+                    .active_test_index = active_test_index,
+                    .ns_elapsed = @intCast(last_update.untilNow(io).raw.nanoseconds),
+                } },
+                else => |e| return e,
             };
 
-            if (opt_timeout_ns) |timeout_ns| {
-                const remaining_ns = timeout_ns -| timer.?.read();
-                if (!try poller.pollTimeout(remaining_ns)) return .{ .no_poll = .{
-                    .active_test_index = active_test_index,
-                    .ns_elapsed = if (timer) |*t| t.read() else 0,
-                } };
-            } else {
-                if (!try poller.poll()) return .{ .no_poll = .{
-                    .active_test_index = active_test_index,
-                    .ns_elapsed = if (timer) |*t| t.read() else 0,
-                } };
-            }
-
-            if (stdout.buffered().len >= @sizeOf(Header)) {
-                // There wasn't a header before, but there is one after the `poll`.
-                break :header_ready;
-            }
-
-            if (opt_timeout_ns) |timeout_ns| {
-                const cur_ns = timer.?.read();
-                if (cur_ns >= timeout_ns) return .{ .timeout = .{
-                    .active_test_index = active_test_index,
-                    .ns_elapsed = cur_ns,
-                } };
-            }
             continue;
         }
         // There is definitely a header available now -- read it.
         const header = stdout.takeStruct(Header, .little) catch unreachable;
 
-        while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) return .{ .no_poll = .{
-            .active_test_index = active_test_index,
-            .ns_elapsed = if (timer) |*t| t.read() else 0,
-        } };
+        while (stdout.buffered().len < header.bytes_len) {
+            multi_reader.fill(64, timeout) catch |err| switch (err) {
+                error.Timeout => return .{ .timeout = .{
+                    .active_test_index = active_test_index,
+                    .ns_elapsed = @intCast(last_update.untilNow(io).raw.nanoseconds),
+                } },
+                error.EndOfStream => return .{ .no_poll = .{
+                    .active_test_index = active_test_index,
+                    .ns_elapsed = @intCast(last_update.untilNow(io).raw.nanoseconds),
+                } },
+                else => |e| return e,
+            };
+        }
+
         const body = stdout.take(header.bytes_len) catch unreachable;
         var body_r: std.Io.Reader = .fixed(body);
         switch (header.tag) {
@@ -1969,13 +1976,13 @@ fn pollZigTest(
                 @memset(opt_metadata.*.?.ns_per_test, std.math.maxInt(u64));
 
                 active_test_index = null;
-                if (timer) |*t| t.reset();
+                last_update = .now(io, .awake);
 
                 requestNextTest(io, child.stdin.?, &opt_metadata.*.?, &sub_prog_node) catch |err| return .{ .write_failed = err };
             },
             .test_started => {
                 active_test_index = opt_metadata.*.?.next_index - 1;
-                if (timer) |*t| t.reset();
+                last_update = .now(io, .awake);
             },
             .test_results => {
                 assert(fuzz_context == null);
@@ -2018,7 +2025,10 @@ fn pollZigTest(
                 }
 
                 active_test_index = null;
-                if (timer) |*t| md.ns_per_test[tr_hdr.index] = t.lap();
+
+                const now: Io.Clock.Timestamp = .now(io, .awake);
+                md.ns_per_test[tr_hdr.index] = @intCast(last_update.durationTo(now).raw.nanoseconds);
+                last_update = now;
 
                 requestNextTest(io, child.stdin.?, md, &sub_prog_node) catch |err| return .{ .write_failed = err };
             },
@@ -2165,6 +2175,7 @@ fn evalGeneric(run: *Run, spawn_options: process.SpawnOptions) !EvalGenericResul
     const b = run.step.owner;
     const io = b.graph.io;
     const arena = b.allocator;
+    const gpa = b.allocator;
 
     var child = try process.spawn(io, spawn_options);
     defer child.kill(io);
@@ -2212,23 +2223,31 @@ fn evalGeneric(run: *Run, spawn_options: process.SpawnOptions) !EvalGenericResul
 
     if (child.stdout) |stdout| {
         if (child.stderr) |stderr| {
-            var poller = std.Io.poll(arena, enum { stdout, stderr }, .{
-                .stdout = stdout,
-                .stderr = stderr,
-            });
-            defer poller.deinit();
+            var multi_reader_buffer: Io.File.MultiReader.Buffer(2) = undefined;
+            var multi_reader: Io.File.MultiReader = undefined;
+            multi_reader.init(gpa, io, multi_reader_buffer.toStreams(), &.{ stdout, stderr });
+            defer multi_reader.deinit();
 
-            while (try poller.poll()) {
+            const stdout_reader = multi_reader.reader(0);
+            const stderr_reader = multi_reader.reader(1);
+
+            while (multi_reader.fill(64, .none)) |_| {
                 if (run.stdio_limit.toInt()) |limit| {
-                    if (poller.reader(.stderr).buffered().len > limit)
+                    if (stdout_reader.buffered().len > limit)
                         return error.StdoutStreamTooLong;
-                    if (poller.reader(.stderr).buffered().len > limit)
+                    if (stderr_reader.buffered().len > limit)
                         return error.StderrStreamTooLong;
                 }
+            } else |err| switch (err) {
+                error.Timeout => unreachable,
+                error.EndOfStream => {},
+                else => |e| return e,
             }
 
-            stdout_bytes = try poller.toOwnedSlice(.stdout);
-            stderr_bytes = try poller.toOwnedSlice(.stderr);
+            try multi_reader.checkAnyError();
+
+            stdout_bytes = try multi_reader.toOwnedSlice(0);
+            stderr_bytes = try multi_reader.toOwnedSlice(1);
         } else {
             var stdout_reader = stdout.readerStreaming(io, &.{});
             stdout_bytes = stdout_reader.interface.allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {

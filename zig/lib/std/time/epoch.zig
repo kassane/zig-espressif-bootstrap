@@ -89,10 +89,10 @@ pub const Month = enum(u4) {
 pub fn getDaysInMonth(year: Year, month: Month) u5 {
     return switch (month) {
         .jan => 31,
-        .feb => @as(u5, switch (isLeapYear(year)) {
+        .feb => switch (isLeapYear(year)) {
             true => 29,
             false => 28,
-        }),
+        },
         .mar => 31,
         .apr => 30,
         .may => 31,

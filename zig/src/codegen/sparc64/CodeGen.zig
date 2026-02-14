@@ -877,15 +877,10 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = self.air.extraData(Air.Asm, ty_pl.payload);
-    const is_volatile = extra.data.flags.is_volatile;
-    const outputs_len = extra.data.flags.outputs_len;
-    var extra_i: usize = extra.end;
-    const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i .. extra_i + outputs_len]);
-    extra_i += outputs.len;
-    const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i .. extra_i + extra.data.inputs_len]);
-    extra_i += inputs.len;
+    const unwrapped_asm = self.air.unwrapAsm(inst);
+    const is_volatile = unwrapped_asm.is_volatile;
+    const outputs = unwrapped_asm.outputs;
+    const inputs = unwrapped_asm.inputs;
 
     const dead = !is_volatile and self.liveness.isUnused(inst);
     const result: MCValue = if (dead) .dead else result: {
@@ -893,27 +888,18 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             return self.fail("TODO implement codegen for asm with more than 1 output", .{});
         }
 
-        const output_constraint: ?[]const u8 = for (outputs) |output| {
-            if (output != .none) {
+        var it = unwrapped_asm.iterateOutputs();
+        const output_constraint: ?[]const u8 = while (it.next()) |output| {
+            if (output.operand != .none) {
                 return self.fail("TODO implement codegen for non-expr asm", .{});
             }
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
-            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-            break constraint;
+            break output.constraint;
         } else null;
 
-        for (inputs) |input| {
-            const input_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
-            const constraint = std.mem.sliceTo(input_bytes, 0);
-            const name = std.mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+        it = unwrapped_asm.iterateInputs();
+        while (it.next()) |input| {
+            const constraint = input.constraint;
 
             if (constraint.len < 3 or constraint[0] != '{' or constraint[constraint.len - 1] != '}') {
                 return self.fail("unrecognized asm input constraint: '{s}'", .{constraint});
@@ -922,15 +908,15 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             const reg = parseRegName(reg_name) orelse
                 return self.fail("unrecognized register: '{s}'", .{reg_name});
 
-            const arg_mcv = try self.resolveInst(input);
+            const arg_mcv = try self.resolveInst(input.operand);
             try self.register_manager.getReg(reg, null);
-            try self.genSetReg(self.typeOf(input), reg, arg_mcv);
+            try self.genSetReg(self.typeOf(input.operand), reg, arg_mcv);
         }
 
         // TODO honor the clobbers
-        _ = extra.data.clobbers;
+        _ = unwrapped_asm.clobbers;
 
-        const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
+        const asm_source = unwrapped_asm.source;
 
         if (mem.eql(u8, asm_source, "ta 0x6d")) {
             _ = try self.addInst(.{
@@ -1109,9 +1095,8 @@ fn airBitReverse(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = self.air.extraData(Air.Block, ty_pl.payload);
-    try self.lowerBlock(inst, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
+    const block = self.air.unwrapBlock(inst);
+    try self.lowerBlock(inst, block.body);
 }
 
 fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !void {
@@ -1276,11 +1261,9 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
 fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
     if (modifier == .always_tail) return self.fail("TODO implement tail calls for {}", .{self.target.cpu.arch});
 
-    const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const callee = pl_op.operand;
-    const extra = self.air.extraData(Air.Call, pl_op.payload);
-    const args: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra.end .. extra.end + extra.data.args_len]);
-    const ty = self.typeOf(callee);
+    const call = self.air.unwrapCall(inst);
+    const args = call.args;
+    const ty = self.typeOf(call.callee);
     const pt = self.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -1327,7 +1310,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
-    if (try self.air.value(callee, pt)) |func_value| switch (ip.indexToKey(func_value.toIntern())) {
+    if (try self.air.value(call.callee, pt)) |func_value| switch (ip.indexToKey(func_value.toIntern())) {
         .func => {
             return self.fail("TODO implement calling functions", .{});
         },
@@ -1339,7 +1322,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         },
     } else {
         assert(ty.zigTypeTag(zcu) == .pointer);
-        const mcv = try self.resolveInst(callee);
+        const mcv = try self.resolveInst(call.callee);
         try self.genSetReg(ty, .o7, mcv);
 
         _ = try self.addInst(.{
@@ -1365,13 +1348,13 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
     if (args.len + 1 <= Air.Liveness.bpi - 1) {
         var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
-        buf[0] = callee;
+        buf[0] = call.callee;
         @memcpy(buf[1..][0..args.len], args);
         return self.finishAir(inst, result, buf);
     }
 
     var bt = try self.iterateBigTomb(inst, 1 + args.len);
-    bt.feed(callee);
+    bt.feed(call.callee);
     for (args) |arg| {
         bt.feed(arg);
     }
@@ -1451,9 +1434,7 @@ fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = self.air.extraData(Air.Block, ty_pl.payload);
-    _ = extra;
+    _ = inst;
 
     return self.fail("TODO implement airCmpxchg for {}", .{
         self.target.cpu.arch,
@@ -1461,11 +1442,10 @@ fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
-    const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const condition = try self.resolveInst(pl_op.operand);
-    const extra = self.air.extraData(Air.CondBr, pl_op.payload);
-    const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.then_body_len]);
-    const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+    const cond_br = self.air.unwrapCondBr(inst);
+    const condition = try self.resolveInst(cond_br.condition);
+    const then_body = cond_br.then_body;
+    const else_body = cond_br.else_body;
     const liveness_condbr = self.liveness.getCondBr(inst);
 
     // Here we emit a branch to the false section.
@@ -1475,7 +1455,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
     if (self.liveness.operandDies(inst, 0)) {
-        if (pl_op.operand.toIndex()) |op_index| {
+        if (cond_br.condition.toIndex()) |op_index| {
             self.processDeath(op_index);
         }
     }
@@ -1613,10 +1593,9 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airDbgInlineBlock(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = self.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
+    const block = self.air.unwrapDbgBlock(inst);
     // TODO emit debug info for function change
-    try self.lowerBlock(inst, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
+    try self.lowerBlock(inst, block.body);
 }
 
 fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
@@ -1780,12 +1759,10 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     // A loop is a setup to be able to jump back to the beginning.
-    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const loop = self.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[loop.end .. loop.end + loop.data.body_len]);
+    const block = self.air.unwrapBlock(inst);
     const start: u32 = @intCast(self.mir_instructions.len);
 
-    try self.genBody(body);
+    try self.genBody(block.body);
     try self.jump(start);
 
     return self.finishAirBookkeeping();
@@ -2606,12 +2583,11 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airTry(self: *Self, inst: Air.Inst.Index) !void {
-    const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const extra = self.air.extraData(Air.Try, pl_op.payload);
-    const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]);
+    const unwrapped_try = self.air.unwrapTry(inst);
+    const body = unwrapped_try.else_body;
     const result: MCValue = result: {
-        const error_union_ty = self.typeOf(pl_op.operand);
-        const error_union = try self.resolveInst(pl_op.operand);
+        const error_union_ty = self.air.typeOf(unwrapped_try.error_union, &self.pt.zcu.intern_pool);
+        const error_union = try self.resolveInst(unwrapped_try.error_union);
         const is_err_result = try self.isErr(error_union_ty, error_union);
         const reloc = try self.condBr(is_err_result);
 
@@ -2620,7 +2596,7 @@ fn airTry(self: *Self, inst: Air.Inst.Index) !void {
         try self.performReloc(reloc);
         break :result try self.errUnionPayload(error_union, error_union_ty);
     };
-    return self.finishAir(inst, result, .{ pl_op.operand, .none, .none });
+    return self.finishAir(inst, result, .{ unwrapped_try.error_union, .none, .none });
 }
 
 fn airUnaryMath(self: *Self, inst: Air.Inst.Index) !void {

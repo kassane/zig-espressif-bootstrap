@@ -832,6 +832,8 @@ pub const LibraryOptions = struct {
     /// Can be set regardless of target. The `.manifest` file will be ignored
     /// if the target object format does not support embedded manifests.
     win32_manifest: ?LazyPath = null,
+    /// Win32 module definition file (.def).
+    win32_module_definition: ?LazyPath = null,
 };
 
 pub fn addLibrary(b: *Build, options: LibraryOptions) *Step.Compile {
@@ -846,6 +848,7 @@ pub fn addLibrary(b: *Build, options: LibraryOptions) *Step.Compile {
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir,
         .win32_manifest = options.win32_manifest,
+        .win32_module_definition = options.win32_module_definition,
     });
 }
 
@@ -1868,7 +1871,7 @@ pub fn runAllowFail(
     const io = graph.io;
 
     const max_output_size = 400 * 1024;
-    try Step.handleVerbose2(b, null, &graph.environ_map, argv);
+    try Step.handleVerbose2(b, .inherit, &graph.environ_map, argv);
 
     var child = try std.process.spawn(io, .{
         .argv = argv,
@@ -1911,7 +1914,7 @@ pub fn run(b: *Build, argv: []const []const u8) []u8 {
     var code: u8 = undefined;
     return b.runAllowFail(argv, &code, .inherit) catch |err| process.fatal(
         "the following command failed with {t}:\n{s}",
-        .{ err, Step.allocPrintCmd(b.allocator, null, null, argv) catch @panic("OOM") },
+        .{ err, Step.allocPrintCmd(b.allocator, .inherit, null, argv) catch @panic("OOM") },
     );
 }
 

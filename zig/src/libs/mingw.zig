@@ -347,7 +347,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
             if (msg.kind == .@"fatal error" or msg.kind == .@"error") {
                 msg.write(stderr.terminal(), true) catch |err| switch (err) {
                     error.WriteFailed => return stderr.file_writer.err.?,
-                    error.Unexpected => |e| return e,
+                    error.Canceled, error.Unexpected => |e| return e,
                 };
                 return error.AroPreprocessorFailed;
             }
@@ -615,8 +615,6 @@ const mingw32_generic_src = [_][]const u8{
     "math" ++ path.sep_str ++ "fpclassifyl.c",
     "math" ++ path.sep_str ++ "frexpf.c",
     "math" ++ path.sep_str ++ "frexpl.c",
-    "math" ++ path.sep_str ++ "hypotf.c",
-    "math" ++ path.sep_str ++ "hypotl.c",
     "math" ++ path.sep_str ++ "ldexpf.c",
     "math" ++ path.sep_str ++ "lgamma.c",
     "math" ++ path.sep_str ++ "lgammaf.c",
@@ -936,7 +934,6 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "lrintl.c",
     "math" ++ path.sep_str ++ "lroundl.c",
     "math" ++ path.sep_str ++ "rintl.c",
-    "math" ++ path.sep_str ++ "roundl.c",
     "math" ++ path.sep_str ++ "tgammal.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "acoshl.c",

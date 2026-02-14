@@ -1315,7 +1315,7 @@ test "cache file and then recall it" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const cwd = try std.process.getCwdAlloc(testing.allocator);
+    const cwd = try std.process.currentPathAlloc(io, testing.allocator);
     defer testing.allocator.free(cwd);
 
     const temp_file = "test.txt";
@@ -1383,7 +1383,7 @@ test "check that changing a file makes cache fail" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const cwd = try std.process.getCwdAlloc(testing.allocator);
+    const cwd = try std.process.currentPathAlloc(io, testing.allocator);
     defer testing.allocator.free(cwd);
 
     const temp_file = "cache_hash_change_file_test.txt";
@@ -1459,7 +1459,7 @@ test "no file inputs" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const cwd = try std.process.getCwdAlloc(testing.allocator);
+    const cwd = try std.process.currentPathAlloc(io, testing.allocator);
     defer testing.allocator.free(cwd);
 
     const temp_manifest_dir = "no_file_inputs_manifest_dir";
@@ -1509,7 +1509,7 @@ test "Manifest with files added after initial hash work" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const cwd = try std.process.getCwdAlloc(testing.allocator);
+    const cwd = try std.process.currentPathAlloc(io, testing.allocator);
     defer testing.allocator.free(cwd);
 
     const temp_file1 = "cache_hash_post_file_test1.txt";

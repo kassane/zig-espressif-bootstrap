@@ -1,13 +1,14 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
 const extendf = @import("./extendf.zig").extendf;
+const symbol = @import("../compiler_rt.zig").symbol;
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(&__extenddftf2, .{ .name = "__extenddfkf2", .linkage = common.linkage, .visibility = common.visibility });
-    } else if (common.want_sparc_abi) {
-        @export(&_Qp_dtoq, .{ .name = "_Qp_dtoq", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&__extenddftf2, "__extenddfkf2");
+    } else if (compiler_rt.want_sparc_abi) {
+        symbol(&_Qp_dtoq, "_Qp_dtoq");
     }
-    @export(&__extenddftf2, .{ .name = "__extenddftf2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__extenddftf2, "__extenddftf2");
 }
 
 pub fn __extenddftf2(a: f64) callconv(.c) f128 {

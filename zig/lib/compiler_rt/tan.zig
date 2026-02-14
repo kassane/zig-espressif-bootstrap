@@ -16,18 +16,19 @@ const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 
 const arch = builtin.cpu.arch;
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 
 comptime {
-    @export(&__tanh, .{ .name = "__tanh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&tanf, .{ .name = "tanf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&tan, .{ .name = "tan", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__tanx, .{ .name = "__tanx", .linkage = common.linkage, .visibility = common.visibility });
-    if (common.want_ppc_abi) {
-        @export(&tanq, .{ .name = "tanf128", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__tanh, "__tanh");
+    symbol(&tanf, "tanf");
+    symbol(&tan, "tan");
+    symbol(&__tanx, "__tanx");
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&tanq, "tanf128");
     }
-    @export(&tanq, .{ .name = "tanq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&tanl, .{ .name = "tanl", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&tanq, "tanq");
+    symbol(&tanl, "tanl");
 }
 
 pub fn __tanh(x: f16) callconv(.c) f16 {
@@ -49,7 +50,7 @@ pub fn tanf(x: f32) callconv(.c) f32 {
     if (ix <= 0x3f490fda) { // |x| ~<= pi/4
         if (ix < 0x39800000) { // |x| < 2**-12
             // raise inexact if x!=0 and underflow if subnormal
-            if (common.want_float_exceptions) {
+            if (compiler_rt.want_float_exceptions) {
                 if (ix < 0x00800000) {
                     mem.doNotOptimizeAway(x / 0x1p120);
                 } else {
@@ -93,7 +94,7 @@ pub fn tan(x: f64) callconv(.c) f64 {
     if (ix <= 0x3fe921fb) {
         if (ix < 0x3e400000) { // |x| < 2**-27
             // raise inexact if x!=0 and underflow if subnormal
-            if (common.want_float_exceptions) {
+            if (compiler_rt.want_float_exceptions) {
                 if (ix < 0x00100000) {
                     mem.doNotOptimizeAway(x / 0x1p120);
                 } else {

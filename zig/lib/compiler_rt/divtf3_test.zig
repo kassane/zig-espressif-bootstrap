@@ -46,4 +46,9 @@ test "divtf3" {
     try test__divtf3(0x1.2345f6b77b7a8953365433abcdefp+234, 0x1.edcba987d6bb3aa467754354321fp-4055, 0x50bf2e02f0798d36, 0x5e6fcb6b60044078);
     try test__divtf3(6.72420628622418701252535563464350521E-4932, 2.0, 0x0001000000000000, 0);
     try test__divtf3(1.0, 0x1.ffffffffffffffffffffffffffffp-1, 0x3FFF000000000000, 1);
+
+    try test__divtf3(std.math.floatMin(f128), 2.0, 0x0000800000000000, 0x0000000000000000);
+    try test__divtf3(std.math.floatMin(f128), 4.0, 0x0000400000000000, 0x0000000000000000);
+    try test__divtf3(1.0, 0x1.0000000000000000000000000001p16382, 0x0000ffffffffffff, 0xfffffffffffffffe);
+    try test__divtf3(1.2, std.math.floatMax(f128), 0x00004ccccccccccc, 0xcccccccccccccccd);
 }

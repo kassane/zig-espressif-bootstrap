@@ -1362,11 +1362,11 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             return self.getLast();
         }
 
-        const init_capacity: comptime_int = @max(1, std.atomic.cache_line / @sizeOf(T));
-
         /// Called when memory growth is necessary. Returns a capacity larger than
         /// minimum that grows super-linearly.
         pub fn growCapacity(minimum: usize) usize {
+            if (@sizeOf(T) == 0) return math.maxInt(usize);
+            const init_capacity: comptime_int = @max(1, std.atomic.cache_line / @sizeOf(T));
             return minimum +| (minimum / 2 + init_capacity);
         }
     };
@@ -1750,6 +1750,14 @@ test "insert" {
         try testing.expect(list.items[1] == 1);
         try testing.expect(list.items[2] == 2);
         try testing.expect(list.items[3] == 3);
+    }
+    {
+        var list: ArrayList(struct {}) = .empty;
+        defer list.deinit(a);
+
+        try list.insert(a, 0, .{});
+        try list.append(a, .{});
+        try testing.expect(list.items.len == 2);
     }
 }
 

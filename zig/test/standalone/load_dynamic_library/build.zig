@@ -9,6 +9,7 @@ pub fn build(b: *std.Build) void {
     const target = b.graph.host;
 
     if (builtin.os.tag == .wasi) return;
+    if (builtin.os.tag == .windows) return;
 
     const lib = b.addLibrary(.{
         .linkage = .dynamic,

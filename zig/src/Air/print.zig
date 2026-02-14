@@ -395,25 +395,17 @@ const Writer = struct {
     fn writeBlock(w: *Writer, s: *std.Io.Writer, tag: Air.Inst.Tag, inst: Air.Inst.Index) Error!void {
         const ty_pl = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         try w.writeType(s, ty_pl.ty.toType());
-        const body: []const Air.Inst.Index = @ptrCast(switch (tag) {
-            inline .block, .dbg_inline_block => |comptime_tag| body: {
-                const extra = w.air.extraData(switch (comptime_tag) {
-                    .block => Air.Block,
-                    .dbg_inline_block => Air.DbgInlineBlock,
-                    else => unreachable,
-                }, ty_pl.payload);
-                switch (comptime_tag) {
-                    .block => {},
-                    .dbg_inline_block => {
-                        try s.writeAll(", ");
-                        try w.writeInstRef(s, Air.internedToRef(extra.data.func), false);
-                    },
-                    else => unreachable,
-                }
-                break :body w.air.extra.items[extra.end..][0..extra.data.body_len];
+
+        const body = switch (tag) {
+            .block => w.air.unwrapBlock(inst).body,
+            .dbg_inline_block => body: {
+                const dbg_block = w.air.unwrapDbgBlock(inst);
+                try s.writeAll(", ");
+                try w.writeInstRef(s, Air.internedToRef(dbg_block.func), false);
+                break :body dbg_block.body;
             },
             else => unreachable,
-        });
+        };
         if (w.skip_body) return s.writeAll(", ...");
         const liveness_block: Air.Liveness.BlockSlices = if (w.liveness) |liveness|
             liveness.getBlock(inst)
@@ -434,16 +426,14 @@ const Writer = struct {
     }
 
     fn writeLoop(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
-        const ty_pl = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-        const extra = w.air.extraData(Air.Block, ty_pl.payload);
-        const body: []const Air.Inst.Index = @ptrCast(w.air.extra.items[extra.end..][0..extra.data.body_len]);
+        const block = w.air.unwrapBlock(inst);
 
-        try w.writeType(s, ty_pl.ty.toType());
+        try w.writeType(s, block.ty);
         if (w.skip_body) return s.writeAll(", ...");
         try s.writeAll(", {\n");
         const old_indent = w.indent;
         w.indent += 2;
-        try w.writeBody(s, body);
+        try w.writeBody(s, block.body);
         w.indent = old_indent;
         try s.splatByteAll(' ', w.indent);
         try s.writeAll("}");
@@ -532,11 +522,10 @@ const Writer = struct {
     }
 
     fn writeLegalizeCompilerRtCall(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
-        const inst_data = w.air.instructions.items(.data)[@intFromEnum(inst)].legalize_compiler_rt_call;
-        const extra = w.air.extraData(Air.Call, inst_data.payload);
-        const args: []const Air.Inst.Ref = @ptrCast(w.air.extra.items[extra.end..][0..extra.data.args_len]);
+        const rt_call = w.air.unwrapCompilerRtCall(inst);
+        const args = rt_call.args;
 
-        try s.print("{t}, [", .{inst_data.func});
+        try s.print("{t}, [", .{rt_call.func});
         for (args, 0..) |arg, i| {
             if (i != 0) try s.writeAll(", ");
             try w.writeOperand(s, inst, i, arg);
@@ -666,11 +655,8 @@ const Writer = struct {
     }
 
     fn writeAssembly(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
-        const ty_pl = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-        const extra = w.air.extraData(Air.Asm, ty_pl.payload);
-        const is_volatile = extra.data.flags.is_volatile;
-        const outputs_len = extra.data.flags.outputs_len;
-        var extra_i: usize = extra.end;
+        const unwrapped_asm = w.air.unwrapAsm(inst);
+        const is_volatile = unwrapped_asm.is_volatile;
         var op_index: usize = 0;
 
         const ret_ty = w.typeOfIndex(inst);
@@ -680,49 +666,33 @@ const Writer = struct {
             try s.writeAll(", volatile");
         }
 
-        const outputs = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra.items[extra_i..][0..outputs_len]));
-        extra_i += outputs.len;
-        const inputs = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra.items[extra_i..][0..extra.data.inputs_len]));
-        extra_i += inputs.len;
-
-        for (outputs) |output| {
-            const extra_bytes = std.mem.sliceAsBytes(w.air.extra.items[extra_i..]);
-            const constraint = std.mem.sliceTo(extra_bytes, 0);
-            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the strings and their null terminators, we still use the next u32
-            // for the null terminator.
-            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
-
-            if (output == .none) {
+        var it = unwrapped_asm.iterateOutputs();
+        while (it.next()) |out| {
+            const name = out.name;
+            const constraint = out.constraint;
+            if (out.operand == .none) {
                 try s.print(", [{s}] -> {s}", .{ name, constraint });
             } else {
                 try s.print(", [{s}] out {s} = (", .{ name, constraint });
-                try w.writeOperand(s, inst, op_index, output);
+                try w.writeOperand(s, inst, op_index, out.operand);
                 op_index += 1;
                 try s.writeByte(')');
             }
         }
 
-        for (inputs) |input| {
-            const extra_bytes = std.mem.sliceAsBytes(w.air.extra.items[extra_i..]);
-            const constraint = std.mem.sliceTo(extra_bytes, 0);
-            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the strings and their null terminators, we still use the next u32
-            // for the null terminator.
-            extra_i += (constraint.len + name.len + 1) / 4 + 1;
-
+        it = unwrapped_asm.iterateInputs();
+        while (it.next()) |in| {
+            const name = in.name;
+            const constraint = in.constraint;
             try s.print(", [{s}] in {s} = (", .{ name, constraint });
-            try w.writeOperand(s, inst, op_index, input);
+            try w.writeOperand(s, inst, op_index, in.operand);
             op_index += 1;
             try s.writeByte(')');
         }
 
         const zcu = w.pt.zcu;
         const ip = &zcu.intern_pool;
-        const aggregate = ip.indexToKey(extra.data.clobbers).aggregate;
+        const aggregate = ip.indexToKey(unwrapped_asm.clobbers).aggregate;
         const struct_type: Type = .fromInterned(aggregate.ty);
         switch (aggregate.storage) {
             .elems => |elems| for (elems, 0..) |elem, i| {
@@ -750,7 +720,7 @@ const Writer = struct {
                 try s.print(", {x}", .{bytes});
             },
         }
-        const asm_source = std.mem.sliceAsBytes(w.air.extra.items[extra_i..])[0..extra.data.source_len];
+        const asm_source = unwrapped_asm.source;
         try s.print(", \"{f}\"", .{std.zig.fmtString(asm_source)});
     }
 
@@ -767,10 +737,9 @@ const Writer = struct {
     }
 
     fn writeCall(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
-        const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-        const extra = w.air.extraData(Air.Call, pl_op.payload);
-        const args = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra.items[extra.end..][0..extra.data.args_len]));
-        try w.writeOperand(s, inst, 0, pl_op.operand);
+        const call = w.air.unwrapCall(inst);
+        const args = call.args;
+        try w.writeOperand(s, inst, 0, call.callee);
         try s.writeAll(", [");
         for (args, 0..) |arg, i| {
             if (i != 0) try s.writeAll(", ");
@@ -792,15 +761,14 @@ const Writer = struct {
     }
 
     fn writeTry(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
-        const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-        const extra = w.air.extraData(Air.Try, pl_op.payload);
-        const body: []const Air.Inst.Index = @ptrCast(w.air.extra.items[extra.end..][0..extra.data.body_len]);
+        const unwrapped_try = w.air.unwrapTry(inst);
+        const body = unwrapped_try.else_body;
         const liveness_condbr: Air.Liveness.CondBrSlices = if (w.liveness) |liveness|
             liveness.getCondBr(inst)
         else
             .{ .then_deaths = &.{}, .else_deaths = &.{} };
 
-        try w.writeOperand(s, inst, 0, pl_op.operand);
+        try w.writeOperand(s, inst, 0, unwrapped_try.error_union);
         if (w.skip_body) return s.writeAll(", ...");
         try s.writeAll(", {\n");
         const old_indent = w.indent;
@@ -826,18 +794,17 @@ const Writer = struct {
     }
 
     fn writeTryPtr(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
-        const ty_pl = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-        const extra = w.air.extraData(Air.TryPtr, ty_pl.payload);
-        const body: []const Air.Inst.Index = @ptrCast(w.air.extra.items[extra.end..][0..extra.data.body_len]);
+        const unwrapped_try = w.air.unwrapTryPtr(inst);
+        const body = unwrapped_try.else_body;
         const liveness_condbr: Air.Liveness.CondBrSlices = if (w.liveness) |liveness|
             liveness.getCondBr(inst)
         else
             .{ .then_deaths = &.{}, .else_deaths = &.{} };
 
-        try w.writeOperand(s, inst, 0, extra.data.ptr);
+        try w.writeOperand(s, inst, 0, unwrapped_try.error_union_ptr);
 
         try s.writeAll(", ");
-        try w.writeType(s, ty_pl.ty.toType());
+        try w.writeType(s, unwrapped_try.error_union_payload_ptr_ty.toType());
         if (w.skip_body) return s.writeAll(", ...");
         try s.writeAll(", {\n");
         const old_indent = w.indent;
@@ -863,23 +830,22 @@ const Writer = struct {
     }
 
     fn writeCondBr(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
-        const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-        const extra = w.air.extraData(Air.CondBr, pl_op.payload);
-        const then_body: []const Air.Inst.Index = @ptrCast(w.air.extra.items[extra.end..][0..extra.data.then_body_len]);
-        const else_body: []const Air.Inst.Index = @ptrCast(w.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+        const cond_br = w.air.unwrapCondBr(inst);
+        const then_body = cond_br.then_body;
+        const else_body = cond_br.else_body;
         const liveness_condbr: Air.Liveness.CondBrSlices = if (w.liveness) |liveness|
             liveness.getCondBr(inst)
         else
             .{ .then_deaths = &.{}, .else_deaths = &.{} };
 
-        try w.writeOperand(s, inst, 0, pl_op.operand);
+        try w.writeOperand(s, inst, 0, cond_br.condition);
         if (w.skip_body) return s.writeAll(", ...");
         try s.writeAll(",");
-        if (extra.data.branch_hints.true != .none) {
-            try s.print(" {s}", .{@tagName(extra.data.branch_hints.true)});
+        if (cond_br.branch_hints.true != .none) {
+            try s.print(" {s}", .{@tagName(cond_br.branch_hints.true)});
         }
-        if (extra.data.branch_hints.then_cov != .none) {
-            try s.print(" {s}", .{@tagName(extra.data.branch_hints.then_cov)});
+        if (cond_br.branch_hints.then_cov != .none) {
+            try s.print(" {s}", .{@tagName(cond_br.branch_hints.then_cov)});
         }
         try s.writeAll(" {\n");
         const old_indent = w.indent;
@@ -897,11 +863,11 @@ const Writer = struct {
         try w.writeBody(s, then_body);
         try s.splatByteAll(' ', old_indent);
         try s.writeAll("},");
-        if (extra.data.branch_hints.false != .none) {
-            try s.print(" {s}", .{@tagName(extra.data.branch_hints.false)});
+        if (cond_br.branch_hints.false != .none) {
+            try s.print(" {s}", .{@tagName(cond_br.branch_hints.false)});
         }
-        if (extra.data.branch_hints.else_cov != .none) {
-            try s.print(" {s}", .{@tagName(extra.data.branch_hints.else_cov)});
+        if (cond_br.branch_hints.else_cov != .none) {
+            try s.print(" {s}", .{@tagName(cond_br.branch_hints.else_cov)});
         }
         try s.writeAll(" {\n");
 

@@ -100,11 +100,11 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
                 REG.MULTI_SZ,
                 => {
                     comptime assert(@sizeOf(std.os.windows.UNICODE_STRING) % 2 == 0);
-                    const unicode = @as(*std.os.windows.UNICODE_STRING, @ptrCast(&tmp_bufs[i]));
+                    const unicode: *std.os.windows.UNICODE_STRING = @ptrCast(&tmp_bufs[i]);
                     unicode.* = .{
                         .Length = 0,
                         .MaximumLength = max_value_len - @sizeOf(std.os.windows.UNICODE_STRING),
-                        .Buffer = @as([*]u16, @ptrCast(tmp_bufs[i][@sizeOf(std.os.windows.UNICODE_STRING)..])),
+                        .Buffer = @ptrCast(tmp_bufs[i][@sizeOf(std.os.windows.UNICODE_STRING)..]),
                     };
                     break :blk unicode;
                 },
@@ -159,8 +159,8 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
                 REG.MULTI_SZ,
                 => {
                     var buf = @field(args, field.name).value_buf;
-                    const entry = @as(*align(1) const std.os.windows.UNICODE_STRING, @ptrCast(table[i + 1].EntryContext));
-                    const len = try std.unicode.utf16LeToUtf8(buf, entry.Buffer.?[0 .. entry.Length / 2]);
+                    const entry: *const std.os.windows.UNICODE_STRING = @ptrCast(table[i + 1].EntryContext);
+                    const len = try std.unicode.utf16LeToUtf8(buf, entry.slice());
                     buf[len] = 0;
                 },
 
@@ -168,7 +168,7 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
                 REG.DWORD_BIG_ENDIAN,
                 REG.QWORD,
                 => {
-                    const entry = @as([*]align(1) const u8, @ptrCast(table[i + 1].EntryContext));
+                    const entry: [*]const u8 = @ptrCast(table[i + 1].EntryContext);
                     switch (@field(args, field.name).value_type) {
                         REG.DWORD, REG.DWORD_BIG_ENDIAN => {
                             @memcpy(@field(args, field.name).value_buf[0..4], entry[0..4]);

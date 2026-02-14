@@ -1,11 +1,12 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const addf3 = @import("./addf3.zig").addf3;
 
 comptime {
-    if (common.want_aeabi) {
-        @export(&__aeabi_fsub, .{ .name = "__aeabi_fsub", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_aeabi) {
+        symbol(&__aeabi_fsub, "__aeabi_fsub");
     } else {
-        @export(&__subsf3, .{ .name = "__subsf3", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__subsf3, "__subsf3");
     }
 }
 

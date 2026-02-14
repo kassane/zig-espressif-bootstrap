@@ -2,18 +2,19 @@ const std = @import("std");
 const builtin = @import("builtin");
 const math = std.math;
 const arch = builtin.cpu.arch;
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 comptime {
-    @export(&__fminh, .{ .name = "__fminh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&fminf, .{ .name = "fminf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&fmin, .{ .name = "fmin", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__fminx, .{ .name = "__fminx", .linkage = common.linkage, .visibility = common.visibility });
-    if (common.want_ppc_abi) {
-        @export(&fminq, .{ .name = "fminf128", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__fminh, "__fminh");
+    symbol(&fminf, "fminf");
+    symbol(&fmin, "fmin");
+    symbol(&__fminx, "__fminx");
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&fminq, "fminf128");
     }
-    @export(&fminq, .{ .name = "fminq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&fminl, .{ .name = "fminl", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&fminq, "fminq");
+    symbol(&fminl, "fminl");
 }
 
 pub fn __fminh(x: f16, y: f16) callconv(.c) f16 {

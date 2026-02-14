@@ -1,5 +1,5 @@
 /// Codes are from https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/18d8fbe8-a967-4f1c-ae50-99ca8e491d2d
-pub const Win32Error = enum(u16) {
+pub const Win32Error = enum(u32) {
     /// The operation completed successfully.
     SUCCESS = 0,
     /// Incorrect function.

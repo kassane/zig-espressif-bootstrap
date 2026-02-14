@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const common = @import("common.zig");
+const symbol = @import("../c.zig").symbol;
 
 comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
@@ -8,58 +8,58 @@ comptime {
         // memmove implemented in compiler_rt
         // memset implemented in compiler_rt
         // memcmp implemented in compiler_rt
-        @export(&memchr, .{ .name = "memchr", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strcpy, .{ .name = "strcpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strncpy, .{ .name = "strncpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strcat, .{ .name = "strcat", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strncat, .{ .name = "strncat", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strcmp, .{ .name = "strcmp", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strncmp, .{ .name = "strncmp", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strcoll, .{ .name = "strcoll", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strxfrm, .{ .name = "strxfrm", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strchr, .{ .name = "strchr", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strrchr, .{ .name = "strrchr", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strcspn, .{ .name = "strcspn", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strspn, .{ .name = "strspn", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strpbrk, .{ .name = "strpbrk", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strstr, .{ .name = "strstr", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strtok, .{ .name = "strtok", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&memchr, "memchr");
+        symbol(&strcpy, "strcpy");
+        symbol(&strncpy, "strncpy");
+        symbol(&strcat, "strcat");
+        symbol(&strncat, "strncat");
+        symbol(&strcmp, "strcmp");
+        symbol(&strncmp, "strncmp");
+        symbol(&strcoll, "strcoll");
+        symbol(&strxfrm, "strxfrm");
+        symbol(&strchr, "strchr");
+        symbol(&strrchr, "strrchr");
+        symbol(&strcspn, "strcspn");
+        symbol(&strspn, "strspn");
+        symbol(&strpbrk, "strpbrk");
+        symbol(&strstr, "strstr");
+        symbol(&strtok, "strtok");
         // strlen is in compiler_rt
 
-        @export(&strtok_r, .{ .name = "strtok_r", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&stpcpy, .{ .name = "stpcpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&stpncpy, .{ .name = "stpncpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strnlen, .{ .name = "strnlen", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&memmem, .{ .name = "memmem", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&strtok_r, "strtok_r");
+        symbol(&stpcpy, "stpcpy");
+        symbol(&stpncpy, "stpncpy");
+        symbol(&strnlen, "strnlen");
+        symbol(&memmem, "memmem");
 
-        @export(&memccpy, .{ .name = "memccpy", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&memccpy, "memccpy");
 
-        @export(&strsep, .{ .name = "strsep", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strlcat, .{ .name = "strlcat", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strlcpy, .{ .name = "strlcpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&explicit_bzero, .{ .name = "explicit_bzero", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&strsep, "strsep");
+        symbol(&strlcat, "strlcat");
+        symbol(&strlcpy, "strlcpy");
+        symbol(&explicit_bzero, "explicit_bzero");
 
-        @export(&strchrnul, .{ .name = "strchrnul", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strcasestr, .{ .name = "strcasestr", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&memrchr, .{ .name = "memrchr", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&mempcpy, .{ .name = "mempcpy", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&strchrnul, "strchrnul");
+        symbol(&strcasestr, "strcasestr");
+        symbol(&memrchr, "memrchr");
+        symbol(&mempcpy, "mempcpy");
 
-        @export(&__strcoll_l, .{ .name = "__strcoll_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__strxfrm_l, .{ .name = "__strxfrm_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__strcoll_l, .{ .name = "strcoll_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__strxfrm_l, .{ .name = "strxfrm_l", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__strcoll_l, "__strcoll_l");
+        symbol(&__strxfrm_l, "__strxfrm_l");
+        symbol(&__strcoll_l, "strcoll_l");
+        symbol(&__strxfrm_l, "strxfrm_l");
 
         // These symbols are not in the public ABI of musl/wasi. However they depend on these exports internally.
-        @export(&stpcpy, .{ .name = "__stpcpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&stpncpy, .{ .name = "__stpncpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strchrnul, .{ .name = "__strchrnul", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&memrchr, .{ .name = "__memrchr", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&stpcpy, "__stpcpy");
+        symbol(&stpncpy, "__stpncpy");
+        symbol(&strchrnul, "__strchrnul");
+        symbol(&memrchr, "__memrchr");
     }
 
     if (builtin.target.isMinGW()) {
-        @export(&strnlen, .{ .name = "strnlen", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&mempcpy, .{ .name = "mempcpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&strtok_r, .{ .name = "strtok_r", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&strnlen, "strnlen");
+        symbol(&mempcpy, "mempcpy");
+        symbol(&strtok_r, "strtok_r");
     }
 }
 

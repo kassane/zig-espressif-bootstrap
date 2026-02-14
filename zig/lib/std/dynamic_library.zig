@@ -17,7 +17,6 @@ pub const DynLib = struct {
             ElfDynLib
         else
             DlDynLib,
-        .windows => WindowsDynLib,
         .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .freebsd, .netbsd, .openbsd, .dragonfly, .illumos => DlDynLib,
         else => struct {
             const open = @compileError("unsupported platform");
@@ -27,7 +26,7 @@ pub const DynLib = struct {
 
     inner: InnerType,
 
-    pub const Error = ElfDynLibError || DlDynLibError || WindowsDynLibError;
+    pub const Error = ElfDynLibError || DlDynLibError;
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn open(path: []const u8) Error!DynLib {
@@ -558,73 +557,6 @@ test "ElfDynLib" {
     try testing.expectError(error.FileNotFound, ElfDynLib.openZ("invalid_so.so", null));
 }
 
-/// Separated to avoid referencing `WindowsDynLib`, because its field types may not
-/// be valid on other targets.
-const WindowsDynLibError = error{
-    FileNotFound,
-    InvalidPath,
-} || windows.LoadLibraryError;
-
-pub const WindowsDynLib = struct {
-    pub const Error = WindowsDynLibError;
-
-    dll: windows.HMODULE,
-
-    pub fn open(path: []const u8) Error!WindowsDynLib {
-        return openEx(path, .none);
-    }
-
-    /// WindowsDynLib specific
-    /// Opens dynamic library with specified library loading flags.
-    pub fn openEx(path: []const u8, flags: windows.LoadLibraryFlags) Error!WindowsDynLib {
-        const path_w = windows.sliceToPrefixedFileW(null, path) catch return error.InvalidPath;
-        return openExW(path_w.span().ptr, flags);
-    }
-
-    pub fn openZ(path_c: [*:0]const u8) Error!WindowsDynLib {
-        return openExZ(path_c, .none);
-    }
-
-    /// WindowsDynLib specific
-    /// Opens dynamic library with specified library loading flags.
-    pub fn openExZ(path_c: [*:0]const u8, flags: windows.LoadLibraryFlags) Error!WindowsDynLib {
-        const path_w = windows.cStrToPrefixedFileW(null, path_c) catch return error.InvalidPath;
-        return openExW(path_w.span().ptr, flags);
-    }
-
-    /// WindowsDynLib specific
-    pub fn openW(path_w: [*:0]const u16) Error!WindowsDynLib {
-        return openExW(path_w, .none);
-    }
-
-    /// WindowsDynLib specific
-    /// Opens dynamic library with specified library loading flags.
-    pub fn openExW(path_w: [*:0]const u16, flags: windows.LoadLibraryFlags) Error!WindowsDynLib {
-        var offset: usize = 0;
-        if (path_w[0] == '\\' and path_w[1] == '?' and path_w[2] == '?' and path_w[3] == '\\') {
-            // + 4 to skip over the \??\
-            offset = 4;
-        }
-
-        return .{
-            .dll = try windows.LoadLibraryExW(path_w + offset, flags),
-        };
-    }
-
-    pub fn close(self: *WindowsDynLib) void {
-        windows.FreeLibrary(self.dll);
-        self.* = undefined;
-    }
-
-    pub fn lookup(self: *WindowsDynLib, comptime T: type, name: [:0]const u8) ?T {
-        if (windows.kernel32.GetProcAddress(self.dll, name.ptr)) |addr| {
-            return @as(T, @ptrCast(@alignCast(addr)));
-        } else {
-            return null;
-        }
-    }
-};
-
 /// Separated to avoid referencing `DlDynLib`, because its field types may not
 /// be valid on other targets.
 const DlDynLibError = error{ FileNotFound, NameTooLong };
@@ -676,7 +608,6 @@ pub const DlDynLib = struct {
 test "dynamic_library" {
     const libname = switch (native_os) {
         .linux, .freebsd, .openbsd, .illumos => "invalid_so.so",
-        .windows => "invalid_dll.dll",
         .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => "invalid_dylib.dylib",
         else => return error.SkipZigTest,
     };

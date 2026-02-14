@@ -1,27 +1,18 @@
 //! POSIX API layer.
 //!
 //! This is more cross platform than using OS-specific APIs, however, it is
-//! lower-level and less portable than other namespaces such as `std.fs` and
+//! lower-level and less portable than other namespaces such as `std.Io` and
 //! `std.process`.
 //!
 //! These APIs are generally lowered to libc function calls if and only if libc
 //! is linked. Most operating systems other than Windows, Linux, and WASI
 //! require always linking libc because they use it as the stable syscall ABI.
-//!
-//! Operating systems that are not POSIX-compliant are sometimes supported by
-//! this API layer; sometimes not. Generally, an implementation will be
-//! provided only if such implementation is straightforward on that operating
-//! system. Otherwise, programmers are expected to use OS-specific logic to
-//! deal with the exception.
-
 const builtin = @import("builtin");
 const native_os = builtin.os.tag;
 
 const std = @import("std.zig");
 const Io = std.Io;
 const mem = std.mem;
-const fs = std.fs;
-const max_path_bytes = std.fs.max_path_bytes;
 const maxInt = std.math.maxInt;
 const cast = std.math.cast;
 const assert = std.debug.assert;
@@ -122,15 +113,14 @@ pub const STDIN_FILENO = system.STDIN_FILENO;
 pub const STDOUT_FILENO = system.STDOUT_FILENO;
 pub const SYS = system.SYS;
 pub const Sigaction = system.Sigaction;
+/// Windows has no concept of `stat`.
+///
+/// On Linux, the `stat` bits/wrappers are removed due to having to maintain
+/// the different varying stat structs per target and libc, leading to runtime
+/// errors. Users targeting Linux should add a comptime check and use statx,
+/// similar to how `Io.File.stat` does.
 pub const Stat = switch (native_os) {
-    // Has no concept of `stat`.
     .windows => void,
-    // The `stat` bits/wrappers are removed due to having to maintain the
-    // different varying `struct stat`s per target and libc, leading to runtime
-    // errors.
-    //
-    // Users targeting linux should add a comptime check and use `statx`,
-    // similar to how `std.fs.File.stat` does.
     .linux => void,
     else => system.Stat,
 };
@@ -287,30 +277,6 @@ pub const socket_t = if (native_os == .windows) windows.ws2_32.SOCKET else fd_t;
 /// function only returns a well-defined value when it is called directly after
 /// the system function call whose errno value is intended to be observed.
 pub const errno = system.errno;
-
-/// Closes the file descriptor.
-///
-/// Asserts the file descriptor is open.
-///
-/// This function is not capable of returning any indication of failure. An
-/// application which wants to ensure writes have succeeded before closing must
-/// call `fsync` before `close`.
-///
-/// The Zig standard library does not support POSIX thread cancellation.
-pub fn close(fd: fd_t) void {
-    if (native_os == .windows) {
-        return windows.CloseHandle(fd);
-    }
-    if (native_os == .wasi and !builtin.link_libc) {
-        _ = std.os.wasi.fd_close(fd);
-        return;
-    }
-    switch (errno(system.close(fd))) {
-        .BADF => unreachable, // Always a race condition.
-        .INTR => return, // This is still a success. See https://github.com/ziglang/zig/issues/2425
-        else => return,
-    }
-}
 
 pub const RebootError = error{
     PermissionDenied,
@@ -519,185 +485,6 @@ pub fn getppid() pid_t {
     return system.getppid();
 }
 
-pub const GetCwdError = error{
-    NameTooLong,
-    CurrentWorkingDirectoryUnlinked,
-} || UnexpectedError;
-
-/// The result is a slice of out_buffer, indexed from 0.
-pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
-    if (native_os == .windows) {
-        return windows.GetCurrentDirectory(out_buffer);
-    } else if (native_os == .wasi and !builtin.link_libc) {
-        const path = ".";
-        if (out_buffer.len < path.len) return error.NameTooLong;
-        const result = out_buffer[0..path.len];
-        @memcpy(result, path);
-        return result;
-    }
-
-    const err: E = if (builtin.link_libc) err: {
-        const c_err = if (std.c.getcwd(out_buffer.ptr, out_buffer.len)) |_| 0 else std.c._errno().*;
-        break :err @enumFromInt(c_err);
-    } else err: {
-        break :err errno(system.getcwd(out_buffer.ptr, out_buffer.len));
-    };
-    switch (err) {
-        .SUCCESS => return mem.sliceTo(out_buffer, 0),
-        .FAULT => unreachable,
-        .INVAL => unreachable,
-        .NOENT => return error.CurrentWorkingDirectoryUnlinked,
-        .RANGE => return error.NameTooLong,
-        else => return unexpectedErrno(err),
-    }
-}
-
-pub const SocketError = error{
-    /// Permission to create a socket of the specified type and/or
-    /// pro‐tocol is denied.
-    AccessDenied,
-
-    /// The implementation does not support the specified address family.
-    AddressFamilyUnsupported,
-
-    /// Unknown protocol, or protocol family not available.
-    ProtocolFamilyNotAvailable,
-
-    /// The per-process limit on the number of open file descriptors has been reached.
-    ProcessFdQuotaExceeded,
-
-    /// The system-wide limit on the total number of open files has been reached.
-    SystemFdQuotaExceeded,
-
-    /// Insufficient memory is available. The socket cannot be created until sufficient
-    /// resources are freed.
-    SystemResources,
-
-    /// The protocol type or the specified protocol is not supported within this domain.
-    ProtocolNotSupported,
-
-    /// The socket type is not supported by the protocol.
-    SocketTypeNotSupported,
-} || UnexpectedError;
-
-pub fn socketpair(domain: u32, socket_type: u32, protocol: u32) SocketError![2]socket_t {
-    // Note to the future: we could provide a shim here for e.g. windows which
-    // creates a listening socket, then creates a second socket and connects it
-    // to the listening socket, and then returns the two.
-    if (@TypeOf(system.socketpair) == void)
-        @compileError("socketpair() not supported by this OS");
-
-    // I'm not really sure if haiku supports flags here.  I'm following the
-    // existing filter here from pipe2(), because it sure seems like it
-    // supports flags there too, but haiku can be hard to understand.
-    const have_sock_flags = !builtin.target.os.tag.isDarwin() and native_os != .haiku;
-    const filtered_sock_type = if (!have_sock_flags)
-        socket_type & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC)
-    else
-        socket_type;
-    var socks: [2]socket_t = undefined;
-    const rc = system.socketpair(domain, filtered_sock_type, protocol, &socks);
-    switch (errno(rc)) {
-        .SUCCESS => {
-            errdefer close(socks[0]);
-            errdefer close(socks[1]);
-            if (!have_sock_flags) {
-                try setSockFlags(socks[0], socket_type);
-                try setSockFlags(socks[1], socket_type);
-            }
-            return socks;
-        },
-        .ACCES => return error.AccessDenied,
-        .AFNOSUPPORT => return error.AddressFamilyUnsupported,
-        .INVAL => return error.ProtocolFamilyNotAvailable,
-        .MFILE => return error.ProcessFdQuotaExceeded,
-        .NFILE => return error.SystemFdQuotaExceeded,
-        .NOBUFS => return error.SystemResources,
-        .NOMEM => return error.SystemResources,
-        .PROTONOSUPPORT => return error.ProtocolNotSupported,
-        .PROTOTYPE => return error.SocketTypeNotSupported,
-        else => |err| return unexpectedErrno(err),
-    }
-}
-
-fn setSockFlags(sock: socket_t, flags: u32) !void {
-    if ((flags & SOCK.CLOEXEC) != 0) {
-        if (native_os == .windows) {
-            // TODO: Find out if this is supported for sockets
-        } else {
-            var fd_flags = fcntl(sock, F.GETFD, 0) catch |err| switch (err) {
-                error.FileBusy => unreachable,
-                error.Locked => unreachable,
-                error.PermissionDenied => unreachable,
-                error.DeadLock => unreachable,
-                error.LockedRegionLimitExceeded => unreachable,
-                else => |e| return e,
-            };
-            fd_flags |= FD_CLOEXEC;
-            _ = fcntl(sock, F.SETFD, fd_flags) catch |err| switch (err) {
-                error.FileBusy => unreachable,
-                error.Locked => unreachable,
-                error.PermissionDenied => unreachable,
-                error.DeadLock => unreachable,
-                error.LockedRegionLimitExceeded => unreachable,
-                else => |e| return e,
-            };
-        }
-    }
-    if ((flags & SOCK.NONBLOCK) != 0) {
-        if (native_os == .windows) {
-            var mode: c_ulong = 1;
-            if (windows.ws2_32.ioctlsocket(sock, windows.ws2_32.FIONBIO, &mode) == windows.ws2_32.SOCKET_ERROR) {
-                switch (windows.ws2_32.WSAGetLastError()) {
-                    .NOTINITIALISED => unreachable,
-                    .ENETDOWN => return error.NetworkDown,
-                    .ENOTSOCK => return error.FileDescriptorNotASocket,
-                    // TODO: handle more errors
-                    else => |err| return windows.unexpectedWSAError(err),
-                }
-            }
-        } else {
-            var fl_flags = fcntl(sock, F.GETFL, 0) catch |err| switch (err) {
-                error.FileBusy => unreachable,
-                error.Locked => unreachable,
-                error.PermissionDenied => unreachable,
-                error.DeadLock => unreachable,
-                error.LockedRegionLimitExceeded => unreachable,
-                else => |e| return e,
-            };
-            fl_flags |= 1 << @bitOffsetOf(O, "NONBLOCK");
-            _ = fcntl(sock, F.SETFL, fl_flags) catch |err| switch (err) {
-                error.FileBusy => unreachable,
-                error.Locked => unreachable,
-                error.PermissionDenied => unreachable,
-                error.DeadLock => unreachable,
-                error.LockedRegionLimitExceeded => unreachable,
-                else => |e| return e,
-            };
-        }
-    }
-}
-
-pub const EventFdError = error{
-    SystemResources,
-    ProcessFdQuotaExceeded,
-    SystemFdQuotaExceeded,
-} || UnexpectedError;
-
-pub fn eventfd(initval: u32, flags: u32) EventFdError!i32 {
-    const rc = system.eventfd(initval, flags);
-    switch (errno(rc)) {
-        .SUCCESS => return @intCast(rc),
-        else => |err| return unexpectedErrno(err),
-
-        .INVAL => unreachable, // invalid parameters
-        .MFILE => return error.ProcessFdQuotaExceeded,
-        .NFILE => return error.SystemFdQuotaExceeded,
-        .NODEV => return error.SystemResources,
-        .NOMEM => return error.SystemResources,
-    }
-}
-
 pub const GetSockNameError = error{
     /// Insufficient resources were available in the system to perform the operation.
     SystemResources,
@@ -737,123 +524,6 @@ pub fn getpeername(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSock
             .NOTSOCK => return error.FileDescriptorNotASocket,
             .NOBUFS => return error.SystemResources,
         }
-    }
-}
-
-pub const ConnectError = std.Io.net.IpAddress.ConnectError || std.Io.net.UnixAddress.ConnectError;
-
-pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) ConnectError!void {
-    if (native_os == .windows) {
-        @compileError("use std.Io instead");
-    }
-
-    while (true) {
-        switch (errno(system.connect(sock, sock_addr, len))) {
-            .SUCCESS => return,
-            .ACCES => return error.AccessDenied,
-            .PERM => return error.PermissionDenied,
-            .ADDRNOTAVAIL => return error.AddressUnavailable,
-            .AFNOSUPPORT => return error.AddressFamilyUnsupported,
-            .AGAIN, .INPROGRESS => return error.WouldBlock,
-            .ALREADY => return error.ConnectionPending,
-            .BADF => unreachable, // sockfd is not a valid open file descriptor.
-            .CONNREFUSED => return error.ConnectionRefused,
-            .CONNRESET => return error.ConnectionResetByPeer,
-            .FAULT => unreachable, // The socket structure address is outside the user's address space.
-            .INTR => continue,
-            .ISCONN => @panic("AlreadyConnected"), // The socket is already connected.
-            .HOSTUNREACH => return error.NetworkUnreachable,
-            .NETUNREACH => return error.NetworkUnreachable,
-            .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
-            .PROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
-            .TIMEDOUT => return error.Timeout,
-            .NOENT => return error.FileNotFound, // Returned when socket is AF.UNIX and the given path does not exist.
-            .CONNABORTED => unreachable, // Tried to reuse socket that previously received error.ConnectionRefused.
-            else => |err| return unexpectedErrno(err),
-        }
-    }
-}
-
-pub const FStatError = std.Io.File.StatError;
-
-/// Return information about a file descriptor.
-pub fn fstat(fd: fd_t) FStatError!Stat {
-    if (native_os == .wasi and !builtin.link_libc) {
-        @compileError("unsupported OS");
-    }
-
-    var stat = mem.zeroes(Stat);
-    switch (errno(system.fstat(fd, &stat))) {
-        .SUCCESS => return stat,
-        .INVAL => unreachable,
-        .BADF => unreachable, // Always a race condition.
-        .NOMEM => return error.SystemResources,
-        .ACCES => return error.AccessDenied,
-        else => |err| return unexpectedErrno(err),
-    }
-}
-
-pub const INotifyInitError = error{
-    ProcessFdQuotaExceeded,
-    SystemFdQuotaExceeded,
-    SystemResources,
-} || UnexpectedError;
-
-/// initialize an inotify instance
-pub fn inotify_init1(flags: u32) INotifyInitError!i32 {
-    const rc = system.inotify_init1(flags);
-    switch (errno(rc)) {
-        .SUCCESS => return @intCast(rc),
-        .INVAL => unreachable,
-        .MFILE => return error.ProcessFdQuotaExceeded,
-        .NFILE => return error.SystemFdQuotaExceeded,
-        .NOMEM => return error.SystemResources,
-        else => |err| return unexpectedErrno(err),
-    }
-}
-
-pub const INotifyAddWatchError = error{
-    AccessDenied,
-    NameTooLong,
-    FileNotFound,
-    SystemResources,
-    UserResourceLimitReached,
-    NotDir,
-    WatchAlreadyExists,
-} || UnexpectedError;
-
-/// add a watch to an initialized inotify instance
-pub fn inotify_add_watch(inotify_fd: i32, pathname: []const u8, mask: u32) INotifyAddWatchError!i32 {
-    const pathname_c = try toPosixPath(pathname);
-    return inotify_add_watchZ(inotify_fd, &pathname_c, mask);
-}
-
-/// Same as `inotify_add_watch` except pathname is null-terminated.
-pub fn inotify_add_watchZ(inotify_fd: i32, pathname: [*:0]const u8, mask: u32) INotifyAddWatchError!i32 {
-    const rc = system.inotify_add_watch(inotify_fd, pathname, mask);
-    switch (errno(rc)) {
-        .SUCCESS => return @intCast(rc),
-        .ACCES => return error.AccessDenied,
-        .BADF => unreachable,
-        .FAULT => unreachable,
-        .INVAL => unreachable,
-        .NAMETOOLONG => return error.NameTooLong,
-        .NOENT => return error.FileNotFound,
-        .NOMEM => return error.SystemResources,
-        .NOSPC => return error.UserResourceLimitReached,
-        .NOTDIR => return error.NotDir,
-        .EXIST => return error.WatchAlreadyExists,
-        else => |err| return unexpectedErrno(err),
-    }
-}
-
-/// remove an existing watch from an inotify instance
-pub fn inotify_rm_watch(inotify_fd: i32, wd: i32) void {
-    switch (errno(system.inotify_rm_watch(inotify_fd, wd))) {
-        .SUCCESS => return,
-        .BADF => unreachable,
-        .INVAL => unreachable,
-        else => unreachable,
     }
 }
 
@@ -1093,73 +763,6 @@ pub fn sysctl(
     }
 }
 
-pub const SysCtlByNameError = error{
-    PermissionDenied,
-    SystemResources,
-    UnknownName,
-} || UnexpectedError;
-
-pub fn sysctlbynameZ(
-    name: [*:0]const u8,
-    oldp: ?*anyopaque,
-    oldlenp: ?*usize,
-    newp: ?*anyopaque,
-    newlen: usize,
-) SysCtlByNameError!void {
-    if (native_os == .wasi) {
-        @compileError("sysctl not supported on WASI");
-    }
-    if (native_os == .haiku) {
-        @compileError("sysctl not supported on Haiku");
-    }
-
-    switch (errno(system.sysctlbyname(name, oldp, oldlenp, newp, newlen))) {
-        .SUCCESS => return,
-        .FAULT => unreachable,
-        .PERM => return error.PermissionDenied,
-        .NOMEM => return error.SystemResources,
-        .NOENT => return error.UnknownName,
-        else => |err| return unexpectedErrno(err),
-    }
-}
-
-pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) void {
-    switch (errno(system.gettimeofday(tv, tz))) {
-        .SUCCESS => return,
-        .INVAL => unreachable,
-        else => unreachable,
-    }
-}
-
-pub const FcntlError = error{
-    PermissionDenied,
-    FileBusy,
-    ProcessFdQuotaExceeded,
-    Locked,
-    DeadLock,
-    LockedRegionLimitExceeded,
-} || UnexpectedError;
-
-pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) FcntlError!usize {
-    while (true) {
-        const rc = system.fcntl(fd, cmd, arg);
-        switch (errno(rc)) {
-            .SUCCESS => return @intCast(rc),
-            .INTR => continue,
-            .AGAIN, .ACCES => return error.Locked,
-            .BADF => unreachable,
-            .BUSY => return error.FileBusy,
-            .INVAL => unreachable, // invalid parameters
-            .PERM => return error.PermissionDenied,
-            .MFILE => return error.ProcessFdQuotaExceeded,
-            .NOTDIR => unreachable, // invalid parameter
-            .DEADLK => return error.DeadLock,
-            .NOLCK => return error.LockedRegionLimitExceeded,
-            else => |err| return unexpectedErrno(err),
-        }
-    }
-}
-
 pub fn getSelfPhdrs() []std.elf.ElfN.Phdr {
     const getauxval = if (builtin.link_libc) std.c.getauxval else std.os.linux.getauxval;
     assert(getauxval(std.elf.AT_PHENT) == @sizeOf(std.elf.ElfN.Phdr));
@@ -1234,58 +837,6 @@ pub fn dl_iterate_phdr(
         };
 
         try callback(&info, @sizeOf(dl_phdr_info), context);
-    }
-}
-
-pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;
-
-pub fn clock_gettime(clock_id: clockid_t) ClockGetTimeError!timespec {
-    var tp: timespec = undefined;
-
-    if (native_os == .windows) {
-        @compileError("Windows does not support POSIX; use Windows-specific API or cross-platform std.time API");
-    } else if (native_os == .wasi and !builtin.link_libc) {
-        var ts: timestamp_t = undefined;
-        switch (system.clock_time_get(clock_id, 1, &ts)) {
-            .SUCCESS => {
-                tp = .{
-                    .sec = @intCast(ts / std.time.ns_per_s),
-                    .nsec = @intCast(ts % std.time.ns_per_s),
-                };
-            },
-            .INVAL => return error.UnsupportedClock,
-            else => |err| return unexpectedErrno(err),
-        }
-        return tp;
-    }
-
-    switch (errno(system.clock_gettime(clock_id, &tp))) {
-        .SUCCESS => return tp,
-        .FAULT => unreachable,
-        .INVAL => return error.UnsupportedClock,
-        else => |err| return unexpectedErrno(err),
-    }
-}
-
-pub fn clock_getres(clock_id: clockid_t, res: *timespec) ClockGetTimeError!void {
-    if (native_os == .wasi and !builtin.link_libc) {
-        var ts: timestamp_t = undefined;
-        switch (system.clock_res_get(@bitCast(clock_id), &ts)) {
-            .SUCCESS => res.* = .{
-                .sec = @intCast(ts / std.time.ns_per_s),
-                .nsec = @intCast(ts % std.time.ns_per_s),
-            },
-            .INVAL => return error.UnsupportedClock,
-            else => |err| return unexpectedErrno(err),
-        }
-        return;
-    }
-
-    switch (errno(system.clock_getres(clock_id, res))) {
-        .SUCCESS => return,
-        .FAULT => unreachable,
-        .INVAL => return error.UnsupportedClock,
-        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -1966,60 +1517,6 @@ pub fn perf_event_open(
     }
 }
 
-pub const TimerFdCreateError = error{
-    PermissionDenied,
-    ProcessFdQuotaExceeded,
-    SystemFdQuotaExceeded,
-    NoDevice,
-    SystemResources,
-} || UnexpectedError;
-
-pub const TimerFdGetError = error{InvalidHandle} || UnexpectedError;
-pub const TimerFdSetError = TimerFdGetError || error{Canceled};
-
-pub fn timerfd_create(clock_id: system.timerfd_clockid_t, flags: system.TFD) TimerFdCreateError!fd_t {
-    const rc = system.timerfd_create(clock_id, @bitCast(flags));
-    return switch (errno(rc)) {
-        .SUCCESS => @intCast(rc),
-        .INVAL => unreachable,
-        .MFILE => return error.ProcessFdQuotaExceeded,
-        .NFILE => return error.SystemFdQuotaExceeded,
-        .NODEV => return error.NoDevice,
-        .NOMEM => return error.SystemResources,
-        .PERM => return error.PermissionDenied,
-        else => |err| return unexpectedErrno(err),
-    };
-}
-
-pub fn timerfd_settime(
-    fd: i32,
-    flags: system.TFD.TIMER,
-    new_value: *const system.itimerspec,
-    old_value: ?*system.itimerspec,
-) TimerFdSetError!void {
-    const rc = system.timerfd_settime(fd, @bitCast(flags), new_value, old_value);
-    return switch (errno(rc)) {
-        .SUCCESS => {},
-        .BADF => error.InvalidHandle,
-        .FAULT => unreachable,
-        .INVAL => unreachable,
-        .CANCELED => error.Canceled,
-        else => |err| return unexpectedErrno(err),
-    };
-}
-
-pub fn timerfd_gettime(fd: i32) TimerFdGetError!system.itimerspec {
-    var curr_value: system.itimerspec = undefined;
-    const rc = system.timerfd_gettime(fd, &curr_value);
-    return switch (errno(rc)) {
-        .SUCCESS => return curr_value,
-        .BADF => error.InvalidHandle,
-        .FAULT => unreachable,
-        .INVAL => unreachable,
-        else => |err| return unexpectedErrno(err),
-    };
-}
-
 pub const PtraceError = error{
     DeadLock,
     DeviceBusy,
@@ -2170,28 +1667,6 @@ pub fn name_to_handle_atZ(
         .OPNOTSUPP => return error.OperationUnsupported,
         .OVERFLOW => return error.NameTooLong,
         else => |err| return unexpectedErrno(err),
-    }
-}
-
-pub const IoCtl_SIOCGIFINDEX_Error = error{
-    FileSystem,
-    InterfaceNotFound,
-} || UnexpectedError;
-
-pub fn ioctl_SIOCGIFINDEX(fd: fd_t, ifr: *ifreq) IoCtl_SIOCGIFINDEX_Error!void {
-    while (true) {
-        switch (errno(system.ioctl(fd, SIOCGIFINDEX, @intFromPtr(ifr)))) {
-            .SUCCESS => return,
-            .INVAL => unreachable, // Bad parameters.
-            .NOTTY => unreachable,
-            .NXIO => unreachable,
-            .BADF => unreachable, // Always a race condition.
-            .FAULT => unreachable, // Bad pointer parameter.
-            .INTR => continue,
-            .IO => return error.FileSystem,
-            .NODEV => return error.InterfaceNotFound,
-            else => |err| return unexpectedErrno(err),
-        }
     }
 }
 

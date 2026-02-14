@@ -1,57 +1,57 @@
-const std = @import("std");
-const common = @import("common.zig");
 const builtin = @import("builtin");
+const std = @import("std");
+const symbol = @import("../c.zig").symbol;
 
 comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         // Functions specific to musl and wasi-libc.
-        @export(&isalnum, .{ .name = "isalnum", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&isalpha, .{ .name = "isalpha", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&isblank, .{ .name = "isblank", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&iscntrl, .{ .name = "iscntrl", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&isdigit, .{ .name = "isdigit", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&isgraph, .{ .name = "isgraph", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&islower, .{ .name = "islower", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&isprint, .{ .name = "isprint", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&ispunct, .{ .name = "ispunct", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&isspace, .{ .name = "isspace", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&isupper, .{ .name = "isupper", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&isxdigit, .{ .name = "isxdigit", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&tolower, .{ .name = "tolower", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&toupper, .{ .name = "toupper", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&isalnum, "isalnum");
+        symbol(&isalpha, "isalpha");
+        symbol(&isblank, "isblank");
+        symbol(&iscntrl, "iscntrl");
+        symbol(&isdigit, "isdigit");
+        symbol(&isgraph, "isgraph");
+        symbol(&islower, "islower");
+        symbol(&isprint, "isprint");
+        symbol(&ispunct, "ispunct");
+        symbol(&isspace, "isspace");
+        symbol(&isupper, "isupper");
+        symbol(&isxdigit, "isxdigit");
+        symbol(&tolower, "tolower");
+        symbol(&toupper, "toupper");
 
-        @export(&__isalnum_l, .{ .name = "__isalnum_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isalpha_l, .{ .name = "__isalpha_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isblank_l, .{ .name = "__isblank_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__iscntrl_l, .{ .name = "__iscntrl_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isdigit_l, .{ .name = "__isdigit_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isgraph_l, .{ .name = "__isgraph_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__islower_l, .{ .name = "__islower_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isprint_l, .{ .name = "__isprint_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__ispunct_l, .{ .name = "__ispunct_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isspace_l, .{ .name = "__isspace_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isupper_l, .{ .name = "__isupper_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isxdigit_l, .{ .name = "__isxdigit_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__tolower_l, .{ .name = "__tolower_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__toupper_l, .{ .name = "__toupper_l", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__isalnum_l, "__isalnum_l");
+        symbol(&__isalpha_l, "__isalpha_l");
+        symbol(&__isblank_l, "__isblank_l");
+        symbol(&__iscntrl_l, "__iscntrl_l");
+        symbol(&__isdigit_l, "__isdigit_l");
+        symbol(&__isgraph_l, "__isgraph_l");
+        symbol(&__islower_l, "__islower_l");
+        symbol(&__isprint_l, "__isprint_l");
+        symbol(&__ispunct_l, "__ispunct_l");
+        symbol(&__isspace_l, "__isspace_l");
+        symbol(&__isupper_l, "__isupper_l");
+        symbol(&__isxdigit_l, "__isxdigit_l");
+        symbol(&__tolower_l, "__tolower_l");
+        symbol(&__toupper_l, "__toupper_l");
 
-        @export(&__isalnum_l, .{ .name = "isalnum_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isalpha_l, .{ .name = "isalpha_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isblank_l, .{ .name = "isblank_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__iscntrl_l, .{ .name = "iscntrl_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isdigit_l, .{ .name = "isdigit_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isgraph_l, .{ .name = "isgraph_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__islower_l, .{ .name = "islower_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isprint_l, .{ .name = "isprint_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__ispunct_l, .{ .name = "ispunct_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isspace_l, .{ .name = "isspace_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isupper_l, .{ .name = "isupper_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__isxdigit_l, .{ .name = "isxdigit_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__tolower_l, .{ .name = "tolower_l", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__toupper_l, .{ .name = "toupper_l", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__isalnum_l, "isalnum_l");
+        symbol(&__isalpha_l, "isalpha_l");
+        symbol(&__isblank_l, "isblank_l");
+        symbol(&__iscntrl_l, "iscntrl_l");
+        symbol(&__isdigit_l, "isdigit_l");
+        symbol(&__isgraph_l, "isgraph_l");
+        symbol(&__islower_l, "islower_l");
+        symbol(&__isprint_l, "isprint_l");
+        symbol(&__ispunct_l, "ispunct_l");
+        symbol(&__isspace_l, "isspace_l");
+        symbol(&__isupper_l, "isupper_l");
+        symbol(&__isxdigit_l, "isxdigit_l");
+        symbol(&__tolower_l, "tolower_l");
+        symbol(&__toupper_l, "toupper_l");
 
-        @export(&isascii, .{ .name = "isascii", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&toascii, .{ .name = "toascii", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&isascii, "isascii");
+        symbol(&toascii, "toascii");
     }
 }
 

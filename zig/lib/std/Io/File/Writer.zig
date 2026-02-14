@@ -20,30 +20,7 @@ interface: Io.Writer,
 
 pub const Mode = File.Reader.Mode;
 
-pub const Error = error{
-    DiskQuota,
-    FileTooBig,
-    InputOutput,
-    NoSpaceLeft,
-    DeviceBusy,
-    /// File descriptor does not hold the required rights to write to it.
-    AccessDenied,
-    PermissionDenied,
-    /// File is an unconnected socket, or closed its read end.
-    BrokenPipe,
-    /// Insufficient kernel memory to read from in_fd.
-    SystemResources,
-    NotOpenForWriting,
-    /// The process cannot access the file because another process has locked
-    /// a portion of the file. Windows-only.
-    LockViolation,
-    /// Non-blocking has been enabled and this operation would block.
-    WouldBlock,
-    /// This error occurs when a device gets disconnected before or mid-flush
-    /// while it's being written to - errno(6): No such device or address.
-    NoDevice,
-    FileBusy,
-} || Io.Cancelable || Io.UnexpectedError;
+pub const Error = Io.Operation.FileWriteStreaming.Error || Io.Cancelable;
 
 pub const WriteFileError = Error || error{
     /// Descriptor is not valid or locked, or an mmap(2)-like operation is not available for in_fd.
@@ -146,7 +123,7 @@ fn drainPositional(w: *Writer, data: []const []const u8, splat: usize) Io.Writer
 fn drainStreaming(w: *Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
     const io = w.io;
     const header = w.interface.buffered();
-    const n = io.vtable.fileWriteStreaming(io.userdata, w.file, header, data, splat) catch |err| {
+    const n = w.file.writeStreaming(io, header, data, splat) catch |err| {
         w.err = err;
         return error.WriteFailed;
     };

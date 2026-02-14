@@ -1,13 +1,14 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const mulf3 = @import("./mulf3.zig").mulf3;
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(&__multf3, .{ .name = "__mulkf3", .linkage = common.linkage, .visibility = common.visibility });
-    } else if (common.want_sparc_abi) {
-        @export(&_Qp_mul, .{ .name = "_Qp_mul", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&__multf3, "__mulkf3");
+    } else if (compiler_rt.want_sparc_abi) {
+        symbol(&_Qp_mul, "_Qp_mul");
     }
-    @export(&__multf3, .{ .name = "__multf3", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__multf3, "__multf3");
 }
 
 pub fn __multf3(a: f128, b: f128) callconv(.c) f128 {

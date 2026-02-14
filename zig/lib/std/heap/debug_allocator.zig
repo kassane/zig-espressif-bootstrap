@@ -126,16 +126,6 @@ pub const Config = struct {
     /// Whether the allocator may be used simultaneously from multiple threads.
     thread_safe: bool = !builtin.single_threaded,
 
-    /// What type of mutex you'd like to use, for thread safety.
-    /// when specified, the mutex type must have the same shape as `std.Thread.Mutex` and
-    /// `DummyMutex`, and have no required fields. Specifying this field causes
-    /// the `thread_safe` field to be ignored.
-    ///
-    /// when null (default):
-    /// * the mutex type defaults to `std.Thread.Mutex` when thread_safe is enabled.
-    /// * the mutex type defaults to `DummyMutex` otherwise.
-    MutexType: ?type = null,
-
     /// This is a temporary debugging trick you can use to turn segfaults into more helpful
     /// logged error messages with stack trace details. The downside is that every allocation
     /// will be leaked, unless used with retain_metadata!
@@ -204,17 +194,8 @@ pub fn DebugAllocator(comptime config: Config) type {
         const total_requested_bytes_init = if (config.enable_memory_limit) @as(usize, 0) else {};
         const requested_memory_limit_init = if (config.enable_memory_limit) @as(usize, math.maxInt(usize)) else {};
 
-        const mutex_init = if (config.MutexType) |T|
-            T{}
-        else if (config.thread_safe)
-            std.Thread.Mutex{}
-        else
-            DummyMutex{};
-
-        const DummyMutex = struct {
-            inline fn lock(_: DummyMutex) void {}
-            inline fn unlock(_: DummyMutex) void {}
-        };
+        const have_mutex = config.thread_safe;
+        const mutex_init = if (have_mutex) std.Io.Mutex.init else {};
 
         const stack_n = config.stack_trace_frames;
         const one_trace_size = @sizeOf(usize) * stack_n;
@@ -737,8 +718,8 @@ pub fn DebugAllocator(comptime config: Config) type {
 
         fn alloc(context: *anyopaque, len: usize, alignment: mem.Alignment, ret_addr: usize) ?[*]u8 {
             const self: *Self = @ptrCast(@alignCast(context));
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            if (have_mutex) std.Io.Threaded.mutexLock(&self.mutex);
+            defer if (have_mutex) std.Io.Threaded.mutexUnlock(&self.mutex);
 
             if (config.enable_memory_limit) {
                 const new_req_bytes = self.total_requested_bytes + len;
@@ -850,8 +831,8 @@ pub fn DebugAllocator(comptime config: Config) type {
             return_address: usize,
         ) bool {
             const self: *Self = @ptrCast(@alignCast(context));
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            if (have_mutex) std.Io.Threaded.mutexLock(&self.mutex);
+            defer if (have_mutex) std.Io.Threaded.mutexUnlock(&self.mutex);
 
             const size_class_index: usize = @max(@bitSizeOf(usize) - @clz(memory.len - 1), @intFromEnum(alignment));
             if (size_class_index >= self.buckets.len) {
@@ -869,8 +850,8 @@ pub fn DebugAllocator(comptime config: Config) type {
             return_address: usize,
         ) ?[*]u8 {
             const self: *Self = @ptrCast(@alignCast(context));
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            if (have_mutex) std.Io.Threaded.mutexLock(&self.mutex);
+            defer if (have_mutex) std.Io.Threaded.mutexUnlock(&self.mutex);
 
             const size_class_index: usize = @max(@bitSizeOf(usize) - @clz(memory.len - 1), @intFromEnum(alignment));
             if (size_class_index >= self.buckets.len) {
@@ -887,8 +868,8 @@ pub fn DebugAllocator(comptime config: Config) type {
             return_address: usize,
         ) void {
             const self: *Self = @ptrCast(@alignCast(context));
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            if (have_mutex) std.Io.Threaded.mutexLock(&self.mutex);
+            defer if (have_mutex) std.Io.Threaded.mutexUnlock(&self.mutex);
 
             const size_class_index: usize = @max(@bitSizeOf(usize) - @clz(old_memory.len - 1), @intFromEnum(alignment));
             if (size_class_index >= self.buckets.len) {
@@ -1329,18 +1310,6 @@ test "realloc large object to small object" {
     slice = try allocator.realloc(slice, 19);
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[16] == 0x34);
-}
-
-test "overridable mutexes" {
-    var gpa = DebugAllocator(.{ .MutexType = std.Thread.Mutex }){
-        .backing_allocator = std.testing.allocator,
-        .mutex = std.Thread.Mutex{},
-    };
-    defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
-    const allocator = gpa.allocator();
-
-    const ptr = try allocator.create(i32);
-    defer allocator.destroy(ptr);
 }
 
 test "non-page-allocator backing allocator" {

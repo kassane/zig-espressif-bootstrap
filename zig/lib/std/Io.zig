@@ -15,480 +15,28 @@
 const Io = @This();
 
 const builtin = @import("builtin");
-const is_windows = builtin.os.tag == .windows;
 
 const std = @import("std.zig");
-const windows = std.os.windows;
-const posix = std.posix;
 const math = std.math;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Alignment = std.mem.Alignment;
 
-pub fn poll(
-    gpa: Allocator,
-    comptime StreamEnum: type,
-    files: PollFiles(StreamEnum),
-) Poller(StreamEnum) {
-    const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
-    var result: Poller(StreamEnum) = .{
-        .gpa = gpa,
-        .readers = @splat(.failing),
-        .poll_fds = undefined,
-        .windows = if (is_windows) .{
-            .first_read_done = false,
-            .overlapped = [1]windows.OVERLAPPED{
-                std.mem.zeroes(windows.OVERLAPPED),
-            } ** enum_fields.len,
-            .small_bufs = undefined,
-            .active = .{
-                .count = 0,
-                .handles_buf = undefined,
-                .stream_map = undefined,
-            },
-        } else {},
-    };
-
-    inline for (enum_fields, 0..) |field, i| {
-        if (is_windows) {
-            result.windows.active.handles_buf[i] = @field(files, field.name).handle;
-        } else {
-            result.poll_fds[i] = .{
-                .fd = @field(files, field.name).handle,
-                .events = posix.POLL.IN,
-                .revents = undefined,
-            };
-        }
-    }
-
-    return result;
-}
-
-pub fn Poller(comptime StreamEnum: type) type {
-    return struct {
-        const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
-        const PollFd = if (is_windows) void else posix.pollfd;
-
-        gpa: Allocator,
-        readers: [enum_fields.len]Reader,
-        poll_fds: [enum_fields.len]PollFd,
-        windows: if (is_windows) struct {
-            first_read_done: bool,
-            overlapped: [enum_fields.len]windows.OVERLAPPED,
-            small_bufs: [enum_fields.len][128]u8,
-            active: struct {
-                count: math.IntFittingRange(0, enum_fields.len),
-                handles_buf: [enum_fields.len]windows.HANDLE,
-                stream_map: [enum_fields.len]StreamEnum,
-
-                pub fn removeAt(self: *@This(), index: u32) void {
-                    assert(index < self.count);
-                    for (index + 1..self.count) |i| {
-                        self.handles_buf[i - 1] = self.handles_buf[i];
-                        self.stream_map[i - 1] = self.stream_map[i];
-                    }
-                    self.count -= 1;
-                }
-            },
-        } else void,
-
-        const Self = @This();
-
-        pub fn deinit(self: *Self) void {
-            const gpa = self.gpa;
-            if (is_windows) {
-                // cancel any pending IO to prevent clobbering OVERLAPPED value
-                for (self.windows.active.handles_buf[0..self.windows.active.count]) |h| {
-                    _ = windows.kernel32.CancelIo(h);
-                }
-            }
-            inline for (&self.readers) |*r| gpa.free(r.buffer);
-            self.* = undefined;
-        }
-
-        pub fn poll(self: *Self) !bool {
-            if (is_windows) {
-                return pollWindows(self, null);
-            } else {
-                return pollPosix(self, null);
-            }
-        }
-
-        pub fn pollTimeout(self: *Self, nanoseconds: u64) !bool {
-            if (is_windows) {
-                return pollWindows(self, nanoseconds);
-            } else {
-                return pollPosix(self, nanoseconds);
-            }
-        }
-
-        pub fn reader(self: *Self, which: StreamEnum) *Reader {
-            return &self.readers[@intFromEnum(which)];
-        }
-
-        pub fn toOwnedSlice(self: *Self, which: StreamEnum) error{OutOfMemory}![]u8 {
-            const gpa = self.gpa;
-            const r = reader(self, which);
-            if (r.seek == 0) {
-                const new = try gpa.realloc(r.buffer, r.end);
-                r.buffer = &.{};
-                r.end = 0;
-                return new;
-            }
-            const new = try gpa.dupe(u8, r.buffered());
-            gpa.free(r.buffer);
-            r.buffer = &.{};
-            r.seek = 0;
-            r.end = 0;
-            return new;
-        }
-
-        fn pollWindows(self: *Self, nanoseconds: ?u64) !bool {
-            const bump_amt = 512;
-            const gpa = self.gpa;
-
-            if (!self.windows.first_read_done) {
-                var already_read_data = false;
-                for (0..enum_fields.len) |i| {
-                    const handle = self.windows.active.handles_buf[i];
-                    switch (try windowsAsyncReadToFifoAndQueueSmallRead(
-                        gpa,
-                        handle,
-                        &self.windows.overlapped[i],
-                        &self.readers[i],
-                        &self.windows.small_bufs[i],
-                        bump_amt,
-                    )) {
-                        .populated, .empty => |state| {
-                            if (state == .populated) already_read_data = true;
-                            self.windows.active.handles_buf[self.windows.active.count] = handle;
-                            self.windows.active.stream_map[self.windows.active.count] = @as(StreamEnum, @enumFromInt(i));
-                            self.windows.active.count += 1;
-                        },
-                        .closed => {}, // don't add to the wait_objects list
-                        .closed_populated => {
-                            // don't add to the wait_objects list, but we did already get data
-                            already_read_data = true;
-                        },
-                    }
-                }
-                self.windows.first_read_done = true;
-                if (already_read_data) return true;
-            }
-
-            while (true) {
-                if (self.windows.active.count == 0) return false;
-
-                const status = windows.kernel32.WaitForMultipleObjects(
-                    self.windows.active.count,
-                    &self.windows.active.handles_buf,
-                    0,
-                    if (nanoseconds) |ns|
-                        @min(std.math.cast(u32, ns / std.time.ns_per_ms) orelse (windows.INFINITE - 1), windows.INFINITE - 1)
-                    else
-                        windows.INFINITE,
-                );
-                if (status == windows.WAIT_FAILED)
-                    return windows.unexpectedError(windows.GetLastError());
-                if (status == windows.WAIT_TIMEOUT)
-                    return true;
-
-                if (status < windows.WAIT_OBJECT_0 or status > windows.WAIT_OBJECT_0 + enum_fields.len - 1)
-                    unreachable;
-
-                const active_idx = status - windows.WAIT_OBJECT_0;
-
-                const stream_idx = @intFromEnum(self.windows.active.stream_map[active_idx]);
-                const handle = self.windows.active.handles_buf[active_idx];
-
-                const overlapped = &self.windows.overlapped[stream_idx];
-                const stream_reader = &self.readers[stream_idx];
-                const small_buf = &self.windows.small_bufs[stream_idx];
-
-                const num_bytes_read = switch (try windowsGetReadResult(handle, overlapped, false)) {
-                    .success => |n| n,
-                    .closed => {
-                        self.windows.active.removeAt(active_idx);
-                        continue;
-                    },
-                    .aborted => unreachable,
-                };
-                const buf = small_buf[0..num_bytes_read];
-                const dest = try writableSliceGreedyAlloc(stream_reader, gpa, buf.len);
-                @memcpy(dest[0..buf.len], buf);
-                advanceBufferEnd(stream_reader, buf.len);
-
-                switch (try windowsAsyncReadToFifoAndQueueSmallRead(
-                    gpa,
-                    handle,
-                    overlapped,
-                    stream_reader,
-                    small_buf,
-                    bump_amt,
-                )) {
-                    .empty => {}, // irrelevant, we already got data from the small buffer
-                    .populated => {},
-                    .closed,
-                    .closed_populated, // identical, since we already got data from the small buffer
-                    => self.windows.active.removeAt(active_idx),
-                }
-                return true;
-            }
-        }
-
-        fn pollPosix(self: *Self, nanoseconds: ?u64) !bool {
-            const gpa = self.gpa;
-            // We ask for ensureUnusedCapacity with this much extra space. This
-            // has more of an effect on small reads because once the reads
-            // start to get larger the amount of space an ArrayList will
-            // allocate grows exponentially.
-            const bump_amt = 512;
-
-            const err_mask = posix.POLL.ERR | posix.POLL.NVAL | posix.POLL.HUP;
-
-            const events_len = try posix.poll(&self.poll_fds, if (nanoseconds) |ns|
-                std.math.cast(i32, ns / std.time.ns_per_ms) orelse std.math.maxInt(i32)
-            else
-                -1);
-            if (events_len == 0) {
-                for (self.poll_fds) |poll_fd| {
-                    if (poll_fd.fd != -1) return true;
-                } else return false;
-            }
-
-            var keep_polling = false;
-            for (&self.poll_fds, &self.readers) |*poll_fd, *r| {
-                // Try reading whatever is available before checking the error
-                // conditions.
-                // It's still possible to read after a POLL.HUP is received,
-                // always check if there's some data waiting to be read first.
-                if (poll_fd.revents & posix.POLL.IN != 0) {
-                    const buf = try writableSliceGreedyAlloc(r, gpa, bump_amt);
-                    const amt = posix.read(poll_fd.fd, buf) catch |err| switch (err) {
-                        error.BrokenPipe => 0, // Handle the same as EOF.
-                        else => |e| return e,
-                    };
-                    advanceBufferEnd(r, amt);
-                    if (amt == 0) {
-                        // Remove the fd when the EOF condition is met.
-                        poll_fd.fd = -1;
-                    } else {
-                        keep_polling = true;
-                    }
-                } else if (poll_fd.revents & err_mask != 0) {
-                    // Exclude the fds that signaled an error.
-                    poll_fd.fd = -1;
-                } else if (poll_fd.fd != -1) {
-                    keep_polling = true;
-                }
-            }
-            return keep_polling;
-        }
-
-        /// Returns a slice into the unused capacity of `buffer` with at least
-        /// `min_len` bytes, extending `buffer` by resizing it with `gpa` as necessary.
-        ///
-        /// After calling this function, typically the caller will follow up with a
-        /// call to `advanceBufferEnd` to report the actual number of bytes buffered.
-        fn writableSliceGreedyAlloc(r: *Reader, allocator: Allocator, min_len: usize) Allocator.Error![]u8 {
-            {
-                const unused = r.buffer[r.end..];
-                if (unused.len >= min_len) return unused;
-            }
-            if (r.seek > 0) {
-                const data = r.buffer[r.seek..r.end];
-                @memmove(r.buffer[0..data.len], data);
-                r.seek = 0;
-                r.end = data.len;
-            }
-            {
-                var list: std.ArrayList(u8) = .{
-                    .items = r.buffer[0..r.end],
-                    .capacity = r.buffer.len,
-                };
-                defer r.buffer = list.allocatedSlice();
-                try list.ensureUnusedCapacity(allocator, min_len);
-            }
-            const unused = r.buffer[r.end..];
-            assert(unused.len >= min_len);
-            return unused;
-        }
-
-        /// After writing directly into the unused capacity of `buffer`, this function
-        /// updates `end` so that users of `Reader` can receive the data.
-        fn advanceBufferEnd(r: *Reader, n: usize) void {
-            assert(n <= r.buffer.len - r.end);
-            r.end += n;
-        }
-
-        /// The `ReadFile` docuementation states that `lpNumberOfBytesRead` does not have a meaningful
-        /// result when using overlapped I/O, but also that it cannot be `null` on Windows 7. For
-        /// compatibility, we point it to this dummy variables, which we never otherwise access.
-        /// See: https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-readfile
-        var win_dummy_bytes_read: u32 = undefined;
-
-        /// Read as much data as possible from `handle` with `overlapped`, and write it to the FIFO. Before
-        /// returning, queue a read into `small_buf` so that `WaitForMultipleObjects` returns when more data
-        /// is available. `handle` must have no pending asynchronous operation.
-        fn windowsAsyncReadToFifoAndQueueSmallRead(
-            gpa: Allocator,
-            handle: windows.HANDLE,
-            overlapped: *windows.OVERLAPPED,
-            r: *Reader,
-            small_buf: *[128]u8,
-            bump_amt: usize,
-        ) !enum { empty, populated, closed_populated, closed } {
-            var read_any_data = false;
-            while (true) {
-                const fifo_read_pending = while (true) {
-                    const buf = try writableSliceGreedyAlloc(r, gpa, bump_amt);
-                    const buf_len = math.cast(u32, buf.len) orelse math.maxInt(u32);
-
-                    if (0 == windows.kernel32.ReadFile(
-                        handle,
-                        buf.ptr,
-                        buf_len,
-                        &win_dummy_bytes_read,
-                        overlapped,
-                    )) switch (windows.GetLastError()) {
-                        .IO_PENDING => break true,
-                        .BROKEN_PIPE => return if (read_any_data) .closed_populated else .closed,
-                        else => |err| return windows.unexpectedError(err),
-                    };
-
-                    const num_bytes_read = switch (try windowsGetReadResult(handle, overlapped, false)) {
-                        .success => |n| n,
-                        .closed => return if (read_any_data) .closed_populated else .closed,
-                        .aborted => unreachable,
-                    };
-
-                    read_any_data = true;
-                    advanceBufferEnd(r, num_bytes_read);
-
-                    if (num_bytes_read == buf_len) {
-                        // We filled the buffer, so there's probably more data available.
-                        continue;
-                    } else {
-                        // We didn't fill the buffer, so assume we're out of data.
-                        // There is no pending read.
-                        break false;
-                    }
-                };
-
-                if (fifo_read_pending) cancel_read: {
-                    // Cancel the pending read into the FIFO.
-                    _ = windows.kernel32.CancelIo(handle);
-
-                    // We have to wait for the handle to be signalled, i.e. for the cancelation to complete.
-                    switch (windows.kernel32.WaitForSingleObject(handle, windows.INFINITE)) {
-                        windows.WAIT_OBJECT_0 => {},
-                        windows.WAIT_FAILED => return windows.unexpectedError(windows.GetLastError()),
-                        else => unreachable,
-                    }
-
-                    // If it completed before we canceled, make sure to tell the FIFO!
-                    const num_bytes_read = switch (try windowsGetReadResult(handle, overlapped, true)) {
-                        .success => |n| n,
-                        .closed => return if (read_any_data) .closed_populated else .closed,
-                        .aborted => break :cancel_read,
-                    };
-                    read_any_data = true;
-                    advanceBufferEnd(r, num_bytes_read);
-                }
-
-                // Try to queue the 1-byte read.
-                if (0 == windows.kernel32.ReadFile(
-                    handle,
-                    small_buf,
-                    small_buf.len,
-                    &win_dummy_bytes_read,
-                    overlapped,
-                )) switch (windows.GetLastError()) {
-                    .IO_PENDING => {
-                        // 1-byte read pending as intended
-                        return if (read_any_data) .populated else .empty;
-                    },
-                    .BROKEN_PIPE => return if (read_any_data) .closed_populated else .closed,
-                    else => |err| return windows.unexpectedError(err),
-                };
-
-                // We got data back this time. Write it to the FIFO and run the main loop again.
-                const num_bytes_read = switch (try windowsGetReadResult(handle, overlapped, false)) {
-                    .success => |n| n,
-                    .closed => return if (read_any_data) .closed_populated else .closed,
-                    .aborted => unreachable,
-                };
-                const buf = small_buf[0..num_bytes_read];
-                const dest = try writableSliceGreedyAlloc(r, gpa, buf.len);
-                @memcpy(dest[0..buf.len], buf);
-                advanceBufferEnd(r, buf.len);
-                read_any_data = true;
-            }
-        }
-
-        /// Simple wrapper around `GetOverlappedResult` to determine the result of a `ReadFile` operation.
-        /// If `!allow_aborted`, then `aborted` is never returned (`OPERATION_ABORTED` is considered unexpected).
-        ///
-        /// The `ReadFile` documentation states that the number of bytes read by an overlapped `ReadFile` must be determined using `GetOverlappedResult`, even if the
-        /// operation immediately returns data:
-        /// "Use NULL for [lpNumberOfBytesRead] if this is an asynchronous operation to avoid potentially
-        /// erroneous results."
-        /// "If `hFile` was opened with `FILE_FLAG_OVERLAPPED`, the following conditions are in effect: [...]
-        /// The lpNumberOfBytesRead parameter should be set to NULL. Use the GetOverlappedResult function to
-        /// get the actual number of bytes read."
-        /// See: https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-readfile
-        fn windowsGetReadResult(
-            handle: windows.HANDLE,
-            overlapped: *windows.OVERLAPPED,
-            allow_aborted: bool,
-        ) !union(enum) {
-            success: u32,
-            closed,
-            aborted,
-        } {
-            var num_bytes_read: u32 = undefined;
-            if (0 == windows.kernel32.GetOverlappedResult(
-                handle,
-                overlapped,
-                &num_bytes_read,
-                0,
-            )) switch (windows.GetLastError()) {
-                .BROKEN_PIPE => return .closed,
-                .OPERATION_ABORTED => |err| if (allow_aborted) {
-                    return .aborted;
-                } else {
-                    return windows.unexpectedError(err);
-                },
-                else => |err| return windows.unexpectedError(err),
-            };
-            return .{ .success = num_bytes_read };
-        }
-    };
-}
-
-/// Given an enum, returns a struct with fields of that enum, each field
-/// representing an I/O stream for polling.
-pub fn PollFiles(comptime StreamEnum: type) type {
-    return @Struct(.auto, null, std.meta.fieldNames(StreamEnum), &@splat(Io.File), &@splat(.{}));
-}
-
 userdata: ?*anyopaque,
 vtable: *const VTable,
 
 pub const Threaded = @import("Io/Threaded.zig");
-pub const Evented = switch (builtin.os.tag) {
-    .linux => switch (builtin.cpu.arch) {
-        .x86_64, .aarch64 => IoUring,
-        else => void, // context-switching code not implemented yet
-    },
-    .dragonfly, .freebsd, .netbsd, .openbsd, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
-        .x86_64, .aarch64 => Kqueue,
-        else => void, // context-switching code not implemented yet
-    },
+
+pub const fiber = @import("Io/fiber.zig");
+pub const Evented = if (fiber.supported) switch (builtin.os.tag) {
+    .linux => Uring,
+    .dragonfly, .freebsd, .netbsd, .openbsd => Kqueue,
+    .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => Dispatch,
     else => void,
-};
+} else void; // context-switching code not implemented yet
+pub const Dispatch = @import("Io/Dispatch.zig");
 pub const Kqueue = @import("Io/Kqueue.zig");
-pub const IoUring = @import("Io/IoUring.zig");
+pub const Uring = @import("Io/Uring.zig");
 
 pub const Reader = @import("Io/Reader.zig");
 pub const Writer = @import("Io/Writer.zig");
@@ -497,7 +45,12 @@ pub const Dir = @import("Io/Dir.zig");
 pub const File = @import("Io/File.zig");
 pub const Terminal = @import("Io/Terminal.zig");
 
+pub const RwLock = @import("Io/RwLock.zig");
+pub const Semaphore = @import("Io/Semaphore.zig");
+
 pub const VTable = struct {
+    crashHandler: *const fn (?*anyopaque) void,
+
     /// If it returns `null` it means `result` has been already populated and
     /// `await` will be a no-op.
     ///
@@ -599,6 +152,11 @@ pub const VTable = struct {
     futexWaitUncancelable: *const fn (?*anyopaque, ptr: *const u32, expected: u32) void,
     futexWake: *const fn (?*anyopaque, ptr: *const u32, max_waiters: u32) void,
 
+    operate: *const fn (?*anyopaque, Operation) Cancelable!Operation.Result,
+    batchAwaitAsync: *const fn (?*anyopaque, *Batch) Cancelable!void,
+    batchAwaitConcurrent: *const fn (?*anyopaque, *Batch, Timeout) Batch.AwaitConcurrentError!void,
+    batchCancel: *const fn (?*anyopaque, *Batch) void,
+
     dirCreateDir: *const fn (?*anyopaque, Dir, []const u8, Dir.Permissions) Dir.CreateDirError!void,
     dirCreateDirPath: *const fn (?*anyopaque, Dir, []const u8, Dir.Permissions) Dir.CreateDirPathError!Dir.CreatePathStatus,
     dirCreateDirPathOpen: *const fn (?*anyopaque, Dir, []const u8, Dir.Permissions, Dir.OpenOptions) Dir.CreateDirPathOpenError!Dir,
@@ -629,13 +187,10 @@ pub const VTable = struct {
     fileStat: *const fn (?*anyopaque, File) File.StatError!File.Stat,
     fileLength: *const fn (?*anyopaque, File) File.LengthError!u64,
     fileClose: *const fn (?*anyopaque, []const File) void,
-    fileWriteStreaming: *const fn (?*anyopaque, File, header: []const u8, data: []const []const u8, splat: usize) File.Writer.Error!usize,
     fileWritePositional: *const fn (?*anyopaque, File, header: []const u8, data: []const []const u8, splat: usize, offset: u64) File.WritePositionalError!usize,
     fileWriteFileStreaming: *const fn (?*anyopaque, File, header: []const u8, *Io.File.Reader, Io.Limit) File.Writer.WriteFileError!usize,
     fileWriteFilePositional: *const fn (?*anyopaque, File, header: []const u8, *Io.File.Reader, Io.Limit, offset: u64) File.WriteFilePositionalError!usize,
-    /// Returns 0 on end of stream.
-    fileReadStreaming: *const fn (?*anyopaque, File, data: []const []u8) File.Reader.Error!usize,
-    /// Returns 0 on end of stream.
+    /// Returns 0 if reading at or past the end.
     fileReadPositional: *const fn (?*anyopaque, File, data: []const []u8, offset: u64) File.ReadPositionalError!usize,
     fileSeekBy: *const fn (?*anyopaque, File, relative_offset: i64) File.SeekError!void,
     fileSeekTo: *const fn (?*anyopaque, File, absolute_offset: u64) File.SeekError!void,
@@ -665,6 +220,7 @@ pub const VTable = struct {
     lockStderr: *const fn (?*anyopaque, ?Terminal.Mode) Cancelable!LockedStderr,
     tryLockStderr: *const fn (?*anyopaque, ?Terminal.Mode) Cancelable!?LockedStderr,
     unlockStderr: *const fn (?*anyopaque) void,
+    processCurrentPath: *const fn (?*anyopaque, buffer: []u8) std.process.CurrentPathError!usize,
     processSetCurrentDir: *const fn (?*anyopaque, Dir) std.process.SetCurrentDirError!void,
     processReplace: *const fn (?*anyopaque, std.process.ReplaceOptions) std.process.ReplaceError,
     processReplacePath: *const fn (?*anyopaque, Dir, std.process.ReplaceOptions) std.process.ReplaceError,
@@ -675,8 +231,9 @@ pub const VTable = struct {
 
     progressParentFile: *const fn (?*anyopaque) std.Progress.ParentFileError!File,
 
-    now: *const fn (?*anyopaque, Clock) Clock.Error!Timestamp,
-    sleep: *const fn (?*anyopaque, Timeout) SleepError!void,
+    now: *const fn (?*anyopaque, Clock) Timestamp,
+    clockResolution: *const fn (?*anyopaque, Clock) Clock.ResolutionError!Duration,
+    sleep: *const fn (?*anyopaque, Timeout) Cancelable!void,
 
     random: *const fn (?*anyopaque, buffer: []u8) void,
     randomSecure: *const fn (?*anyopaque, buffer: []u8) RandomSecureError!void,
@@ -687,6 +244,7 @@ pub const VTable = struct {
     netConnectIp: *const fn (?*anyopaque, address: *const net.IpAddress, options: net.IpAddress.ConnectOptions) net.IpAddress.ConnectError!net.Stream,
     netListenUnix: *const fn (?*anyopaque, *const net.UnixAddress, net.UnixAddress.ListenOptions) net.UnixAddress.ListenError!net.Socket.Handle,
     netConnectUnix: *const fn (?*anyopaque, *const net.UnixAddress) net.UnixAddress.ConnectError!net.Socket.Handle,
+    netSocketCreatePair: *const fn (?*anyopaque, net.Socket.CreatePairOptions) net.Socket.CreatePairError![2]net.Socket,
     netSend: *const fn (?*anyopaque, net.Socket.Handle, []net.OutgoingMessage, net.SendFlags) struct { ?net.Socket.SendError, usize },
     netReceive: *const fn (?*anyopaque, net.Socket.Handle, message_buffer: []net.IncomingMessage, data_buffer: []u8, net.ReceiveFlags, Timeout) struct { ?net.Socket.ReceiveTimeoutError, usize },
     /// Returns 0 on end of stream.
@@ -700,20 +258,339 @@ pub const VTable = struct {
     netLookup: *const fn (?*anyopaque, net.HostName, *Queue(net.HostName.LookupResult), net.HostName.LookupOptions) net.HostName.LookupError!void,
 };
 
+pub const Operation = union(enum) {
+    file_read_streaming: FileReadStreaming,
+    file_write_streaming: FileWriteStreaming,
+    /// On Windows this is NtDeviceIoControlFile. On POSIX this is ioctl. On
+    /// other systems this tag is unreachable.
+    device_io_control: DeviceIoControl,
+
+    pub const Tag = @typeInfo(Operation).@"union".tag_type.?;
+
+    /// May return 0 reads which is different than `error.EndOfStream`.
+    pub const FileReadStreaming = struct {
+        file: File,
+        data: []const []u8,
+
+        pub const Error = UnendingError || error{EndOfStream};
+        pub const UnendingError = error{
+            InputOutput,
+            SystemResources,
+            /// Trying to read a directory file descriptor as if it were a file.
+            IsDir,
+            ConnectionResetByPeer,
+            /// File was not opened with read capability.
+            NotOpenForReading,
+            SocketUnconnected,
+            /// Non-blocking has been enabled, and reading from the file descriptor
+            /// would block.
+            WouldBlock,
+            /// In WASI, this error occurs when the file descriptor does
+            /// not hold the required rights to read from it.
+            AccessDenied,
+            /// Unable to read file due to lock. Depending on the `Io` implementation,
+            /// reading from a locked file may return this error, or may ignore the
+            /// lock.
+            LockViolation,
+        } || Io.UnexpectedError;
+
+        pub const Result = Error!usize;
+    };
+
+    pub const FileWriteStreaming = struct {
+        file: File,
+        header: []const u8 = &.{},
+        data: []const []const u8,
+        splat: usize = 1,
+
+        pub const Error = error{
+            DiskQuota,
+            FileTooBig,
+            InputOutput,
+            NoSpaceLeft,
+            DeviceBusy,
+            /// File descriptor does not hold the required rights to write to it.
+            AccessDenied,
+            PermissionDenied,
+            /// File is an unconnected socket, or closed its read end.
+            BrokenPipe,
+            /// Insufficient kernel memory to read from in_fd.
+            SystemResources,
+            NotOpenForWriting,
+            /// The process cannot access the file because another process has locked
+            /// a portion of the file. Windows-only.
+            LockViolation,
+            /// Non-blocking has been enabled and this operation would block.
+            WouldBlock,
+            /// This error occurs when a device gets disconnected before or mid-flush
+            /// while it's being written to - errno(6): No such device or address.
+            NoDevice,
+            FileBusy,
+        } || Io.UnexpectedError;
+
+        pub const Result = Error!usize;
+    };
+
+    pub const DeviceIoControl = switch (builtin.os.tag) {
+        .wasi => noreturn,
+        .windows => struct {
+            file: File,
+            code: std.os.windows.CTL_CODE,
+            in: []const u8 = &.{},
+            out: []u8 = &.{},
+
+            pub const Result = std.os.windows.IO_STATUS_BLOCK;
+        },
+        else => struct {
+            file: File,
+            /// Device-dependent operation code.
+            code: u32,
+            arg: ?*anyopaque,
+
+            /// Device and operation dependent result. Negative values are
+            /// negative errno.
+            pub const Result = i32;
+        },
+    };
+
+    pub const Result = Result: {
+        const operation_fields = @typeInfo(Operation).@"union".fields;
+        var field_names: [operation_fields.len][]const u8 = undefined;
+        var field_types: [operation_fields.len]type = undefined;
+        for (operation_fields, &field_names, &field_types) |field, *field_name, *field_type| {
+            field_name.* = field.name;
+            field_type.* = if (field.type == noreturn) noreturn else field.type.Result;
+        }
+        break :Result @Union(.auto, Tag, &field_names, &field_types, &@splat(.{}));
+    };
+
+    pub const Storage = union {
+        unused: List.DoubleNode,
+        submission: Submission,
+        pending: Pending,
+        completion: Completion,
+
+        pub const Submission = struct {
+            node: List.SingleNode,
+            operation: Operation,
+        };
+
+        pub const Pending = struct {
+            node: List.DoubleNode,
+            tag: Tag,
+            userdata: Userdata align(@max(@alignOf(usize), 4)),
+
+            pub const Userdata = [7]usize;
+        };
+
+        pub const Completion = struct {
+            node: List.SingleNode,
+            result: Result,
+        };
+    };
+
+    pub const OptionalIndex = enum(u32) {
+        none = std.math.maxInt(u32),
+        _,
+
+        pub fn fromIndex(i: usize) OptionalIndex {
+            const oi: OptionalIndex = @enumFromInt(i);
+            assert(oi != .none);
+            return oi;
+        }
+
+        pub fn toIndex(oi: OptionalIndex) u32 {
+            assert(oi != .none);
+            return @intFromEnum(oi);
+        }
+    };
+    pub const List = struct {
+        head: OptionalIndex,
+        tail: OptionalIndex,
+
+        pub const empty: List = .{ .head = .none, .tail = .none };
+
+        pub const SingleNode = struct { next: OptionalIndex };
+        pub const DoubleNode = struct { prev: OptionalIndex, next: OptionalIndex };
+    };
+};
+
+/// Performs one `Operation`.
+pub fn operate(io: Io, operation: Operation) Cancelable!Operation.Result {
+    return io.vtable.operate(io.userdata, operation);
+}
+
+/// Submits many operations together without waiting for all of them to
+/// complete.
+///
+/// This is a low-level abstraction based on `Operation`. For a higher
+/// level API that operates on `Future`, see `Select` and `Group`.
+pub const Batch = struct {
+    storage: []Operation.Storage,
+    unused: Operation.List,
+    submitted: Operation.List,
+    pending: Operation.List,
+    completed: Operation.List,
+    userdata: ?*anyopaque align(@max(@alignOf(?*anyopaque), 4)),
+
+    /// After calling this, it is safe to unconditionally defer a call to
+    /// `cancel`. `storage` is a pre-allocated buffer of undefined memory that
+    /// determines the maximum number of active operations that can be
+    /// submitted via `add` and `addAt`.
+    pub fn init(storage: []Operation.Storage) Batch {
+        var prev: Operation.OptionalIndex = .none;
+        for (storage, 0..) |*operation, index| {
+            operation.* = .{ .unused = .{ .prev = prev, .next = .fromIndex(index + 1) } };
+            prev = .fromIndex(index);
+        }
+        storage[storage.len - 1].unused.next = .none;
+        return .{
+            .storage = storage,
+            .unused = .{
+                .head = .fromIndex(0),
+                .tail = .fromIndex(storage.len - 1),
+            },
+            .submitted = .empty,
+            .pending = .empty,
+            .completed = .empty,
+            .userdata = null,
+        };
+    }
+
+    /// Adds an operation to be performed at the next await call.
+    /// Returns the index that will be returned by `next` after the operation completes.
+    /// Asserts that no more than `storage.len` operations are active at a time.
+    pub fn add(batch: *Batch, operation: Operation) u32 {
+        const index = batch.unused.next;
+        batch.addAt(index.toIndex(), operation);
+        return index;
+    }
+
+    /// Adds an operation to be performed at the next await call.
+    /// After the operation completes, `next` will return `index`.
+    /// Asserts that the operation at `index` is not active.
+    pub fn addAt(batch: *Batch, index: u32, operation: Operation) void {
+        const storage = &batch.storage[index];
+        const unused = storage.unused;
+        switch (unused.prev) {
+            .none => batch.unused.head = unused.next,
+            else => |prev_index| batch.storage[prev_index.toIndex()].unused.next = unused.next,
+        }
+        switch (unused.next) {
+            .none => batch.unused.tail = unused.prev,
+            else => |next_index| batch.storage[next_index.toIndex()].unused.prev = unused.prev,
+        }
+
+        switch (batch.submitted.tail) {
+            .none => batch.submitted.head = .fromIndex(index),
+            else => |tail_index| batch.storage[tail_index.toIndex()].submission.node.next = .fromIndex(index),
+        }
+        storage.* = .{ .submission = .{ .node = .{ .next = .none }, .operation = operation } };
+        batch.submitted.tail = .fromIndex(index);
+    }
+
+    pub const Completion = struct {
+        /// The element within the provided operation storage that completed.
+        /// `addAt` can be used to re-arm the `Batch` using this `index`.
+        index: u32,
+        /// The return value of the operation.
+        result: Operation.Result,
+    };
+
+    /// After calling `awaitAsync`, `awaitConcurrent`, or `cancel`, this
+    /// function iterates over the completed operations.
+    ///
+    /// Each completion returned from this function dequeues from the `Batch`.
+    /// It is not required to dequeue all completions before awaiting again.
+    pub fn next(batch: *Batch) ?Completion {
+        const index = batch.completed.head;
+        if (index == .none) return null;
+        const storage = &batch.storage[index.toIndex()];
+        const completion = storage.completion;
+        const next_index = completion.node.next;
+        batch.completed.head = next_index;
+        if (next_index == .none) batch.completed.tail = .none;
+
+        const tail_index = batch.unused.tail;
+        switch (tail_index) {
+            .none => batch.unused.head = index,
+            else => batch.storage[tail_index.toIndex()].unused.next = index,
+        }
+        storage.* = .{ .unused = .{ .prev = tail_index, .next = .none } };
+        batch.unused.tail = index;
+        return .{ .index = index.toIndex(), .result = completion.result };
+    }
+
+    /// Waits for at least one of the submitted operations to complete. After
+    /// this function returns the completed operations can be iterated with
+    /// `next`.
+    ///
+    /// This function provides opportunity for the implementation to introduce
+    /// concurrency into the batched operations, but unlike `awaitConcurrent`,
+    /// does not require it, and therefore cannot fail with
+    /// `error.ConcurrencyUnavailable`.
+    pub fn awaitAsync(batch: *Batch, io: Io) Cancelable!void {
+        return io.vtable.batchAwaitAsync(io.userdata, batch);
+    }
+
+    pub const AwaitConcurrentError = ConcurrentError || Cancelable || Timeout.Error;
+
+    /// Waits for at least one of the submitted operations to complete. After
+    /// this function returns the completed operations can be iterated with
+    /// `next`.
+    ///
+    /// Unlike `awaitAsync`, this function requires the implementation to
+    /// perform the operations concurrently and therefore can fail with
+    /// `error.ConcurrencyUnavailable`.
+    pub fn awaitConcurrent(batch: *Batch, io: Io, timeout: Timeout) AwaitConcurrentError!void {
+        return io.vtable.batchAwaitConcurrent(io.userdata, batch, timeout);
+    }
+
+    /// Requests all pending operations to be interrupted, then waits for all
+    /// pending operations to complete. After this returns, the `Batch` is in a
+    /// well-defined state, ready to be iterated with `next`. Successfully
+    /// canceled operations will be absent from the iteration. Some operations
+    /// may have successfully completed regardless of the cancel request and
+    /// will appear in the iteration.
+    pub fn cancel(batch: *Batch, io: Io) void {
+        { // abort pending submissions
+            var tail_index = batch.unused.tail;
+            defer batch.unused.tail = tail_index;
+            var index = batch.submitted.head;
+            errdefer batch.submissions.head = index;
+            while (index != .none) {
+                const next_index = batch.storage[index.toIndex()].submission.node.next;
+                switch (tail_index) {
+                    .none => batch.unused.head = index,
+                    else => batch.storage[tail_index.toIndex()].unused.next = index,
+                }
+                batch.storage[index.toIndex()] = .{ .unused = .{ .prev = tail_index, .next = .none } };
+                tail_index = index;
+                index = next_index;
+            }
+            batch.submitted = .{ .head = .none, .tail = .none };
+        }
+        io.vtable.batchCancel(io.userdata, batch);
+        assert(batch.submitted.head == .none and batch.submitted.tail == .none);
+        assert(batch.pending.head == .none and batch.pending.tail == .none);
+        assert(batch.userdata == null); // that was the last chance to deallocate resources
+    }
+};
+
 pub const Limit = enum(usize) {
     nothing = 0,
-    unlimited = std.math.maxInt(usize),
+    unlimited = math.maxInt(usize),
     _,
 
-    /// `std.math.maxInt(usize)` is interpreted to mean `.unlimited`.
+    /// `math.maxInt(usize)` is interpreted to mean `.unlimited`.
     pub fn limited(n: usize) Limit {
         return @enumFromInt(n);
     }
 
-    /// Any value grater than `std.math.maxInt(usize)` is interpreted to mean
+    /// Any value grater than `math.maxInt(usize)` is interpreted to mean
     /// `.unlimited`.
     pub fn limited64(n: u64) Limit {
-        return @enumFromInt(@min(n, std.math.maxInt(usize)));
+        return @enumFromInt(@min(n, math.maxInt(usize)));
     }
 
     pub fn countVec(data: []const []const u8) Limit {
@@ -724,6 +601,14 @@ pub const Limit = enum(usize) {
 
     pub fn min(a: Limit, b: Limit) Limit {
         return @enumFromInt(@min(@intFromEnum(a), @intFromEnum(b)));
+    }
+
+    pub fn max(a: Limit, b: Limit) Limit {
+        if (a == .unlimited or b == .unlimited) {
+            return .unlimited;
+        }
+
+        return @enumFromInt(@max(@intFromEnum(a), @intFromEnum(b)));
     }
 
     pub fn minInt(l: Limit, n: usize) usize {
@@ -758,7 +643,7 @@ pub const Limit = enum(usize) {
     }
 
     pub fn nonzero(l: Limit) bool {
-        return @intFromEnum(l) > 0;
+        return l != .nothing;
     }
 
     /// Return a new limit reduced by `amount` or return `null` indicating
@@ -837,30 +722,53 @@ pub const Clock = enum {
     /// thread.
     cpu_thread,
 
-    pub const Error = error{UnsupportedClock} || UnexpectedError;
-
-    /// This function is not cancelable because first of all it does not block,
-    /// but more importantly, the cancelation logic itself may want to check
-    /// the time.
-    pub fn now(clock: Clock, io: Io) Error!Io.Timestamp {
+    /// This function is not cancelable because it does not block.
+    ///
+    /// Resolution is determined by `resolution` which may be 0 if the
+    /// clock is unsupported.
+    ///
+    /// See also:
+    /// * `Clock.Timestamp.now`
+    pub fn now(clock: Clock, io: Io) Io.Timestamp {
         return io.vtable.now(io.userdata, clock);
+    }
+
+    pub const ResolutionError = error{
+        ClockUnavailable,
+        Unexpected,
+    };
+
+    /// Reveals the granularity of `clock`. May be zero, indicating
+    /// unsupported clock.
+    pub fn resolution(clock: Clock, io: Io) ResolutionError!Io.Duration {
+        return io.vtable.clockResolution(io.userdata, clock);
     }
 
     pub const Timestamp = struct {
         raw: Io.Timestamp,
         clock: Clock,
 
-        /// This function is not cancelable because first of all it does not block,
-        /// but more importantly, the cancelation logic itself may want to check
-        /// the time.
-        pub fn now(io: Io, clock: Clock) Error!Clock.Timestamp {
+        /// This function is not cancelable because it does not block.
+        ///
+        /// Resolution is determined by `resolution` which may be 0 if
+        /// the clock is unsupported.
+        ///
+        /// See also:
+        /// * `Clock.now`
+        pub fn now(io: Io, clock: Clock) Clock.Timestamp {
             return .{
-                .raw = try io.vtable.now(io.userdata, clock),
+                .raw = io.vtable.now(io.userdata, clock),
                 .clock = clock,
             };
         }
 
-        pub fn wait(t: Clock.Timestamp, io: Io) SleepError!void {
+        /// Sleeps until the timestamp arrives.
+        ///
+        /// See also:
+        /// * `Io.sleep`
+        /// * `Clock.Duration.sleep`
+        /// * `Timeout.sleep`
+        pub fn wait(t: Clock.Timestamp, io: Io) Cancelable!void {
             return io.vtable.sleep(io.userdata, .{ .deadline = t });
         }
 
@@ -888,30 +796,38 @@ pub const Clock = enum {
             };
         }
 
-        pub fn fromNow(io: Io, duration: Clock.Duration) Error!Clock.Timestamp {
+        /// Resolution is determined by `resolution` which may be 0 if
+        /// the clock is unsupported.
+        pub fn fromNow(io: Io, duration: Clock.Duration) Clock.Timestamp {
             return .{
                 .clock = duration.clock,
-                .raw = (try duration.clock.now(io)).addDuration(duration.raw),
+                .raw = duration.clock.now(io).addDuration(duration.raw),
             };
         }
 
-        pub fn untilNow(timestamp: Clock.Timestamp, io: Io) Error!Clock.Duration {
-            const now_ts = try Clock.Timestamp.now(io, timestamp.clock);
+        /// Resolution is determined by `resolution` which may be 0 if
+        /// the clock is unsupported.
+        pub fn untilNow(timestamp: Clock.Timestamp, io: Io) Clock.Duration {
+            const now_ts = Clock.Timestamp.now(io, timestamp.clock);
             return timestamp.durationTo(now_ts);
         }
 
-        pub fn durationFromNow(timestamp: Clock.Timestamp, io: Io) Error!Clock.Duration {
-            const now_ts = try timestamp.clock.now(io);
+        /// Resolution is determined by `resolution` which may be 0 if
+        /// the clock is unsupported.
+        pub fn durationFromNow(timestamp: Clock.Timestamp, io: Io) Clock.Duration {
+            const now_ts = timestamp.clock.now(io);
             return .{
                 .clock = timestamp.clock,
                 .raw = now_ts.durationTo(timestamp.raw),
             };
         }
 
-        pub fn toClock(t: Clock.Timestamp, io: Io, clock: Clock) Error!Clock.Timestamp {
+        /// Resolution is determined by `resolution` which may be 0 if
+        /// the clock is unsupported.
+        pub fn toClock(t: Clock.Timestamp, io: Io, clock: Clock) Clock.Timestamp {
             if (t.clock == clock) return t;
-            const now_old = try t.clock.now(io);
-            const now_new = try clock.now(io);
+            const now_old = t.clock.now(io);
+            const now_new = clock.now(io);
             const duration = now_old.durationTo(t);
             return .{
                 .clock = clock,
@@ -919,9 +835,9 @@ pub const Clock = enum {
             };
         }
 
-        pub fn compare(lhs: Clock.Timestamp, op: std.math.CompareOperator, rhs: Clock.Timestamp) bool {
+        pub fn compare(lhs: Clock.Timestamp, op: math.CompareOperator, rhs: Clock.Timestamp) bool {
             assert(lhs.clock == rhs.clock);
-            return std.math.compare(lhs.raw.nanoseconds, op, rhs.raw.nanoseconds);
+            return math.compare(lhs.raw.nanoseconds, op, rhs.raw.nanoseconds);
         }
     };
 
@@ -929,7 +845,13 @@ pub const Clock = enum {
         raw: Io.Duration,
         clock: Clock,
 
-        pub fn sleep(duration: Clock.Duration, io: Io) SleepError!void {
+        /// Waits until a specified amount of time has passed on `clock`.
+        ///
+        /// See also:
+        /// * `Io.sleep`
+        /// * `Clock.Timestamp.wait`
+        /// * `Timeout.sleep`
+        pub fn sleep(duration: Clock.Duration, io: Io) Cancelable!void {
             return io.vtable.sleep(io.userdata, .{ .duration = duration });
         }
     };
@@ -937,6 +859,10 @@ pub const Clock = enum {
 
 pub const Timestamp = struct {
     nanoseconds: i96,
+
+    pub fn now(io: Io, clock: Clock) Io.Timestamp {
+        return io.vtable.now(io.userdata, clock);
+    }
 
     pub const zero: Timestamp = .{ .nanoseconds = 0 };
 
@@ -980,13 +906,20 @@ pub const Timestamp = struct {
             .fill = n.fill,
         });
     }
+
+    /// Resolution is determined by `Clock.resolution` which may be 0 if
+    /// the clock is unsupported.
+    pub fn untilNow(t: Timestamp, io: Io, clock: Clock) Duration {
+        const now_ts = clock.now(io);
+        return t.durationTo(now_ts);
+    }
 };
 
 pub const Duration = struct {
     nanoseconds: i96,
 
     pub const zero: Duration = .{ .nanoseconds = 0 };
-    pub const max: Duration = .{ .nanoseconds = std.math.maxInt(i96) };
+    pub const max: Duration = .{ .nanoseconds = math.maxInt(i96) };
 
     pub fn fromNanoseconds(x: i96) Duration {
         return .{ .nanoseconds = x };
@@ -1019,25 +952,39 @@ pub const Timeout = union(enum) {
     duration: Clock.Duration,
     deadline: Clock.Timestamp,
 
-    pub const Error = error{ Timeout, UnsupportedClock };
+    pub const Error = error{Timeout};
 
-    pub fn toDeadline(t: Timeout, io: Io) Clock.Error!?Clock.Timestamp {
+    pub fn toTimestamp(t: Timeout, io: Io) ?Clock.Timestamp {
         return switch (t) {
             .none => null,
-            .duration => |d| try .fromNow(io, d),
+            .duration => |d| .fromNow(io, d),
             .deadline => |d| d,
         };
     }
 
-    pub fn toDurationFromNow(t: Timeout, io: Io) Clock.Error!?Clock.Duration {
+    pub fn toDeadline(t: Timeout, io: Io) Timeout {
         return switch (t) {
-            .none => null,
-            .duration => |d| d,
-            .deadline => |d| try d.durationFromNow(io),
+            .none => .none,
+            .duration => |d| .{ .deadline = .fromNow(io, d) },
+            .deadline => |d| .{ .deadline = d },
         };
     }
 
-    pub fn sleep(timeout: Timeout, io: Io) SleepError!void {
+    pub fn toDurationFromNow(t: Timeout, io: Io) ?Clock.Duration {
+        return switch (t) {
+            .none => null,
+            .duration => |d| d,
+            .deadline => |d| d.durationFromNow(io),
+        };
+    }
+
+    /// Waits until the timeout has passed.
+    ///
+    /// See also:
+    /// * `Io.sleep`
+    /// * `Clock.Duration.sleep`
+    /// * `Clock.Timestamp.wait`
+    pub fn sleep(timeout: Timeout, io: Io) Cancelable!void {
         return io.vtable.sleep(io.userdata, timeout);
     }
 };
@@ -1106,6 +1053,9 @@ pub const Group = struct {
     /// Once this function is called, there are resources associated with the
     /// group. To release those resources, `Group.await` or `Group.cancel` must
     /// eventually be called.
+    ///
+    /// If `error.Canceled` is returned from any operation this task performs,
+    /// it is asserted that `function` returns `error.Canceled`.
     pub fn async(g: *Group, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
         const Args = @TypeOf(args);
         const TypeErased = struct {
@@ -1125,6 +1075,9 @@ pub const Group = struct {
     /// Once this function is called, there are resources associated with the
     /// group. To release those resources, `Group.await` or `Group.cancel` must
     /// eventually be called.
+    ///
+    /// If `error.Canceled` is returned from any operation this task performs,
+    /// it is asserted that `function` returns `error.Canceled`.
     pub fn concurrent(g: *Group, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) ConcurrentError!void {
         const Args = @TypeOf(args);
         const TypeErased = struct {
@@ -1186,13 +1139,13 @@ pub fn recancel(io: Io) void {
 /// To modify a task's cancel protection state, see `swapCancelProtection`.
 ///
 /// For a description of cancelation and cancelation points, see `Future.cancel`.
-pub const CancelProtection = enum {
+pub const CancelProtection = enum(u1) {
     /// Any call to an `Io` function with `error.Canceled` in its error set is a cancelation point.
     ///
     /// This is the default state, which all tasks are created in.
-    unblocked,
+    unblocked = 0,
     /// No `Io` function introduces a cancelation point (`error.Canceled` will never be returned).
-    blocked,
+    blocked = 1,
 };
 /// Updates the current task's cancel protection state (see `CancelProtection`).
 ///
@@ -1361,8 +1314,7 @@ pub fn futexWake(io: Io, comptime T: type, ptr: *align(@alignOf(u32)) const T, m
 /// shared region of code known as the "critical section".
 ///
 /// Mutex is an extern struct so that it may be used as a field inside another
-/// extern struct. Having a guaranteed memory layout including mutexes is
-/// important for IPC over shared memory (mmap).
+/// extern struct.
 pub const Mutex = extern struct {
     state: std.atomic.Value(State),
 
@@ -1375,15 +1327,7 @@ pub const Mutex = extern struct {
     };
 
     pub fn tryLock(m: *Mutex) bool {
-        switch (m.state.cmpxchgWeak(
-            .unlocked,
-            .locked_once,
-            .acquire,
-            .monotonic,
-        ) orelse return true) {
-            .unlocked => unreachable,
-            .locked_once, .contended => return false,
-        }
+        return m.state.cmpxchgWeak(.unlocked, .locked_once, .acquire, .monotonic) == null;
     }
 
     pub fn lock(m: *Mutex, io: Io) Cancelable!void {
@@ -1614,7 +1558,7 @@ pub const Event = enum(u32) {
     pub fn waitTimeout(event: *Event, io: Io, timeout: Timeout) WaitTimeoutError!void {
         if (@cmpxchgStrong(Event, event, .unset, .waiting, .acquire, .acquire)) |prev| switch (prev) {
             .unset => unreachable,
-            .waiting => assert(!builtin.single_threaded), // invalid state
+            .waiting => {},
             .is_set => return,
         };
         errdefer {
@@ -1642,7 +1586,7 @@ pub const Event = enum(u32) {
     pub fn set(e: *Event, io: Io) void {
         switch (@atomicRmw(Event, e, .Xchg, .is_set, .release)) {
             .unset, .is_set => {},
-            .waiting => io.futexWake(Event, e, std.math.maxInt(u32)),
+            .waiting => io.futexWake(Event, e, math.maxInt(u32)),
         }
     }
 
@@ -2163,9 +2107,13 @@ pub fn concurrent(
     return future;
 }
 
-pub const SleepError = error{UnsupportedClock} || UnexpectedError || Cancelable;
-
-pub fn sleep(io: Io, duration: Duration, clock: Clock) SleepError!void {
+/// Waits until a specified amount of time has passed on `clock`.
+///
+/// See also:
+/// * `Clock.Duration.sleep`
+/// * `Clock.Timestamp.wait`
+/// * `Timeout.sleep`
+pub fn sleep(io: Io, duration: Duration, clock: Clock) Cancelable!void {
     return io.vtable.sleep(io.userdata, .{ .duration = .{
         .raw = duration,
         .clock = clock,
@@ -2237,8 +2185,7 @@ pub const LockedStderr = struct {
 
 /// For doing application-level writes to the standard error stream.
 /// Coordinates also with debug-level writes that are ignorant of Io interface
-/// and implementations. When this returns, `std.process.stderr_thread_mutex`
-/// will be locked.
+/// and implementations.
 ///
 /// See also:
 /// * `tryLockStderr`
@@ -2300,5 +2247,7 @@ test {
     _ = Writer;
     _ = Evented;
     _ = Threaded;
+    _ = RwLock;
+    _ = Semaphore;
     _ = @import("Io/test.zig");
 }

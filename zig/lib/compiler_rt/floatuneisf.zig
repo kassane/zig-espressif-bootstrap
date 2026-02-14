@@ -1,10 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const floatFromBigInt = @import("float_from_int.zig").floatFromBigInt;
 
 comptime {
-    @export(&__floatuneisf, .{ .name = "__floatuneisf", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__floatuneisf, "__floatuneisf");
 }
 
 pub fn __floatuneisf(a: [*]const u8, bits: usize) callconv(.c) f32 {

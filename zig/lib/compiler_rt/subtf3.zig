@@ -1,13 +1,14 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const addf3 = @import("./addf3.zig").addf3;
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(&__subtf3, .{ .name = "__subkf3", .linkage = common.linkage, .visibility = common.visibility });
-    } else if (common.want_sparc_abi) {
-        @export(&_Qp_sub, .{ .name = "_Qp_sub", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&__subtf3, "__subkf3");
+    } else if (compiler_rt.want_sparc_abi) {
+        symbol(&_Qp_sub, "_Qp_sub");
     }
-    @export(&__subtf3, .{ .name = "__subtf3", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__subtf3, "__subtf3");
 }
 
 pub fn __subtf3(a: f128, b: f128) callconv(.c) f128 {

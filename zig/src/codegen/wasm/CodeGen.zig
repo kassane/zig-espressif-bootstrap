@@ -2137,10 +2137,9 @@ fn airRetLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
 fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) InnerError!void {
     if (modifier == .always_tail) return cg.fail("TODO implement tail calls for wasm", .{});
-    const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const extra = cg.air.extraData(Air.Call, pl_op.payload);
-    const args: []const Air.Inst.Ref = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.args_len]);
-    const ty = cg.typeOf(pl_op.operand);
+    const call = cg.air.unwrapCall(inst);
+    const args = call.args;
+    const ty = cg.typeOf(call.callee);
 
     const pt = cg.pt;
     const zcu = pt.zcu;
@@ -2155,7 +2154,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
     const first_param_sret = firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), zcu, cg.target);
 
     const callee: ?InternPool.Nav.Index = blk: {
-        const func_val = (try cg.air.value(pl_op.operand, pt)) orelse break :blk null;
+        const func_val = (try cg.air.value(call.callee, pt)) orelse break :blk null;
 
         switch (ip.indexToKey(func_val.toIntern())) {
             inline .func, .@"extern" => |x| break :blk x.owner_nav,
@@ -2189,7 +2188,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
         // in this case we call a function pointer
         // so load its value onto the stack
         assert(ty.zigTypeTag(zcu) == .pointer);
-        const operand = try cg.resolveInst(pl_op.operand);
+        const operand = try cg.resolveInst(call.callee);
         try cg.emitWValue(operand);
 
         try cg.mir_func_tys.put(cg.gpa, fn_ty.toIntern(), {});
@@ -2233,7 +2232,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
     };
 
     var bt = try cg.iterateBigTomb(inst, 1 + args.len);
-    bt.feed(pl_op.operand);
+    bt.feed(call.callee);
     for (args) |arg| bt.feed(arg);
     return bt.finishAir(result_value);
 }
@@ -3335,9 +3334,8 @@ fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
 }
 
 fn airBlock(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = cg.air.extraData(Air.Block, ty_pl.payload);
-    try cg.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]));
+    const block = cg.air.unwrapBlock(inst);
+    try cg.lowerBlock(inst, block.ty, block.body);
 }
 
 fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, block_ty: Type, body: []const Air.Inst.Index) InnerError!void {
@@ -3381,9 +3379,7 @@ fn endBlock(cg: *CodeGen) !void {
 }
 
 fn airLoop(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const loop = cg.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[loop.end..][0..loop.data.body_len]);
+    const block = cg.air.unwrapBlock(inst);
 
     // result type of loop is always 'noreturn', meaning we can always
     // emit the wasm type 'block_empty'.
@@ -3392,18 +3388,17 @@ fn airLoop(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try cg.loops.putNoClobber(cg.gpa, inst, cg.block_depth);
     defer assert(cg.loops.remove(inst));
 
-    try cg.genBody(body);
+    try cg.genBody(block.body);
     try cg.endBlock();
 
     return cg.finishAir(inst, .none, &.{});
 }
 
 fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const condition = try cg.resolveInst(pl_op.operand);
-    const extra = cg.air.extraData(Air.CondBr, pl_op.payload);
-    const then_body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.then_body_len]);
-    const else_body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+    const cond_br = cg.air.unwrapCondBr(inst);
+    const condition = try cg.resolveInst(cond_br.condition);
+    const then_body = cond_br.then_body;
+    const else_body = cond_br.else_body;
     const liveness_condbr = cg.liveness.getCondBr(inst);
 
     // result type is always noreturn, so use `block_empty` as type.
@@ -6423,10 +6418,9 @@ fn airDbgStmt(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airDbgInlineBlock(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = cg.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
+    const block = cg.air.unwrapDbgBlock(inst);
     // TODO
-    try cg.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]));
+    try cg.lowerBlock(inst, block.ty, block.body);
 }
 
 fn airDbgVar(
@@ -6441,24 +6435,22 @@ fn airDbgVar(
 }
 
 fn airTry(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const err_union = try cg.resolveInst(pl_op.operand);
-    const extra = cg.air.extraData(Air.Try, pl_op.payload);
-    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]);
-    const err_union_ty = cg.typeOf(pl_op.operand);
+    const unwrapped_try = cg.air.unwrapTry(inst);
+    const body = unwrapped_try.else_body;
+    const err_union = try cg.resolveInst(unwrapped_try.error_union);
+    const err_union_ty = cg.typeOf(unwrapped_try.error_union);
     const result = try lowerTry(cg, inst, err_union, body, err_union_ty, false);
-    return cg.finishAir(inst, result, &.{pl_op.operand});
+    return cg.finishAir(inst, result, &.{unwrapped_try.error_union});
 }
 
 fn airTryPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const zcu = cg.pt.zcu;
-    const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = cg.air.extraData(Air.TryPtr, ty_pl.payload);
-    const err_union_ptr = try cg.resolveInst(extra.data.ptr);
-    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]);
-    const err_union_ty = cg.typeOf(extra.data.ptr).childType(zcu);
+    const unwrapped_try = cg.air.unwrapTryPtr(inst);
+    const err_union_ptr = try cg.resolveInst(unwrapped_try.error_union_ptr);
+    const body = unwrapped_try.else_body;
+    const err_union_ty = cg.typeOf(unwrapped_try.error_union_ptr).childType(zcu);
     const result = try lowerTry(cg, inst, err_union_ptr, body, err_union_ty, true);
-    return cg.finishAir(inst, result, &.{extra.data.ptr});
+    return cg.finishAir(inst, result, &.{unwrapped_try.error_union_ptr});
 }
 
 fn lowerTry(

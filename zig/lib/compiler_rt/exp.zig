@@ -4,25 +4,28 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/expf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/exp.c
 
-const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
+
+const std = @import("std");
 const math = std.math;
 const mem = std.mem;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
-const common = @import("common.zig");
+
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 
 comptime {
-    @export(&__exph, .{ .name = "__exph", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&expf, .{ .name = "expf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&exp, .{ .name = "exp", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__expx, .{ .name = "__expx", .linkage = common.linkage, .visibility = common.visibility });
-    if (common.want_ppc_abi) {
-        @export(&expq, .{ .name = "expf128", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__exph, "__exph");
+    symbol(&expf, "expf");
+    symbol(&exp, "exp");
+    symbol(&__expx, "__expx");
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&expq, "expf128");
     }
-    @export(&expq, .{ .name = "expq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&expl, .{ .name = "expl", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&expq, "expq");
+    symbol(&expl, "expl");
 }
 
 pub fn __exph(a: f16) callconv(.c) f16 {
@@ -58,7 +61,7 @@ pub fn expf(x_: f32) callconv(.c) f32 {
             return x * 0x1.0p127;
         }
         if (sign != 0) {
-            if (common.want_float_exceptions) mem.doNotOptimizeAway(-0x1.0p-149 / x); // overflow
+            if (compiler_rt.want_float_exceptions) mem.doNotOptimizeAway(-0x1.0p-149 / x); // overflow
             // x <= -103.972084
             if (hx >= 0x42CFF1B5) {
                 return 0;
@@ -90,7 +93,7 @@ pub fn expf(x_: f32) callconv(.c) f32 {
         hi = x;
         lo = 0;
     } else {
-        if (common.want_float_exceptions) mem.doNotOptimizeAway(0x1.0p127 + x); // inexact
+        if (compiler_rt.want_float_exceptions) mem.doNotOptimizeAway(0x1.0p127 + x); // inexact
         return 1 + x;
     }
 
@@ -134,11 +137,11 @@ pub fn exp(x_: f64) callconv(.c) f64 {
         }
         if (x > 709.782712893383973096) {
             // overflow if x != inf
-            return if (common.want_float_exceptions) x * 0x1p1023 else std.math.inf(f64);
+            return if (compiler_rt.want_float_exceptions) x * 0x1p1023 else std.math.inf(f64);
         }
         if (x < -708.39641853226410622) {
             // underflow if x != -inf
-            if (common.want_float_exceptions) mem.doNotOptimizeAway(-0x0.0000000000001p-1022 / x);
+            if (compiler_rt.want_float_exceptions) mem.doNotOptimizeAway(-0x0.0000000000001p-1022 / x);
             if (x < -745.13321910194110842) {
                 return 0;
             }
@@ -171,7 +174,7 @@ pub fn exp(x_: f64) callconv(.c) f64 {
         lo = 0;
     } else {
         // inexact if x != 0
-        if (common.want_float_exceptions) mem.doNotOptimizeAway(0x1.0p1023 + x);
+        if (compiler_rt.want_float_exceptions) mem.doNotOptimizeAway(0x1.0p1023 + x);
         return 1 + x;
     }
 

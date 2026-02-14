@@ -31,9 +31,10 @@ typedef struct sigcontext
 	unsigned long pc;
 	unsigned long cause;
 	unsigned long badva;
+	unsigned long cs0;
+	unsigned long cs1;
 	unsigned long pad1;
-	unsigned long long pad2;
-} mcontext_t;
+} __attribute__((__aligned__(8))) mcontext_t;
 #else
 typedef struct {
 	unsigned long __regs[48];
@@ -61,7 +62,6 @@ typedef struct __ucontext {
 #define SA_RESTART    0x10000000
 #define SA_NODEFER    0x40000000
 #define SA_RESETHAND  0x80000000
-#define SA_RESTORER   0x04000000
 
 #endif
 

@@ -1,8 +1,9 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const absv = @import("./absv.zig").absv;
 
 comptime {
-    @export(&__absvsi2, .{ .name = "__absvsi2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__absvsi2, "__absvsi2");
 }
 
 pub fn __absvsi2(a: i32) callconv(.c) i32 {

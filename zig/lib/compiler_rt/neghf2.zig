@@ -1,9 +1,0 @@
-const common = @import("./common.zig");
-
-comptime {
-    @export(&__neghf2, .{ .name = "__neghf2", .linkage = common.linkage, .visibility = common.visibility });
-}
-
-fn __neghf2(a: f16) callconv(.c) f16 {
-    return common.fneg(a);
-}

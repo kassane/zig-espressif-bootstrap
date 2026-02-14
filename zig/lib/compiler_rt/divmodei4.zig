@@ -1,14 +1,16 @@
-const std = @import("std");
 const builtin = @import("builtin");
-const common = @import("common.zig");
+const endian = builtin.cpu.arch.endian();
+
+const std = @import("std");
+
+const compiler_rt = @import("../compiler_rt.zig");
 const udivmod = @import("udivmodei4.zig").divmod;
+const symbol = @import("../compiler_rt.zig").symbol;
 
 comptime {
-    @export(&__divei4, .{ .name = "__divei4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__modei4, .{ .name = "__modei4", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__divei4, "__divei4");
+    symbol(&__modei4, "__modei4");
 }
-
-const endian = builtin.cpu.arch.endian();
 
 inline fn limb(x: []u32, i: usize) *u32 {
     return if (endian == .little) &x[i] else &x[x.len - 1 - i];
@@ -34,7 +36,7 @@ fn divmod(q: ?[]u32, r: ?[]u32, u: []u32, v: []u32) !void {
 }
 
 pub fn __divei4(q_p: [*]u8, u_p: [*]u8, v_p: [*]u8, bits: usize) callconv(.c) void {
-    @setRuntimeSafety(common.test_safety);
+    @setRuntimeSafety(compiler_rt.test_safety);
     const byte_size = std.zig.target.intByteSize(&builtin.target, @intCast(bits));
     const q: []u32 = @ptrCast(@alignCast(q_p[0..byte_size]));
     const u: []u32 = @ptrCast(@alignCast(u_p[0..byte_size]));
@@ -43,7 +45,7 @@ pub fn __divei4(q_p: [*]u8, u_p: [*]u8, v_p: [*]u8, bits: usize) callconv(.c) vo
 }
 
 pub fn __modei4(r_p: [*]u8, u_p: [*]u8, v_p: [*]u8, bits: usize) callconv(.c) void {
-    @setRuntimeSafety(common.test_safety);
+    @setRuntimeSafety(compiler_rt.test_safety);
     const byte_size = std.zig.target.intByteSize(&builtin.target, @intCast(bits));
     const r: []u32 = @ptrCast(@alignCast(r_p[0..byte_size]));
     const u: []u32 = @ptrCast(@alignCast(u_p[0..byte_size]));

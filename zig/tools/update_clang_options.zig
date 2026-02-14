@@ -676,7 +676,6 @@ pub fn main(init: std.process.Init) !void {
 
     const child_result = try std.process.run(arena, io, .{
         .argv = &child_args,
-        .max_output_bytes = 100 * 1024 * 1024,
     });
 
     std.debug.print("{s}\n", .{child_result.stderr});

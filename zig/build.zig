@@ -13,6 +13,7 @@ const DevEnv = @import("src/dev.zig").Env;
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 16, .patch = 0 };
 const stack_size = 46 * 1024 * 1024;
 
+const IoMode = enum { threaded, evented };
 const ValueInterpretMode = enum { direct, by_name };
 
 pub fn build(b: *std.Build) !void {
@@ -29,7 +30,7 @@ pub fn build(b: *std.Build) !void {
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
     const test_step = b.step("test", "Run all the tests");
-    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse false;
+    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse only_c;
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
     const std_docs = b.option(bool, "std-docs", "include standard library autodocs") orelse false;
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
@@ -188,6 +189,7 @@ pub fn build(b: *std.Build) !void {
     const strip = b.option(bool, "strip", "Omit debug information");
     const valgrind = b.option(bool, "valgrind", "Enable valgrind integration");
     const pie = b.option(bool, "pie", "Produce a Position Independent Executable");
+    const io_mode = b.option(IoMode, "io-mode", "How the compiler performs IO") orelse .threaded;
     const value_interpret_mode = b.option(ValueInterpretMode, "value-interpret-mode", "How the compiler translates between 'std.builtin' types and its internal datastructures") orelse .direct;
     const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
 
@@ -236,6 +238,7 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     exe_options.addOption(bool, "debug_gpa", debug_gpa);
     exe_options.addOption(DevEnv, "dev", b.option(DevEnv, "dev", "Build a compiler with a reduced feature set for development of specific features") orelse if (only_c) .bootstrap else .full);
+    exe_options.addOption(IoMode, "io_mode", io_mode);
     exe_options.addOption(ValueInterpretMode, "value_interpret_mode", value_interpret_mode);
 
     if (link_libc) {
@@ -367,14 +370,22 @@ pub fn build(b: *std.Build) !void {
             &[_][]const u8{ tracy_path, "public", "TracyClient.cpp" },
         );
 
-        const tracy_c_flags: []const []const u8 = &.{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
+        const tracy_c_flags: []const []const u8 = &.{
+            "-DTRACY_ENABLE=1",
+            "-fno-sanitize=undefined",
+            "-DTRACY_FIBERS",
+        };
 
         exe.root_module.addIncludePath(.{ .cwd_relative = tracy_path });
-        exe.root_module.addCSourceFile(.{ .file = .{ .cwd_relative = client_cpp }, .flags = tracy_c_flags });
-        if (!enable_llvm) {
-            exe.root_module.linkSystemLibrary("c++", .{ .use_pkg_config = .no });
-        }
+        exe.root_module.addCSourceFile(.{
+            .file = .{ .cwd_relative = client_cpp },
+            .flags = tracy_c_flags[0..switch (io_mode) {
+                .threaded => 2,
+                .evented => 3,
+            }],
+        });
         exe.root_module.link_libc = true;
+        exe.root_module.link_libcpp = true;
 
         if (target.result.os.tag == .windows) {
             exe.root_module.linkSystemLibrary("dbghelp", .{});
@@ -472,27 +483,7 @@ pub fn build(b: *std.Build) !void {
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-        .max_rss = switch (b.graph.host.result.os.tag) {
-            .freebsd => 2_000_000_000,
-            .linux => switch (b.graph.host.result.cpu.arch) {
-                .aarch64 => 659_809_075,
-                .loongarch64 => 598_902_374,
-                .powerpc64le => 627_431_833,
-                .riscv64 => 827_043_430,
-                .s390x => 580_596_121,
-                .x86_64 => 3_290_894_745,
-                else => 3_300_000_000,
-            },
-            .macos => switch (b.graph.host.result.cpu.arch) {
-                .aarch64 => 767_736_217,
-                else => 800_000_000,
-            },
-            .windows => switch (b.graph.host.result.cpu.arch) {
-                .x86_64 => 603_070_054,
-                else => 700_000_000,
-            },
-            else => 3_300_000_000,
-        },
+        .max_rss = 3_500_000_000,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
@@ -518,23 +509,7 @@ pub fn build(b: *std.Build) !void {
         .skip_llvm = skip_llvm,
         .skip_libc = true,
         .no_builtin = true,
-        .max_rss = switch (b.graph.host.result.os.tag) {
-            .freebsd => 800_000_000,
-            .linux => switch (b.graph.host.result.cpu.arch) {
-                .aarch64 => 639_565_414,
-                .loongarch64 => 598_884_352,
-                .powerpc64le => 597_897_625,
-                .riscv64 => 636_429_516,
-                .s390x => 574_166_630,
-                .x86_64 => 978_463_129,
-                else => 900_000_000,
-            },
-            .macos => switch (b.graph.host.result.cpu.arch) {
-                .aarch64 => 701_413_785,
-                else => 800_000_000,
-            },
-            else => 900_000_000,
-        },
+        .max_rss = 2_000_000_000,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
@@ -543,7 +518,7 @@ pub fn build(b: *std.Build) !void {
         .test_extra_targets = test_extra_targets,
         .root_src = "lib/c.zig",
         .name = "zigc",
-        .desc = "Run the zigc tests",
+        .desc = "Run the zig libc implementation unit tests",
         .optimize_modes = optimization_modes,
         .include_paths = &.{},
         .skip_single_threaded = true,
@@ -560,7 +535,7 @@ pub fn build(b: *std.Build) !void {
         .skip_llvm = skip_llvm,
         .skip_libc = true,
         .no_builtin = true,
-        .max_rss = 900_000_000,
+        .max_rss = 4_000_000_000,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
@@ -585,22 +560,7 @@ pub fn build(b: *std.Build) !void {
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-        .max_rss = switch (b.graph.host.result.os.tag) {
-            .freebsd => switch (b.graph.host.result.cpu.arch) {
-                .x86_64 => 3_756_422_348,
-                else => 3_800_000_000,
-            },
-            .linux => 6_800_000_000,
-            .macos => switch (b.graph.host.result.cpu.arch) {
-                .aarch64 => 8_273_795_481,
-                else => 8_300_000_000,
-            },
-            .windows => switch (b.graph.host.result.cpu.arch) {
-                .x86_64 => 3_750_236_160,
-                else => 3_800_000_000,
-            },
-            else => 8_300_000_000,
-        },
+        .max_rss = 8_500_000_000,
     }));
 
     const unit_tests_step = b.step("test-unit", "Run the compiler source unit tests");
@@ -643,30 +603,7 @@ pub fn build(b: *std.Build) !void {
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
         .skip_release = skip_release,
-        .max_rss = switch (b.graph.host.result.os.tag) {
-            .freebsd => switch (b.graph.host.result.cpu.arch) {
-                .x86_64 => 727_221_862,
-                else => 800_000_000,
-            },
-            .linux => switch (b.graph.host.result.cpu.arch) {
-                .aarch64 => 1_318_185_369,
-                .loongarch64 => 1_422_904_524,
-                .powerpc64le => 560_870_604,
-                .riscv64 => 449_924_710,
-                .s390x => 1_946_743_603,
-                .x86_64 => 2_389_779_251,
-                else => 2_200_000_000,
-            },
-            .macos => switch (b.graph.host.result.cpu.arch) {
-                .aarch64 => 1_813_612_134,
-                else => 1_900_000_000,
-            },
-            .windows => switch (b.graph.host.result.cpu.arch) {
-                .x86_64 => 386_287_616,
-                else => 400_000_000,
-            },
-            else => 2_200_000_000,
-        },
+        .max_rss = 3_000_000_000,
     }));
     test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, enable_symlinks_windows));
     test_step.dependOn(tests.addStackTraceTests(b, test_filters, skip_non_native));
@@ -717,7 +654,7 @@ pub fn build(b: *std.Build) !void {
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
         .skip_wasm = skip_wasm,
-        .max_rss = 2_496_066_355,
+        .max_rss = 3_500_000_000,
     })) |test_libc_step| test_step.dependOn(test_libc_step);
 }
 
@@ -751,6 +688,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(u32, "tracy_callstack_depth", 0);
     exe_options.addOption(bool, "value_tracing", false);
     exe_options.addOption(DevEnv, "dev", .bootstrap);
+    exe_options.addOption(IoMode, "io_mode", .threaded);
 
     // zig1 chooses to interpret values by name. The tradeoff is as follows:
     //
@@ -1534,6 +1472,7 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
     defer dir.close(io);
 
     var wf = b.addWriteFiles();
+    b.step("test-docs", "Test code snippets from the docs").dependOn(&wf.step);
 
     var it = dir.iterateAssumeFirstIteration();
     while (it.next(io) catch @panic("failed to read dir")) |entry| {

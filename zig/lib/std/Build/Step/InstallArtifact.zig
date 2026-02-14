@@ -187,7 +187,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                     const full_dest_path = b.pathJoin(&.{ full_h_prefix, entry.path });
                     switch (entry.kind) {
                         .directory => {
-                            try Step.handleVerbose(b, null, &.{ "install", "-d", full_dest_path });
+                            try Step.handleVerbose(b, .inherit, &.{ "install", "-d", full_dest_path });
                             const p = try step.installDir(full_dest_path);
                             all_cached = all_cached and p == .existed;
                         },

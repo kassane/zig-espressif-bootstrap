@@ -504,25 +504,25 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         }
 
         /// The number of items in the map.
-        pub fn count(self: Self) usize {
+        pub fn count(self: *const Self) usize {
             return self.bits.count();
         }
 
         /// Checks if the map contains an item.
-        pub fn contains(self: Self, key: Key) bool {
+        pub fn contains(self: *const Self, key: Key) bool {
             return self.bits.isSet(Indexer.indexOf(key));
         }
 
         /// Gets the value associated with a key.
         /// If the key is not in the map, returns null.
-        pub fn get(self: Self, key: Key) ?Value {
+        pub fn get(self: *const Self, key: Key) ?Value {
             const index = Indexer.indexOf(key);
             return if (self.bits.isSet(index)) self.values[index] else null;
         }
 
         /// Gets the value associated with a key, which must
         /// exist in the map.
-        pub fn getAssertContains(self: Self, key: Key) Value {
+        pub fn getAssertContains(self: *const Self, key: Key) Value {
             const index = Indexer.indexOf(key);
             assert(self.bits.isSet(index));
             return self.values[index];

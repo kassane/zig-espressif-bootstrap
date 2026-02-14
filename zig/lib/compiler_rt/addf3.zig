@@ -1,7 +1,7 @@
 const std = @import("std");
 const math = std.math;
-const common = @import("./common.zig");
-const normalize = common.normalize;
+const compiler_rt = @import("../compiler_rt.zig");
+const normalize = compiler_rt.normalize;
 
 /// Ported from:
 ///

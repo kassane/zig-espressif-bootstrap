@@ -5,11 +5,6 @@
 #include "dynlink.h"
 #include "atomic.h"
 
-#define malloc __libc_malloc
-#define calloc __libc_calloc
-#define realloc __libc_realloc
-#define free __libc_free
-
 char *dlerror()
 {
 	pthread_t self = __pthread_self();

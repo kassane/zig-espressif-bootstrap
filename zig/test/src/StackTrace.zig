@@ -55,7 +55,7 @@ fn addCaseTarget(
         };
     };
     const both_pie = switch (target.result.os.tag) {
-        .fuchsia, .openbsd => false,
+        .fuchsia => false,
         else => true,
     };
     const both_libc = switch (target.result.os.tag) {
@@ -63,8 +63,30 @@ fn addCaseTarget(
         else => !target.result.requiresLibC(),
     };
 
-    // On aarch64-macos, FP unwinding is blessed by Apple to always be reliable, and std.debug knows this.
-    const fp_unwind_is_safe = target.result.cpu.arch == .aarch64 and target.result.os.tag.isDarwin();
+    // See `std.debug.StackIterator.fp_usability` logic.
+    const fp_usability: enum { useless, unsafe, safe, ideal } = switch (target.result.cpu.arch) {
+        .alpha,
+        .csky,
+        .microblaze,
+        .microblazeel,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .sh,
+        .sheb,
+        => .useless,
+        .hexagon,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .sparc,
+        .sparc64,
+        => .ideal,
+        .aarch64 => if (target.result.os.tag.isDarwin()) .safe else .unsafe,
+        else => .unsafe,
+    };
     const supports_unwind_tables = switch (target.result.os.tag) {
         // x86-windows just has no way to do stack unwinding other then using frame pointers.
         .windows => target.result.cpu.arch != .x86,
@@ -86,10 +108,24 @@ fn addCaseTarget(
         const only_fp: @This() = .{ .tables = false, .fp = true };
     };
     const unwind_info_vals: []const UnwindInfo = switch (config.unwind) {
-        .none => &.{.none},
-        .any => &.{ .only_tables, .only_fp, .both },
-        .safe => if (fp_unwind_is_safe) &.{ .only_tables, .only_fp, .both } else &.{ .only_tables, .both },
-        .no_safe => if (fp_unwind_is_safe) &.{.none} else &.{ .none, .only_fp },
+        .none => switch (fp_usability) {
+            .useless => &.{ .none, .only_fp },
+            .unsafe, .safe => &.{.none},
+            .ideal => &.{},
+        },
+        .any => switch (fp_usability) {
+            .useless => &.{ .only_tables, .both },
+            .unsafe, .safe, .ideal => &.{ .only_tables, .only_fp, .both },
+        },
+        .safe => switch (fp_usability) {
+            .useless, .unsafe => &.{ .only_tables, .both },
+            .safe, .ideal => &.{ .only_tables, .only_fp, .both },
+        },
+        .no_safe => switch (fp_usability) {
+            .useless, .unsafe => &.{ .none, .only_fp },
+            .safe => &.{.none},
+            .ideal => &.{},
+        },
     };
 
     for (use_llvm_vals) |use_llvm| {

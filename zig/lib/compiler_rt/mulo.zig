@@ -1,12 +1,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const math = std.math;
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 comptime {
-    @export(&__mulosi4, .{ .name = "__mulosi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__mulodi4, .{ .name = "__mulodi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__muloti4, .{ .name = "__muloti4", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__mulosi4, "__mulosi4");
+    symbol(&__mulodi4, "__mulodi4");
+    symbol(&__muloti4, "__muloti4");
 }
 
 // mulo - multiplication overflow

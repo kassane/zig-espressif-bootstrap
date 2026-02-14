@@ -1,11 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 comptime {
-    @export(&__bitreversesi2, .{ .name = "__bitreversesi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__bitreversedi2, .{ .name = "__bitreversedi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__bitreverseti2, .{ .name = "__bitreverseti2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__bitreversesi2, "__bitreversesi2");
+    symbol(&__bitreversedi2, "__bitreversedi2");
+    symbol(&__bitreverseti2, "__bitreverseti2");
 }
 
 inline fn bitreverseXi2(comptime T: type, a: T) T {

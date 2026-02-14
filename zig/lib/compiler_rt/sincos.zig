@@ -6,18 +6,19 @@ const mem = std.mem;
 const trig = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 comptime {
-    @export(&__sincosh, .{ .name = "__sincosh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&sincosf, .{ .name = "sincosf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&sincos, .{ .name = "sincos", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__sincosx, .{ .name = "__sincosx", .linkage = common.linkage, .visibility = common.visibility });
-    if (common.want_ppc_abi) {
-        @export(&sincosq, .{ .name = "sincosf128", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__sincosh, "__sincosh");
+    symbol(&sincosf, "sincosf");
+    symbol(&sincos, "sincos");
+    symbol(&__sincosx, "__sincosx");
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&sincosq, "sincosf128");
     }
-    @export(&sincosq, .{ .name = "sincosq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&sincosl, .{ .name = "sincosl", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&sincosq, "sincosq");
+    symbol(&sincosl, "sincosl");
 }
 
 pub fn __sincosh(x: f16, r_sin: *f16, r_cos: *f16) callconv(.c) void {
@@ -44,7 +45,7 @@ pub fn sincosf(x: f32, r_sin: *f32, r_cos: *f32) callconv(.c) void {
         // |x| < 2**-12
         if (ix < 0x39800000) {
             // raise inexact if x!=0 and underflow if subnormal
-            if (common.want_float_exceptions) {
+            if (compiler_rt.want_float_exceptions) {
                 if (ix < 0x00100000) {
                     mem.doNotOptimizeAway(x / 0x1p120);
                 } else {
@@ -138,7 +139,7 @@ pub fn sincos(x: f64, r_sin: *f64, r_cos: *f64) callconv(.c) void {
         // if |x| < 2**-27 * sqrt(2)
         if (ix < 0x3e46a09e) {
             // raise inexact if x != 0 and underflow if subnormal
-            if (common.want_float_exceptions) {
+            if (compiler_rt.want_float_exceptions) {
                 if (ix < 0x00100000) {
                     mem.doNotOptimizeAway(x / 0x1p120);
                 } else {
@@ -242,7 +243,7 @@ inline fn sincos_generic(comptime F: type, x: F, r_sin: *F, r_cos: *F) void {
         if (se < 0x3fff - math.floatFractionalBits(F) - 1) {
             // raise underflow if subnormal
             if (se == 0) {
-                if (common.want_float_exceptions) mem.doNotOptimizeAway(x * 0x1p-120);
+                if (compiler_rt.want_float_exceptions) mem.doNotOptimizeAway(x * 0x1p-120);
             }
             r_sin.* = x;
             // raise inexact if x!=0

@@ -1745,29 +1745,32 @@ test "open file with exclusive lock twice, make sure second lock waits" {
             errdefer file.close(io);
 
             const S = struct {
-                fn checkFn(inner_ctx: *TestContext, path: []const u8, started: *std.Thread.ResetEvent, locked: *std.Thread.ResetEvent) !void {
-                    started.set();
+                fn checkFn(inner_ctx: *TestContext, path: []const u8, started: *Io.Event, locked: *Io.Event) !void {
+                    started.set(inner_ctx.io);
                     const file1 = try inner_ctx.dir.createFile(inner_ctx.io, path, .{ .lock = .exclusive });
 
-                    locked.set();
+                    locked.set(inner_ctx.io);
                     file1.close(inner_ctx.io);
                 }
             };
 
-            var started: std.Thread.ResetEvent = .unset;
-            var locked: std.Thread.ResetEvent = .unset;
+            var started: Io.Event = .unset;
+            var locked: Io.Event = .unset;
 
             const t = try std.Thread.spawn(.{}, S.checkFn, .{ ctx, filename, &started, &locked });
             defer t.join();
 
             // Wait for the spawned thread to start trying to acquire the exclusive file lock.
             // Then wait a bit to make sure that can't acquire it since we currently hold the file lock.
-            started.wait();
-            try expectError(error.Timeout, locked.timedWait(10 * std.time.ns_per_ms));
+            try started.wait(io);
+            try expectError(error.Timeout, locked.waitTimeout(io, .{ .duration = .{
+                .raw = .fromMilliseconds(10),
+                .clock = .awake,
+            } }));
 
             // Release the file lock which should unlock the thread to lock it and set the locked event.
             file.close(io);
-            locked.wait();
+            try locked.wait(io);
         }
     }.impl);
 }
@@ -1787,7 +1790,7 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
 
     const gpa = testing.allocator;
 
-    const cwd = try std.process.getCwdAlloc(gpa);
+    const cwd = try std.process.currentPathAlloc(io, gpa);
     defer gpa.free(cwd);
 
     const filename = try Dir.path.resolve(gpa, &.{ cwd, sub_path });

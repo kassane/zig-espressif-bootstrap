@@ -16,9 +16,9 @@ fn testArgv(expected_args: []const [*:0]const u16) !void {
     defer arena_state.deinit();
     const allocator = arena_state.allocator();
 
-    const cmd_line = std.os.windows.peb().ProcessParameters.CommandLine;
-    const cmd_line_w = cmd_line.Buffer.?[0..@divExact(cmd_line.Length, 2)];
-    const raw_args: std.process.Args = .{ .vector = cmd_line_w };
+    const raw_args: std.process.Args = .{
+        .vector = std.os.windows.peb().ProcessParameters.CommandLine.slice(),
+    };
     const args = try raw_args.toSlice(allocator);
     var wtf8_buf = std.array_list.Managed(u8).init(allocator);
 

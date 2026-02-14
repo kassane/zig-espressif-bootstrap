@@ -1987,7 +1987,6 @@ fn processOneTarget(io: Io, job: Job) void {
 
         const child_result = try std.process.run(arena, io, .{
             .argv = &child_args,
-            .max_output_bytes = 500 * 1024 * 1024,
         });
         tblgen_progress.end();
         if (child_result.stderr.len != 0) {

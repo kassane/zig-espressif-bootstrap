@@ -2,6 +2,7 @@ const std = @import("../../std.zig");
 const windows = std.os.windows;
 
 const ACCESS_MASK = windows.ACCESS_MASK;
+const ANSI_STRING = windows.ANSI_STRING;
 const BOOL = windows.BOOL;
 const BOOLEAN = windows.BOOLEAN;
 const CONDITION_VARIABLE = windows.CONDITION_VARIABLE;
@@ -9,6 +10,7 @@ const CONTEXT = windows.CONTEXT;
 const CRITICAL_SECTION = windows.CRITICAL_SECTION;
 const CTL_CODE = windows.CTL_CODE;
 const CURDIR = windows.CURDIR;
+const DIRECTORY = windows.DIRECTORY;
 const DWORD = windows.DWORD;
 const DWORD64 = windows.DWORD64;
 const ERESOURCE = windows.ERESOURCE;
@@ -22,18 +24,19 @@ const IO_APC_ROUTINE = windows.IO_APC_ROUTINE;
 const IO_STATUS_BLOCK = windows.IO_STATUS_BLOCK;
 const KNONVOLATILE_CONTEXT_POINTERS = windows.KNONVOLATILE_CONTEXT_POINTERS;
 const LARGE_INTEGER = windows.LARGE_INTEGER;
+const LDR = windows.LDR;
 const LOGICAL = windows.LOGICAL;
 const LONG = windows.LONG;
 const LPCVOID = windows.LPCVOID;
 const LPVOID = windows.LPVOID;
 const MEM = windows.MEM;
 const NTSTATUS = windows.NTSTATUS;
-const OBJECT_ATTRIBUTES = windows.OBJECT_ATTRIBUTES;
-const OBJECT_INFORMATION_CLASS = windows.OBJECT_INFORMATION_CLASS;
+const OBJECT = windows.OBJECT;
 const PAGE = windows.PAGE;
 const PCWSTR = windows.PCWSTR;
-const PROCESSINFOCLASS = windows.PROCESSINFOCLASS;
+const PROCESS = windows.PROCESS;
 const PVOID = windows.PVOID;
+const PWSTR = windows.PWSTR;
 const RTL_OSVERSIONINFOW = windows.RTL_OSVERSIONINFOW;
 const RTL_QUERY_REGISTRY_TABLE = windows.RTL_QUERY_REGISTRY_TABLE;
 const RUNTIME_FUNCTION = windows.RUNTIME_FUNCTION;
@@ -41,8 +44,8 @@ const SEC = windows.SEC;
 const SECTION_INHERIT = windows.SECTION_INHERIT;
 const SIZE_T = windows.SIZE_T;
 const SRWLOCK = windows.SRWLOCK;
-const SYSTEM_INFORMATION_CLASS = windows.SYSTEM_INFORMATION_CLASS;
-const THREADINFOCLASS = windows.THREADINFOCLASS;
+const SYSTEM = windows.SYSTEM;
+const THREAD = windows.THREAD;
 const ULONG = windows.ULONG;
 const ULONG_PTR = windows.ULONG_PTR;
 const UNICODE_STRING = windows.UNICODE_STRING;
@@ -91,7 +94,7 @@ pub extern "ntdll" fn RtlCaptureContext(
 
 pub extern "ntdll" fn NtSetInformationThread(
     ThreadHandle: HANDLE,
-    ThreadInformationClass: THREADINFOCLASS,
+    ThreadInformationClass: THREAD.INFOCLASS,
     ThreadInformation: *const anyopaque,
     ThreadInformationLength: ULONG,
 ) callconv(.winapi) NTSTATUS;
@@ -99,7 +102,7 @@ pub extern "ntdll" fn NtSetInformationThread(
 pub extern "ntdll" fn NtCreateFile(
     FileHandle: *HANDLE,
     DesiredAccess: ACCESS_MASK,
-    ObjectAttributes: *const OBJECT_ATTRIBUTES,
+    ObjectAttributes: *const OBJECT.ATTRIBUTES,
     IoStatusBlock: *IO_STATUS_BLOCK,
     AllocationSize: ?*const LARGE_INTEGER,
     FileAttributes: FILE.ATTRIBUTE,
@@ -152,7 +155,7 @@ pub extern "ntdll" fn NtLockFile(
 pub extern "ntdll" fn NtOpenFile(
     FileHandle: *HANDLE,
     DesiredAccess: ACCESS_MASK,
-    ObjectAttributes: *const OBJECT_ATTRIBUTES,
+    ObjectAttributes: *const OBJECT.ATTRIBUTES,
     IoStatusBlock: *IO_STATUS_BLOCK,
     ShareAccess: FILE.SHARE,
     OpenOptions: FILE.MODE,
@@ -233,7 +236,7 @@ pub extern "ntdll" fn NtUnlockFile(
 
 pub extern "ntdll" fn NtQueryObject(
     Handle: HANDLE,
-    ObjectInformationClass: OBJECT_INFORMATION_CLASS,
+    ObjectInformationClass: OBJECT.INFORMATION_CLASS,
     ObjectInformation: ?PVOID,
     ObjectInformationLength: ULONG,
     ReturnLength: ?*ULONG,
@@ -246,7 +249,7 @@ pub extern "ntdll" fn NtClose(
 pub extern "ntdll" fn NtCreateSection(
     SectionHandle: *HANDLE,
     DesiredAccess: ACCESS_MASK,
-    ObjectAttributes: ?*const OBJECT_ATTRIBUTES,
+    ObjectAttributes: ?*const OBJECT.ATTRIBUTES,
     MaximumSize: ?*const LARGE_INTEGER,
     SectionPageProtection: PAGE,
     AllocationAttributes: SEC,
@@ -331,7 +334,7 @@ pub extern "ntdll" fn NtWaitForSingleObject(
 
 pub extern "ntdll" fn NtQueryInformationProcess(
     ProcessHandle: HANDLE,
-    ProcessInformationClass: PROCESSINFOCLASS,
+    ProcessInformationClass: PROCESS.INFOCLASS,
     ProcessInformation: *anyopaque,
     ProcessInformationLength: ULONG,
     ReturnLength: ?*ULONG,
@@ -339,14 +342,14 @@ pub extern "ntdll" fn NtQueryInformationProcess(
 
 pub extern "ntdll" fn NtQueryInformationThread(
     ThreadHandle: HANDLE,
-    ThreadInformationClass: THREADINFOCLASS,
+    ThreadInformationClass: THREAD.INFOCLASS,
     ThreadInformation: *anyopaque,
     ThreadInformationLength: ULONG,
     ReturnLength: ?*ULONG,
 ) callconv(.winapi) NTSTATUS;
 
 pub extern "ntdll" fn NtQuerySystemInformation(
-    SystemInformationClass: SYSTEM_INFORMATION_CLASS,
+    SystemInformationClass: SYSTEM.INFORMATION_CLASS,
     SystemInformation: PVOID,
     SystemInformationLength: ULONG,
     ReturnLength: ?*ULONG,
@@ -354,15 +357,99 @@ pub extern "ntdll" fn NtQuerySystemInformation(
 
 // ref none
 
+pub extern "ntdll" fn LdrAddRefDll(
+    Flags: ULONG,
+    DllHandle: PVOID,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn LdrLoadDll(
+    DllPath: ?PCWSTR,
+    DllCharacteristics: ?*const ULONG,
+    DllName: *const UNICODE_STRING,
+    DllHandle: *PVOID,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn LdrUnloadDll(
+    DllHandle: PVOID,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn LdrFindEntryForAddress(
+    DllHandle: PVOID,
+    Entry: **LDR.DATA_TABLE_ENTRY,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn LdrGetDllFullName(
+    DllHandle: ?PVOID,
+    FullDllName: *UNICODE_STRING,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn LdrGetDllPath(
+    DllName: PCWSTR,
+    Flags: LDR.LOAD,
+    DllPath: *PWSTR,
+    SearchPaths: *PWSTR,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn LdrGetDllHandle(
+    DllPath: ?PCWSTR,
+    DllCharacteristics: ?*const ULONG,
+    DllName: *const UNICODE_STRING,
+    DllHandle: *PVOID,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn LdrGetDllHandleByMapping(
+    BaseAddress: PVOID,
+    DllHandle: *PVOID,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn LdrGetDllHandleByName(
+    BaseDllName: *const UNICODE_STRING,
+    FullDllName: *const UNICODE_STRING,
+    DllHandle: *PVOID,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn LdrGetDllHandleEx(
+    Flags: LDR.GET_DLL_HANDLE_EX,
+    DllPath: ?PCWSTR,
+    DllCharacteristics: ?*const ULONG,
+    DllName: *const UNICODE_STRING,
+    DllHandle: *PVOID,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn LdrGetProcedureAddress(
+    DllHandle: PVOID,
+    ProcedureName: *const ANSI_STRING,
+    ProcedureNumber: ULONG,
+    ProcedureAddress: *PVOID,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn LdrGetProcedureAddressEx(
+    DllHandle: PVOID,
+    ProcedureName: *const ANSI_STRING,
+    ProcedureNumber: ULONG,
+    ProcedureAddress: *PVOID,
+    Flags: LDR.GET_PROCEDURE_ADDRESS,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn LdrGetProcedureAddressForCaller(
+    DllHandle: PVOID,
+    ProcedureName: *const ANSI_STRING,
+    ProcedureNumber: ULONG,
+    ProcedureAddress: *PVOID,
+    Flags: LDR.GET_PROCEDURE_ADDRESS,
+    CallerAddress: PVOID,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn LdrRegisterDllNotification(
+    Flags: LDR.DLL_NOTIFICATION.REGISTER,
+    NotificationFunction: *const LDR.DLL_NOTIFICATION.FUNCTION,
+    Context: ?PVOID,
+    Cookie: *LDR.DLL_NOTIFICATION.COOKIE,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn LdrUnregisterDllNotification(
+    Cookie: LDR.DLL_NOTIFICATION.COOKIE,
+) callconv(.winapi) NTSTATUS;
+
 pub extern "ntdll" fn NtQueryAttributesFile(
-    ObjectAttributes: *const OBJECT_ATTRIBUTES,
+    ObjectAttributes: *const OBJECT.ATTRIBUTES,
     FileAttributes: *FILE.BASIC_INFORMATION,
 ) callconv(.winapi) NTSTATUS;
 
 pub extern "ntdll" fn NtCreateEvent(
     EventHandle: *HANDLE,
     DesiredAccess: ACCESS_MASK,
-    ObjectAttributes: ?*const OBJECT_ATTRIBUTES,
+    ObjectAttributes: ?*const OBJECT.ATTRIBUTES,
     EventType: EVENT_TYPE,
     InitialState: BOOLEAN,
 ) callconv(.winapi) NTSTATUS;
@@ -374,7 +461,7 @@ pub extern "ntdll" fn NtSetEvent(
 pub extern "ntdll" fn NtCreateKeyedEvent(
     KeyedEventHandle: *HANDLE,
     DesiredAccess: ACCESS_MASK,
-    ObjectAttributes: ?*const OBJECT_ATTRIBUTES,
+    ObjectAttributes: ?*const OBJECT.ATTRIBUTES,
     Flags: ULONG,
 ) callconv(.winapi) NTSTATUS;
 pub extern "ntdll" fn NtReleaseKeyedEvent(
@@ -390,10 +477,57 @@ pub extern "ntdll" fn NtWaitForKeyedEvent(
     Timeout: ?*const LARGE_INTEGER,
 ) callconv(.winapi) NTSTATUS;
 
+pub extern "ntdll" fn NtCancelSynchronousIoFile(
+    ThreadHandle: HANDLE,
+    IoRequestToCancel: ?*IO_STATUS_BLOCK,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn NtCancelIoFile(
+    FileHandle: HANDLE,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn NtCancelIoFileEx(
+    FileHandle: HANDLE,
+    IoRequestToCancel: *const IO_STATUS_BLOCK,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+) callconv(.winapi) NTSTATUS;
+
+/// This function has been observed to return SUCCESS on timeout on Windows 10
+/// and TIMEOUT on Wine 10.0.
+///
+/// This function has been observed on Windows 11 such that positive interval
+/// is real time, which can cause waits to be interrupted by changing system
+/// time, however negative intervals are not affected by changes to system
+/// time.
+pub extern "ntdll" fn NtDelayExecution(
+    Alertable: BOOLEAN,
+    DelayInterval: *const LARGE_INTEGER,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn NtNotifyChangeDirectoryFileEx(
+    FileHandle: HANDLE,
+    Event: ?HANDLE,
+    ApcRoutine: ?*const IO_APC_ROUTINE,
+    ApcContext: ?*anyopaque,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+    Buffer: *anyopaque,
+    Length: ULONG,
+    CompletionFilter: FILE.NOTIFY.CHANGE,
+    WatchTree: BOOLEAN,
+    DirectoryNotifyInformationClass: DIRECTORY.NOTIFY_INFORMATION_CLASS,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn NtOpenThread(
+    ThreadHandle: *HANDLE,
+    DesiredAccess: ACCESS_MASK,
+    ObjectAttributes: *const OBJECT.ATTRIBUTES,
+    ClientId: *const windows.CLIENT_ID,
+) callconv(.winapi) NTSTATUS;
+
 pub extern "ntdll" fn NtCreateNamedPipeFile(
     FileHandle: *HANDLE,
     DesiredAccess: ACCESS_MASK,
-    ObjectAttributes: *const OBJECT_ATTRIBUTES,
+    ObjectAttributes: *const OBJECT.ATTRIBUTES,
     IoStatusBlock: *IO_STATUS_BLOCK,
     ShareAccess: FILE.SHARE,
     CreateDisposition: FILE.CREATE_DISPOSITION,
@@ -405,6 +539,11 @@ pub extern "ntdll" fn NtCreateNamedPipeFile(
     InboundQuota: ULONG,
     OutboundQuota: ULONG,
     DefaultTimeout: ?*const LARGE_INTEGER,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn NtFlushBuffersFile(
+    FileHandle: HANDLE,
+    IoStatusBlock: *IO_STATUS_BLOCK,
 ) callconv(.winapi) NTSTATUS;
 
 pub extern "ntdll" fn NtMapViewOfSection(
@@ -432,7 +571,7 @@ pub extern "ntdll" fn NtUnmapViewOfSectionEx(
 pub extern "ntdll" fn NtOpenKey(
     KeyHandle: *HANDLE,
     DesiredAccess: ACCESS_MASK,
-    ObjectAttributes: *const OBJECT_ATTRIBUTES,
+    ObjectAttributes: *const OBJECT.ATTRIBUTES,
 ) callconv(.winapi) NTSTATUS;
 
 pub extern "ntdll" fn NtQueueApcThread(
@@ -463,6 +602,19 @@ pub extern "ntdll" fn NtProtectVirtualMemory(
     NumberOfBytesToProtect: *SIZE_T,
     NewAccessProtection: PAGE,
     OldAccessProtection: *PAGE,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn NtWaitForAlertByThreadId(
+    Address: ?*const anyopaque,
+    Timeout: ?*const LARGE_INTEGER,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn NtAlertThreadByThreadId(ThreadId: DWORD) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn NtAlertThread(ThreadHandle: HANDLE) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn NtAlertMultipleThreadByThreadId(
+    ThreadIds: [*]const ULONG_PTR,
+    ThreadCount: ULONG,
+    Unknown1: ?*const anyopaque,
+    Unknown2: ?*const anyopaque,
 ) callconv(.winapi) NTSTATUS;
 
 pub extern "ntdll" fn NtYieldExecution() callconv(.winapi) NTSTATUS;
@@ -496,6 +648,11 @@ pub extern "ntdll" fn RtlGetFullPathName_U(
     ShortName: ?*[*:0]const u16,
 ) callconv(.winapi) ULONG;
 
+pub extern "ntdll" fn RtlGetCurrentDirectory_U(
+    BufferByteLength: ULONG,
+    Buffer: [*]u16,
+) callconv(.winapi) ULONG;
+
 pub extern "ntdll" fn RtlGetSystemTimePrecise() callconv(.winapi) LARGE_INTEGER;
 
 pub extern "ntdll" fn RtlInitializeCriticalSection(
@@ -517,10 +674,6 @@ pub extern "ntdll" fn RtlQueryPerformanceCounter(
 pub extern "ntdll" fn RtlQueryPerformanceFrequency(
     PerformanceFrequency: *LARGE_INTEGER,
 ) callconv(.winapi) BOOL;
-pub extern "ntdll" fn NtQueryPerformanceCounter(
-    PerformanceCounter: *LARGE_INTEGER,
-    PerformanceFrequency: ?*LARGE_INTEGER,
-) callconv(.winapi) NTSTATUS;
 
 pub extern "ntdll" fn RtlReAllocateHeap(
     HeapHandle: *HEAP,
@@ -529,8 +682,17 @@ pub extern "ntdll" fn RtlReAllocateHeap(
     Size: SIZE_T,
 ) callconv(.winapi) ?PVOID;
 
+pub extern "ntdll" fn RtlReportSilentProcessExit(
+    ProcessHandle: HANDLE,
+    ExitStatus: NTSTATUS,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn NtTerminateProcess(
+    ProcessHandle: ?HANDLE,
+    ExitStatus: NTSTATUS,
+) callconv(.winapi) NTSTATUS;
+
 pub extern "ntdll" fn RtlSetCurrentDirectory_U(
-    PathName: *UNICODE_STRING,
+    PathName: *const UNICODE_STRING,
 ) callconv(.winapi) NTSTATUS;
 
 pub extern "ntdll" fn RtlTryAcquireSRWLockExclusive(
@@ -562,45 +724,3 @@ pub extern "ntdll" fn RtlWakeConditionVariable(
 pub extern "ntdll" fn RtlWakeAllConditionVariable(
     ConditionVariable: *CONDITION_VARIABLE,
 ) callconv(.winapi) void;
-
-pub extern "ntdll" fn NtWaitForAlertByThreadId(
-    Address: ?*const anyopaque,
-    Timeout: ?*const LARGE_INTEGER,
-) callconv(.winapi) NTSTATUS;
-pub extern "ntdll" fn NtAlertThreadByThreadId(ThreadId: DWORD) callconv(.winapi) NTSTATUS;
-pub extern "ntdll" fn NtAlertThread(ThreadHandle: HANDLE) callconv(.winapi) NTSTATUS;
-pub extern "ntdll" fn NtAlertMultipleThreadByThreadId(
-    ThreadIds: [*]const ULONG_PTR,
-    ThreadCount: ULONG,
-    Unknown1: ?*const anyopaque,
-    Unknown2: ?*const anyopaque,
-) callconv(.winapi) NTSTATUS;
-
-pub extern "ntdll" fn NtOpenThread(
-    ThreadHandle: *HANDLE,
-    DesiredAccess: ACCESS_MASK,
-    ObjectAttributes: *const OBJECT_ATTRIBUTES,
-    ClientId: *const windows.CLIENT_ID,
-) callconv(.winapi) NTSTATUS;
-
-pub extern "ntdll" fn NtCancelSynchronousIoFile(
-    ThreadHandle: HANDLE,
-    RequestToCancel: ?*IO_STATUS_BLOCK,
-    IoStatusBlock: *IO_STATUS_BLOCK,
-) callconv(.winapi) NTSTATUS;
-
-pub extern "ntdll" fn NtDelayExecution(
-    Alertable: BOOLEAN,
-    DelayInterval: *const LARGE_INTEGER,
-) callconv(.winapi) NTSTATUS;
-
-pub extern "ntdll" fn NtCancelIoFileEx(
-    FileHandle: HANDLE,
-    IoRequestToCancel: *const IO_STATUS_BLOCK,
-    IoStatusBlock: *IO_STATUS_BLOCK,
-) callconv(.winapi) NTSTATUS;
-
-pub extern "ntdll" fn NtCancelIoFile(
-    handle: HANDLE,
-    iosbToCancel: *const IO_STATUS_BLOCK,
-) callconv(.winapi) NTSTATUS;

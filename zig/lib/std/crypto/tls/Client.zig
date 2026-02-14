@@ -336,10 +336,11 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
         // Ensure the input buffer pointer is stable in this scope.
         input.rebase(tls.max_ciphertext_record_len) catch |err| switch (err) {
             error.EndOfStream => {}, // We have assurance the remainder of stream can be buffered.
+            error.ReadFailed => |e| return e,
         };
         const record_header = input.peek(tls.record_header_len) catch |err| switch (err) {
             error.EndOfStream => return error.TlsConnectionTruncated,
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
         };
         const record_ct = input.takeEnumNonexhaustive(tls.ContentType, .big) catch unreachable; // already peeked
         input.toss(2); // legacy_version

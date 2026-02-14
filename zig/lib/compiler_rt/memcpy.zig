@@ -1,14 +1,14 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
 const builtin = @import("builtin");
 
 comptime {
     if (builtin.object_format != .c) {
         const export_options: std.builtin.ExportOptions = .{
             .name = "memcpy",
-            .linkage = common.linkage,
-            .visibility = common.visibility,
+            .linkage = compiler_rt.linkage,
+            .visibility = compiler_rt.visibility,
         };
 
         if (builtin.mode == .ReleaseSmall or builtin.zig_backend == .stage2_aarch64)
@@ -18,7 +18,7 @@ comptime {
     }
 }
 
-const Element = common.PreferredLoadStoreElement;
+const Element = compiler_rt.PreferredLoadStoreElement;
 
 comptime {
     assert(std.math.isPowerOfTwo(@sizeOf(Element)));

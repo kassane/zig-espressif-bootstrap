@@ -5,15 +5,15 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const __eqsf2 = @import("./cmpsf2.zig").__eqsf2;
-const __lesf2 = @import("./cmpsf2.zig").__lesf2;
-const __ltsf2 = @import("./cmpsf2.zig").__ltsf2;
-const __nesf2 = @import("./cmpsf2.zig").__nesf2;
+const __eqsf2 = @import("./comparef.zig").__eqsf2;
+const __lesf2 = @import("./comparef.zig").__lesf2;
+const __ltsf2 = @import("./comparef.zig").__ltsf2;
+const __nesf2 = @import("./comparef.zig").__nesf2;
 
 const __gesf2 = @import("./gesf2.zig").__gesf2;
 const __gtsf2 = @import("./gesf2.zig").__gtsf2;
 
-const __unordsf2 = @import("./unordsf2.zig").__unordsf2;
+const __unordsf2 = @import("./comparef.zig").__unordsf2;
 
 const TestVector = struct {
     a: f32,

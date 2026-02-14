@@ -1,18 +1,19 @@
 ///! The quoted behavior definitions are from
 ///! https://gcc.gnu.org/onlinedocs/gcc-12.1.0/gccint/Soft-float-library-routines.html#Soft-float-library-routines
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const comparef = @import("./comparef.zig");
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(&__getf2, .{ .name = "__gekf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&__gttf2, .{ .name = "__gtkf2", .linkage = common.linkage, .visibility = common.visibility });
-    } else if (common.want_sparc_abi) {
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&__getf2, "__gekf2");
+        symbol(&__gttf2, "__gtkf2");
+    } else if (compiler_rt.want_sparc_abi) {
         // These exports are handled in cmptf2.zig because gt and ge on sparc
         // are based on calling _Qp_cmp.
     }
-    @export(&__getf2, .{ .name = "__getf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__gttf2, .{ .name = "__gttf2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__getf2, "__getf2");
+    symbol(&__gttf2, "__gttf2");
 }
 
 /// "These functions return a value greater than or equal to zero if neither

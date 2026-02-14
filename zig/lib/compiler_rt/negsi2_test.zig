@@ -1,11 +1,12 @@
 const std = @import("std");
-const neg = @import("negXi2.zig");
 const testing = std.testing;
+
+const compiler_rt = @import("../compiler_rt.zig");
 
 const print = std.debug.print;
 
 fn test__negsi2(a: i32, expected: i32) !void {
-    const result = neg.__negsi2(a);
+    const result = compiler_rt.__negsi2(a);
     try testing.expectEqual(expected, result);
 }
 

@@ -11,18 +11,19 @@ const math = std.math;
 const mem = std.mem;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 comptime {
-    @export(&__exp2h, .{ .name = "__exp2h", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&exp2f, .{ .name = "exp2f", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&exp2, .{ .name = "exp2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__exp2x, .{ .name = "__exp2x", .linkage = common.linkage, .visibility = common.visibility });
-    if (common.want_ppc_abi) {
-        @export(&exp2q, .{ .name = "exp2f128", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__exp2h, "__exp2h");
+    symbol(&exp2f, "exp2f");
+    symbol(&exp2, "exp2");
+    symbol(&__exp2x, "__exp2x");
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&exp2q, "exp2f128");
     }
-    @export(&exp2q, .{ .name = "exp2q", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&exp2l, .{ .name = "exp2l", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&exp2q, "exp2q");
+    symbol(&exp2l, "exp2l");
 }
 
 pub fn __exp2h(x: f16) callconv(.c) f16 {
@@ -54,7 +55,7 @@ pub fn exp2f(x: f32) callconv(.c) f32 {
         // x < -126
         if (u >= 0x80000000) {
             if (u >= 0xC3160000 or u & 0x000FFFF != 0) {
-                if (common.want_float_exceptions) mem.doNotOptimizeAway(-0x1.0p-149 / x);
+                if (compiler_rt.want_float_exceptions) mem.doNotOptimizeAway(-0x1.0p-149 / x);
             }
             // x <= -150
             if (u >= 0xC3160000) {
@@ -108,7 +109,7 @@ pub fn exp2(x: f64) callconv(.c) f64 {
     if (ix >= 0x408FF000) {
         // x >= 1024 or nan
         if (ix >= 0x40900000 and ux >> 63 == 0) {
-            return if (common.want_float_exceptions) x * 0x1p1023 else std.math.inf(f64);
+            return if (compiler_rt.want_float_exceptions) x * 0x1p1023 else std.math.inf(f64);
         }
         // -inf or -nan
         if (ix >= 0x7FF00000) {
@@ -118,7 +119,7 @@ pub fn exp2(x: f64) callconv(.c) f64 {
         if (ux >> 63 != 0) {
             // underflow
             if (x <= -1075 or x - 0x1.0p52 + 0x1.0p52 != x) {
-                if (common.want_float_exceptions) mem.doNotOptimizeAway(@as(f32, @floatCast(-0x1.0p-149 / x)));
+                if (compiler_rt.want_float_exceptions) mem.doNotOptimizeAway(@as(f32, @floatCast(-0x1.0p-149 / x)));
             }
             if (x <= -1075) {
                 return 0;

@@ -1,8 +1,9 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const mulf3 = @import("./mulf3.zig").mulf3;
 
 comptime {
-    @export(&__mulhf3, .{ .name = "__mulhf3", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__mulhf3, "__mulhf3");
 }
 
 pub fn __mulhf3(a: f16, b: f16) callconv(.c) f16 {

@@ -752,25 +752,6 @@ pub fn fieldIndex(comptime T: type, comptime name: []const u8) ?comptime_int {
     return null;
 }
 
-/// Returns a slice of pointers to public declarations of a namespace.
-pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const Decl {
-    const S = struct {
-        fn declNameLessThan(context: void, lhs: *const Decl, rhs: *const Decl) bool {
-            _ = context;
-            return mem.lessThan(u8, lhs.name, rhs.name);
-        }
-    };
-    comptime {
-        const decls = declarations(Namespace);
-        var array: [decls.len]*const Decl = undefined;
-        for (decls, 0..) |decl, i| {
-            array[i] = &@field(Namespace, decl.name);
-        }
-        mem.sort(*const Decl, &array, {}, S.declNameLessThan);
-        return &array;
-    }
-}
-
 /// Deprecated: use @Int
 pub fn Int(comptime signedness: std.builtin.Signedness, comptime bit_count: u16) type {
     return @Int(signedness, bit_count);

@@ -2,12 +2,13 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 
-const common = @import("common.zig");
-const normalize = common.normalize;
-const wideMultiply = common.wideMultiply;
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
+const normalize = compiler_rt.normalize;
+const wideMultiply = compiler_rt.wideMultiply;
 
 comptime {
-    @export(&__divxf3, .{ .name = "__divxf3", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__divxf3, "__divxf3");
 }
 
 pub fn __divxf3(a: f80, b: f80) callconv(.c) f80 {

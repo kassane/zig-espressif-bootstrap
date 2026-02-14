@@ -1,14 +1,15 @@
 ///! The quoted behavior definitions are from
 ///! https://gcc.gnu.org/onlinedocs/gcc-12.1.0/gccint/Soft-float-library-routines.html#Soft-float-library-routines
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const comparef = @import("./comparef.zig");
 
 comptime {
-    @export(&__eqxf2, .{ .name = "__eqxf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__nexf2, .{ .name = "__nexf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__lexf2, .{ .name = "__lexf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__cmpxf2, .{ .name = "__cmpxf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__ltxf2, .{ .name = "__ltxf2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__eqxf2, "__eqxf2");
+    symbol(&__nexf2, "__nexf2");
+    symbol(&__lexf2, "__lexf2");
+    symbol(&__cmpxf2, "__cmpxf2");
+    symbol(&__ltxf2, "__ltxf2");
 }
 
 /// "These functions calculate a <=> b. That is, if a is less than b, they return -1;

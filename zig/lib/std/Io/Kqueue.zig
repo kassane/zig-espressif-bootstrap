@@ -11,11 +11,12 @@ const Allocator = std.mem.Allocator;
 const Alignment = std.mem.Alignment;
 const IpAddress = std.Io.net.IpAddress;
 const errnoBug = std.Io.Threaded.errnoBug;
+const closeFd = std.Io.Threaded.closeFd;
 const posix = std.posix;
 
 /// Must be a thread-safe allocator.
 gpa: Allocator,
-mutex: std.Thread.Mutex,
+mutex: Io.Mutex,
 main_fiber_buffer: [@sizeOf(Fiber) + Fiber.max_result_size]u8 align(@alignOf(Fiber)),
 threads: Thread.List,
 
@@ -30,8 +31,8 @@ const changes_buffer_len = 64;
 
 const Thread = struct {
     thread: std.Thread,
-    idle_context: Context,
-    current_context: *Context,
+    idle_context: Io.fiber.Context,
+    current_context: *Io.fiber.Context,
     ready_queue: ?*Fiber,
     kq_fd: posix.fd_t,
     idle_search_index: u32,
@@ -64,7 +65,7 @@ const Thread = struct {
     };
 
     fn deinit(thread: *Thread, gpa: Allocator) void {
-        posix.close(thread.kq_fd);
+        closeFd(thread.kq_fd);
         assert(thread.wait_queues.count() == 0);
         thread.wait_queues.deinit(gpa);
         thread.* = undefined;
@@ -73,7 +74,7 @@ const Thread = struct {
 
 const Fiber = struct {
     required_align: void align(4),
-    context: Context,
+    context: Io.fiber.Context,
     awaiter: ?*Fiber,
     queue_next: ?*Fiber,
     cancel_thread: ?*Thread,
@@ -169,7 +170,7 @@ pub fn init(k: *Kqueue, gpa: Allocator, options: InitOptions) !void {
     errdefer gpa.free(allocated_slice);
     k.* = .{
         .gpa = gpa,
-        .mutex = .{},
+        .mutex = .init,
         .main_fiber_buffer = undefined,
         .threads = .{
             .allocated = @ptrCast(allocated_slice[0..threads_size]),
@@ -212,7 +213,7 @@ pub fn init(k: *Kqueue, gpa: Allocator, options: InitOptions) !void {
         .steal_ready_search_index = 1,
         .wait_queues = .empty,
     };
-    errdefer std.posix.close(main_thread.kq_fd);
+    errdefer closeFd(main_thread.kq_fd);
     std.log.debug("created main idle {*}", .{&main_thread.idle_context});
     std.log.debug("created main {*}", .{main_fiber});
 }
@@ -290,12 +291,12 @@ fn yield(k: *Kqueue, maybe_ready_fiber: ?*Fiber, pending_task: SwitchMessage.Pen
         &thread.idle_context;
     const message: SwitchMessage = .{
         .contexts = .{
-            .prev = thread.current_context,
-            .ready = ready_context,
+            .old = thread.current_context,
+            .new = ready_context,
         },
         .pending_task = pending_task,
     };
-    std.log.debug("switching from {*} to {*}", .{ message.contexts.prev, message.contexts.ready });
+    std.log.debug("switching from {*} to {*}", .{ message.contexts.old, message.contexts.new });
     contextSwitch(&message).handle(k);
 }
 
@@ -371,7 +372,7 @@ fn schedule(k: *Kqueue, thread: *Thread, ready_queue: Fiber.Queue) void {
             .stack_size = idle_stack_size,
             .allocator = k.gpa,
         }, threadEntry, .{ k, new_thread_index }) catch |err| {
-            posix.close(new_thread.kq_fd);
+            closeFd(new_thread.kq_fd);
             @atomicStore(u32, &k.threads.reserved, new_thread_index, .release);
             // no more access to `thread` after giving up reservation
             std.log.warn("unable to create worker thread due spawn failure: {s}", .{@errorName(err)});
@@ -392,7 +393,7 @@ fn schedule(k: *Kqueue, thread: *Thread, ready_queue: Fiber.Queue) void {
     )) |old_head| ready_queue.tail.queue_next = old_head;
 }
 
-fn mainIdle(k: *Kqueue, message: *const SwitchMessage) callconv(.withStackAlign(.c, @max(@alignOf(Thread), @alignOf(Context)))) noreturn {
+fn mainIdle(k: *Kqueue, message: *const SwitchMessage) callconv(.withStackAlign(.c, @max(@alignOf(Thread), @alignOf(Io.fiber.Context)))) noreturn {
     message.handle(k);
     k.idle(&k.threads.allocated[0]);
     k.yield(@ptrCast(&k.main_fiber_buffer), .nothing);
@@ -482,10 +483,7 @@ fn idle(k: *Kqueue, thread: *Thread) void {
 }
 
 const SwitchMessage = struct {
-    contexts: extern struct {
-        prev: *Context,
-        ready: *Context,
-    },
+    contexts: Io.fiber.Switch,
     pending_task: PendingTask,
 
     const PendingTask = union(enum) {
@@ -499,11 +497,11 @@ const SwitchMessage = struct {
 
     fn handle(message: *const SwitchMessage, k: *Kqueue) void {
         const thread: *Thread = .current();
-        thread.current_context = message.contexts.ready;
+        thread.current_context = message.contexts.new;
         switch (message.pending_task) {
             .nothing => {},
-            .reschedule => if (message.contexts.prev != &thread.idle_context) {
-                const prev_fiber: *Fiber = @alignCast(@fieldParentPtr("context", message.contexts.prev));
+            .reschedule => if (message.contexts.old != &thread.idle_context) {
+                const prev_fiber: *Fiber = @alignCast(@fieldParentPtr("context", message.contexts.old));
                 assert(prev_fiber.queue_next == null);
                 k.schedule(thread, .{ .head = prev_fiber, .tail = prev_fiber });
             },
@@ -511,13 +509,13 @@ const SwitchMessage = struct {
                 k.recycle(fiber);
             },
             .register_awaiter => |awaiter| {
-                const prev_fiber: *Fiber = @alignCast(@fieldParentPtr("context", message.contexts.prev));
+                const prev_fiber: *Fiber = @alignCast(@fieldParentPtr("context", message.contexts.old));
                 assert(prev_fiber.queue_next == null);
                 if (@atomicRmw(?*Fiber, awaiter, .Xchg, prev_fiber, .acq_rel) == Fiber.finished)
                     k.schedule(thread, .{ .head = prev_fiber, .tail = prev_fiber });
             },
             .register_select => |futures| {
-                const prev_fiber: *Fiber = @alignCast(@fieldParentPtr("context", message.contexts.prev));
+                const prev_fiber: *Fiber = @alignCast(@fieldParentPtr("context", message.contexts.old));
                 assert(prev_fiber.queue_next == null);
                 for (futures) |any_future| {
                     const future_fiber: *Fiber = @ptrCast(@alignCast(any_future));
@@ -549,195 +547,8 @@ const SwitchMessage = struct {
     }
 };
 
-const Context = switch (builtin.cpu.arch) {
-    .aarch64 => extern struct {
-        sp: u64,
-        fp: u64,
-        pc: u64,
-    },
-    .x86_64 => extern struct {
-        rsp: u64,
-        rbp: u64,
-        rip: u64,
-    },
-    else => |arch| @compileError("unimplemented architecture: " ++ @tagName(arch)),
-};
-
 inline fn contextSwitch(message: *const SwitchMessage) *const SwitchMessage {
-    return @fieldParentPtr("contexts", switch (builtin.cpu.arch) {
-        .aarch64 => asm volatile (
-            \\ ldp x0, x2, [x1]
-            \\ ldr x3, [x2, #16]
-            \\ mov x4, sp
-            \\ stp x4, fp, [x0]
-            \\ adr x5, 0f
-            \\ ldp x4, fp, [x2]
-            \\ str x5, [x0, #16]
-            \\ mov sp, x4
-            \\ br x3
-            \\0:
-            : [received_message] "={x1}" (-> *const @FieldType(SwitchMessage, "contexts")),
-            : [message_to_send] "{x1}" (&message.contexts),
-            : .{
-              .x0 = true,
-              .x1 = true,
-              .x2 = true,
-              .x3 = true,
-              .x4 = true,
-              .x5 = true,
-              .x6 = true,
-              .x7 = true,
-              .x8 = true,
-              .x9 = true,
-              .x10 = true,
-              .x11 = true,
-              .x12 = true,
-              .x13 = true,
-              .x14 = true,
-              .x15 = true,
-              .x16 = true,
-              .x17 = true,
-              .x19 = true,
-              .x20 = true,
-              .x21 = true,
-              .x22 = true,
-              .x23 = true,
-              .x24 = true,
-              .x25 = true,
-              .x26 = true,
-              .x27 = true,
-              .x28 = true,
-              .x30 = true,
-              .z0 = true,
-              .z1 = true,
-              .z2 = true,
-              .z3 = true,
-              .z4 = true,
-              .z5 = true,
-              .z6 = true,
-              .z7 = true,
-              .z8 = true,
-              .z9 = true,
-              .z10 = true,
-              .z11 = true,
-              .z12 = true,
-              .z13 = true,
-              .z14 = true,
-              .z15 = true,
-              .z16 = true,
-              .z17 = true,
-              .z18 = true,
-              .z19 = true,
-              .z20 = true,
-              .z21 = true,
-              .z22 = true,
-              .z23 = true,
-              .z24 = true,
-              .z25 = true,
-              .z26 = true,
-              .z27 = true,
-              .z28 = true,
-              .z29 = true,
-              .z30 = true,
-              .z31 = true,
-              .p0 = true,
-              .p1 = true,
-              .p2 = true,
-              .p3 = true,
-              .p4 = true,
-              .p5 = true,
-              .p6 = true,
-              .p7 = true,
-              .p8 = true,
-              .p9 = true,
-              .p10 = true,
-              .p11 = true,
-              .p12 = true,
-              .p13 = true,
-              .p14 = true,
-              .p15 = true,
-              .fpcr = true,
-              .fpsr = true,
-              .ffr = true,
-              .memory = true,
-            }),
-        .x86_64 => asm volatile (
-            \\ movq 0(%%rsi), %%rax
-            \\ movq 8(%%rsi), %%rcx
-            \\ leaq 0f(%%rip), %%rdx
-            \\ movq %%rsp, 0(%%rax)
-            \\ movq %%rbp, 8(%%rax)
-            \\ movq %%rdx, 16(%%rax)
-            \\ movq 0(%%rcx), %%rsp
-            \\ movq 8(%%rcx), %%rbp
-            \\ jmpq *16(%%rcx)
-            \\0:
-            : [received_message] "={rsi}" (-> *const @FieldType(SwitchMessage, "contexts")),
-            : [message_to_send] "{rsi}" (&message.contexts),
-            : .{
-              .rax = true,
-              .rcx = true,
-              .rdx = true,
-              .rbx = true,
-              .rsi = true,
-              .rdi = true,
-              .r8 = true,
-              .r9 = true,
-              .r10 = true,
-              .r11 = true,
-              .r12 = true,
-              .r13 = true,
-              .r14 = true,
-              .r15 = true,
-              .mm0 = true,
-              .mm1 = true,
-              .mm2 = true,
-              .mm3 = true,
-              .mm4 = true,
-              .mm5 = true,
-              .mm6 = true,
-              .mm7 = true,
-              .zmm0 = true,
-              .zmm1 = true,
-              .zmm2 = true,
-              .zmm3 = true,
-              .zmm4 = true,
-              .zmm5 = true,
-              .zmm6 = true,
-              .zmm7 = true,
-              .zmm8 = true,
-              .zmm9 = true,
-              .zmm10 = true,
-              .zmm11 = true,
-              .zmm12 = true,
-              .zmm13 = true,
-              .zmm14 = true,
-              .zmm15 = true,
-              .zmm16 = true,
-              .zmm17 = true,
-              .zmm18 = true,
-              .zmm19 = true,
-              .zmm20 = true,
-              .zmm21 = true,
-              .zmm22 = true,
-              .zmm23 = true,
-              .zmm24 = true,
-              .zmm25 = true,
-              .zmm26 = true,
-              .zmm27 = true,
-              .zmm28 = true,
-              .zmm29 = true,
-              .zmm30 = true,
-              .zmm31 = true,
-              .fpsr = true,
-              .fpcr = true,
-              .mxcsr = true,
-              .rflags = true,
-              .dirflag = true,
-              .memory = true,
-            }),
-        else => |arch| @compileError("unimplemented architecture: " ++ @tagName(arch)),
-    });
+    return @fieldParentPtr("contexts", Io.fiber.contextSwitch(&message.contexts));
 }
 
 fn mainIdleEntry() callconv(.naked) void {
@@ -1234,7 +1045,7 @@ fn netBindIp(
     const k: *Kqueue = @ptrCast(@alignCast(userdata));
     const family = Io.Threaded.posixAddressFamily(address);
     const socket_fd = try openSocketPosix(k, family, options);
-    errdefer std.posix.close(socket_fd);
+    errdefer closeFd(socket_fd);
     var storage: Io.Threaded.PosixAddress = undefined;
     var addr_len = Io.Threaded.addressToPosix(address, &storage);
     try posixBind(k, socket_fd, &storage.any, addr_len);
@@ -1252,7 +1063,7 @@ fn netConnectIp(userdata: ?*anyopaque, address: *const net.IpAddress, options: n
         .mode = options.mode,
         .protocol = options.protocol,
     });
-    errdefer posix.close(socket_fd);
+    errdefer closeFd(socket_fd);
     var storage: Io.Threaded.PosixAddress = undefined;
     var addr_len = Io.Threaded.addressToPosix(address, &storage);
     try posixConnect(k, socket_fd, &storage.any, addr_len);
@@ -1565,7 +1376,7 @@ fn openSocketPosix(
         switch (posix.errno(socket_rc)) {
             .SUCCESS => {
                 const fd: posix.fd_t = @intCast(socket_rc);
-                errdefer posix.close(fd);
+                errdefer closeFd(fd);
                 if (Io.Threaded.socket_flags_unsupported) {
                     while (true) {
                         try k.checkCancel();
@@ -1614,7 +1425,7 @@ fn openSocketPosix(
             else => |err| return posix.unexpectedErrno(err),
         }
     };
-    errdefer posix.close(socket_fd);
+    errdefer closeFd(socket_fd);
 
     if (options.ip6_only) {
         if (posix.IPV6 == void) return error.OptionUnsupported;

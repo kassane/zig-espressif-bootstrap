@@ -3,19 +3,20 @@ const std = @import("std");
 const math = std.math;
 const assert = std.debug.assert;
 const arch = builtin.cpu.arch;
-const common = @import("common.zig");
-const normalize = common.normalize;
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
+const normalize = compiler_rt.normalize;
 
 comptime {
-    @export(&__fmodh, .{ .name = "__fmodh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&fmodf, .{ .name = "fmodf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&fmod, .{ .name = "fmod", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__fmodx, .{ .name = "__fmodx", .linkage = common.linkage, .visibility = common.visibility });
-    if (common.want_ppc_abi) {
-        @export(&fmodq, .{ .name = "fmodf128", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__fmodh, "__fmodh");
+    symbol(&fmodf, "fmodf");
+    symbol(&fmod, "fmod");
+    symbol(&__fmodx, "__fmodx");
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&fmodq, "fmodf128");
     }
-    @export(&fmodq, .{ .name = "fmodq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&fmodl, .{ .name = "fmodl", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&fmodq, "fmodq");
+    symbol(&fmodl, "fmodl");
 }
 
 pub fn __fmodh(x: f16, y: f16) callconv(.c) f16 {

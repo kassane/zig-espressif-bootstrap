@@ -40,7 +40,8 @@ pub const Mode = union(enum) {
     windows_api: WindowsApi,
 
     pub const WindowsApi = if (!is_windows) noreturn else struct {
-        handle: File.Handle,
+        io: Io,
+        file: File,
         reset_attributes: u16,
     };
 
@@ -65,20 +66,21 @@ pub const Mode = union(enum) {
         }
 
         if (is_windows and try file.isTty(io)) {
-            const windows = std.os.windows;
-            var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-            if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != 0) {
-                return .{ .windows_api = .{
-                    .handle = file.handle,
-                    .reset_attributes = info.wAttributes,
-                } };
+            var get_console_info = std.os.windows.CONSOLE.USER_IO.GET_SCREEN_BUFFER_INFO;
+            switch (try get_console_info.operate(io, file)) {
+                .SUCCESS => return .{ .windows_api = .{
+                    .io = io,
+                    .file = file,
+                    .reset_attributes = get_console_info.Data.wAttributes,
+                } },
+                else => {},
             }
         }
         return if (force_color == true) .escape_codes else .no_color;
     }
 };
 
-pub const SetColorError = std.os.windows.SetConsoleTextAttributeError || Io.Writer.Error;
+pub const SetColorError = Io.Cancelable || Io.UnexpectedError || Io.Writer.Error;
 
 pub fn setColor(t: Terminal, color: Color) SetColorError!void {
     switch (t.mode) {
@@ -132,7 +134,11 @@ pub fn setColor(t: Terminal, color: Color) SetColorError!void {
                 .reset => wa.reset_attributes,
             };
             try t.writer.flush();
-            try windows.SetConsoleTextAttribute(wa.handle, attributes);
+            var set_text_attribute = windows.CONSOLE.USER_IO.SET_TEXT_ATTRIBUTE(attributes);
+            switch (try set_text_attribute.operate(wa.io, wa.file)) {
+                .SUCCESS => {},
+                else => |status| return windows.unexpectedStatus(status),
+            }
         },
     }
 }

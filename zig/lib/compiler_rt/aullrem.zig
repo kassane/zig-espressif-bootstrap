@@ -3,13 +3,14 @@ const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const os = builtin.os.tag;
 const abi = builtin.abi;
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 
 comptime {
-    if (common.want_windows_x86_msvc_abi) {
+    if (compiler_rt.want_windows_x86_msvc_abi) {
         // Don't let LLVM apply the stdcall name mangling on those MSVC builtins
-        @export(&_allrem, .{ .name = "\x01__allrem", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&_aullrem, .{ .name = "\x01__aullrem", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&_allrem, "\x01__allrem");
+        symbol(&_aullrem, "\x01__aullrem");
     }
 }
 

@@ -440,7 +440,7 @@ test "openat" {
     try testing.expect(cqe_openat.res > 0);
     try testing.expectEqual(@as(u32, 0), cqe_openat.flags);
 
-    posix.close(cqe_openat.res);
+    _ = linux.close(cqe_openat.res);
 }
 
 test "close" {
@@ -530,7 +530,7 @@ test "sendmsg/recvmsg" {
     };
 
     const server = try socket(address_server.family, posix.SOCK.DGRAM, 0);
-    defer posix.close(server);
+    defer _ = linux.close(server);
     try posix.setsockopt(server, posix.SOL.SOCKET, posix.SO.REUSEPORT, &mem.toBytes(@as(c_int, 1)));
     try posix.setsockopt(server, posix.SOL.SOCKET, posix.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
     try bind(server, addrAny(&address_server), @sizeOf(linux.sockaddr.in));
@@ -540,7 +540,7 @@ test "sendmsg/recvmsg" {
     try getsockname(server, addrAny(&address_server), &slen);
 
     const client = try socket(address_server.family, posix.SOCK.DGRAM, 0);
-    defer posix.close(client);
+    defer _ = linux.close(client);
 
     const buffer_send = [_]u8{42} ** 128;
     const iovecs_send = [_]iovec_const{
@@ -620,12 +620,12 @@ test "timeout (after a relative time)" {
     const margin = 5;
     const ts: linux.kernel_timespec = .{ .sec = 0, .nsec = ms * 1000000 };
 
-    const started = try std.Io.Clock.awake.now(io);
+    const started = std.Io.Clock.awake.now(io);
     const sqe = try ring.timeout(0x55555555, &ts, 0, 0);
     try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe.opcode);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     const cqe = try ring.copy_cqe();
-    const stopped = try std.Io.Clock.awake.now(io);
+    const stopped = std.Io.Clock.awake.now(io);
 
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x55555555,
@@ -1034,7 +1034,7 @@ test "shutdown" {
     // Socket bound, expect shutdown to work
     {
         const server = try socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
-        defer posix.close(server);
+        defer _ = linux.close(server);
         try posix.setsockopt(server, posix.SOL.SOCKET, posix.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
         try bind(server, addrAny(&address), @sizeOf(linux.sockaddr.in));
         try listen(server, 1);
@@ -1067,7 +1067,7 @@ test "shutdown" {
     // Socket not bound, expect to fail with ENOTCONN
     {
         const server = try socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
-        defer posix.close(server);
+        defer _ = linux.close(server);
 
         const shutdown_sqe = ring.shutdown(0x445445445, server, linux.SHUT.RD) catch |err| switch (err) {
             else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
@@ -1741,7 +1741,7 @@ test "accept multishot" {
         .addr = @bitCast([4]u8{ 127, 0, 0, 1 }),
     };
     const listener_socket = try createListenerSocket(&address);
-    defer posix.close(listener_socket);
+    defer _ = linux.close(listener_socket);
 
     // submit multishot accept operation
     var addr: posix.sockaddr = undefined;
@@ -1754,8 +1754,8 @@ test "accept multishot" {
     while (nr > 0) : (nr -= 1) {
         // connect client
         const client = try socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
-        errdefer posix.close(client);
-        try posix.connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
+        errdefer _ = linux.close(client);
+        try connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
 
         // test accept completion
         var cqe = try ring.copy_cqe();
@@ -1764,7 +1764,7 @@ test "accept multishot" {
         try testing.expect(cqe.user_data == userdata);
         try testing.expect(cqe.flags & linux.IORING_CQE_F_MORE > 0); // more flag is set
 
-        posix.close(client);
+        _ = linux.close(client);
     }
 }
 
@@ -1848,7 +1848,7 @@ test "accept_direct" {
     try ring.register_files(registered_fds[0..]);
 
     const listener_socket = try createListenerSocket(&address);
-    defer posix.close(listener_socket);
+    defer _ = linux.close(listener_socket);
 
     const accept_userdata: u64 = 0xaaaaaaaa;
     const read_userdata: u64 = 0xbbbbbbbb;
@@ -1865,8 +1865,8 @@ test "accept_direct" {
 
             // connect
             const client = try socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
-            try posix.connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
-            defer posix.close(client);
+            try connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
+            defer _ = linux.close(client);
 
             // accept completion
             const cqe_accept = try ring.copy_cqe();
@@ -1899,8 +1899,8 @@ test "accept_direct" {
             try testing.expectEqual(@as(u32, 1), try ring.submit());
             // connect
             const client = try socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
-            try posix.connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
-            defer posix.close(client);
+            try connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
+            defer _ = linux.close(client);
             // completion with error
             const cqe_accept = try ring.copy_cqe();
             try testing.expect(cqe_accept.user_data == accept_userdata);
@@ -1936,7 +1936,7 @@ test "accept_multishot_direct" {
     try ring.register_files(registered_fds[0..]);
 
     const listener_socket = try createListenerSocket(&address);
-    defer posix.close(listener_socket);
+    defer _ = linux.close(listener_socket);
 
     const accept_userdata: u64 = 0xaaaaaaaa;
 
@@ -1949,8 +1949,8 @@ test "accept_multishot_direct" {
         for (registered_fds) |_| {
             // connect
             const client = try socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
-            try posix.connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
-            defer posix.close(client);
+            try connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
+            defer _ = linux.close(client);
 
             // accept completion
             const cqe_accept = try ring.copy_cqe();
@@ -1964,8 +1964,8 @@ test "accept_multishot_direct" {
         {
             // connect
             const client = try socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
-            try posix.connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
-            defer posix.close(client);
+            try connect(client, addrAny(&address), @sizeOf(linux.sockaddr.in));
+            defer _ = linux.close(client);
             // completion with error
             const cqe_accept = try ring.copy_cqe();
             try testing.expect(cqe_accept.user_data == accept_userdata);
@@ -1998,7 +1998,7 @@ test "socket" {
     const fd: linux.fd_t = @intCast(cqe.res);
     try testing.expect(fd > 2);
 
-    posix.close(fd);
+    _ = linux.close(fd);
 }
 
 test "socket_direct/socket_direct_alloc/close_direct" {
@@ -2042,7 +2042,7 @@ test "socket_direct/socket_direct_alloc/close_direct" {
         .addr = @bitCast([4]u8{ 127, 0, 0, 1 }),
     };
     const listener_socket = try createListenerSocket(&address);
-    defer posix.close(listener_socket);
+    defer _ = linux.close(listener_socket);
     const accept_userdata: u64 = 0xaaaaaaaa;
     const connect_userdata: u64 = 0xbbbbbbbb;
     const close_userdata: u64 = 0xcccccccc;
@@ -2599,8 +2599,8 @@ pub const SocketTestHarness = struct {
     client: posix.socket_t,
 
     pub fn close(self: SocketTestHarness) void {
-        posix.close(self.client);
-        posix.close(self.listener);
+        _ = linux.close(self.client);
+        _ = linux.close(self.listener);
     }
 };
 
@@ -2611,7 +2611,7 @@ pub fn createSocketTestHarness(ring: *IoUring) !SocketTestHarness {
         .addr = @bitCast([4]u8{ 127, 0, 0, 1 }),
     };
     const listener_socket = try createListenerSocket(&address);
-    errdefer posix.close(listener_socket);
+    errdefer _ = linux.close(listener_socket);
 
     // Submit 1 accept
     var accept_addr: posix.sockaddr = undefined;
@@ -2620,7 +2620,7 @@ pub fn createSocketTestHarness(ring: *IoUring) !SocketTestHarness {
 
     // Create a TCP client socket
     const client = try socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
-    errdefer posix.close(client);
+    errdefer _ = linux.close(client);
     _ = try ring.connect(0xcccccccc, client, addrAny(&address), @sizeOf(linux.sockaddr.in));
 
     try testing.expectEqual(@as(u32, 2), try ring.submit());
@@ -2660,7 +2660,7 @@ pub fn createSocketTestHarness(ring: *IoUring) !SocketTestHarness {
 fn createListenerSocket(address: *linux.sockaddr.in) !posix.socket_t {
     const kernel_backlog = 1;
     const listener_socket = try socket(address.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
-    errdefer posix.close(listener_socket);
+    errdefer _ = linux.close(listener_socket);
 
     try posix.setsockopt(listener_socket, posix.SOL.SOCKET, posix.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
     try bind(listener_socket, addrAny(address), @sizeOf(linux.sockaddr.in));
@@ -2733,4 +2733,12 @@ fn send(sockfd: posix.socket_t, buf: []const u8, flags: u32) !usize {
         .SUCCESS => return @intCast(rc),
         else => return error.SendFailed,
     }
+}
+
+fn connect(sock: posix.socket_t, sock_addr: *const posix.sockaddr, len: posix.socklen_t) !void {
+    while (true) switch (posix.errno(posix.system.connect(sock, sock_addr, len))) {
+        .SUCCESS => return,
+        .INTR => continue,
+        else => return error.ConnectFailed,
+    };
 }

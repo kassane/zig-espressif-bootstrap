@@ -145,7 +145,7 @@ pub const LookupError = error{
     NoAddressReturned,
     /// Failed to open or read "/etc/hosts" or "/etc/resolv.conf".
     DetectingNetworkConfigurationFailed,
-} || Io.Clock.Error || IpAddress.BindError || Io.Cancelable;
+} || IpAddress.BindError || Io.Cancelable;
 
 pub const LookupResult = union(enum) {
     address: IpAddress,

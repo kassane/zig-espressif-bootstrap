@@ -153,8 +153,9 @@ pub const IpAddress = union(enum) {
 
     /// `port` is native-endian.
     pub fn setPort(a: *IpAddress, port: u16) void {
-        switch (a) {
-            inline .ip4, .ip6 => |*x| x.port = port,
+        switch (a.*) {
+            .ip4 => a.ip4.port = port,
+            .ip6 => a.ip6.port = port,
         }
     }
 
@@ -1137,7 +1138,7 @@ pub const Socket = struct {
         const maybe_err, const count = io.vtable.netReceive(io.userdata, s.handle, (&message)[0..1], buffer, .{}, .none);
         if (maybe_err) |err| switch (err) {
             // No timeout is passed to `netReceieve`, so it must not return timeout related errors.
-            error.Timeout, error.UnsupportedClock => unreachable,
+            error.Timeout => unreachable,
             else => |e| return e,
         };
         assert(1 == count);
@@ -1186,6 +1187,35 @@ pub const Socket = struct {
         timeout: Io.Timeout,
     ) struct { ?ReceiveTimeoutError, usize } {
         return io.vtable.netReceive(io.userdata, s.handle, message_buffer, data_buffer, flags, timeout);
+    }
+
+    pub const CreatePairError = error{
+        OperationUnsupported,
+        AccessDenied,
+        AddressFamilyUnsupported,
+        ProtocolUnsupportedBySystem,
+        /// The per-process limit on the number of open file descriptors has been reached.
+        ProcessFdQuotaExceeded,
+        /// The system-wide limit on the total number of open files has been reached.
+        SystemFdQuotaExceeded,
+        /// Insufficient memory is available. The socket cannot be created
+        /// until sufficient resources are freed.
+        SystemResources,
+        ProtocolUnsupportedByAddressFamily,
+        SocketModeUnsupported,
+    } || Io.UnexpectedError || Io.Cancelable;
+
+    pub const CreatePairOptions = struct {
+        family: IpAddress.Family = .ip4,
+        mode: Mode = .stream,
+        protocol: ?Protocol = null,
+    };
+
+    /// Create a set of two sockets that are connected to each other.
+    ///
+    /// Also known as "socketpair".
+    pub fn createPair(io: Io, options: CreatePairOptions) CreatePairError![2]Socket {
+        return io.vtable.netSocketCreatePair(io.userdata, options);
     }
 };
 
@@ -1400,6 +1430,11 @@ test "parsing IPv6 addresses" {
     try testIp6Parse("fe80::abcd:ef12%3");
     try testIp6Parse("ff02::");
     try testIp6Parse("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
+}
+test "IpAddress.setPort works" {
+    var addr: IpAddress = .{ .ip4 = undefined };
+    addr.setPort(0);
+    try std.testing.expectEqual(0, addr.getPort());
 }
 
 fn testIp6Parse(input: []const u8) !void {

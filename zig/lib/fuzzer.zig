@@ -632,7 +632,7 @@ export fn fuzzer_main(limit_kind: abi.LimitKind, amount: u64) void {
 
 export fn fuzzer_unslide_address(addr: usize) usize {
     const si = std.debug.getSelfDebugInfo() catch @compileError("unsupported");
-    const slide = si.getModuleSlide(std.debug.getDebugInfoAllocator(), addr) catch |err| {
+    const slide = si.getModuleSlide(io, addr) catch |err| {
         std.debug.panic("failed to find virtual address slide: {t}", .{err});
     };
     return addr - slide;

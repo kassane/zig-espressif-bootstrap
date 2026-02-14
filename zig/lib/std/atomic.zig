@@ -1,3 +1,10 @@
+const builtin = @import("builtin");
+
+const std = @import("std.zig");
+const AtomicOrder = std.builtin.AtomicOrder;
+const testing = std.testing;
+const assert = std.debug.assert;
+
 /// This is a thin wrapper around a primitive value to prevent accidental data races.
 pub fn Value(comptime T: type) type {
     return extern struct {
@@ -496,7 +503,17 @@ test "current CPU has a cache line size" {
     _ = cache_line;
 }
 
-const std = @import("std.zig");
-const builtin = @import("builtin");
-const AtomicOrder = std.builtin.AtomicOrder;
-const testing = std.testing;
+/// A lock-free single-owner resource.
+pub const Mutex = enum(u8) {
+    unlocked,
+    locked,
+
+    pub fn tryLock(m: *Mutex) bool {
+        return @cmpxchgWeak(Mutex, m, .unlocked, .locked, .acquire, .monotonic) == null;
+    }
+
+    pub fn unlock(m: *Mutex) void {
+        assert(m.* == .locked);
+        @atomicStore(Mutex, m, .unlocked, .release);
+    }
+};

@@ -1,8 +1,9 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const addf3 = @import("./addf3.zig").addf3;
 
 comptime {
-    @export(&__addhf3, .{ .name = "__addhf3", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__addhf3, "__addhf3");
 }
 
 fn __addhf3(a: f16, b: f16) callconv(.c) f16 {

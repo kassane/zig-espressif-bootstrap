@@ -1,8 +1,9 @@
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const intFromFloat = @import("./int_from_float.zig").intFromFloat;
 
 comptime {
-    @export(&__fixunshfsi, .{ .name = "__fixunshfsi", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__fixunshfsi, "__fixunshfsi");
 }
 
 fn __fixunshfsi(a: f16) callconv(.c) u32 {

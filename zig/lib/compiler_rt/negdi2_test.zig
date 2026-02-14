@@ -1,8 +1,10 @@
-const neg = @import("negXi2.zig");
-const testing = @import("std").testing;
+const std = @import("std");
+const testing = std.testing;
+
+const compiler_rt = @import("../compiler_rt.zig");
 
 fn test__negdi2(a: i64, expected: i64) !void {
-    const result = neg.__negdi2(a);
+    const result = compiler_rt.__negdi2(a);
     try testing.expectEqual(expected, result);
 }
 

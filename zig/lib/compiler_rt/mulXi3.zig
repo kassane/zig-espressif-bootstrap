@@ -1,20 +1,21 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
-const common = @import("common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = compiler_rt.symbol;
 const native_endian = builtin.cpu.arch.endian();
 
 comptime {
-    @export(&__mulsi3, .{ .name = "__mulsi3", .linkage = common.linkage, .visibility = common.visibility });
-    if (common.want_aeabi) {
-        @export(&__aeabi_lmul, .{ .name = "__aeabi_lmul", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__mulsi3, "__mulsi3");
+    if (compiler_rt.want_aeabi) {
+        symbol(&__aeabi_lmul, "__aeabi_lmul");
     } else {
-        @export(&__muldi3, .{ .name = "__muldi3", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__muldi3, "__muldi3");
     }
-    if (common.want_windows_v2u64_abi) {
-        @export(&__multi3_windows_x86_64, .{ .name = "__multi3", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_windows_v2u64_abi) {
+        symbol(&__multi3_windows_x86_64, "__multi3");
     } else {
-        @export(&__multi3, .{ .name = "__multi3", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__multi3, "__multi3");
     }
 }
 
@@ -41,7 +42,7 @@ fn __aeabi_lmul(a: i64, b: i64) callconv(.{ .arm_aapcs = .{} }) i64 {
 }
 
 inline fn mulX(comptime T: type, a: T, b: T) T {
-    const word_t = common.HalveInt(T, false);
+    const word_t = compiler_rt.HalveInt(T, false);
     const x = word_t{ .all = a };
     const y = word_t{ .all = b };
     var r = switch (T) {
@@ -64,7 +65,7 @@ fn DoubleInt(comptime T: type) type {
 
 fn muldXi(comptime T: type, a: T, b: T) DoubleInt(T) {
     const DT = DoubleInt(T);
-    const word_t = common.HalveInt(DT, false);
+    const word_t = compiler_rt.HalveInt(DT, false);
     const bits_in_word_2 = @sizeOf(T) * 8 / 2;
     const lower_mask = (~@as(T, 0)) >> bits_in_word_2;
 

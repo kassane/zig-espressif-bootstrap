@@ -6,14 +6,12 @@
 //! TAOCP: Combinational Algorithms, Bitwise Tricks And Techniques,
 //!   subsubsection "Working with the rightmost bits" and "Sideways addition".
 
-const builtin = @import("builtin");
-const std = @import("std");
-const common = @import("common.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 
 comptime {
-    @export(&__popcountsi2, .{ .name = "__popcountsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__popcountdi2, .{ .name = "__popcountdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(&__popcountti2, .{ .name = "__popcountti2", .linkage = common.linkage, .visibility = common.visibility });
+    symbol(&__popcountsi2, "__popcountsi2");
+    symbol(&__popcountdi2, "__popcountdi2");
+    symbol(&__popcountti2, "__popcountti2");
 }
 
 pub fn __popcountsi2(a: i32) callconv(.c) i32 {

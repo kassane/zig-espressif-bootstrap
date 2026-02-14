@@ -1,6 +1,6 @@
 // Disable formatting to avoid unnecessary source repository bloat.
 // zig fmt: off
-const __udivmodti4 = @import("udivmodti4.zig").__udivmodti4;
+const __udivmodti4 = @import("udivmod.zig").__udivmodti4;
 const testing = @import("std").testing;
 
 fn test__udivmodti4(a: u128, b: u128, expected_q: u128, expected_r: u128) !void {

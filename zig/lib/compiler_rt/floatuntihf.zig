@@ -1,12 +1,12 @@
-const builtin = @import("builtin");
-const common = @import("./common.zig");
+const compiler_rt = @import("../compiler_rt.zig");
+const symbol = @import("../compiler_rt.zig").symbol;
 const floatFromInt = @import("./float_from_int.zig").floatFromInt;
 
 comptime {
-    if (common.want_windows_v2u64_abi) {
-        @export(&__floatuntihf_windows_x86_64, .{ .name = "__floatuntihf", .linkage = common.linkage, .visibility = common.visibility });
+    if (compiler_rt.want_windows_v2u64_abi) {
+        symbol(&__floatuntihf_windows_x86_64, "__floatuntihf");
     } else {
-        @export(&__floatuntihf, .{ .name = "__floatuntihf", .linkage = common.linkage, .visibility = common.visibility });
+        symbol(&__floatuntihf, "__floatuntihf");
     }
 }
 
