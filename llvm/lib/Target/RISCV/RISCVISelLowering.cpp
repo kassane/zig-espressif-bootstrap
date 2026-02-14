@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "RISCVISelLowering.h"
+#include "RISCVESPVISelLowering.h"
 #include "MCTargetDesc/RISCVMatInt.h"
 #include "RISCV.h"
 #include "RISCVConstantPoolValue.h"
@@ -144,7 +145,14 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     else
       addRegisterClass(MVT::f64, &RISCV::GPRPairRegClass);
   }
-
+  if (Subtarget.hasVendorXespv2p1()) {
+    initializeESPVTargetLowering(Subtarget);
+    // ESPV: Support for v64i8 (512-bit QACC pair)
+    // v64i8 needs to be split into two v32i8 parts for return values
+    // Note: We let LLVM's default TypeSplit handle v64i8 -> v32i8 splitting.
+    // CONCAT_VECTORS for v64i8 uses LLVM's default SplitVecRes_CONCAT_VECTORS
+    // No custom action needed - let the default split logic handle it
+  }
   static const MVT::SimpleValueType BoolVecVTs[] = {
       MVT::nxv1i1,  MVT::nxv2i1,  MVT::nxv4i1, MVT::nxv8i1,
       MVT::nxv16i1, MVT::nxv32i1, MVT::nxv64i1};
@@ -1783,6 +1791,8 @@ bool RISCVTargetLowering::getTgtMemIntrinsic(IntrinsicInfo &Info,
     Info.flags |= MachineMemOperand::MONonTemporal;
 
   Info.flags |= RISCVTargetLowering::getTargetMMOFlags(I);
+  if (RISCV::getESPVTgtMemIntrinsic(Info, I, Intrinsic))
+    return true;
   switch (Intrinsic) {
   default:
     return false;
@@ -10597,6 +10607,10 @@ SDValue RISCVTargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
   SDLoc DL(Op);
   MVT XLenVT = Subtarget.getXLenVT();
 
+  // Try ESPV intrinsic lowering first
+  if (SDValue V = RISCV::lowerESPVIntrinsicWOChain(Op, DAG, Subtarget))
+    return V;
+
   switch (IntNo) {
   default:
     break; // Don't custom lower most intrinsics.
@@ -10873,6 +10887,11 @@ static inline SDValue getVCIXISDNodeVOID(SDValue &Op, SelectionDAG &DAG,
 SDValue RISCVTargetLowering::LowerINTRINSIC_W_CHAIN(SDValue Op,
                                                     SelectionDAG &DAG) const {
   unsigned IntNo = Op.getConstantOperandVal(1);
+  
+  // Try ESPV intrinsic lowering first
+  if (SDValue V = RISCV::lowerESPVIntrinsicWChain(Op, DAG, Subtarget))
+    return V;
+  
   switch (IntNo) {
   default:
     break;
@@ -14605,6 +14624,32 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
   }
   case ISD::INTRINSIC_WO_CHAIN: {
     unsigned IntNo = N->getConstantOperandVal(0);
+    EVT VT = N->getValueType(0);
+    
+    // Handle ESP32P4 intrinsics that return v64i8
+    // These need to be lowered to CONCAT_VECTORS first, then split
+    if (Subtarget.hasVendorXespv() && VT == MVT::v64i8) {
+      if (IntNo == Intrinsic::riscv_esp_mov_s8_qacc_m ||
+          IntNo == Intrinsic::riscv_esp_mov_s16_qacc_m ||
+          IntNo == Intrinsic::riscv_esp_mov_u8_qacc_m ||
+          IntNo == Intrinsic::riscv_esp_mov_u16_qacc_m ||
+          IntNo == Intrinsic::riscv_esp_vmulas_s8_qacc_m ||
+          IntNo == Intrinsic::riscv_esp_vmulas_u16_qacc_m ||
+          IntNo == Intrinsic::riscv_esp_vmulas_u8_qacc_m) {
+        // Lower the intrinsic to CONCAT_VECTORS first
+        SDValue Op = SDValue(N, 0);
+        SDValue Lowered = LowerINTRINSIC_WO_CHAIN(Op, DAG);
+        
+        if (Lowered && Lowered.getOpcode() == ISD::CONCAT_VECTORS &&
+            Lowered.getValueType() == MVT::v64i8) {
+          // Return the CONCAT_VECTORS node as a single result
+          // The type legalizer will then split CONCAT_VECTORS
+          Results.push_back(Lowered);
+          return;
+        }
+      }
+    }
+    
     switch (IntNo) {
     default:
       llvm_unreachable(
@@ -24507,4 +24552,244 @@ ArrayRef<MCPhysReg> RISCVTargetLowering::getRoundingControlRegisters() const {
     return RCRegs;
   }
   return {};
+}
+
+void RISCVTargetLowering::initializeESPVTargetLowering(
+  const RISCVSubtarget &Subtarget) {
+  // Register classes for ESPV vector types
+  addRegisterClass(MVT::v16i8, &RISCV::QRRegClass);
+  addRegisterClass(MVT::v8i16, &RISCV::QRRegClass);
+  addRegisterClass(MVT::v4i32, &RISCV::QRRegClass);
+  // v2i32, v4i16, v8i8 use 64-bit subregister classes (QR_L/QR_H)
+  // Use unified QR_64 register class (like ARM's DPR) that contains all QR_L and QR_H
+  // This allows getRegClassFor(v8i8/v4i16/v2i32) to return a single register class,
+  // QR_64RegClass is the unified 64-bit register class (similar to AArch64 FPR64)
+  // It contains both low and high 64-bit subregisters (Q0_D0-Q7_D0 and Q0_D1-Q7_D1)
+  addRegisterClass(MVT::v2i32, &RISCV::QR_64RegClass);
+  addRegisterClass(MVT::v4i16, &RISCV::QR_64RegClass);
+  addRegisterClass(MVT::v8i8, &RISCV::QR_64RegClass);
+
+  // Register XACC register class for i64 type (for LD/ST versions of VMULAS XACC)
+  // This allows type legalizer to expand i64 XACC results in RV32
+  // XACC is 40-bit, but modeled as i64 (only low 40 bits are valid)
+  addRegisterClass(MVT::i64, &RISCV::XACCRegRegClass);
+
+  addRegisterClass(MVT::v32i8, &RISCV::QACC_LRegClass);
+  addRegisterClass(MVT::v32i8, &RISCV::QACC_HRegClass);
+  // QACC register class for v64i8 (512-bit unified accumulator)
+  // This makes v64i8 a legal type, preventing type legalizer from trying to split it
+  // Note: v64i8 is a logical type composed of two v32i8 (QACC_L + QACC_H)
+  // We do NOT register it as a legal type to allow LLVM's TypeSplit to handle it
+  // Instead, we rely on CONCAT_VECTORS/EXTRACT_SUBVECTOR to work with v32i8 parts
+  // addRegisterClass(MVT::v64i8, &RISCV::QACCRegClass);  // Removed to allow TypeSplit
+
+  // Set operation actions for v64i8
+  // Most standard operations are not supported for QACC (it's a special accumulator)
+  // Only allow Intrinsic operations and basic register operations
+  // Set to Custom so type legalization will call ReplaceNodeResults to split v64i8 into two v32i8
+  setOperationAction(ISD::INTRINSIC_WO_CHAIN, MVT::v64i8, Custom);
+  setOperationAction(ISD::INTRINSIC_W_CHAIN, MVT::v64i8, Custom);
+  // CONCAT_VECTORS for v64i8 uses LLVM's default SplitVecRes_CONCAT_VECTORS
+  // which automatically extracts the two v32i8 operands as Lo and Hi parts
+  // No custom action needed - let the default split logic handle it
+  // STORE operation for v64i8 needs custom lowering to split into two v32i8 stores
+  setOperationAction(ISD::STORE, MVT::v64i8, Custom);
+  // LOAD operation for v64i8 needs custom lowering to split into two v32i8 loads
+  setOperationAction(ISD::LOAD, MVT::v64i8, Custom);
+  // All other operations should be expanded (not supported for QACC)
+  // Note: We don't need to explicitly set all operations to Expand because
+  // LLVM will default to Expand for operations not explicitly set to Legal/Custom
+  // But we explicitly set common operations to be safe
+  setOperationAction({ISD::ADD, ISD::SUB, ISD::MUL, ISD::AND, ISD::OR, ISD::XOR,
+                      ISD::SELECT, ISD::VSELECT,
+                      ISD::BUILD_VECTOR, ISD::SCALAR_TO_VECTOR}, MVT::v64i8, Expand);
+
+  // Note: XACC_H subregister (XACC_HIGH) is now modeled as i32 type in RegisterClass
+  // to avoid type legalization issues. The Intrinsic int_riscv_esp_movx_w_xacc_h_m
+  // also returns i32, so no type promotion is needed.
+
+  // Operation actions for sign/zero extend
+  setOperationAction(ISD::SIGN_EXTEND, MVT::v8i32, Custom);
+  setOperationAction(ISD::SIGN_EXTEND, MVT::v16i16, Custom);
+  setOperationAction(ISD::ZERO_EXTEND, MVT::v8i32, Custom);
+  setOperationAction(ISD::ZERO_EXTEND, MVT::v16i16, Custom);
+
+  // Vector shuffle operations
+  setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v8i16, Custom);
+  setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v4i32, Custom);
+  setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16i8, Custom);
+
+  // CONCAT_VECTORS operations for ESP32P4 QR subregisters
+  // Critical: Set Custom to prevent Legalizer from expanding CONCAT_VECTORS
+  // into stack operations. This allows LowerOperation to handle it using
+  // INSERT_SUBREG operations that combine QR_L and QR_H into QR.
+  setOperationAction(ISD::CONCAT_VECTORS, MVT::v16i8, Custom);
+  setOperationAction(ISD::CONCAT_VECTORS, MVT::v8i16, Custom);
+  setOperationAction(ISD::CONCAT_VECTORS, MVT::v4i32, Custom);
+
+  // Extract subvector operations for ESP32P4 QR subregisters
+  // These enable 64-bit subvector extraction from 128-bit vectors
+  // Set Custom for both source types (v4i32, v8i16, v16i8) and result types
+  // (v2i32, v4i16, v8i8) to ensure type legalizer handles them correctly
+  setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v4i32, Custom);
+  setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v8i16, Custom);
+  setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v16i8, Custom);
+  setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v2i32, Custom);
+  setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v4i16, Custom);
+  setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v8i8, Custom);
+  // ESPV: Handle v32i8 -> v16i8 extraction for QACC_L/QACC_H subregisters
+  // Set Custom for v32i8 to enable 128-bit subvector extraction from 256-bit QACC registers
+  setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v32i8, Custom);
+  // ESPV: Handle v64i8 -> v32i8 extraction for QACC (512-bit -> 256-bit)
+  // This enables extraction of QACC_L or QACC_H from the full QACC register
+  setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v64i8, Custom);
+
+  // Boolean vector content
+  setBooleanVectorContents(ZeroOrNegativeOneBooleanContent);
+
+  // DAG combine targets
+  setTargetDAGCombine(ISD::BR);
+  setTargetDAGCombine({ISD::SIGN_EXTEND, ISD::SETCC});
+
+  // Intrinsic operations
+  setOperationAction(ISD::INTRINSIC_W_CHAIN, MVT::i1, Custom);
+  setOperationAction(ISD::INTRINSIC_W_CHAIN, MVT::Other, Custom);
+
+  // Vector load/store operations
+  setOperationAction(ISD::LOAD, MVT::v16i8, Legal);
+  setOperationAction(ISD::LOAD, MVT::v8i16, Legal);
+  setOperationAction(ISD::LOAD, MVT::v4i32, Legal);
+  setOperationAction(ISD::LOAD, MVT::v2i32, Legal);
+  setOperationAction(ISD::LOAD, MVT::v4i16, Legal);
+  setOperationAction(ISD::LOAD, MVT::v8i8, Legal);
+  // v32i8 (256-bit) load/store for QACC_L/QACC_H register classes
+  // This is needed for loading/storing QACC values from memory
+  // Note: v32i8 must be Custom because ESP32P4 has no 256-bit load/store instructions.
+  // It will be split into two 128-bit loads/stores in LowerOperation.
+  setOperationAction(ISD::LOAD, MVT::v32i8, Custom);
+  setOperationAction(ISD::STORE, MVT::v32i8, Custom);
+
+  setOperationAction(ISD::STORE, MVT::v16i8, Legal);
+  setOperationAction(ISD::STORE, MVT::v8i16, Legal);
+  setOperationAction(ISD::STORE, MVT::v4i32, Legal);
+  setOperationAction(ISD::STORE, MVT::v2i32, Legal);
+  setOperationAction(ISD::STORE, MVT::v4i16, Legal);
+  setOperationAction(ISD::STORE, MVT::v8i8, Legal);
+
+  // Arithmetic operations
+  setOperationAction(ISD::ABS, MVT::v16i8, Legal);
+  setOperationAction(ISD::ABS, MVT::v8i16, Legal);
+  setOperationAction(ISD::ABS, MVT::v4i32, Legal);
+
+  setOperationAction(ISD::OR, MVT::v16i8, Legal);
+  setOperationAction(ISD::OR, MVT::v8i16, Legal);
+  setOperationAction(ISD::OR, MVT::v4i32, Legal);
+
+  setOperationAction(ISD::AND, MVT::v16i8, Legal);
+  setOperationAction(ISD::AND, MVT::v8i16, Legal);
+  setOperationAction(ISD::AND, MVT::v4i32, Legal);
+
+  setOperationAction(ISD::XOR, MVT::v16i8, Legal);
+  setOperationAction(ISD::XOR, MVT::v8i16, Legal);
+  setOperationAction(ISD::XOR, MVT::v4i32, Legal);
+
+  // Saturation arithmetic
+  setOperationAction(ISD::SADDSAT, MVT::v16i8, Legal);
+  setOperationAction(ISD::SADDSAT, MVT::v8i16, Legal);
+  setOperationAction(ISD::SADDSAT, MVT::v4i32, Legal);
+
+  setOperationAction(ISD::UADDSAT, MVT::v16i8, Legal);
+  setOperationAction(ISD::UADDSAT, MVT::v8i16, Legal);
+  setOperationAction(ISD::UADDSAT, MVT::v4i32, Legal);
+
+  setOperationAction(ISD::SSUBSAT, MVT::v16i8, Legal);
+  setOperationAction(ISD::SSUBSAT, MVT::v8i16, Legal);
+  setOperationAction(ISD::SSUBSAT, MVT::v4i32, Legal);
+
+  setOperationAction(ISD::USUBSAT, MVT::v16i8, Legal);
+  setOperationAction(ISD::USUBSAT, MVT::v8i16, Legal);
+  setOperationAction(ISD::USUBSAT, MVT::v4i32, Legal);
+
+  // Min/Max operations
+  setOperationAction(ISD::SMAX, MVT::v16i8, Legal);
+  setOperationAction(ISD::SMAX, MVT::v8i16, Legal);
+  setOperationAction(ISD::SMAX, MVT::v4i32, Legal);
+
+  setOperationAction(ISD::UMAX, MVT::v16i8, Legal);
+  setOperationAction(ISD::UMAX, MVT::v8i16, Legal);
+  setOperationAction(ISD::UMAX, MVT::v4i32, Legal);
+
+  setOperationAction(ISD::SMIN, MVT::v16i8, Legal);
+  setOperationAction(ISD::SMIN, MVT::v8i16, Legal);
+  setOperationAction(ISD::SMIN, MVT::v4i32, Legal);
+
+  setOperationAction(ISD::UMIN, MVT::v16i8, Legal);
+  setOperationAction(ISD::UMIN, MVT::v8i16, Legal);
+  setOperationAction(ISD::UMIN, MVT::v4i32, Legal);
+
+  // Vector reduction operations
+  setOperationAction(ISD::VECREDUCE_SMAX, MVT::v16i8, Legal);
+  setOperationAction(ISD::VECREDUCE_SMAX, MVT::v8i16, Legal);
+  setOperationAction(ISD::VECREDUCE_SMAX, MVT::v4i32, Legal);
+
+  setOperationAction(ISD::VECREDUCE_UMAX, MVT::v16i8, Legal);
+  setOperationAction(ISD::VECREDUCE_UMAX, MVT::v8i16, Legal);
+  setOperationAction(ISD::VECREDUCE_UMAX, MVT::v4i32, Legal);
+
+  setOperationAction(ISD::VECREDUCE_SMIN, MVT::v16i8, Legal);
+  setOperationAction(ISD::VECREDUCE_SMIN, MVT::v8i16, Legal);
+  setOperationAction(ISD::VECREDUCE_SMIN, MVT::v4i32, Legal);
+
+  setOperationAction(ISD::VECREDUCE_UMIN, MVT::v16i8, Legal);
+  setOperationAction(ISD::VECREDUCE_UMIN, MVT::v8i16, Legal);
+  setOperationAction(ISD::VECREDUCE_UMIN, MVT::v4i32, Legal);
+
+  // Vector compare operations
+  setOperationAction(ISD::VSELECT, MVT::v16i8, Custom);
+  setOperationAction(ISD::VSELECT, MVT::v8i16, Custom);
+  setOperationAction(ISD::VSELECT, MVT::v4i32, Custom);
+
+  setOperationAction(ISD::SETCC, MVT::v16i8, Custom);
+  setOperationAction(ISD::SETCC, MVT::v8i16, Custom);
+  setOperationAction(ISD::SETCC, MVT::v4i32, Custom);
+
+  // Operations that need expansion
+  setOperationAction(ISD::SRA, MVT::v16i8, Expand);
+  setOperationAction(ISD::SRA, MVT::v8i16, Expand);
+  setOperationAction(ISD::SRA, MVT::v4i32, Expand);
+
+  setOperationAction(ISD::BUILD_VECTOR, MVT::v16i8, Expand);
+  setOperationAction(ISD::BUILD_VECTOR, MVT::v8i16, Expand);
+  setOperationAction(ISD::BUILD_VECTOR, MVT::v4i32, Expand);
+
+  setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v8i8, Expand);
+  setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v4i16, Expand);
+  setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v2i32, Expand);
+  setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v16i8, Expand);
+  setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v8i16, Expand);
+  setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v4i32, Expand);
+
+  setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v8i8, Expand);
+  setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v4i16, Expand);
+  setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v2i32, Expand);
+  // ESP32P4: INSERT_VECTOR_ELT is Custom for QR registers (v16i8, v8i16, v4i32)
+  // This allows LLVM to lower insert_vector_elt operations to ESP_MOVI_*_Q instructions
+  // The instructions use Constraints="$qy = $qy_in" to implement read-modify-write semantics
+  setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v16i8, Custom);
+  setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v8i16, Custom);
+  setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v4i32, Custom);
+
+  setOperationAction(ISD::VECREDUCE_ADD, MVT::v16i8, Expand);
+  setOperationAction(ISD::VECREDUCE_ADD, MVT::v8i16, Expand);
+  setOperationAction(ISD::VECREDUCE_ADD, MVT::v4i32, Expand);
+
+  setOperationAction(ISD::ADD, MVT::v8i8, Expand);
+  setOperationAction(ISD::ADD, MVT::v16i8, Expand);
+  setOperationAction(ISD::ADD, MVT::v8i16, Expand);
+  setOperationAction(ISD::ADD, MVT::v4i32, Expand);
+
+  setOperationAction(ISD::SUB, MVT::v8i8, Expand);
+  setOperationAction(ISD::SUB, MVT::v16i8, Expand);
+  setOperationAction(ISD::SUB, MVT::v8i16, Expand);
+  setOperationAction(ISD::SUB, MVT::v4i32, Expand);
 }

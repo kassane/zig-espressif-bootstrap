@@ -199,12 +199,15 @@ public:
 #include "RISCVGenDAGISel.inc"
 
 private:
+  bool selectESP(SDNode *Node);
   bool doPeepholeSExtW(SDNode *Node);
   bool doPeepholeMaskedRVV(MachineSDNode *Node);
   bool doPeepholeNoRegPassThru();
   bool performCombineVMergeAndVOps(SDNode *N);
   bool selectImm64IfCheaper(int64_t Imm, int64_t OrigImm, SDValue N,
                             SDValue &Val);
+  void selectESPVExtractSubvector(SDNode *Node, SDValue V, uint64_t Idx,
+    MVT InVT, MVT VT, SDLoc DL);
 };
 
 class RISCVDAGToDAGISelLegacy : public SelectionDAGISelLegacy {
