@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "0-terminated slicing" {
     var array = [_]u8{ 3, 2, 1, 0, 3, 2, 1, 0 };
@@ -7,8 +7,8 @@ test "0-terminated slicing" {
     _ = &runtime_length;
     const slice = array[0..runtime_length :0];
 
-    try expect(@TypeOf(slice) == [:0]u8);
-    try expect(slice.len == 3);
+    try expectEqual([:0]u8, @TypeOf(slice));
+    try expectEqual(3, slice.len);
 }
 
 // test

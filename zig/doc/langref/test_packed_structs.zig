@@ -1,6 +1,6 @@
 const std = @import("std");
 const native_endian = @import("builtin").target.cpu.arch.endian();
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 const Full = packed struct {
     number: u16,
@@ -17,23 +17,23 @@ test "@bitCast between packed structs" {
 }
 
 fn doTheTest() !void {
-    try expect(@sizeOf(Full) == 2);
-    try expect(@sizeOf(Divided) == 2);
+    try expectEqual(2, @sizeOf(Full));
+    try expectEqual(2, @sizeOf(Divided));
     const full = Full{ .number = 0x1234 };
     const divided: Divided = @bitCast(full);
-    try expect(divided.half1 == 0x34);
-    try expect(divided.quarter3 == 0x2);
-    try expect(divided.quarter4 == 0x1);
+    try expectEqual(0x34, divided.half1);
+    try expectEqual(0x2, divided.quarter3);
+    try expectEqual(0x1, divided.quarter4);
 
     const ordered: [2]u8 = @bitCast(full);
     switch (native_endian) {
         .big => {
-            try expect(ordered[0] == 0x12);
-            try expect(ordered[1] == 0x34);
+            try expectEqual(0x12, ordered[0]);
+            try expectEqual(0x34, ordered[1]);
         },
         .little => {
-            try expect(ordered[0] == 0x34);
-            try expect(ordered[1] == 0x12);
+            try expectEqual(0x34, ordered[0]);
+            try expectEqual(0x12, ordered[1]);
         },
     }
 }

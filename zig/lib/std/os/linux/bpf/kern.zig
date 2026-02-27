@@ -16,6 +16,7 @@ pub const BpfSock = opaque {};
 pub const BpfSockAddr = opaque {};
 pub const BpfSockOps = opaque {};
 pub const BpfTimer = opaque {};
+pub const Cgroup = opaque {};
 pub const FibLookup = opaque {};
 pub const File = opaque {};
 pub const Inode = opaque {};

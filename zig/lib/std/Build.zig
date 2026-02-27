@@ -115,7 +115,7 @@ pub const Graph = struct {
     arena: Allocator,
     system_library_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
     system_package_mode: bool = false,
-    debug_compiler_runtime_libs: bool = false,
+    debug_compiler_runtime_libs: ?std.builtin.OptimizeMode = null,
     cache: Cache,
     zig_exe: [:0]const u8,
     environ_map: process.Environ.Map,

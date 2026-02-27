@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "packed struct equality" {
     const S = packed struct {
@@ -8,7 +8,7 @@ test "packed struct equality" {
     };
     const x: S = .{ .a = 1, .b = 2 };
     const y: S = .{ .b = 2, .a = 1 };
-    try expect(x == y);
+    try expectEqual(x, y);
 }
 
 // test

@@ -491,7 +491,6 @@ const SwitchMessage = struct {
         reschedule,
         recycle: *Fiber,
         register_awaiter: *?*Fiber,
-        register_select: []const *Io.AnyFuture,
         exit,
     };
 
@@ -513,19 +512,6 @@ const SwitchMessage = struct {
                 assert(prev_fiber.queue_next == null);
                 if (@atomicRmw(?*Fiber, awaiter, .Xchg, prev_fiber, .acq_rel) == Fiber.finished)
                     k.schedule(thread, .{ .head = prev_fiber, .tail = prev_fiber });
-            },
-            .register_select => |futures| {
-                const prev_fiber: *Fiber = @alignCast(@fieldParentPtr("context", message.contexts.old));
-                assert(prev_fiber.queue_next == null);
-                for (futures) |any_future| {
-                    const future_fiber: *Fiber = @ptrCast(@alignCast(any_future));
-                    if (@atomicRmw(?*Fiber, &future_fiber.awaiter, .Xchg, prev_fiber, .acq_rel) == Fiber.finished) {
-                        const closure: *AsyncClosure = .fromFiber(future_fiber);
-                        if (!@atomicRmw(bool, &closure.already_awaited, .Xchg, true, .seq_cst)) {
-                            k.schedule(thread, .{ .head = prev_fiber, .tail = prev_fiber });
-                        }
-                    }
-                }
             },
             .exit => for (k.threads.allocated[0..@atomicLoad(u32, &k.threads.active, .acquire)]) |*each_thread| {
                 const changes = [_]posix.Kevent{
@@ -628,7 +614,6 @@ pub fn io(k: *Kqueue) Io {
             .concurrent = concurrent,
             .await = await,
             .cancel = cancel,
-            .select = select,
 
             .groupAsync = groupAsync,
             .groupConcurrent = groupConcurrent,
@@ -821,13 +806,6 @@ fn groupCancel(userdata: ?*anyopaque, group: *Io.Group, token: *anyopaque) void 
     _ = k;
     _ = group;
     _ = token;
-    @panic("TODO");
-}
-
-fn select(userdata: ?*anyopaque, futures: []const *Io.AnyFuture) Io.Cancelable!usize {
-    const k: *Kqueue = @ptrCast(@alignCast(userdata));
-    _ = k;
-    _ = futures;
     @panic("TODO");
 }
 

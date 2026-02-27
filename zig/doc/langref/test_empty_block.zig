@@ -1,12 +1,12 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test {
     const a = {};
     const b = void{};
-    try expect(@TypeOf(a) == void);
-    try expect(@TypeOf(b) == void);
-    try expect(a == b);
+    try expectEqual(void, @TypeOf(a));
+    try expectEqual(void, @TypeOf(b));
+    try expectEqual(a, b);
 }
 
 // test

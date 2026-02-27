@@ -266,7 +266,7 @@ pub fn DebugAllocator(comptime config: Config) type {
             canary: usize = config.canary,
 
             fn fromPage(page_addr: usize, slot_count: usize) *BucketHeader {
-                const unaligned = page_addr + page_size - bucketSize(slot_count);
+                const unaligned = page_addr +% page_size -% bucketSize(slot_count);
                 return @ptrFromInt(unaligned & ~(@as(usize, @alignOf(BucketHeader)) - 1));
             }
 

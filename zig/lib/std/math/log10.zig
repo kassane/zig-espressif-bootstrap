@@ -17,7 +17,12 @@ pub fn log10(x: anytype) @TypeOf(x) {
         },
         .float => return @log10(x),
         .comptime_int => {
-            return @as(comptime_int, @floor(@log10(@as(f64, x))));
+            const Int = @Int(
+                if (x < 0) .signed else .unsigned,
+                // We let log10_int check if x is 0, for a nicer error message.
+                @max(16, if (x == 0) 0 else 1 + std.math.log2(x)),
+            );
+            return @as(comptime_int, log10_int(@as(Int, x)));
         },
         .int => |IntType| switch (IntType.signedness) {
             .signed => @compileError("log10 not implemented for signed integers"),
@@ -155,4 +160,11 @@ test log10_int {
         }
         try testing.expectEqual(max_exponent, log10_int(@as(T, std.math.maxInt(T))));
     }
+}
+
+test "log10 with comptime types" {
+    try testing.expectEqual(0, log10(2));
+    try testing.expectEqual(2.0, log10(100.0));
+    try testing.expectEqual(2, log10(123));
+    try testing.expectEqual(3.0, log10(1000.0));
 }

@@ -6679,7 +6679,7 @@ pub const SO = switch (native_os) {
         pub const DONTROUTE = 0x0010;
         pub const BROADCAST = 0x0020;
         pub const USELOOPBACK = 0x0040;
-        pub const LINGER = 0x1080;
+        pub const LINGER = 0x0080;
         pub const OOBINLINE = 0x0100;
         pub const REUSEPORT = 0x0200;
         pub const ACCEPTFILTER = 0x1000;
@@ -6698,6 +6698,7 @@ pub const SO = switch (native_os) {
         pub const NOADDRERR = 0x1023;
         pub const NWRITE = 0x1024;
         pub const REUSESHAREUID = 0x1025;
+        pub const LINGER_SEC = 0x1080;
     },
     .freebsd => struct {
         pub const DEBUG = 0x00000001;
@@ -9812,13 +9813,16 @@ pub const EV = switch (native_os) {
         pub const ONESHOT = 0x0010;
         /// clear event state after reporting
         pub const CLEAR = 0x0020;
-        /// force immediate event output
-        /// ... with or without ERROR
-        /// ... use KEVENT_FLAG_ERROR_EVENTS
-        ///     on syscalls supporting flags
+        /// force EV_ERROR on success, data=0
         pub const RECEIPT = 0x0040;
         /// disable event after reporting
         pub const DISPATCH = 0x0080;
+        /// filter-specific flag
+        pub const FLAG1 = 0x2000;
+        /// error, data contains errno
+        pub const ERROR = 0x4000;
+        /// EOF detected
+        pub const EOF = 0x8000;
     },
     .freebsd => struct {
         /// add event to kq (implies enable)

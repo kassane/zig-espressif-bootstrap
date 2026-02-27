@@ -1,12 +1,12 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "coerce to optionals" {
     const x: ?i32 = 1234;
     const y: ?i32 = null;
 
-    try expect(x.? == 1234);
-    try expect(y == null);
+    try expectEqual(1234, x.?);
+    try expectEqual(null, y);
 }
 
 // test

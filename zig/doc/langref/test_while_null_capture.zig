@@ -1,4 +1,4 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "while null capture" {
     var sum1: u32 = 0;
@@ -6,7 +6,7 @@ test "while null capture" {
     while (eventuallyNullSequence()) |value| {
         sum1 += value;
     }
-    try expect(sum1 == 3);
+    try expectEqual(3, sum1);
 
     // null capture with an else block
     var sum2: u32 = 0;
@@ -14,7 +14,7 @@ test "while null capture" {
     while (eventuallyNullSequence()) |value| {
         sum2 += value;
     } else {
-        try expect(sum2 == 3);
+        try expectEqual(3, sum2);
     }
 
     // null capture with a continue expression
@@ -24,7 +24,7 @@ test "while null capture" {
     while (eventuallyNullSequence()) |value| : (i += 1) {
         sum3 += value;
     }
-    try expect(i == 3);
+    try expectEqual(3, i);
 }
 
 var numbers_left: u32 = undefined;

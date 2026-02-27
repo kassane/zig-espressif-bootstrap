@@ -1,4 +1,4 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "inline while loop" {
     comptime var i = 0;
@@ -12,7 +12,7 @@ test "inline while loop" {
         };
         sum += typeNameLength(T);
     }
-    try expect(sum == 9);
+    try expectEqual(9, sum);
 }
 
 fn typeNameLength(comptime T: type) usize {

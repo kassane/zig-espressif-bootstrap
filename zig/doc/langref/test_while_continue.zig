@@ -1,4 +1,4 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "while continue" {
     var i: usize = 0;
@@ -8,7 +8,7 @@ test "while continue" {
             continue;
         break;
     }
-    try expect(i == 10);
+    try expectEqual(10, i);
 }
 
 // test

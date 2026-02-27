@@ -1,4 +1,4 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "comptime pointers" {
     comptime {
@@ -6,7 +6,7 @@ test "comptime pointers" {
         const ptr = &x;
         ptr.* += 1;
         x += 1;
-        try expect(ptr.* == 3);
+        try expectEqual(3, ptr.*);
     }
 }
 

@@ -1,4 +1,4 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "address of syntax" {
     // Get the address of a variable:
@@ -6,17 +6,17 @@ test "address of syntax" {
     const x_ptr = &x;
 
     // Dereference a pointer:
-    try expect(x_ptr.* == 1234);
+    try expectEqual(1234, x_ptr.*);
 
     // When you get the address of a const variable, you get a const single-item pointer.
-    try expect(@TypeOf(x_ptr) == *const i32);
+    try expectEqual(*const i32, @TypeOf(x_ptr));
 
     // If you want to mutate the value, you'd need an address of a mutable variable:
     var y: i32 = 5678;
     const y_ptr = &y;
-    try expect(@TypeOf(y_ptr) == *i32);
+    try expectEqual(*i32, @TypeOf(y_ptr));
     y_ptr.* += 1;
-    try expect(y_ptr.* == 5679);
+    try expectEqual(5679, y_ptr.*);
 }
 
 test "pointer array access" {
@@ -25,11 +25,11 @@ test "pointer array access" {
     // does not support pointer arithmetic.
     var array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     const ptr = &array[2];
-    try expect(@TypeOf(ptr) == *u8);
+    try expectEqual(*u8, @TypeOf(ptr));
 
-    try expect(array[2] == 3);
+    try expectEqual(3, array[2]);
     ptr.* += 1;
-    try expect(array[2] == 4);
+    try expectEqual(4, array[2]);
 }
 
 test "slice syntax" {
@@ -39,11 +39,11 @@ test "slice syntax" {
 
     // Convert to array pointer using slice syntax:
     const x_array_ptr = x_ptr[0..1];
-    try expect(@TypeOf(x_array_ptr) == *[1]i32);
+    try expectEqual(*[1]i32, @TypeOf(x_array_ptr));
 
     // Coerce to many-item pointer:
     const x_many_ptr: [*]i32 = x_array_ptr;
-    try expect(x_many_ptr[0] == 1234);
+    try expectEqual(1234, x_many_ptr[0]);
 }
 
 // test

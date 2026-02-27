@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 const BitField = packed struct {
     a: u3,
@@ -14,8 +14,8 @@ var bit_field = BitField{
 };
 
 test "pointers of sub-byte-aligned fields share addresses" {
-    try expect(@intFromPtr(&bit_field.a) == @intFromPtr(&bit_field.b));
-    try expect(@intFromPtr(&bit_field.a) == @intFromPtr(&bit_field.c));
+    try expectEqual(@intFromPtr(&bit_field.a), @intFromPtr(&bit_field.b));
+    try expectEqual(@intFromPtr(&bit_field.a), @intFromPtr(&bit_field.c));
 }
 
 // test

@@ -1,4 +1,4 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "inline for loop" {
     const nums = [_]i32{ 2, 4, 6 };
@@ -12,7 +12,7 @@ test "inline for loop" {
         };
         sum += typeNameLength(T);
     }
-    try expect(sum == 9);
+    try expectEqual(9, sum);
 }
 
 fn typeNameLength(comptime T: type) usize {

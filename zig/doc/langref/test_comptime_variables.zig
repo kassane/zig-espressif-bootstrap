@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "comptime vars" {
     var x: i32 = 1;
@@ -8,8 +8,8 @@ test "comptime vars" {
     x += 1;
     y += 1;
 
-    try expect(x == 2);
-    try expect(y == 2);
+    try expectEqual(2, x);
+    try expectEqual(2, y);
 
     if (y != 2) {
         // This compile error never triggers because y is a comptime variable,

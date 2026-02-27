@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 comptime {
     asm (
@@ -14,7 +14,7 @@ comptime {
 extern fn my_func(a: i32, b: i32) i32;
 
 test "global assembly" {
-    try expect(my_func(12, 34) == 46);
+    try expectEqual(46, my_func(12, 34));
 }
 
 // test

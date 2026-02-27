@@ -143,7 +143,7 @@ test "cmpxchg on a global variable" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
-    _ = @cmpxchgWeak(u32, &a_global_variable, 1234, 42, .acquire, .monotonic);
+    _ = @cmpxchgStrong(u32, &a_global_variable, 1234, 42, .acquire, .monotonic);
     try expect(a_global_variable == 42);
 }
 

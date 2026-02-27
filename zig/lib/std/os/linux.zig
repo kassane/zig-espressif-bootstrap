@@ -1118,6 +1118,14 @@ pub fn pivot_root(new_root: [*:0]const u8, put_old: [*:0]const u8) usize {
     return syscall2(.pivot_root, @intFromPtr(new_root), @intFromPtr(put_old));
 }
 
+fn mmap2Unit() u64 {
+    return switch (native_arch) {
+        .arc, .arceb, .m68k => std.heap.pageSize(),
+        .or1k => 8 << 10,
+        else => 4 << 10,
+    };
+}
+
 pub fn mmap(address: ?[*]u8, length: usize, prot: PROT, flags: MAP, fd: i32, offset: i64) usize {
     if (@hasField(SYS, "mmap2")) {
         return syscall6(
@@ -1127,7 +1135,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: PROT, flags: MAP, fd: i32, off
             @as(u32, @bitCast(prot)),
             @as(u32, @bitCast(flags)),
             @bitCast(@as(isize, fd)),
-            @truncate(@as(u64, @bitCast(offset)) / std.heap.pageSize()),
+            @truncate(@as(u64, @bitCast(offset)) / mmap2Unit()),
         );
     } else {
         // The s390x mmap() syscall existed before Linux supported syscalls with 5+ parameters, so

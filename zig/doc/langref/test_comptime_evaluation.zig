@@ -1,4 +1,4 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 const CmdFn = struct {
     name: []const u8,
@@ -32,9 +32,9 @@ fn performFn(comptime prefix_char: u8, start_value: i32) i32 {
 }
 
 test "perform fn" {
-    try expect(performFn('t', 1) == 6);
-    try expect(performFn('o', 0) == 1);
-    try expect(performFn('w', 99) == 99);
+    try expectEqual(6, performFn('t', 1));
+    try expectEqual(1, performFn('o', 0));
+    try expectEqual(99, performFn('w', 99));
 }
 
 // test

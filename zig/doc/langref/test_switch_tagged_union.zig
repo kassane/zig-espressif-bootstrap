@@ -1,4 +1,4 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "switch on tagged union" {
     const Point = struct {
@@ -31,8 +31,8 @@ test "switch on tagged union" {
         Item.d => 8,
     };
 
-    try expect(b == 6);
-    try expect(a.c.x == 2);
+    try expectEqual(6, b);
+    try expectEqual(2, a.c.x);
 }
 
 // test

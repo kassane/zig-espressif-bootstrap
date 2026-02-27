@@ -555,6 +555,8 @@ pub const Clobbers = switch (@import("builtin").cpu.arch) {
         r13: bool = false,
         r14: bool = false,
 
+        lr: bool = false,
+        sp: bool = false,
         fpscr: bool = false,
         vpr: bool = false,
 

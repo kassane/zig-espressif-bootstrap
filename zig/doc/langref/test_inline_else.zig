@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 const SliceTypeA = extern struct {
     len: usize,
@@ -42,8 +42,8 @@ fn withSwitch(any: AnySlice) usize {
 
 test "inline for and inline else similarity" {
     const any = AnySlice{ .c = "hello" };
-    try expect(withFor(any) == 5);
-    try expect(withSwitch(any) == 5);
+    try expectEqual(5, withFor(any));
+    try expectEqual(5, withSwitch(any));
 }
 
 // test

@@ -2226,7 +2226,10 @@ fn resolvePathInputLib(
         const n = file.readPositionalAll(io, ld_script_bytes.items, 0) catch |err|
             fatal("failed to read '{f}': {t}", .{ std.fmt.alt(test_path, .formatEscapeChar), err });
         const buf = ld_script_bytes.items[0..n];
-        if (mem.startsWith(u8, buf, std.elf.MAGIC) or mem.startsWith(u8, buf, std.elf.ARMAG)) {
+        if (mem.startsWith(u8, buf, std.elf.MAGIC) or
+            mem.startsWith(u8, buf, std.elf.ARMAG) or
+            mem.startsWith(u8, buf, std.elf.ARMAG_THIN))
+        {
             // Appears to be an ELF or archive file.
             return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, pq.query);
         }

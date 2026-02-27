@@ -1,7 +1,7 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "noinline function call" {
-    try expect(@call(.auto, add, .{ 3, 9 }) == 12);
+    try expectEqual(12, @call(.auto, add, .{ 3, 9 }));
 }
 
 fn add(a: i32, b: i32) i32 {

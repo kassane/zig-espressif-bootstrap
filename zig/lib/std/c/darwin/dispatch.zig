@@ -39,14 +39,13 @@ pub const once_t = enum(isize) {
     _,
 
     pub inline fn once(predicate: *once_t, context: ?*anyopaque, function: function_t) void {
-        if (@atomicLoad(once_t, predicate, .unordered) != .done) {
+        if (predicate.* != .done) {
             @branchHint(.unlikely);
             once_f(predicate, context, function);
         } else asm volatile ("" ::: .{ .memory = true });
         switch (builtin.mode) {
             .Debug, .ReleaseSafe => {},
-            .ReleaseFast, .ReleaseSmall => if (@atomicLoad(once_t, predicate, .unordered) != .done)
-                unreachable,
+            .ReleaseFast, .ReleaseSmall => if (predicate.* != .done) unreachable,
         }
     }
 };
@@ -110,6 +109,7 @@ const queue_s = opaque {
     pub const get_current = get_current_queue;
     pub const get_main = get_main_queue;
     pub const get_global = get_global_queue;
+    pub const TARGET_DEFAULT = TARGET_QUEUE_DEFAULT;
     pub const create_with_target = queue_create_with_target;
     pub const create = queue_create;
     pub const get_label = queue_get_label;

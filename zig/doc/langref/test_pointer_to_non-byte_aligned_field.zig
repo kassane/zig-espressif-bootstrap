@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 const BitField = packed struct {
     a: u3,
@@ -15,7 +15,7 @@ var foo = BitField{
 
 test "pointer to non-byte-aligned field" {
     const ptr = &foo.b;
-    try expect(ptr.* == 2);
+    try expectEqual(2, ptr.*);
 }
 
 // test

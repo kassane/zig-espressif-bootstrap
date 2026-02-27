@@ -1,11 +1,12 @@
 const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "if optional" {
     // If expressions test for null.
 
     const a: ?u32 = 0;
     if (a) |value| {
-        try expect(value == 0);
+        try expectEqual(0, value);
     } else {
         unreachable;
     }
@@ -19,7 +20,7 @@ test "if optional" {
 
     // The else is not required.
     if (a) |value| {
-        try expect(value == 0);
+        try expectEqual(0, value);
     }
 
     // To test against null only, use the binary equality operator.
@@ -34,7 +35,7 @@ test "if optional" {
     }
 
     if (c) |value| {
-        try expect(value == 2);
+        try expectEqual(2, value);
     } else {
         unreachable;
     }
@@ -46,7 +47,7 @@ test "if error union with optional" {
 
     const a: anyerror!?u32 = 0;
     if (a) |optional_value| {
-        try expect(optional_value.? == 0);
+        try expectEqual(0, optional_value.?);
     } else |err| {
         _ = err;
         unreachable;
@@ -54,7 +55,7 @@ test "if error union with optional" {
 
     const b: anyerror!?u32 = null;
     if (b) |optional_value| {
-        try expect(optional_value == null);
+        try expectEqual(null, optional_value);
     } else |_| {
         unreachable;
     }
@@ -64,7 +65,7 @@ test "if error union with optional" {
         _ = optional_value;
         unreachable;
     } else |err| {
-        try expect(err == error.BadValue);
+        try expectEqual(error.BadValue, err);
     }
 
     // Access the value by reference by using a pointer capture each time.
@@ -78,7 +79,7 @@ test "if error union with optional" {
     }
 
     if (d) |optional_value| {
-        try expect(optional_value.? == 9);
+        try expectEqual(9, optional_value.?);
     } else |_| {
         unreachable;
     }

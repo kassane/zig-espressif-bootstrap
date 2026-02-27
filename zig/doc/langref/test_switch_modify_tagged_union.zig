@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 const ComplexTypeTag = enum {
     ok,
@@ -18,7 +18,7 @@ test "modify tagged union in switch" {
         ComplexTypeTag.not_ok => unreachable,
     }
 
-    try expect(c.ok == 43);
+    try expectEqual(43, c.ok);
 }
 
 // test

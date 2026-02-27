@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
 test "integer widening" {
@@ -10,13 +10,13 @@ test "integer widening" {
     const d: u64 = c;
     const e: u64 = d;
     const f: u128 = e;
-    try expect(f == a);
+    try expectEqual(f, a);
 }
 
 test "implicit unsigned integer to signed integer" {
     const a: u8 = 250;
     const b: i16 = a;
-    try expect(b == 250);
+    try expectEqual(250, b);
 }
 
 test "float widening" {
@@ -24,7 +24,7 @@ test "float widening" {
     const b: f32 = a;
     const c: f64 = b;
     const d: f128 = c;
-    try expect(d == a);
+    try expectEqual(d, a);
 }
 
 // test

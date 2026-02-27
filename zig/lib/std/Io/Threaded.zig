@@ -1772,7 +1772,6 @@ pub fn io(t: *Threaded) Io {
             .concurrent = concurrent,
             .await = await,
             .cancel = cancel,
-            .select = select,
 
             .groupAsync = groupAsync,
             .groupConcurrent = groupConcurrent,
@@ -1938,7 +1937,6 @@ pub fn ioBasic(t: *Threaded) Io {
             .concurrent = concurrent,
             .await = await,
             .cancel = cancel,
-            .select = select,
 
             .groupAsync = groupAsync,
             .groupConcurrent = groupConcurrent,
@@ -11727,74 +11725,6 @@ fn sleepNanosleep(t: *Threaded, timeout: Io.Timeout) Io.Cancelable!void {
     }
 }
 
-fn select(userdata: ?*anyopaque, futures: []const *Io.AnyFuture) Io.Cancelable!usize {
-    const t: *Threaded = @ptrCast(@alignCast(userdata));
-    _ = t;
-
-    var num_completed: std.atomic.Value(u32) = .init(0);
-
-    for (futures, 0..) |any_future, i| {
-        const future: *Future = @ptrCast(@alignCast(any_future));
-        future.awaiter = &num_completed;
-        const old_status = future.status.fetchOr(
-            .{ .tag = .pending_awaited, .thread = .null },
-            .release, // release `future.awaiter`
-        );
-        switch (old_status.tag) {
-            .pending => {},
-            .pending_awaited => unreachable, // `await` raced with `select`
-            .pending_canceled => unreachable, // `cancel` raced with `select`
-            .done => {
-                future.status.store(old_status, .monotonic);
-                _ = finishSelect(&num_completed, futures[0..i]);
-                return i;
-            },
-        }
-    }
-
-    errdefer _ = finishSelect(&num_completed, futures);
-
-    while (true) {
-        const n = num_completed.load(.acquire);
-        if (n > 0) break;
-        assert(n < futures.len);
-        try Thread.futexWait(&num_completed.raw, n, null);
-    }
-    return finishSelect(&num_completed, futures).?;
-}
-fn finishSelect(
-    num_completed: *std.atomic.Value(u32),
-    futures: []const *Io.AnyFuture,
-) ?usize {
-    var completed_index: ?usize = null;
-    var expect_completed: u32 = 0;
-    for (futures, 0..) |any_future, i| {
-        const future: *Future = @ptrCast(@alignCast(any_future));
-        // This operation will convert `.pending_awaited` to `.pending`, or leave `.done` untouched.
-        switch (future.status.fetchAnd(
-            .{ .tag = @enumFromInt(0b10), .thread = .all_ones },
-            .monotonic,
-        ).tag) {
-            .pending_awaited => {},
-            .pending => unreachable,
-            .pending_canceled => unreachable,
-            .done => {
-                expect_completed += 1;
-                completed_index = i;
-            },
-        }
-    }
-    // If any future has just finished, wait for it to signal `num_completed` to avoid dangling
-    // references to stack memory.
-    while (true) {
-        const n = num_completed.load(.acquire);
-        if (n == expect_completed) break;
-        assert(n < expect_completed);
-        Thread.futexWaitUncancelable(&num_completed.raw, n, null);
-    }
-    return completed_index;
-}
-
 fn netListenIpPosix(
     userdata: ?*anyopaque,
     address: IpAddress,
@@ -14936,7 +14866,7 @@ fn lookupHostsReader(
             error.ReadFailed => return error.ReadFailed,
             error.EndOfStream => break,
         };
-        reader.toss(1);
+        reader.toss(@min(1, reader.bufferedLen()));
         var split_it = std.mem.splitScalar(u8, line, '#');
         const no_comment_line = split_it.first();
 

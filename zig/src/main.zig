@@ -708,7 +708,8 @@ const usage_build_generic =
     \\  --debug-log [scope]          Enable printing debug/info log messages for scope
     \\  --debug-compile-errors       Crash with helpful diagnostics at the first compile error
     \\  --debug-link-snapshot        Enable dumping of the linker's state in JSON format
-    \\  --debug-rt                   Debug compiler runtime libraries
+    \\  --debug-rt[=mode]            Build compiler runtime libraries with [mode] optimization
+    \\                               (Debug if [=mode] is omitted)
     \\  --debug-incremental          Enable incremental compilation debug features
     \\
 ;
@@ -928,7 +929,7 @@ fn buildOutputType(
     var minor_subsystem_version: ?u16 = null;
     var mingw_unicode_entry_point: bool = false;
     var enable_link_snapshots: bool = false;
-    var debug_compiler_runtime_libs = false;
+    var debug_compiler_runtime_libs: ?std.builtin.OptimizeMode = null;
     var install_name: ?[]const u8 = null;
     var hash_style: link.File.Lld.Elf.HashStyle = .both;
     var entitlements: ?[]const u8 = null;
@@ -1382,7 +1383,9 @@ fn buildOutputType(
                             enable_link_snapshots = true;
                         }
                     } else if (mem.eql(u8, arg, "--debug-rt")) {
-                        debug_compiler_runtime_libs = true;
+                        debug_compiler_runtime_libs = .Debug;
+                    } else if (mem.cutPrefix(u8, arg, "--debug-rt=")) |rest| {
+                        debug_compiler_runtime_libs = parseOptimizeMode(rest);
                     } else if (mem.eql(u8, arg, "--debug-incremental")) {
                         if (build_options.enable_debug_extensions) {
                             debug_incremental = true;
@@ -2078,6 +2081,8 @@ fn buildOutputType(
                     .nostdlib => {
                         create_module.opts.ensure_libc_on_non_freestanding = false;
                         create_module.opts.ensure_libcpp_on_non_freestanding = false;
+                        want_compiler_rt = false;
+                        want_ubsan_rt = false;
                     },
                     .nostdlib_cpp => create_module.opts.ensure_libcpp_on_non_freestanding = false,
                     .shared => {

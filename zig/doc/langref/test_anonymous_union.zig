@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 const Number = union {
     int: i32,
@@ -9,8 +9,8 @@ const Number = union {
 test "anonymous union literal syntax" {
     const i: Number = .{ .int = 42 };
     const f = makeNumber();
-    try expect(i.int == 42);
-    try expect(f.float == 12.34);
+    try expectEqual(42, i.int);
+    try expectEqual(12.34, f.float);
 }
 
 fn makeNumber() Number {

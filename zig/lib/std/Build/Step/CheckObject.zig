@@ -1702,6 +1702,10 @@ const ElfDumper = struct {
             return error.InvalidArchiveMagicNumber;
         }
 
+        if (!mem.isAligned(bytes.len, 2)) {
+            return error.InvalidArchivePadding;
+        }
+
         var ctx = ArchiveContext{
             .gpa = gpa,
             .data = bytes,
@@ -1715,8 +1719,8 @@ const ElfDumper = struct {
         }
 
         while (true) {
-            if (reader.seek >= ctx.data.len) break;
             if (!mem.isAligned(reader.seek, 2)) reader.seek += 1;
+            if (reader.seek >= ctx.data.len) break;
 
             const hdr = try reader.takeStruct(elf.ar_hdr, .little);
 

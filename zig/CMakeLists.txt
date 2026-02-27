@@ -264,7 +264,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/hash/wyhash.zig
     lib/std/hash_map.zig
     lib/std/heap.zig
-    lib/std/heap/arena_allocator.zig
+    lib/std/heap/ArenaAllocator.zig
     lib/std/json.zig
     lib/std/leb128.zig
     lib/std/log.zig
@@ -610,7 +610,7 @@ else()
   set(ZIG1_COMPILE_FLAGS "-std=c99 -Os")
   set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-sanitize=undefined -fno-stack-protector")
   # Must match the condition in build.zig.
-  if(ZIG_HOST_TARGET_ARCH MATCHES "^powerpc(64)?(le)?$")
+  if(ZIG_HOST_TARGET_ARCH MATCHES "^(arm|thumb)(eb)?$" OR ZIG_HOST_TARGET_ARCH MATCHES "^powerpc(64)?(le)?$")
     set(ZIG1_COMPILE_FLAGS "${ZIG1_COMPILE_FLAGS} -ffunction-sections -fdata-sections")
     set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} -ffunction-sections -fdata-sections")
   endif()

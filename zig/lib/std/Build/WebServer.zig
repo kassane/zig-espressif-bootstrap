@@ -608,7 +608,10 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
     defer body_buffer.deinit(gpa);
 
     while (true) {
-        const header = try stdout.takeStruct(Header, .little);
+        const header = stdout.takeStruct(Header, .little) catch |e| switch (e) {
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => break,
+        };
         body_buffer.clearRetainingCapacity();
         try stdout.appendExact(gpa, &body_buffer, header.bytes_len);
         const body = body_buffer.items;

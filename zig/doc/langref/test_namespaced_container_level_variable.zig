@@ -1,9 +1,9 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "namespaced container level variable" {
-    try expect(foo() == 1235);
-    try expect(foo() == 1236);
+    try expectEqual(1235, foo());
+    try expectEqual(1236, foo());
 }
 
 const S = struct {

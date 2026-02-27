@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 const E = enum {
     one,
@@ -28,22 +28,22 @@ const U2 = union(enum) {
 test "coercion between unions and enums" {
     const u = U{ .two = 12.34 };
     const e: E = u; // coerce union to enum
-    try expect(e == E.two);
+    try expectEqual(E.two, e);
 
     const three = E.three;
     const u_2: U = three; // coerce enum to union
-    try expect(u_2 == E.three);
+    try expectEqual(E.three, u_2);
 
     const u_3: U = .three; // coerce enum literal to union
-    try expect(u_3 == E.three);
+    try expectEqual(E.three, u_3);
 
     const u_4: U2 = .a; // coerce enum literal to union with inferred enum tag type.
-    try expect(u_4.tag() == 1);
+    try expectEqual(1, u_4.tag());
 
     // The following example is invalid.
     // error: coercion from enum '@EnumLiteral()' to union 'test_coerce_unions_enum.U2' must initialize 'f32' field 'b'
     //var u_5: U2 = .b;
-    //try expect(u_5.tag() == 2);
+    //try expectEqual(2, u_5.tag());
 }
 
 // test

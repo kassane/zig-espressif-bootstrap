@@ -4,13 +4,14 @@
 // * anyerror!T
 
 const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "if expression" {
     // If expressions are used instead of a ternary expression.
     const a: u32 = 5;
     const b: u32 = 4;
     const result = if (a != b) 47 else 3089;
-    try expect(result == 47);
+    try expectEqual(result, 47);
 }
 
 test "if boolean" {
@@ -32,7 +33,7 @@ test "if error union" {
 
     const a: anyerror!u32 = 0;
     if (a) |value| {
-        try expect(value == 0);
+        try expectEqual(value, 0);
     } else |err| {
         _ = err;
         unreachable;
@@ -43,17 +44,17 @@ test "if error union" {
         _ = value;
         unreachable;
     } else |err| {
-        try expect(err == error.BadValue);
+        try expectEqual(err, error.BadValue);
     }
 
     // The else and |err| capture is strictly required.
     if (a) |value| {
-        try expect(value == 0);
+        try expectEqual(value, 0);
     } else |_| {}
 
     // To check only the error value, use an empty block expression.
     if (b) |_| {} else |err| {
-        try expect(err == error.BadValue);
+        try expectEqual(err, error.BadValue);
     }
 
     // Access the value by reference using a pointer capture.
@@ -65,7 +66,7 @@ test "if error union" {
     }
 
     if (c) |value| {
-        try expect(value == 9);
+        try expectEqual(value, 9);
     } else |_| {
         unreachable;
     }

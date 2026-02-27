@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const print = std.debug.print;
 
 fn deferExample() !usize {
@@ -9,14 +9,14 @@ fn deferExample() !usize {
         defer a = 2;
         a = 1;
     }
-    try expect(a == 2);
+    try expectEqual(2, a);
 
     a = 5;
     return a;
 }
 
 test "defer basics" {
-    try expect((try deferExample()) == 5);
+    try expectEqual(5, (try deferExample()));
 }
 
 // test

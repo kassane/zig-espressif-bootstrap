@@ -144,10 +144,6 @@ pub const VTable = struct {
     swapCancelProtection: *const fn (?*anyopaque, new: CancelProtection) CancelProtection,
     checkCancel: *const fn (?*anyopaque) Cancelable!void,
 
-    /// Blocks until one of the futures from the list has a result ready, such
-    /// that awaiting it will not block. Returns that index.
-    select: *const fn (?*anyopaque, futures: []const *AnyFuture) Cancelable!usize,
-
     futexWait: *const fn (?*anyopaque, ptr: *const u32, expected: u32, Timeout) Cancelable!void,
     futexWaitUncancelable: *const fn (?*anyopaque, ptr: *const u32, expected: u32) void,
     futexWake: *const fn (?*anyopaque, ptr: *const u32, max_waiters: u32) void,
@@ -1177,12 +1173,20 @@ pub fn checkCancel(io: Io) Cancelable!void {
     return io.vtable.checkCancel(io.userdata);
 }
 
+/// Executes tasks together, providing a mechanism to wait until one or more
+/// tasks complete. Similar to `Batch` but operates at the higher level task
+/// abstraction layer rather than lower level `Operation` abstraction layer.
+///
+/// The provided tagged union will be used as the return type of the await
+/// function. When calling async or concurrent, one specifies which union field
+/// the called function's result will be placed into upon completion.
 pub fn Select(comptime U: type) type {
     return struct {
         io: Io,
         group: Group,
+        /// The queue is never closed because there may be live resources
+        /// inserted into it which would otherwise leak.
         queue: Queue(U),
-        outstanding: usize,
 
         const S = @This();
 
@@ -1195,7 +1199,6 @@ pub fn Select(comptime U: type) type {
                 .io = io,
                 .queue = .init(buffer),
                 .group = .init,
-                .outstanding = 0,
             };
         }
 
@@ -1210,7 +1213,7 @@ pub fn Select(comptime U: type) type {
         /// already been called and completed, or it has successfully been
         /// assigned a unit of concurrency.
         ///
-        /// After this is called, `wait` or `cancel` must be called before the
+        /// After this is called, `await` or `cancel` must be called before the
         /// select is deinitialized.
         ///
         /// Threadsafe.
@@ -1229,40 +1232,90 @@ pub fn Select(comptime U: type) type {
                 args: @TypeOf(args),
                 fn start(type_erased_context: *const anyopaque) Cancelable!void {
                     const context: *const @This() = @ptrCast(@alignCast(type_erased_context));
-                    const elem = @unionInit(U, @tagName(field), @call(.auto, function, context.args));
+                    const raw_result = @call(.auto, function, context.args);
+                    const elem = @unionInit(U, @tagName(field), raw_result);
                     context.select.queue.putOneUncancelable(context.select.io, elem) catch |err| switch (err) {
                         error.Closed => unreachable,
                     };
+                    if (@typeInfo(@TypeOf(raw_result)) == .error_union)
+                        _ = raw_result catch |err| if (err == error.Canceled) return error.Canceled;
                 }
             };
             const context: Context = .{ .select = s, .args = args };
-            _ = @atomicRmw(usize, &s.outstanding, .Add, 1, .monotonic);
             s.io.vtable.groupAsync(s.io.userdata, &s.group, @ptrCast(&context), .of(Context), Context.start);
+        }
+
+        /// Calls `function` with `args` concurrently. The resource spawned is
+        /// owned by the select.
+        ///
+        /// `function` must have return type matching the `field` field of `Union`.
+        ///
+        /// After this function returns successfully, it is guaranteed that
+        /// `function` has been assigned a unit of concurrency, and `await` or
+        /// `cancel` must be called before the select is deinitialized.
+        ///
+        ///
+        /// Threadsafe.
+        ///
+        /// Related:
+        /// * `Io.concurrent`
+        /// * `Group.concurrent`
+        pub fn concurrent(
+            s: *S,
+            comptime field: Field,
+            function: anytype,
+            args: std.meta.ArgsTuple(@TypeOf(function)),
+        ) ConcurrentError!void {
+            const Context = struct {
+                select: *S,
+                args: @TypeOf(args),
+                fn start(type_erased_context: *const anyopaque) Cancelable!void {
+                    const context: *const @This() = @ptrCast(@alignCast(type_erased_context));
+                    const raw_result = @call(.auto, function, context.args);
+                    const elem = @unionInit(U, @tagName(field), raw_result);
+                    context.select.queue.putOneUncancelable(context.select.io, elem) catch |err| switch (err) {
+                        error.Closed => unreachable,
+                    };
+                    if (@typeInfo(@TypeOf(raw_result)) == .error_union)
+                        _ = raw_result catch |err| if (err == error.Canceled) return error.Canceled;
+                }
+            };
+            const context: Context = .{ .select = s, .args = args };
+            try s.io.vtable.groupConcurrent(s.io.userdata, &s.group, @ptrCast(&context), .of(Context), Context.start);
         }
 
         /// Blocks until another task of the select finishes.
         ///
-        /// Asserts there is at least one more `outstanding` task.
-        ///
-        /// Not threadsafe.
+        /// Threadsafe.
         pub fn await(s: *S) Cancelable!U {
-            s.outstanding -= 1;
             return s.queue.getOne(s.io) catch |err| switch (err) {
                 error.Canceled => |e| return e,
                 error.Closed => unreachable,
             };
         }
 
-        /// Equivalent to `wait` but requests cancelation on all remaining
+        /// Blocks until at least `min` number of results have been copied
+        /// into `buffer`.
+        ///
+        /// Asserts that `buffer.len >= min`.
+        ///
+        /// Threadsafe.
+        pub fn awaitMany(s: *S, buffer: []U, min: usize) Cancelable!usize {
+            return s.queue.get(s.io, buffer, min) catch |err| switch (err) {
+                error.Canceled => |e| return e,
+                error.Closed => unreachable,
+            };
+        }
+
+        /// Equivalent to `await` but requests cancelation on all remaining
         /// tasks owned by the select.
         ///
         /// For a description of cancelation and cancelation points, see `Future.cancel`.
         ///
-        /// It is illegal to call `wait` after this.
+        /// It is illegal to call `await` after this.
         ///
-        /// Idempotent. Not threadsafe.
+        /// Idempotent. Threadsafe.
         pub fn cancel(s: *S) void {
-            s.outstanding = 0;
             s.group.cancel(s.io);
         }
     };
@@ -1692,7 +1745,7 @@ pub const TypeErasedQueue = struct {
         return if (slice.len > 0) slice else null;
     }
 
-    fn putLocked(q: *TypeErasedQueue, io: Io, elements: []const u8, target: usize, uncancelable: bool) (QueueClosedError || Cancelable)!usize {
+    fn putLocked(q: *TypeErasedQueue, io: Io, elements: []const u8, min: usize, uncancelable: bool) (QueueClosedError || Cancelable)!usize {
         // A closed queue cannot be added to, even if there is space in the buffer.
         if (q.closed) return error.Closed;
 
@@ -1728,12 +1781,12 @@ pub const TypeErasedQueue = struct {
             if (n == elements.len) return elements.len;
         }
 
-        // Don't block if we hit the target.
-        if (n >= target) return n;
+        // Don't block if we hit the min.
+        if (n >= min) return n;
 
         var pending: Put = .{
             .remaining = elements[n..],
-            .needed = target - n,
+            .needed = min - n,
             .condition = .init,
             .node = .{},
         };
@@ -1792,7 +1845,7 @@ pub const TypeErasedQueue = struct {
         return if (slice.len > 0) slice else null;
     }
 
-    fn getLocked(q: *TypeErasedQueue, io: Io, buffer: []u8, target: usize, uncancelable: bool) (QueueClosedError || Cancelable)!usize {
+    fn getLocked(q: *TypeErasedQueue, io: Io, buffer: []u8, min: usize, uncancelable: bool) (QueueClosedError || Cancelable)!usize {
         // The ring buffer gets first priority, then data should come from any
         // queued putters, then finally the ring buffer should be filled with
         // data from putters so they can be resumed.
@@ -1838,15 +1891,15 @@ pub const TypeErasedQueue = struct {
         // No need to call `fillRingBufferFromPutters` from this point onwards,
         // because we emptied the ring buffer *and* the putter queue!
 
-        // Don't block if we hit the target or if the queue is closed. Return how
+        // Don't block if we hit the min or if the queue is closed. Return how
         // many elements we could get immediately, unless the queue was closed and
         // empty, in which case report `error.Closed`.
         if (n == 0 and q.closed) return error.Closed;
-        if (n >= target or q.closed) return n;
+        if (n >= min or q.closed) return n;
 
         var pending: Get = .{
             .remaining = buffer[n..],
-            .needed = target - n,
+            .needed = min - n,
             .condition = .init,
             .node = .{},
         };
@@ -1922,7 +1975,7 @@ pub fn Queue(Elem: type) type {
         /// there is insufficient capacity. Returns when any one of the
         /// following conditions is satisfied:
         ///
-        /// * At least `target` elements have been added to the queue
+        /// * At least `min` elements have been added to the queue
         /// * The queue is closed
         /// * The current task is canceled
         ///
@@ -1931,16 +1984,16 @@ pub fn Queue(Elem: type) type {
         ///
         /// If the queue is closed or the task is canceled, but some items were
         /// already added before the closure or cancelation, then `put` may
-        /// return a number lower than `target`, in which case future calls are
+        /// return a number lower than `min`, in which case future calls are
         /// guaranteed to return `error.Canceled` or `error.Closed`.
         ///
-        /// A return value of 0 is only possible if `target` is 0, in which case
+        /// A return value of 0 is only possible if `min` is 0, in which case
         /// the call is guaranteed to queue as many of `elements` as is possible
         /// *without* blocking.
         ///
-        /// Asserts that `elements.len >= target`.
-        pub fn put(q: *@This(), io: Io, elements: []const Elem, target: usize) (QueueClosedError || Cancelable)!usize {
-            return @divExact(try q.type_erased.put(io, @ptrCast(elements), target * @sizeOf(Elem)), @sizeOf(Elem));
+        /// Asserts that `elements.len >= min`.
+        pub fn put(q: *@This(), io: Io, elements: []const Elem, min: usize) (QueueClosedError || Cancelable)!usize {
+            return @divExact(try q.type_erased.put(io, @ptrCast(elements), min * @sizeOf(Elem)), @sizeOf(Elem));
         }
 
         /// Same as `put` but blocks until all elements have been added to the queue.
@@ -1979,7 +2032,7 @@ pub fn Queue(Elem: type) type {
         /// if there are insufficient elements currently in the queue. Returns when
         /// any one of the following conditions is satisfied:
         ///
-        /// * At least `target` elements have been received from the queue
+        /// * At least `min` elements have been received from the queue
         /// * The queue is closed and contains no buffered elements
         /// * The current task is canceled
         ///
@@ -1988,16 +2041,16 @@ pub fn Queue(Elem: type) type {
         ///
         /// If the queue is closed or the task is canceled, but some items were
         /// already received before the closure or cancelation, then `get` may
-        /// return a number lower than `target`, in which case future calls are
+        /// return a number lower than `min`, in which case future calls are
         /// guaranteed to return `error.Canceled` or `error.Closed`.
         ///
-        /// A return value of 0 is only possible if `target` is 0, in which case
+        /// A return value of 0 is only possible if `min` is 0, in which case
         /// the call is guaranteed to fill as much of `buffer` as is possible
         /// *without* blocking.
         ///
-        /// Asserts that `buffer.len >= target`.
-        pub fn get(q: *@This(), io: Io, buffer: []Elem, target: usize) (QueueClosedError || Cancelable)!usize {
-            return @divExact(try q.type_erased.get(io, @ptrCast(buffer), target * @sizeOf(Elem)), @sizeOf(Elem));
+        /// Asserts that `buffer.len >= min`.
+        pub fn get(q: *@This(), io: Io, buffer: []Elem, min: usize) (QueueClosedError || Cancelable)!usize {
+            return @divExact(try q.type_erased.get(io, @ptrCast(buffer), min * @sizeOf(Elem)), @sizeOf(Elem));
         }
 
         /// Same as `get`, except does not introduce a cancelation point.
@@ -2118,40 +2171,6 @@ pub fn sleep(io: Io, duration: Duration, clock: Clock) Cancelable!void {
         .raw = duration,
         .clock = clock,
     } });
-}
-
-/// Given a struct with each field a `*Future`, returns a union with the same
-/// fields, each field type the future's result.
-pub fn SelectUnion(S: type) type {
-    const struct_fields = @typeInfo(S).@"struct".fields;
-    var names: [struct_fields.len][]const u8 = undefined;
-    var types: [struct_fields.len]type = undefined;
-    for (struct_fields, &names, &types) |struct_field, *union_field_name, *UnionFieldType| {
-        const FieldFuture = @typeInfo(struct_field.type).pointer.child;
-        union_field_name.* = struct_field.name;
-        UnionFieldType.* = @FieldType(FieldFuture, "result");
-    }
-    return @Union(.auto, std.meta.FieldEnum(S), &names, &types, &@splat(.{}));
-}
-
-/// `s` is a struct with every field a `*Future(T)`, where `T` can be any type,
-/// and can be different for each field.
-pub fn select(io: Io, s: anytype) Cancelable!SelectUnion(@TypeOf(s)) {
-    const U = SelectUnion(@TypeOf(s));
-    const S = @TypeOf(s);
-    const fields = @typeInfo(S).@"struct".fields;
-    var futures: [fields.len]*AnyFuture = undefined;
-    inline for (fields, &futures) |field, *any_future| {
-        const future = @field(s, field.name);
-        any_future.* = future.any_future orelse return @unionInit(U, field.name, future.result);
-    }
-    switch (try io.vtable.select(io.userdata, &futures)) {
-        inline 0...(fields.len - 1) => |selected_index| {
-            const field_name = fields[selected_index].name;
-            return @unionInit(U, field_name, @field(s, field_name).await(io));
-        },
-        else => unreachable,
-    }
 }
 
 pub const LockedStderr = struct {

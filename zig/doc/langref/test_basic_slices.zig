@@ -1,4 +1,4 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 const expectEqualSlices = @import("std").testing.expectEqualSlices;
 
 test "basic slices" {
@@ -12,14 +12,14 @@ test "basic slices" {
 
     try expectEqualSlices(i32, slice, alt_slice);
 
-    try expect(@TypeOf(slice) == []i32);
-    try expect(&slice[0] == &array[0]);
-    try expect(slice.len == array.len);
+    try expectEqual([]i32, @TypeOf(slice));
+    try expectEqual(&array[0], &slice[0]);
+    try expectEqual(array.len, slice.len);
 
     // If you slice with comptime-known start and end positions, the result is
     // a pointer to an array, rather than a slice.
     const array_ptr = array[0..array.len];
-    try expect(@TypeOf(array_ptr) == *[array.len]i32);
+    try expectEqual(*[array.len]i32, @TypeOf(array_ptr));
 
     // You can perform a slice-by-length by slicing twice. This allows the compiler
     // to perform some optimisations like recognising a comptime-known length when
@@ -28,13 +28,13 @@ test "basic slices" {
     _ = &runtime_start;
     const length = 2;
     const array_ptr_len = array[runtime_start..][0..length];
-    try expect(@TypeOf(array_ptr_len) == *[length]i32);
+    try expectEqual(*[length]i32, @TypeOf(array_ptr_len));
 
     // Using the address-of operator on a slice gives a single-item pointer.
-    try expect(@TypeOf(&slice[0]) == *i32);
+    try expectEqual(*i32, @TypeOf(&slice[0]));
     // Using the `ptr` field gives a many-item pointer.
-    try expect(@TypeOf(slice.ptr) == [*]i32);
-    try expect(@intFromPtr(slice.ptr) == @intFromPtr(&slice[0]));
+    try expectEqual([*]i32, @TypeOf(slice.ptr));
+    try expectEqual(@intFromPtr(slice.ptr), @intFromPtr(&slice[0]));
 
     // Slices have array bounds checking. If you try to access something out
     // of bounds, you'll get a safety check failure:
@@ -47,8 +47,8 @@ test "basic slices" {
     const empty1 = &[0]u8{};
     // If the type is known you can use this short hand:
     const empty2: []u8 = &.{};
-    try expect(empty1.len == 0);
-    try expect(empty2.len == 0);
+    try expectEqual(0, empty1.len);
+    try expectEqual(0, empty2.len);
 
     // A zero-length initialization can always be used to create an empty slice, even if the slice is mutable.
     // This is because the pointed-to data is zero bits long, so its immutability is irrelevant.

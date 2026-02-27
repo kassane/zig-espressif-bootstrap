@@ -1,6 +1,6 @@
 const std = @import("std");
-const expect = std.testing.expect;
-const mem = std.mem;
+const expectEqual = std.testing.expectEqual;
+const expectEqualStrings = std.testing.expectEqualStrings;
 const fmt = std.fmt;
 
 test "using slices for strings" {
@@ -23,13 +23,13 @@ test "using slices for strings" {
     // Generally, you can use UTF-8 and not worry about whether something is a
     // string. If you don't need to deal with individual characters, no need
     // to decode.
-    try expect(mem.eql(u8, hello_world, "hello 世界"));
+    try expectEqualStrings("hello 世界", hello_world);
 }
 
 test "slice pointer" {
     var array: [10]u8 = undefined;
     const ptr = &array;
-    try expect(@TypeOf(ptr) == *[10]u8);
+    try expectEqual(*[10]u8, @TypeOf(ptr));
 
     // A pointer to an array can be sliced just like an array:
     var start: usize = 0;
@@ -37,16 +37,16 @@ test "slice pointer" {
     _ = .{ &start, &end };
     const slice = ptr[start..end];
     // The slice is mutable because we sliced a mutable pointer.
-    try expect(@TypeOf(slice) == []u8);
+    try expectEqual([]u8, @TypeOf(slice));
     slice[2] = 3;
-    try expect(array[2] == 3);
+    try expectEqual(3, array[2]);
 
     // Again, slicing with comptime-known indexes will produce another pointer
     // to an array:
     const ptr2 = slice[2..3];
-    try expect(ptr2.len == 1);
-    try expect(ptr2[0] == 3);
-    try expect(@TypeOf(ptr2) == *[1]u8);
+    try expectEqual(1, ptr2.len);
+    try expectEqual(3, ptr2[0]);
+    try expectEqual(*[1]u8, @TypeOf(ptr2));
 }
 
 // test

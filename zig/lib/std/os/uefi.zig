@@ -107,17 +107,13 @@ pub const Guid = extern struct {
 
     /// Format GUID into hexadecimal lowercase xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx format
     pub fn format(self: Guid, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        const time_low = @byteSwap(self.time_low);
-        const time_mid = @byteSwap(self.time_mid);
-        const time_high_and_version = @byteSwap(self.time_high_and_version);
-
         return writer.print("{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x}", .{
-            std.mem.asBytes(&time_low),
-            std.mem.asBytes(&time_mid),
-            std.mem.asBytes(&time_high_and_version),
-            std.mem.asBytes(&self.clock_seq_high_and_reserved),
-            std.mem.asBytes(&self.clock_seq_low),
-            std.mem.asBytes(&self.node),
+            self.time_low,
+            self.time_mid,
+            self.time_high_and_version,
+            self.clock_seq_high_and_reserved,
+            self.clock_seq_low,
+            self.node,
         });
     }
 
@@ -225,10 +221,10 @@ test "GUID formatting" {
     const bytes = [_]u8{ 137, 60, 203, 50, 128, 128, 124, 66, 186, 19, 80, 73, 135, 59, 194, 135 };
     const guid: Guid = @bitCast(bytes);
 
-    const str = try std.fmt.allocPrint(std.testing.allocator, "{}", .{guid});
+    const str = try std.fmt.allocPrint(std.testing.allocator, "{f}", .{guid});
     defer std.testing.allocator.free(str);
 
-    try std.testing.expect(std.mem.eql(u8, str, "32cb3c89-8080-427c-ba13-5049873bc287"));
+    try std.testing.expectEqualStrings(str, "32cb3c89-8080-427c-ba13-5049873bc287");
 }
 
 test {

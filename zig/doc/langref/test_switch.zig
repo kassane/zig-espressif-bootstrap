@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "switch simple" {
     const a: u64 = 10;
@@ -40,7 +40,7 @@ test "switch simple" {
         else => 9,
     };
 
-    try expect(b == 1);
+    try expectEqual(1, b);
 }
 
 // Switch expressions can be used outside a function:

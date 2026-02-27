@@ -1,4 +1,4 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "error union" {
     var foo: anyerror!i32 = undefined;
@@ -10,10 +10,10 @@ test "error union" {
     foo = error.SomeError;
 
     // Use compile-time reflection to access the payload type of an error union:
-    try comptime expect(@typeInfo(@TypeOf(foo)).error_union.payload == i32);
+    try comptime expectEqual(i32, @typeInfo(@TypeOf(foo)).error_union.payload);
 
     // Use compile-time reflection to access the error set type of an error union:
-    try comptime expect(@typeInfo(@TypeOf(foo)).error_union.error_set == anyerror);
+    try comptime expectEqual(anyerror, @typeInfo(@TypeOf(foo)).error_union.error_set);
 }
 
 // test

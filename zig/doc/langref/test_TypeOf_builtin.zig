@@ -1,11 +1,11 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "no runtime side effects" {
     var data: i32 = 0;
     const T = @TypeOf(foo(i32, &data));
-    try comptime expect(T == i32);
-    try expect(data == 0);
+    try comptime expectEqual(i32, T);
+    try expectEqual(0, data);
 }
 
 fn foo(comptime T: type, ptr: *T) T {

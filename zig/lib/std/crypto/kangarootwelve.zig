@@ -883,6 +883,7 @@ fn ktMultiThreaded(
         defer allocator.free(pending_cv_buf);
         var pending_cv_lens: [256]usize = .{0} ** 256;
 
+        var select_outstanding: usize = 0;
         var select: Select = .init(io, select_buf);
         defer select.cancel();
         var batches_spawned: usize = 0;
@@ -894,6 +895,7 @@ fn ktMultiThreaded(
                 const batch_leaves = @min(leaves_per_batch, full_leaves - batch_start_leaf);
                 const start_offset = chunk_size + batch_start_leaf * chunk_size;
 
+                select_outstanding += 1;
                 select.async(.batch, SelectLeafContext(Variant).process, .{SelectLeafContext(Variant){
                     .view = view,
                     .batch_idx = batches_spawned,
@@ -903,6 +905,7 @@ fn ktMultiThreaded(
                 batches_spawned += 1;
             }
 
+            select_outstanding -= 1;
             const result = try select.await();
             const batch = result.batch;
             const slot = batch.batch_idx % max_concurrent;
@@ -927,7 +930,7 @@ fn ktMultiThreaded(
             }
         }
 
-        assert(select.outstanding == 0);
+        assert(select_outstanding == 0);
     }
 
     if (has_partial_leaf) {

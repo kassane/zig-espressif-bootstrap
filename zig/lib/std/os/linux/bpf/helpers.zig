@@ -223,3 +223,5 @@ pub const tcp_raw_check_syncookie_ipv4: *align(1) const fn (?*kern.IpHdr, ?*TcpH
 pub const tcp_raw_check_syncookie_ipv6: *align(1) const fn (?*kern.Ipv6Hdr, ?*TcpHdr) c_long = @ptrFromInt(207);
 pub const ktime_get_tai_ns: *align(1) const fn () u64 = @ptrFromInt(208);
 pub const user_ringbuf_drain: *align(1) const fn (?*anyopaque, ?*anyopaque, ?*anyopaque, u64) c_long = @ptrFromInt(209);
+pub const cgrp_storage_get: *align(1) const fn (?*anyopaque, ?*kern.Cgroup, ?*anyopaque, u64) ?*anyopaque = @ptrFromInt(210);
+pub const cgrp_storage_delete: *align(1) const fn (?*anyopaque, ?*kern.Cgroup) c_long = @ptrFromInt(211);

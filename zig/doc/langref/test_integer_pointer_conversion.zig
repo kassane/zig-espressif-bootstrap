@@ -1,10 +1,10 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "@intFromPtr and @ptrFromInt" {
     const ptr: *i32 = @ptrFromInt(0xdeadbee0);
     const addr = @intFromPtr(ptr);
-    try expect(@TypeOf(addr) == usize);
-    try expect(addr == 0xdeadbee0);
+    try expectEqual(usize, @TypeOf(addr));
+    try expectEqual(0xdeadbee0, addr);
 }
 
 // test

@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 const Payload = union {
     int: i64,
@@ -8,9 +8,9 @@ const Payload = union {
 };
 test "simple union" {
     var payload = Payload{ .int = 1234 };
-    try expect(payload.int == 1234);
+    try expectEqual(1234, payload.int);
     payload = Payload{ .float = 12.34 };
-    try expect(payload.float == 12.34);
+    try expectEqual(12.34, payload.float);
 }
 
 // test

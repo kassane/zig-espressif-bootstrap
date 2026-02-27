@@ -2761,6 +2761,8 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) Error!void {
             .struct_field_val => try cg.airStructFieldVal(inst),
             .field_parent_ptr => try cg.airFieldParentPtr(inst),
 
+            .struct_field_ptr => try cg.airStructFieldPtr(inst),
+
             .struct_field_ptr_index_0 => try cg.airStructFieldPtrIndex(inst, 0),
             .struct_field_ptr_index_1 => try cg.airStructFieldPtrIndex(inst, 1),
             .struct_field_ptr_index_2 => try cg.airStructFieldPtrIndex(inst, 2),
@@ -4804,6 +4806,15 @@ fn structFieldPtr(
         },
         else => unreachable,
     }
+}
+
+fn airStructFieldPtr(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
+    const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+    const struct_field = cg.air.extraData(Air.StructField, ty_pl.payload).data;
+    const struct_ptr = try cg.resolve(struct_field.struct_operand);
+    const struct_ptr_ty = cg.typeOf(struct_field.struct_operand);
+    const result_ptr_ty = cg.typeOfIndex(inst);
+    return try cg.structFieldPtr(result_ptr_ty, struct_ptr_ty, struct_ptr, struct_field.field_index);
 }
 
 fn airStructFieldPtrIndex(cg: *CodeGen, inst: Air.Inst.Index, field_index: u32) !?Id {

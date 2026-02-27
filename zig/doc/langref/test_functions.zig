@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const native_arch = builtin.cpu.arch;
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 // Functions are declared like this
 fn add(a: i8, b: i8) i8 {
@@ -57,8 +57,8 @@ fn doOp(fnCall: Call2Op, op1: i8, op2: i8) i8 {
 }
 
 test "function" {
-    try expect(doOp(add, 5, 6) == 11);
-    try expect(doOp(sub2, 5, 6) == -1);
+    try expectEqual(11, doOp(add, 5, 6));
+    try expectEqual(-1, doOp(sub2, 5, 6));
 }
 
 // test

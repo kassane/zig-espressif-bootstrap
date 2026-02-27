@@ -178,15 +178,15 @@ pub const Condition = enum(u5) {
     }
 };
 
-/// The immediate operand of vcvtps2ph.
-pub const RoundMode = packed struct(u5) {
+/// The immediate operand of vroundss/vroundps/vcvtps2ph/round??.
+pub const RoundMode = packed struct(u4) {
     direction: Direction = .mxcsr,
     precision: enum(u1) {
         normal = 0b0,
         inexact = 0b1,
     } = .normal,
 
-    pub const Direction = enum(u4) {
+    pub const Direction = enum(u3) {
         /// Round to nearest (even)
         nearest = 0b0_00,
         /// Round down (toward -∞)

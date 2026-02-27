@@ -177397,7 +177397,10 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
             label_gop.value_ptr.target = @intCast(self.mir_instructions.len);
         } else continue;
         if (mnem_str[0] == '.') {
-            if (prefix != .none) return self.fail("prefixed directive: '{s} {s}'", .{ @tagName(prefix), mnem_str });
+            if (prefix != .none) return self.fail("prefixed directive: '{s} {s}'", .{
+                @tagName(prefix),
+                mnem_str,
+            });
             prefix = .directive;
         }
 
@@ -177426,7 +177429,8 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
         else if (std.mem.endsWith(u8, mnem_str, "l"))
             .dword
         else if (std.mem.endsWith(u8, mnem_str, "q") and
-            (std.mem.indexOfScalar(u8, "vp", mnem_str[0]) == null or !std.mem.endsWith(u8, mnem_str, "dq")))
+            (std.mem.indexOfScalar(u8, "vp", mnem_str[0]) == null or
+                !std.mem.endsWith(u8, mnem_str, "dq")))
             .qword
         else if (std.mem.endsWith(u8, mnem_str, "t"))
             .tbyte
@@ -177463,23 +177467,40 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
             mnem_size = .init(fixed_mnem_size);
         }
 
+        const ops_str = mnem_it.rest();
+        var ops_index: usize = 0;
         var ops: [4]Operand = @splat(.none);
         var ops_len: usize = 0;
-
-        var last_op = false;
-        var op_it = std.mem.splitScalar(u8, mnem_it.rest(), ',');
         next_op: for (&ops, 0..) |*op, op_index| {
-            const op_str = while (!last_op) {
-                const full_str = op_it.next() orelse break :next_op;
-                const code_str = if (std.mem.indexOfScalar(u8, full_str, '#') orelse
-                    std.mem.indexOf(u8, full_str, "//")) |comment|
-                code: {
-                    last_op = true;
-                    break :code full_str[0..comment];
-                } else full_str;
-                const trim_str = std.mem.trim(u8, code_str, " \t*");
-                if (trim_str.len > 0) break trim_str;
-            } else break;
+            const op_str = while (true) {
+                const op_start = ops_index;
+                if (ops_str.len - op_start == 0) break :next_op;
+                const full_op_str = while (true) {
+                    const op_end = std.mem.findAnyPos(u8, ops_str, ops_index, ",(") orelse {
+                        ops_index = ops_str.len;
+                        break ops_str[op_start..];
+                    };
+                    switch (ops_str[op_end]) {
+                        else => unreachable,
+                        ',' => {
+                            ops_index = op_end + 1;
+                            break ops_str[op_start..op_end];
+                        },
+                        '(' => ops_index = (std.mem.findScalarPos(u8, ops_str, op_end + 1, ')') orelse {
+                            ops_index = ops_str.len;
+                            break ops_str[op_start..];
+                        }) + 1,
+                    }
+                };
+                const untrimmed_op_str = if (std.mem.indexOfScalar(u8, full_op_str, '#') orelse
+                    std.mem.indexOf(u8, full_op_str, "//")) |comment|
+                untrimmed_op_str: {
+                    ops_index = ops_str.len;
+                    break :untrimmed_op_str full_op_str[0..comment];
+                } else full_op_str;
+                const trimmed_op_str = std.mem.trim(u8, untrimmed_op_str, " \t*");
+                if (trimmed_op_str.len > 0) break trimmed_op_str;
+            };
             if (std.mem.startsWith(u8, op_str, "%%")) {
                 const colon = std.mem.indexOfScalarPos(u8, op_str, "%%".len + 2, ':');
                 const reg = parseRegName(op_str["%%".len .. colon orelse op_str.len]) orelse
@@ -177496,7 +177517,8 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                         } },
                     } };
                 } else {
-                    if (mnem_size.use(op_index)) |size| if (reg.size().bitSize(self.target) != size.bitSize(self.target))
+                    if (mnem_size.use(op_index)) |size| if (reg.size().bitSize(self.target) !=
+                        size.bitSize(self.target))
                         return self.fail("invalid register size: '{s}'", .{op_str});
                     op.* = .{ .reg = reg };
                 }
@@ -177510,15 +177532,20 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                     arg_map.get(op_str["%[".len .. colon orelse op_str.len - "]".len]) orelse
                         return self.fail("no matching constraint: '{s}'", .{op_str})
                 ]) {
-                    .immediate => |imm| if (std.mem.eql(u8, modifier, "") or std.mem.eql(u8, modifier, "c"))
+                    .immediate => |imm| if (std.mem.eql(u8, modifier, "") or
+                        std.mem.eql(u8, modifier, "c"))
                         .{ .imm = .u(imm) }
                     else
                         return self.fail("invalid modifier: '{s}'", .{modifier}),
                     .register => |reg| if (std.mem.eql(u8, modifier, ""))
-                        .{ .reg = if (mnem_size.use(op_index)) |size| reg.toSize(size, self.target) else reg }
+                        .{ .reg = if (mnem_size.use(op_index)) |size|
+                            reg.toSize(size, self.target)
+                        else
+                            reg }
                     else
                         return self.fail("invalid modifier: '{s}'", .{modifier}),
-                    .memory => |addr| if (std.mem.eql(u8, modifier, "") or std.mem.eql(u8, modifier, "P"))
+                    .memory => |addr| if (std.mem.eql(u8, modifier, "") or
+                        std.mem.eql(u8, modifier, "P"))
                         .{ .mem = .{
                             .base = .{ .reg = .ds },
                             .mod = .{ .rm = .{
@@ -177564,7 +177591,9 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                     else
                         return self.fail("invalid modifier: '{s}'", .{modifier}),
                     .lea_extern_func => |extern_func| if (std.mem.eql(u8, modifier, "P"))
-                        .{ .reg = try self.copyToTmpRegister(.usize, .{ .lea_extern_func = extern_func }) }
+                        .{ .reg = try self.copyToTmpRegister(.usize, .{
+                            .lea_extern_func = extern_func,
+                        }) }
                     else
                         return self.fail("invalid modifier: '{s}'", .{modifier}),
                     else => return self.fail("invalid constraint: '{s}'", .{op_str}),
@@ -177579,7 +177608,8 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
             } else if (std.mem.endsWith(u8, op_str, ")")) {
                 const open = std.mem.indexOfScalar(u8, op_str, '(') orelse
                     return self.fail("invalid operand: '{s}'", .{op_str});
-                var sib_it = std.mem.splitScalar(u8, op_str[open + "(".len .. op_str.len - ")".len], ',');
+                var sib_it =
+                    std.mem.splitScalar(u8, op_str[open + "(".len .. op_str.len - ")".len], ',');
                 const base_str = sib_it.next() orelse
                     return self.fail("invalid memory operand: '{s}'", .{op_str});
                 if (base_str.len > 0 and !std.mem.startsWith(u8, base_str, "%%"))
@@ -177626,7 +177656,8 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                     else
                         .none,
                     .mod = .{ .rm = .{
-                        .size = mnem_size.use(op_index) orelse return self.fail("unknown size: '{s}'", .{op_str}),
+                        .size = mnem_size.use(op_index) orelse
+                            return self.fail("unknown size: '{s}'", .{op_str}),
                         .index = if (index_str.len > 0)
                             parseRegName(index_str["%%".len..]) orelse
                                 return self.fail("invalid index register: '{s}'", .{op_str})
@@ -177675,7 +177706,9 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                 op.* = .{ .inst = label_gop.value_ptr.target };
             } else return self.fail("invalid operand: '{s}'", .{op_str});
             ops_len += 1;
-        } else if (op_it.next()) |op_str| return self.fail("extra operand: '{s}'", .{op_str});
+        } else if (ops_str.len - ops_index > 0) return self.fail("extra operand: '{s}'", .{
+            ops_str[ops_index..],
+        });
 
         // convert from att syntax to intel syntax
         std.mem.reverse(Operand, ops[0..ops_len]);
@@ -177695,7 +177728,8 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                     else => unreachable,
                 }),
             }) catch unreachable;
-            if (std.meta.stringToEnum(encoder.Instruction.Mnemonic, intel_mnem_str)) |intel_mnem_tag| mnem_tag = intel_mnem_tag;
+            if (std.meta.stringToEnum(encoder.Instruction.Mnemonic, intel_mnem_str)) |intel_mnem_tag|
+                mnem_tag = intel_mnem_tag;
         }
         const mnem_name = @tagName(mnem_tag);
         const mnem_fixed_tag: Mir.Inst.FixedTag = if (prefix == .directive)

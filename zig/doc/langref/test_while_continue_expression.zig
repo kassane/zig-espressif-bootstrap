@@ -1,9 +1,10 @@
+const expectEqual = @import("std").testing.expectEqual;
 const expect = @import("std").testing.expect;
 
 test "while loop continue expression" {
     var i: usize = 0;
     while (i < 10) : (i += 1) {}
-    try expect(i == 10);
+    try expectEqual(10, i);
 }
 
 test "while loop continue expression, more complicated" {

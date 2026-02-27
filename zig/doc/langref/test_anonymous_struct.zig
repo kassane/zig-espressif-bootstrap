@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "fully anonymous struct" {
     try check(.{
@@ -11,11 +12,11 @@ test "fully anonymous struct" {
 }
 
 fn check(args: anytype) !void {
-    try expect(args.int == 1234);
-    try expect(args.float == 12.34);
+    try expectEqual(1234, args.int);
+    try expectEqual(12.34, args.float);
     try expect(args.b);
-    try expect(args.s[0] == 'h');
-    try expect(args.s[1] == 'i');
+    try expectEqual('h', args.s[0]);
+    try expectEqual('i', args.s[1]);
 }
 
 // test

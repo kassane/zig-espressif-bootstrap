@@ -1,15 +1,15 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 fn addFortyTwo(x: anytype) @TypeOf(x) {
     return x + 42;
 }
 
 test "fn type inference" {
-    try expect(addFortyTwo(1) == 43);
-    try expect(@TypeOf(addFortyTwo(1)) == comptime_int);
+    try expectEqual(43, addFortyTwo(1));
+    try expectEqual(comptime_int, @TypeOf(addFortyTwo(1)));
     const y: i64 = 2;
-    try expect(addFortyTwo(y) == 44);
-    try expect(@TypeOf(addFortyTwo(y)) == i64);
+    try expectEqual(44, addFortyTwo(y));
+    try expectEqual(i64, @TypeOf(addFortyTwo(y)));
 }
 
 // test

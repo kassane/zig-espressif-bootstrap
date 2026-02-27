@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 const Point = struct { x: i32, y: i32 };
 
@@ -8,8 +8,8 @@ test "anonymous struct literal" {
         .x = 13,
         .y = 67,
     };
-    try expect(pt.x == 13);
-    try expect(pt.y == 67);
+    try expectEqual(13, pt.x);
+    try expectEqual(67, pt.y);
 }
 
 // test

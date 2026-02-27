@@ -2310,7 +2310,7 @@ pub fn addCliTests(b: *std.Build) *Step {
     return step;
 }
 
-const ModuleTestOptions = struct {
+pub const ModuleTestOptions = struct {
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
     test_extra_targets: bool,
@@ -2319,7 +2319,7 @@ const ModuleTestOptions = struct {
     desc: []const u8,
     optimize_modes: []const OptimizeMode,
     include_paths: []const []const u8,
-    test_default_only: bool,
+    test_only: ?TestOnly,
     skip_single_threaded: bool,
     skip_non_native: bool,
     skip_spirv: bool,
@@ -2335,20 +2335,31 @@ const ModuleTestOptions = struct {
     max_rss: usize = 0,
     no_builtin: bool = false,
     build_options: ?*Step.Options = null,
+
+    pub const TestOnly = union(enum) {
+        default: void,
+        fuzz: OptimizeMode,
+    };
 };
 
 pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
     const step = b.step(b.fmt("test-{s}", .{options.name}), options.desc);
 
-    if (options.test_default_only) {
-        const test_target = &test_targets[0];
+    if (options.test_only) |test_only| {
+        const test_target: TestTarget = switch (test_only) {
+            .default => test_targets[0],
+            .fuzz => |optimize| .{
+                .optimize_mode = optimize,
+                .use_llvm = true,
+            },
+        };
         const resolved_target = b.resolveTargetQuery(test_target.target);
         const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
         addOneModuleTest(b, step, test_target, &resolved_target, triple_txt, options);
         return step;
     }
 
-    for_targets: for (&test_targets) |*test_target| {
+    for_targets: for (test_targets) |test_target| {
         if (test_target.skip_modules.len > 0) {
             for (test_target.skip_modules) |skip_mod| {
                 if (std.mem.eql(u8, options.name, skip_mod)) continue :for_targets;
@@ -2425,7 +2436,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 fn addOneModuleTest(
     b: *std.Build,
     step: *Step,
-    test_target: *const TestTarget,
+    test_target: TestTarget,
     resolved_target: *const std.Build.ResolvedTarget,
     triple_txt: []const u8,
     options: ModuleTestOptions,

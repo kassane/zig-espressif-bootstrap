@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "sentinel mismatch" {
     var array = [_]u8{ 3, 2, 1, 0 };

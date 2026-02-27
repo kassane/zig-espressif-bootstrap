@@ -201,6 +201,10 @@ pub fn enter(self: *IoUring, to_submit: u32, min_complete: u32, flags: u32) !u32
         // The kernel believes our `self.fd` does not refer to an io_uring instance,
         // or the opcode is valid but not supported by this kernel (more likely):
         .OPNOTSUPP => return error.OpcodeNotSupported,
+        // The thread submitting the work is invalid. This may occur if IORING_ENTER_GETEVENTS
+        // and IORING_SETUP_DEFER_TASKRUN is set, but the submitting thread is not the thread
+        // that initially created or enabled the io_uring associated with fd.
+        .EXIST => return error.InvalidThread,
         // The operation was interrupted by a delivery of a signal before it could complete.
         // This can happen while waiting for events with IORING_ENTER_GETEVENTS:
         .INTR => return error.SignalInterrupt,

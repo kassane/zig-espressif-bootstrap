@@ -3,7 +3,7 @@ const std = @import("std");
 test "pointer alignment safety" {
     var array align(4) = [_]u32{ 0x11111111, 0x11111111 };
     const bytes = std.mem.sliceAsBytes(array[0..]);
-    try std.testing.expect(foo(bytes) == 0x11111111);
+    try std.testing.expectEqual(0x11111111, foo(bytes));
 }
 fn foo(bytes: []u8) u32 {
     const slice4 = bytes[1..5];

@@ -11,10 +11,10 @@ fn foo(point: Point) i32 {
     return point.x + point.y;
 }
 
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "pass struct to function" {
-    try expect(foo(Point{ .x = 1, .y = 2 }) == 3);
+    try expectEqual(3, foo(Point{ .x = 1, .y = 2 }));
 }
 
 // test

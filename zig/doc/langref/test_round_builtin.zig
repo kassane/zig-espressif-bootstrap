@@ -1,10 +1,10 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "@round" {
-    try expect(@round(1.4) == 1);
-    try expect(@round(1.5) == 2);
-    try expect(@round(-1.4) == -1);
-    try expect(@round(-2.5) == -3);
+    try expectEqual(1, @round(1.4));
+    try expectEqual(2, @round(1.5));
+    try expectEqual(-1, @round(-1.4));
+    try expectEqual(-3, @round(-2.5));
 }
 
 // test

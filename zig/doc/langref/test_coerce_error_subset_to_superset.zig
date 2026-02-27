@@ -12,7 +12,7 @@ const AllocationError = error{
 
 test "coerce subset to superset" {
     const err = foo(AllocationError.OutOfMemory);
-    try std.testing.expect(err == FileOpenError.OutOfMemory);
+    try std.testing.expectEqual(FileOpenError.OutOfMemory, err);
 }
 
 fn foo(err: AllocationError) FileOpenError {

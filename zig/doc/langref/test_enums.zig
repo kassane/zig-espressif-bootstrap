@@ -1,4 +1,6 @@
 const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
+const expectEqualStrings = @import("std").testing.expectEqualStrings;
 const mem = @import("std").mem;
 
 // Declare an enum.
@@ -20,9 +22,9 @@ const Value = enum(u2) {
 // Now you can cast between u2 and Value.
 // The ordinal value starts from 0, counting up by 1 from the previous member.
 test "enum ordinal value" {
-    try expect(@intFromEnum(Value.zero) == 0);
-    try expect(@intFromEnum(Value.one) == 1);
-    try expect(@intFromEnum(Value.two) == 2);
+    try expectEqual(0, @intFromEnum(Value.zero));
+    try expectEqual(1, @intFromEnum(Value.one));
+    try expectEqual(2, @intFromEnum(Value.two));
 }
 
 // You can override the ordinal value for an enum.
@@ -32,9 +34,9 @@ const Value2 = enum(u32) {
     million = 1000000,
 };
 test "set enum ordinal value" {
-    try expect(@intFromEnum(Value2.hundred) == 100);
-    try expect(@intFromEnum(Value2.thousand) == 1000);
-    try expect(@intFromEnum(Value2.million) == 1000000);
+    try expectEqual(100, @intFromEnum(Value2.hundred));
+    try expectEqual(1000, @intFromEnum(Value2.thousand));
+    try expectEqual(1000000, @intFromEnum(Value2.million));
 }
 
 // You can also override only some values.
@@ -46,11 +48,11 @@ const Value3 = enum(u4) {
     e,
 };
 test "enum implicit ordinal values and overridden values" {
-    try expect(@intFromEnum(Value3.a) == 0);
-    try expect(@intFromEnum(Value3.b) == 8);
-    try expect(@intFromEnum(Value3.c) == 9);
-    try expect(@intFromEnum(Value3.d) == 4);
-    try expect(@intFromEnum(Value3.e) == 5);
+    try expectEqual(0, @intFromEnum(Value3.a));
+    try expectEqual(8, @intFromEnum(Value3.b));
+    try expectEqual(9, @intFromEnum(Value3.c));
+    try expectEqual(4, @intFromEnum(Value3.d));
+    try expectEqual(5, @intFromEnum(Value3.e));
 }
 
 // Enums can have methods, the same as structs and unions.
@@ -84,7 +86,7 @@ test "enum switch" {
         Foo.number => "this is a number",
         Foo.none => "this is a none",
     };
-    try expect(mem.eql(u8, what_is_it, "this is a number"));
+    try expectEqualStrings(what_is_it, "this is a number");
 }
 
 // @typeInfo can be used to access the integer tag type of an enum.
@@ -95,18 +97,18 @@ const Small = enum {
     four,
 };
 test "std.meta.Tag" {
-    try expect(@typeInfo(Small).@"enum".tag_type == u2);
+    try expectEqual(u2, @typeInfo(Small).@"enum".tag_type);
 }
 
 // @typeInfo tells us the field count and the fields names:
 test "@typeInfo" {
-    try expect(@typeInfo(Small).@"enum".fields.len == 4);
-    try expect(mem.eql(u8, @typeInfo(Small).@"enum".fields[1].name, "two"));
+    try expectEqual(4, @typeInfo(Small).@"enum".fields.len);
+    try expectEqualStrings(@typeInfo(Small).@"enum".fields[1].name, "two");
 }
 
 // @tagName gives a [:0]const u8 representation of an enum value:
 test "@tagName" {
-    try expect(mem.eql(u8, @tagName(Small.three), "three"));
+    try expectEqualStrings(@tagName(Small.three), "three");
 }
 
 // test

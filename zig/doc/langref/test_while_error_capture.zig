@@ -1,4 +1,4 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "while error union capture" {
     var sum1: u32 = 0;
@@ -6,7 +6,7 @@ test "while error union capture" {
     while (eventuallyErrorSequence()) |value| {
         sum1 += value;
     } else |err| {
-        try expect(err == error.ReachedZero);
+        try expectEqual(error.ReachedZero, err);
     }
 }
 

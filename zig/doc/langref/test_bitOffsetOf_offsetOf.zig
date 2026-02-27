@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 const BitField = packed struct {
     a: u3,
@@ -9,13 +9,13 @@ const BitField = packed struct {
 
 test "offsets of non-byte-aligned fields" {
     comptime {
-        try expect(@bitOffsetOf(BitField, "a") == 0);
-        try expect(@bitOffsetOf(BitField, "b") == 3);
-        try expect(@bitOffsetOf(BitField, "c") == 6);
+        try expectEqual(0, @bitOffsetOf(BitField, "a"));
+        try expectEqual(3, @bitOffsetOf(BitField, "b"));
+        try expectEqual(6, @bitOffsetOf(BitField, "c"));
 
-        try expect(@offsetOf(BitField, "a") == 0);
-        try expect(@offsetOf(BitField, "b") == 0);
-        try expect(@offsetOf(BitField, "c") == 0);
+        try expectEqual(0, @offsetOf(BitField, "a"));
+        try expectEqual(0, @offsetOf(BitField, "b"));
+        try expectEqual(0, @offsetOf(BitField, "c"));
     }
 }
 

@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "nested break" {
     var count: usize = 0;
@@ -9,7 +9,7 @@ test "nested break" {
             break :outer;
         }
     }
-    try expect(count == 1);
+    try expectEqual(1, count);
 }
 
 test "nested continue" {
@@ -21,7 +21,7 @@ test "nested continue" {
         }
     }
 
-    try expect(count == 8);
+    try expectEqual(8, count);
 }
 
 // test

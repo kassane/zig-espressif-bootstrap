@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 const Color = enum {
     auto,
@@ -10,7 +11,7 @@ const Color = enum {
 test "enum literals" {
     const color1: Color = .auto;
     const color2 = Color.auto;
-    try expect(color1 == color2);
+    try expectEqual(color1, color2);
 }
 
 test "switch using enum literals" {

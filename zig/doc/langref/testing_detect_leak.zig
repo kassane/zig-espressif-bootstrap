@@ -6,7 +6,7 @@ test "detect leak" {
     // missing `defer list.deinit(gpa);`
     try list.append(gpa, '☔');
 
-    try std.testing.expect(list.items.len == 1);
+    try std.testing.expectEqual(1, list.items.len);
 }
 
 // test_error=1 tests leaked memory

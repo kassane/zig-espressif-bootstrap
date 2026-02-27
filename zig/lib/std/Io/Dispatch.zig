@@ -100,15 +100,11 @@ const Fiber = struct {
     required_align: void align(4),
     evented: *Evented,
     context: Io.fiber.Context,
-    await_count: i32,
     link: union {
         awaiter: ?*Fiber,
         group: struct { prev: ?*Fiber, next: ?*Fiber },
     },
-    status: union(enum) {
-        queue_next: ?*Fiber,
-        awaiting_group: Group,
-    },
+    awaiting_group: Group,
     cancel_status: CancelStatus,
     cancel_protection: CancelProtection,
 
@@ -123,7 +119,6 @@ const Fiber = struct {
         const Awaiting = enum(@Int(.unsigned, @bitSizeOf(usize) - shift)) {
             nothing = 0,
             group = 1,
-            select = 2,
             _,
 
             const shift = 1;
@@ -216,7 +211,6 @@ const Fiber = struct {
     }
 
     fn destroy(fiber: *Fiber, ev: *Evented) void {
-        assert(fiber.status.queue_next == null);
         ev.allocator().free(fiber.allocatedSlice());
     }
 
@@ -272,15 +266,12 @@ const Fiber = struct {
             .group => {
                 // The awaiter received a cancelation request while awaiting a group,
                 // so propagate the cancelation to the group.
-                if (fiber.status.awaiting_group.cancel(ev, null)) {
-                    fiber.status = .{ .queue_next = null };
+                if (fiber.awaiting_group.cancel(ev, null)) {
+                    fiber.awaiting_group = undefined;
                     ev.queue.async(fiber, &Fiber.@"resume");
                 }
             },
-            .select => if (@atomicRmw(i32, &fiber.await_count, .Add, 1, .monotonic) == -1) {
-                ev.queue.async(fiber, &Fiber.@"resume");
-            },
-            _ => |awaiting| awaiting.toCancelable().canceled(),
+            _ => |awaiting| awaiting.toCancelable().async(),
         }
     }
 
@@ -369,8 +360,6 @@ pub fn io(ev: *Evented) Io {
             .recancel = recancel,
             .swapCancelProtection = swapCancelProtection,
             .checkCancel = checkCancel,
-
-            .select = select,
 
             .futexWait = futexWait,
             .futexWaitUncancelable = futexWaitUncancelable,
@@ -484,7 +473,7 @@ pub fn io(ev: *Evented) Io {
 
 pub const InitOptions = struct {
     backing_allocator_needs_mutex: bool = true,
-    queue: ?c.dispatch.queue_t = null,
+    target_queue: ?c.dispatch.queue_t = .TARGET_DEFAULT,
     /// Upper limit on the allowable delay in processing timeouts in order to improve power
     /// consumption and system performance.
     leeway: Io.Duration = .fromMilliseconds(10),
@@ -499,11 +488,11 @@ pub const InitOptions = struct {
 };
 
 pub fn init(ev: *Evented, backing_allocator: Allocator, options: InitOptions) !void {
-    const queue = if (options.queue) |queue| queue: {
-        queue.as_object().retain();
-        break :queue queue;
-    } else c.dispatch.queue_create("org.ziglang.std.Io.Dispatch", .CONCURRENT()) orelse
-        return error.SystemResources;
+    const queue = c.dispatch.queue_create_with_target(
+        "org.ziglang.std.Io.Dispatch",
+        .CONCURRENT(),
+        options.target_queue,
+    ) orelse return error.SystemResources;
     errdefer queue.as_object().release();
     const main_loop_stack = try backing_allocator.alignedAlloc(
         u8,
@@ -522,9 +511,8 @@ pub fn init(ev: *Evented, backing_allocator: Allocator, options: InitOptions) !v
             .required_align = {},
             .evented = ev,
             .context = undefined,
-            .await_count = 0,
             .link = .{ .awaiter = null },
-            .status = .{ .queue_next = null },
+            .awaiting_group = undefined,
             .cancel_status = .unrequested,
             .cancel_protection = .unblocked,
         },
@@ -642,7 +630,7 @@ const SwitchMessage = struct {
 
     const PendingTask = union(enum) {
         nothing,
-        await: u31,
+        await: *Fiber,
         activate: c.dispatch.object_t,
         @"resume": c.dispatch.object_t,
         group_await: Group,
@@ -650,7 +638,8 @@ const SwitchMessage = struct {
         mutex_wait: *Mutex.Waiter,
         futex_wait: *Futex.Waiter,
         futex_wake: *Futex.Waker,
-        sleep: c.dispatch.time_t,
+        sleep_wait: *SleepWaiter,
+        after: c.dispatch.time_t,
         destroy,
         exit,
     };
@@ -660,10 +649,10 @@ const SwitchMessage = struct {
         thread.current_context = message.contexts.new;
         switch (message.pending_task) {
             .nothing => {},
-            .await => |count| {
-                const fiber: *Fiber = @alignCast(@fieldParentPtr("context", message.contexts.old));
-                if (@atomicRmw(i32, &fiber.await_count, .Sub, count, .monotonic) > 0)
-                    ev.queue.async(fiber, &Fiber.@"resume");
+            .await => |awaiting| {
+                const awaiter: *Fiber = @alignCast(@fieldParentPtr("context", message.contexts.old));
+                if (@atomicRmw(?*Fiber, &awaiting.link.awaiter, .Xchg, awaiter, .acq_rel) ==
+                    Fiber.finished) ev.queue.async(awaiter, &Fiber.@"resume");
             },
             .activate => |object| object.activate(),
             .@"resume" => |object| object.@"resume"(),
@@ -698,7 +687,17 @@ const SwitchMessage = struct {
                     .init(ev.queue, @alignCast(@fieldParentPtr("context", message.contexts.old)));
                 waker.futex.queue.async(waker, &Futex.Waker.remove);
             },
-            .sleep => |when| {
+            .sleep_wait => |waiter| {
+                waiter.sleeper =
+                    .init(ev.queue, @alignCast(@fieldParentPtr("context", message.contexts.old)));
+                const queue = waiter.cancelable.queue;
+                switch (waiter.sleeper.fiber.cancel_protection.check()) {
+                    .unblocked => {},
+                    .blocked => waiter.cancelable = .blocked,
+                }
+                queue.async(waiter, &SleepWaiter.start);
+            },
+            .after => |when| {
                 const fiber: *Fiber = @alignCast(@fieldParentPtr("context", message.contexts.old));
                 when.after(ev.queue, fiber, &Fiber.@"resume");
             },
@@ -727,9 +726,9 @@ const Cancelable = struct {
 
     const blocked: Cancelable = .{ .queue = undefined, .cancel = is_blocked };
 
-    const AwaitError = error{CancelRequested};
+    const RequestedError = error{CancelRequested};
 
-    fn await(cancelable: *Cancelable, fiber: *Fiber) AwaitError!void {
+    fn enter(cancelable: *Cancelable, fiber: *Fiber) RequestedError!void {
         const function = cancelable.cancel;
         assert(function != is_requested);
         if (function == is_blocked) {
@@ -750,13 +749,42 @@ const Cancelable = struct {
         }
     }
 
-    fn canceled(cancelable: *Cancelable) void {
-        assert(cancelable.cancel != is_blocked);
-        assert(cancelable.cancel != is_requested);
-        cancelable.queue.async(cancelable, cancelable.cancel);
+    fn leave(cancelable: *Cancelable, fiber: *Fiber) RequestedError!void {
+        const function = cancelable.cancel;
+        assert(function != is_requested);
+        if (function == is_blocked) {
+            @branchHint(.unlikely);
+            return;
+        }
+        const cancel_status = @atomicRmw(Fiber.CancelStatus, &fiber.cancel_status, .And, .{
+            .requested = true,
+            .awaiting = .nothing,
+        }, .monotonic);
+        assert(cancel_status.awaiting.toCancelable() == cancelable);
+        if (cancel_status.requested) return error.CancelRequested;
     }
 
-    fn check(cancelable: *Cancelable, fiber: *Fiber) Io.Cancelable!void {
+    fn async(cancelable: *Cancelable) void {
+        const function = cancelable.cancel;
+        assert(function != is_blocked and function != is_requested);
+        cancelable.queue.async(cancelable, function);
+    }
+
+    fn requested(cancelable: *Cancelable, fiber: *Fiber) void {
+        const function = cancelable.cancel;
+        assert(function != is_blocked and function != is_requested);
+        assert(@atomicLoad(Fiber.CancelStatus, &fiber.cancel_status, .monotonic) == Fiber.CancelStatus{
+            .requested = true,
+            .awaiting = .fromCancelable(cancelable),
+        });
+        cancelable.cancel = is_requested;
+        @atomicStore(Fiber.CancelStatus, &fiber.cancel_status, .{
+            .requested = true,
+            .awaiting = .nothing,
+        }, .monotonic);
+    }
+
+    fn acknowledge(cancelable: *Cancelable, fiber: *Fiber) Io.Cancelable!void {
         if (cancelable.cancel == is_requested) {
             @branchHint(.unlikely);
             fiber.cancel_protection.acknowledge();
@@ -784,81 +812,97 @@ const Sleeper = struct {
 };
 
 const Mutex = struct {
-    /// including the locker
-    num_waiters: usize,
+    state: State,
     queue: c.dispatch.queue_t,
     waiters: std.DoublyLinkedList,
+
+    const State = packed struct(usize) {
+        locked: bool,
+        num_waiters: NumWaiters,
+
+        const NumWaiters = @Int(.unsigned, @bitSizeOf(usize) - 1);
+    };
 
     const Waiter = struct {
         sleeper: Sleeper = undefined,
         cancelable: Cancelable,
         mutex: *Mutex,
-        node: std.DoublyLinkedList.Node = .{},
+        node: std.DoublyLinkedList.Node = undefined,
 
         fn add(context: ?*anyopaque) callconv(.c) void {
             const waiter: *Waiter = @ptrCast(@alignCast(context));
-            waiter.tryAdd() catch |err| switch (err) {
+            waiter.cancelable.enter(waiter.sleeper.fiber) catch |err| switch (err) {
+                error.CancelRequested => return waiter.wake(),
+            };
+            var state = @atomicRmw(State, &waiter.mutex.state, .Add, .{
+                .locked = false,
+                .num_waiters = 1,
+            }, .monotonic);
+            state.num_waiters += 1;
+            while (!state.locked) {
+                @branchHint(.unlikely);
+                state = @cmpxchgWeak(State, &waiter.mutex.state, state, .{
+                    .locked = true,
+                    .num_waiters = state.num_waiters - 1,
+                }, .acquire, .monotonic) orelse break;
+            } else return waiter.mutex.waiters.append(&waiter.node);
+            waiter.cancelable.leave(waiter.sleeper.fiber) catch |err| switch (err) {
                 error.CancelRequested => {
-                    waiter.wake();
-                    assert(@atomicRmw(usize, &waiter.mutex.num_waiters, .Sub, 1, .monotonic) >= 1);
+                    waiter.node.next = &waiter.node;
+                    return;
                 },
             };
-        }
-
-        fn tryAdd(waiter: *Waiter) Cancelable.AwaitError!void {
-            switch (@atomicLoad(usize, &waiter.mutex.num_waiters, .acquire)) {
-                0 => unreachable,
-                1 => return waiter.wake(), // already locked exclusively
-                else => try waiter.cancelable.await(waiter.sleeper.fiber),
-            }
-            waiter.mutex.waiters.append(&waiter.node);
+            waiter.wake();
         }
 
         fn canceled(context: ?*anyopaque) callconv(.c) void {
             const cancelable: *Cancelable = @ptrCast(@alignCast(context));
-            cancelable.cancel = Cancelable.is_requested;
             const waiter: *Waiter = @fieldParentPtr("cancelable", cancelable);
-            assert(@atomicRmw(
-                Fiber.CancelStatus,
-                &waiter.sleeper.fiber.cancel_status,
-                .Xchg,
-                .{ .requested = true, .awaiting = .nothing },
-                .monotonic,
-            ) == Fiber.CancelStatus{ .requested = true, .awaiting = .fromCancelable(cancelable) });
+            cancelable.requested(waiter.sleeper.fiber);
             const mutex = waiter.mutex;
-            mutex.waiters.remove(&waiter.node);
+            if (waiter.node.next != &waiter.node) {
+                @branchHint(.likely);
+                mutex.waiters.remove(&waiter.node);
+                assert(@atomicRmw(State, &mutex.state, .Sub, .{
+                    .locked = false,
+                    .num_waiters = 1,
+                }, .monotonic).num_waiters >= 1);
+            }
+            waiter.node = undefined;
             waiter.wake();
-            assert(@atomicRmw(usize, &mutex.num_waiters, .Sub, 1, .monotonic) >= 1);
         }
 
         fn remove(context: ?*anyopaque) callconv(.c) void {
             const mutex: *Mutex = @ptrCast(@alignCast(context));
-            var stop_node: ?*std.DoublyLinkedList.Node = null;
-            while (mutex.waiters.first != stop_node) {
+            var state = @atomicLoad(State, &mutex.state, .monotonic);
+            while (!state.locked and state.num_waiters > 0) {
                 @branchHint(.likely);
-                const waiter: *Waiter = @fieldParentPtr("node", mutex.waiters.popFirst().?);
-                if (waiter.cancelable.cancel != Cancelable.is_blocked) {
-                    @branchHint(.likely);
-                    const cancel_status = @atomicRmw(
-                        Fiber.CancelStatus,
-                        &waiter.sleeper.fiber.cancel_status,
-                        .And,
-                        .{ .requested = true, .awaiting = .nothing },
-                        .monotonic,
-                    );
-                    assert(cancel_status.awaiting.toCancelable() == &waiter.cancelable);
-                    if (cancel_status.requested) {
-                        @branchHint(.unlikely);
-                        // carefully place the hot potato out of the way
-                        mutex.waiters.append(&waiter.node);
-                        if (stop_node == null) stop_node = &waiter.node;
+                state = @cmpxchgWeak(State, &mutex.state, state, .{
+                    .locked = true,
+                    .num_waiters = state.num_waiters - 1,
+                }, .acquire, .monotonic) orelse break;
+            } else return;
+            var num_removed: State.NumWaiters = 0;
+            while (mutex.waiters.popFirst()) |node| {
+                @branchHint(.likely);
+                const waiter: *Waiter = @fieldParentPtr("node", node);
+                node.* = undefined;
+                waiter.cancelable.leave(waiter.sleeper.fiber) catch |err| switch (err) {
+                    error.CancelRequested => {
+                        num_removed += 1;
+                        node.next = node;
                         continue;
-                    }
-                }
-                waiter.wake();
-                return;
+                    },
+                };
+                break;
             }
-            // everyone is about to die, nobody will wake up ;-(
+            if (num_removed > 0) {
+                @branchHint(.unlikely);
+                assert(@atomicRmw(State, &mutex.state, .Sub, .{
+                    .locked = false,
+                    .num_waiters = num_removed,
+                }, .monotonic).num_waiters >= num_removed);
+            }
         }
 
         fn wake(waiter: *Waiter) void {
@@ -868,7 +912,7 @@ const Mutex = struct {
 
     fn init(mutex: *Mutex, queue: c.dispatch.queue_t) error{SystemResources}!void {
         mutex.* = .{
-            .num_waiters = 0,
+            .state = .{ .locked = false, .num_waiters = 0 },
             .queue = c.dispatch.queue_create_with_target(
                 "org.ziglang.std.Io.Dispatch.Mutex",
                 .SERIAL(),
@@ -879,56 +923,48 @@ const Mutex = struct {
     }
 
     fn deinit(mutex: *Mutex) void {
-        assert(mutex.num_waiters == 0 and mutex.waiters.first == null and mutex.waiters.last == null);
+        assert(mutex.state == State{ .locked = false, .num_waiters = 0 });
+        assert(mutex.waiters.first == null and mutex.waiters.last == null);
         mutex.queue.as_object().release();
         mutex.* = undefined;
     }
 
     fn tryLock(mutex: *Mutex) bool {
-        if (@cmpxchgWeak(usize, &mutex.num_waiters, 0, 1, .acquire, .monotonic) == null) {
-            @branchHint(.likely);
-            return true;
+        const state =
+            @atomicRmw(State, &mutex.state, .Or, .{ .locked = true, .num_waiters = 0 }, .acquire);
+        if (state.locked) {
+            @branchHint(.unlikely);
         }
-        return false;
+        return !state.locked;
     }
 
     fn lock(mutex: *Mutex, ev: *Evented) Io.Cancelable!void {
-        switch (@atomicRmw(usize, &mutex.num_waiters, .Add, 1, .acquire)) {
-            0 => {},
-            else => {
-                @branchHint(.unlikely);
-                var waiter: Waiter = .{
-                    .cancelable = .{ .queue = mutex.queue, .cancel = &Mutex.Waiter.canceled },
-                    .mutex = mutex,
-                };
-                ev.yield(.{ .mutex_wait = &waiter });
-                try waiter.cancelable.check(waiter.sleeper.fiber);
-            },
-        }
+        if (mutex.tryLock()) return;
+        var waiter: Waiter = .{
+            .cancelable = .{ .queue = mutex.queue, .cancel = &Mutex.Waiter.canceled },
+            .mutex = mutex,
+        };
+        ev.yield(.{ .mutex_wait = &waiter });
+        try waiter.cancelable.acknowledge(waiter.sleeper.fiber);
     }
 
     fn lockUncancelable(mutex: *Mutex, ev: *Evented) void {
-        switch (@atomicRmw(usize, &mutex.num_waiters, .Add, 1, .acquire)) {
-            0 => {},
-            else => {
-                @branchHint(.unlikely);
-                var waiter: Waiter = .{ .cancelable = .blocked, .mutex = mutex };
-                ev.yield(.{ .mutex_wait = &waiter });
-                waiter.cancelable.check(waiter.sleeper.fiber) catch |err| switch (err) {
-                    error.Canceled => unreachable, // blocked
-                };
-            },
-        }
+        if (mutex.tryLock()) return;
+        var waiter: Waiter = .{ .cancelable = .blocked, .mutex = mutex };
+        ev.yield(.{ .mutex_wait = &waiter });
+        waiter.cancelable.acknowledge(waiter.sleeper.fiber) catch |err| switch (err) {
+            error.Canceled => unreachable, // blocked
+        };
     }
 
     fn unlock(mutex: *Mutex) void {
-        switch (@atomicRmw(usize, &mutex.num_waiters, .Sub, 1, .release)) {
-            0 => unreachable,
-            1 => {},
-            else => {
-                @branchHint(.unlikely);
-                mutex.queue.async(mutex, &Waiter.remove);
-            },
+        const state = @atomicRmw(State, &mutex.state, .And, .{
+            .locked = false,
+            .num_waiters = std.math.maxInt(State.NumWaiters),
+        }, .release);
+        if (state.num_waiters > 0) {
+            @branchHint(.unlikely);
+            mutex.queue.async(mutex, &Waiter.remove);
         }
     }
 };
@@ -950,7 +986,7 @@ fn crashHandler(userdata: ?*anyopaque) void {
 }
 
 const AsyncClosure = struct {
-    ev: *Evented,
+    evented: *Evented,
     fiber: *Fiber,
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
     result_align: Alignment,
@@ -987,13 +1023,13 @@ const AsyncClosure = struct {
         closure: *AsyncClosure,
         message: *const SwitchMessage,
     ) callconv(.withStackAlign(.c, @alignOf(AsyncClosure))) noreturn {
-        message.handle(closure.ev);
+        const ev = closure.evented;
         const fiber = closure.fiber;
+        message.handle(ev);
         closure.start(closure.contextPointer(), fiber.resultBytes(closure.result_align));
         if (@atomicRmw(?*Fiber, &fiber.link.awaiter, .Xchg, Fiber.finished, .acq_rel)) |awaiter|
-            if (@atomicRmw(i32, &awaiter.await_count, .Add, 1, .monotonic) == -1)
-                closure.ev.queue.async(awaiter, &Fiber.@"resume");
-        closure.ev.yield(.nothing);
+            ev.queue.async(awaiter, &Fiber.@"resume");
+        ev.yield(.nothing);
         unreachable; // switched to dead fiber
     }
 };
@@ -1048,14 +1084,13 @@ fn concurrent(
             },
             else => |arch| @compileError("unimplemented architecture: " ++ @tagName(arch)),
         },
-        .await_count = 0,
         .link = .{ .awaiter = null },
-        .status = .{ .queue_next = null },
+        .awaiting_group = undefined,
         .cancel_status = .unrequested,
         .cancel_protection = .unblocked,
     };
     closure.* = .{
-        .ev = ev,
+        .evented = ev,
         .fiber = fiber,
         .start = start,
         .result_align = result_alignment,
@@ -1073,18 +1108,11 @@ fn await(
     result_alignment: Alignment,
 ) void {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
-    const fiber = Thread.current().currentFiber();
-    const future_fiber: *Fiber = @ptrCast(@alignCast(future));
-    if (@atomicRmw(?*Fiber, &future_fiber.link.awaiter, .Xchg, fiber, .acq_rel)) |awaiter| {
-        assert(awaiter == Fiber.finished);
-    } else while (true) {
-        ev.yield(.{ .await = 1 });
-        const awaiter = @atomicLoad(?*Fiber, &future_fiber.link.awaiter, .acquire);
-        if (awaiter == Fiber.finished) break;
-        assert(awaiter == fiber); // spurious wakeup
-    }
-    @memcpy(result, future_fiber.resultBytes(result_alignment));
-    future_fiber.destroy(ev);
+    const awaiting: *Fiber = @ptrCast(@alignCast(future));
+    if (@atomicLoad(?*Fiber, &awaiting.link.awaiter, .acquire) != Fiber.finished)
+        ev.yield(.{ .await = awaiting });
+    @memcpy(result, awaiting.resultBytes(result_alignment));
+    awaiting.destroy(ev);
 }
 
 fn cancel(
@@ -1219,8 +1247,8 @@ const Group = struct {
                     .awaiter_delayed = false,
                     .fibers = .null,
                 }, .release);
-                assert(awaiter.status.awaiting_group.ptr == group.ptr);
-                awaiter.status = .{ .queue_next = null };
+                assert(awaiter.awaiting_group.ptr == group.ptr);
+                awaiter.awaiting_group = undefined;
                 return awaiter;
             }
             // Race with `Fiber.requestCancel`
@@ -1288,8 +1316,7 @@ const Group = struct {
 
     /// Assumes the mutex is held.
     fn registerAwaiter(group: Group, awaiter: *Fiber) bool {
-        assert(awaiter.status.queue_next == null);
-        awaiter.status = .{ .awaiting_group = group };
+        awaiter.awaiting_group = group;
         assert(@atomicRmw(
             Awaiter,
             group.awaiterPtr(),
@@ -1301,7 +1328,7 @@ const Group = struct {
     }
 
     const AsyncClosure = struct {
-        ev: *Evented,
+        evented: *Evented,
         group: Group,
         fiber: *Fiber,
         start: *const fn (context: *const anyopaque) Io.Cancelable!void,
@@ -1340,19 +1367,15 @@ const Group = struct {
             closure: *Group.AsyncClosure,
             message: *const SwitchMessage,
         ) callconv(.withStackAlign(.c, @alignOf(Group.AsyncClosure))) noreturn {
-            message.handle(closure.ev);
-            assert(closure.fiber.status.queue_next == null);
-            const result = closure.start(closure.contextPointer());
-            const ev = closure.ev;
-            const group = closure.group;
+            const ev = closure.evented;
             const fiber = closure.fiber;
-            const cancel_acknowledged = fiber.cancel_protection.acknowledged;
-            if (result) {
-                assert(!cancel_acknowledged); // group task acknowledged cancelation but did not return `error.Canceled`
+            message.handle(ev);
+            if (closure.start(closure.contextPointer())) {
+                assert(!fiber.cancel_protection.acknowledged); // group task acknowledged cancelation but did not return `error.Canceled`
             } else |err| switch (err) {
-                error.Canceled => assert(cancel_acknowledged), // group task returned `error.Canceled` but was never canceled
+                error.Canceled => assert(fiber.cancel_protection.acknowledged), // group task returned `error.Canceled` but was never canceled
             }
-            if (group.removeFiber(ev, fiber)) |awaiter| ev.queue.async(awaiter, &Fiber.@"resume");
+            if (closure.group.removeFiber(ev, fiber)) |awaiter| ev.queue.async(awaiter, &Fiber.@"resume");
             ev.yield(.destroy);
             unreachable; // switched to dead fiber
         }
@@ -1422,14 +1445,13 @@ fn groupConcurrent(
             },
             else => |arch| @compileError("unimplemented architecture: " ++ @tagName(arch)),
         },
-        .await_count = 0,
         .link = .{ .group = .{ .prev = null, .next = null } },
-        .status = .{ .queue_next = null },
+        .awaiting_group = undefined,
         .cancel_status = .unrequested,
         .cancel_protection = .unblocked,
     };
     closure.* = .{
-        .ev = ev,
+        .evented = ev,
         .group = group,
         .fiber = fiber,
         .start = start,
@@ -1517,16 +1539,16 @@ const Futex = struct {
             };
         }
 
-        fn tryAdd(waiter: *Waiter) Cancelable.AwaitError!void {
+        fn tryAdd(waiter: *Waiter) Cancelable.RequestedError!void {
             if (@atomicLoad(u32, waiter.ptr, .monotonic) != waiter.expected)
                 return error.CancelRequested;
-            try waiter.cancelable.await(waiter.sleeper.fiber);
+            try waiter.cancelable.enter(waiter.sleeper.fiber);
             const futex = waiter.futex;
             switch (waiter.timeout) {
                 .FOREVER => {},
                 else => |timeout| {
                     const timer = c.dispatch.source_create(.TIMER, 0, .none, futex.queue) orelse {
-                        log.warn("unable to create timer for futex timeout", .{});
+                        log.warn("failed to create timer for futex timeout", .{});
                         return error.CancelRequested;
                     };
                     timer.as_object().set_context(waiter);
@@ -1542,46 +1564,28 @@ const Futex = struct {
 
         fn canceled(context: ?*anyopaque) callconv(.c) void {
             const cancelable: *Cancelable = @ptrCast(@alignCast(context));
-            cancelable.cancel = Cancelable.is_requested;
             const waiter: *Waiter = @fieldParentPtr("cancelable", cancelable);
-            assert(@atomicRmw(
-                Fiber.CancelStatus,
-                &waiter.sleeper.fiber.cancel_status,
-                .Xchg,
-                .{ .requested = true, .awaiting = .nothing },
-                .monotonic,
-            ) == Fiber.CancelStatus{ .requested = true, .awaiting = .fromCancelable(cancelable) });
+            cancelable.requested(waiter.sleeper.fiber);
             const futex = waiter.futex;
-            waiter.removeUncancelable();
+            waiter.remove();
             assert(@atomicRmw(usize, &futex.num_waiters, .Sub, 1, .monotonic) >= 1);
         }
 
         fn timedOut(context: ?*anyopaque) callconv(.c) void {
             const waiter: *Waiter = @ptrCast(@alignCast(context));
             const futex = waiter.futex;
-            waiter.remove() catch |err| switch (err) {
+            waiter.tryRemove() catch |err| switch (err) {
                 error.CancelRequested => return,
             };
             assert(@atomicRmw(usize, &futex.num_waiters, .Sub, 1, .monotonic) >= 1);
         }
 
-        fn remove(waiter: *Waiter) Cancelable.AwaitError!void {
-            if (waiter.cancelable.cancel != Cancelable.is_blocked) {
-                @branchHint(.likely);
-                const cancel_status = @atomicRmw(
-                    Fiber.CancelStatus,
-                    &waiter.sleeper.fiber.cancel_status,
-                    .And,
-                    .{ .requested = true, .awaiting = .nothing },
-                    .monotonic,
-                );
-                assert(cancel_status.awaiting.toCancelable() == &waiter.cancelable);
-                if (cancel_status.requested) return error.CancelRequested;
-            }
-            waiter.removeUncancelable();
+        fn tryRemove(waiter: *Waiter) Cancelable.RequestedError!void {
+            try waiter.cancelable.leave(waiter.sleeper.fiber);
+            waiter.remove();
         }
 
-        fn removeUncancelable(waiter: *Waiter) void {
+        fn remove(waiter: *Waiter) void {
             waiter.futex.waiters.remove(&waiter.node);
             if (waiter.timer) |timer| timer.cancel() else wake(waiter);
         }
@@ -1614,7 +1618,7 @@ const Futex = struct {
                     @branchHint(.unlikely);
                     continue;
                 }
-                waiter.remove() catch |err| switch (err) {
+                waiter.tryRemove() catch |err| switch (err) {
                     error.CancelRequested => continue,
                 };
                 num_removed += 1;
@@ -1659,50 +1663,6 @@ fn futexForAddress(ev: *Evented, address: usize) *Futex {
     return &ev.futexes[hashed >> @clz(ev.futexes.len - 1)];
 }
 
-fn select(userdata: ?*anyopaque, futures: []const *Io.AnyFuture) Io.Cancelable!usize {
-    const ev: *Evented = @ptrCast(@alignCast(userdata));
-    const fiber = Thread.current().currentFiber();
-    var await_count: u31, var result = for (futures, 0..) |future, future_index| {
-        const future_fiber: *Fiber = @ptrCast(@alignCast(future));
-        if (@atomicRmw(
-            ?*Fiber,
-            &future_fiber.link.awaiter,
-            .Xchg,
-            fiber,
-            .acq_rel,
-        )) |awaiter| {
-            assert(awaiter == Fiber.finished);
-            break .{ @intCast(future_index), future_index };
-        }
-    } else result: {
-        const await_count: u31 = @intCast(futures.len);
-        ev.yield(.{ .await = 1 });
-        break :result .{ await_count - 1, futures.len };
-    };
-    for (futures[0..result], 0..) |future, future_index| {
-        const future_fiber: *Fiber = @ptrCast(@alignCast(future));
-        const awaiter = @atomicRmw(?*Fiber, &future_fiber.link.awaiter, .Xchg, null, .monotonic);
-        if (awaiter == Fiber.finished) {
-            @atomicStore(?*Fiber, &future_fiber.link.awaiter, Fiber.finished, .monotonic);
-            result = @min(future_index, result);
-        } else {
-            assert(awaiter == fiber);
-            await_count -= 1;
-        }
-    }
-    // Equivalent to `ev.yield(null, .{ .await = await_count });`,
-    // but avoiding a context switch in the common case.
-    switch (std.math.order(
-        @atomicRmw(i32, &fiber.await_count, .Sub, await_count, .monotonic),
-        await_count,
-    )) {
-        .lt => ev.yield(.{ .await = 0 }),
-        .eq => {},
-        .gt => unreachable,
-    }
-    return result;
-}
-
 fn futexWait(
     userdata: ?*anyopaque,
     ptr: *const u32,
@@ -1720,7 +1680,7 @@ fn futexWait(
         .leeway = ev.leeway,
     };
     ev.yield(.{ .futex_wait = &waiter });
-    try waiter.cancelable.check(waiter.sleeper.fiber);
+    try waiter.cancelable.acknowledge(waiter.sleeper.fiber);
 }
 
 fn futexWaitUncancelable(userdata: ?*anyopaque, ptr: *const u32, expected: u32) void {
@@ -1734,7 +1694,7 @@ fn futexWaitUncancelable(userdata: ?*anyopaque, ptr: *const u32, expected: u32) 
         .leeway = ev.leeway,
     };
     ev.yield(.{ .futex_wait = &waiter });
-    waiter.cancelable.check(waiter.sleeper.fiber) catch |err| switch (err) {
+    waiter.cancelable.acknowledge(waiter.sleeper.fiber) catch |err| switch (err) {
         error.Canceled => unreachable, // blocked
     };
 }
@@ -4719,9 +4679,69 @@ fn clockResolution(userdata: ?*anyopaque, clock: Io.Clock) Io.Clock.ResolutionEr
     };
 }
 
+const SleepWaiter = struct {
+    sleeper: Sleeper = undefined,
+    cancelable: Cancelable,
+    timer: c.dispatch.source_t,
+    started: bool = false,
+
+    fn start(context: ?*anyopaque) callconv(.c) void {
+        const waiter: *SleepWaiter = @ptrCast(@alignCast(context));
+        waiter.cancelable.enter(waiter.sleeper.fiber) catch |err| switch (err) {
+            error.CancelRequested => waiter.timer.cancel(),
+        };
+        waiter.timer.as_object().activate();
+    }
+
+    fn timedOut(context: ?*anyopaque) callconv(.c) void {
+        const waiter: *SleepWaiter = @ptrCast(@alignCast(context));
+        waiter.cancelable.leave(waiter.sleeper.fiber) catch |err| switch (err) {
+            error.CancelRequested => return,
+        };
+        waiter.timer.cancel();
+    }
+
+    fn canceled(context: ?*anyopaque) callconv(.c) void {
+        const cancelable: *Cancelable = @ptrCast(@alignCast(context));
+        const waiter: *SleepWaiter = @fieldParentPtr("cancelable", cancelable);
+        cancelable.requested(waiter.sleeper.fiber);
+        waiter.timer.cancel();
+    }
+
+    fn wake(context: ?*anyopaque) callconv(.c) void {
+        const waiter: *SleepWaiter = @ptrCast(@alignCast(context));
+        var sleeper = waiter.sleeper;
+        waiter.* = undefined;
+        Sleeper.wake(&sleeper);
+    }
+};
+
 fn sleep(userdata: ?*anyopaque, timeout: Io.Timeout) Io.Cancelable!void {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
-    ev.yield(.{ .sleep = ev.timeFromTimeout(timeout) });
+    const queue = c.dispatch.queue_create_with_target(
+        "org.ziglang.std.Io.Dispatch.sleep",
+        .SERIAL(),
+        ev.queue,
+    ) orelse {
+        log.warn("failed to create serial queue for sleep", .{});
+        return ev.yield(.{ .after = ev.timeFromTimeout(timeout) });
+    };
+    defer queue.as_object().release();
+    const timer = c.dispatch.source_create(.TIMER, 0, .none, queue) orelse {
+        log.warn("failed to create timer for sleep", .{});
+        return ev.yield(.{ .after = ev.timeFromTimeout(timeout) });
+    };
+    var waiter: SleepWaiter = .{
+        .cancelable = .{ .queue = queue, .cancel = &Futex.Waiter.canceled },
+        .timer = timer,
+    };
+    timer.as_object().set_context(&waiter);
+    timer.set_event_handler(&SleepWaiter.timedOut);
+    timer.set_cancel_handler(&SleepWaiter.wake);
+    timer.set_timer(ev.timeFromTimeout(timeout), c.dispatch.TIME_FOREVER, ev.leeway);
+    ev.yield(.{ .sleep_wait = &waiter });
+    timer.as_object().release();
+    try waiter.cancelable.acknowledge(waiter.sleeper.fiber);
 }
 
 fn timeFromTimeout(ev: *Evented, timeout: Io.Timeout) c.dispatch.time_t {

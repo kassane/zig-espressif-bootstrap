@@ -1,4 +1,4 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "for basics" {
     const items = [_]i32{ 4, 5, 3, 4, 0 };
@@ -12,22 +12,22 @@ test "for basics" {
         }
         sum += value;
     }
-    try expect(sum == 16);
+    try expectEqual(16, sum);
 
     // To iterate over a portion of a slice, reslice.
     for (items[0..1]) |value| {
         sum += value;
     }
-    try expect(sum == 20);
+    try expectEqual(20, sum);
 
     // To access the index of iteration, specify a second condition as well
     // as a second capture value.
     var sum2: i32 = 0;
     for (items, 0..) |_, i| {
-        try expect(@TypeOf(i) == usize);
+        try expectEqual(usize, @TypeOf(i));
         sum2 += @as(i32, @intCast(i));
     }
-    try expect(sum2 == 10);
+    try expectEqual(10, sum2);
 
     // To iterate over consecutive integers, use the range syntax.
     // Unbounded range is always a compile error.
@@ -35,7 +35,7 @@ test "for basics" {
     for (0..5) |i| {
         sum3 += i;
     }
-    try expect(sum3 == 10);
+    try expectEqual(10, sum3);
 }
 
 test "multi object for" {
@@ -50,7 +50,7 @@ test "multi object for" {
         count += i + j;
     }
 
-    try expect(count == 21);
+    try expectEqual(21, count);
 }
 
 test "for reference" {
@@ -62,9 +62,9 @@ test "for reference" {
         value.* += 1;
     }
 
-    try expect(items[0] == 4);
-    try expect(items[1] == 5);
-    try expect(items[2] == 3);
+    try expectEqual(4, items[0]);
+    try expectEqual(5, items[1]);
+    try expectEqual(3, items[2]);
 }
 
 test "for else" {
@@ -79,10 +79,10 @@ test "for else" {
             sum += value.?;
         }
     } else blk: {
-        try expect(sum == 12);
+        try expectEqual(12, sum);
         break :blk sum;
     };
-    try expect(result == 12);
+    try expectEqual(12, result);
 }
 
 // test

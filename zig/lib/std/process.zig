@@ -31,7 +31,7 @@ pub const Init = struct {
     /// `Init` is a superset of `Minimal`; the latter is included here.
     minimal: Minimal,
     /// Permanent storage for the entire process, cleaned automatically on
-    /// exit. Not threadsafe.
+    /// exit. Threadsafe.
     arena: *std.heap.ArenaAllocator,
     /// A default-selected general purpose allocator for temporary heap
     /// allocations. Debug mode will set up leak checking if possible.

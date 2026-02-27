@@ -8,7 +8,7 @@ fn max(comptime T: type, a: T, b: T) T {
     }
 }
 test "try to compare bools" {
-    try @import("std").testing.expect(max(bool, false, true) == true);
+    try @import("std").testing.expectEqual(true, max(bool, false, true));
 }
 
 // test

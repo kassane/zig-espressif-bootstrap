@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 const U = union(enum) {
     a: u32,
@@ -21,7 +21,7 @@ fn getNum(u: U) u32 {
 
 test "test" {
     const u = U{ .b = 42 };
-    try expect(getNum(u) == 42);
+    try expectEqual(42, getNum(u));
 }
 
 // test

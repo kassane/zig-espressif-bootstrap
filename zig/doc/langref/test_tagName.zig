@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const expectEqualSlices = std.testing.expectEqualSlices;
 
 const Small2 = union(enum) {
     a: i32,
@@ -7,7 +7,7 @@ const Small2 = union(enum) {
     c: u8,
 };
 test "@tagName" {
-    try expect(std.mem.eql(u8, @tagName(Small2.a), "a"));
+    try expectEqualSlices(u8, "a", @tagName(Small2.a));
 }
 
 // test

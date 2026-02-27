@@ -1,4 +1,4 @@
-const expect = @import("std").testing.expect;
+const expectEqual = @import("std").testing.expectEqual;
 
 test "optional type" {
     // Declare an optional and coerce from null:
@@ -8,7 +8,7 @@ test "optional type" {
     foo = 1234;
 
     // Use compile-time reflection to access the child type of the optional:
-    try comptime expect(@typeInfo(@TypeOf(foo)).optional.child == i32);
+    try comptime expectEqual(i32, @typeInfo(@TypeOf(foo)).optional.child);
 }
 
 // test

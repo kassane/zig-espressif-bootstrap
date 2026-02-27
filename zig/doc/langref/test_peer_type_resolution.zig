@@ -1,20 +1,20 @@
 const std = @import("std");
-const expect = std.testing.expect;
-const mem = std.mem;
+const expectEqual = std.testing.expectEqual;
+const expectEqualStrings = std.testing.expectEqualStrings;
 
 test "peer resolve int widening" {
     const a: i8 = 12;
     const b: i16 = 34;
     const c = a + b;
-    try expect(c == 46);
-    try expect(@TypeOf(c) == i16);
+    try expectEqual(46, c);
+    try expectEqual(i16, @TypeOf(c));
 }
 
 test "peer resolve arrays of different size to const slice" {
-    try expect(mem.eql(u8, boolToStr(true), "true"));
-    try expect(mem.eql(u8, boolToStr(false), "false"));
-    try comptime expect(mem.eql(u8, boolToStr(true), "true"));
-    try comptime expect(mem.eql(u8, boolToStr(false), "false"));
+    try expectEqualStrings("true", boolToStr(true));
+    try expectEqualStrings("false", boolToStr(false));
+    try comptime expectEqualStrings("true", boolToStr(true));
+    try comptime expectEqualStrings("false", boolToStr(false));
 }
 fn boolToStr(b: bool) []const u8 {
     return if (b) "true" else "false";
@@ -27,16 +27,16 @@ test "peer resolve array and const slice" {
 fn testPeerResolveArrayConstSlice(b: bool) !void {
     const value1 = if (b) "aoeu" else @as([]const u8, "zz");
     const value2 = if (b) @as([]const u8, "zz") else "aoeu";
-    try expect(mem.eql(u8, value1, "aoeu"));
-    try expect(mem.eql(u8, value2, "zz"));
+    try expectEqualStrings("aoeu", value1);
+    try expectEqualStrings("zz", value2);
 }
 
 test "peer type resolution: ?T and T" {
-    try expect(peerTypeTAndOptionalT(true, false).? == 0);
-    try expect(peerTypeTAndOptionalT(false, false).? == 3);
+    try expectEqual(0, peerTypeTAndOptionalT(true, false).?);
+    try expectEqual(3, peerTypeTAndOptionalT(false, false).?);
     comptime {
-        try expect(peerTypeTAndOptionalT(true, false).? == 0);
-        try expect(peerTypeTAndOptionalT(false, false).? == 3);
+        try expectEqual(0, peerTypeTAndOptionalT(true, false).?);
+        try expectEqual(3, peerTypeTAndOptionalT(false, false).?);
     }
 }
 fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
@@ -48,11 +48,11 @@ fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
 }
 
 test "peer type resolution: *[0]u8 and []const u8" {
-    try expect(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
-    try expect(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
+    try expectEqual(0, peerTypeEmptyArrayAndSlice(true, "hi").len);
+    try expectEqual(1, peerTypeEmptyArrayAndSlice(false, "hi").len);
     comptime {
-        try expect(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
-        try expect(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
+        try expectEqual(0, peerTypeEmptyArrayAndSlice(true, "hi").len);
+        try expectEqual(1, peerTypeEmptyArrayAndSlice(false, "hi").len);
     }
 }
 fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
@@ -66,14 +66,14 @@ test "peer type resolution: *[0]u8, []const u8, and anyerror![]u8" {
     {
         var data = "hi".*;
         const slice = data[0..];
-        try expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
-        try expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+        try expectEqual(0, (try peerTypeEmptyArrayAndSliceAndError(true, slice)).len);
+        try expectEqual(1, (try peerTypeEmptyArrayAndSliceAndError(false, slice)).len);
     }
     comptime {
         var data = "hi".*;
         const slice = data[0..];
-        try expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
-        try expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+        try expectEqual(0, (try peerTypeEmptyArrayAndSliceAndError(true, slice)).len);
+        try expectEqual(1, (try peerTypeEmptyArrayAndSliceAndError(false, slice)).len);
     }
 }
 fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
@@ -87,8 +87,8 @@ fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
 test "peer type resolution: *const T and ?*T" {
     const a: *const usize = @ptrFromInt(0x123456780);
     const b: ?*usize = @ptrFromInt(0x123456780);
-    try expect(a == b);
-    try expect(b == a);
+    try expectEqual(a, b);
+    try expectEqual(b, a);
 }
 
 test "peer type resolution: error union switch" {
@@ -104,7 +104,7 @@ test "peer type resolution: error union switch" {
         error.B => 1,
         error.C => null,
     };
-    try expect(@TypeOf(b) == ?u32);
+    try expectEqual(?u32, @TypeOf(b));
 
     // The non-error and error cases are only peers if the error case is just a switch expression;
     // the pattern `x catch |err| blk: { switch (err) {...} }` does not consider the unwrapped `x`
@@ -114,7 +114,7 @@ test "peer type resolution: error union switch" {
         error.B => 1,
         error.C => null,
     };
-    try expect(@TypeOf(c) == ?u32);
+    try expectEqual(?u32, @TypeOf(c));
 }
 
 // test

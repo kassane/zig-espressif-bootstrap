@@ -21,39 +21,44 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
 
         items: []T,
         len: usize,
-        allocator: Allocator,
         context: Context,
 
-        /// Initialize and return a new priority dequeue.
-        pub fn init(allocator: Allocator, context: Context) Self {
+        /// A priority dequeue containing no elements.
+        pub const empty: Self = .{
+            .items = &.{},
+            .len = 0,
+            .context = undefined,
+        };
+
+        /// Initialize and return a new priority dequeue with context.
+        pub fn initContext(context: Context) Self {
             return Self{
-                .items = &[_]T{},
+                .items = &.{},
                 .len = 0,
-                .allocator = allocator,
                 .context = context,
             };
         }
 
         /// Free memory used by the dequeue.
-        pub fn deinit(self: Self) void {
-            self.allocator.free(self.items);
+        pub fn deinit(self: Self, allocator: Allocator) void {
+            allocator.free(self.items);
         }
 
         /// Insert a new element, maintaining priority.
-        pub fn add(self: *Self, elem: T) !void {
-            try self.ensureUnusedCapacity(1);
-            addUnchecked(self, elem);
+        pub fn push(self: *Self, allocator: Allocator, elem: T) !void {
+            try self.ensureUnusedCapacity(allocator, 1);
+            pushUnchecked(self, elem);
         }
 
         /// Add each element in `items` to the dequeue.
-        pub fn addSlice(self: *Self, items: []const T) !void {
-            try self.ensureUnusedCapacity(items.len);
+        pub fn pushSlice(self: *Self, allocator: Allocator, items: []const T) !void {
+            try self.ensureUnusedCapacity(allocator, items.len);
             for (items) |e| {
-                self.addUnchecked(e);
+                self.pushUnchecked(e);
             }
         }
 
-        fn addUnchecked(self: *Self, elem: T) void {
+        fn pushUnchecked(self: *Self, elem: T) void {
             self.items[self.len] = elem;
 
             if (self.len > 0) {
@@ -151,34 +156,20 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
             return self.bestItemAtIndices(1, 2, .gt).index;
         }
 
-        /// Pop the smallest element from the dequeue. Returns
-        /// `null` if empty.
-        pub fn removeMinOrNull(self: *Self) ?T {
-            return if (self.len > 0) self.removeMin() else null;
+        /// Remove and return the smallest element from the dequeue, or `null` if empty
+        pub fn popMin(self: *Self) ?T {
+            return if (self.len > 0) self.popIndex(0) else null;
         }
 
-        /// Remove and return the smallest element from the
-        /// dequeue.
-        pub fn removeMin(self: *Self) T {
-            return self.removeIndex(0);
-        }
-
-        /// Pop the largest element from the dequeue. Returns
-        /// `null` if empty.
-        pub fn removeMaxOrNull(self: *Self) ?T {
-            return if (self.len > 0) self.removeMax() else null;
-        }
-
-        /// Remove and return the largest element from the
-        /// dequeue.
-        pub fn removeMax(self: *Self) T {
-            return self.removeIndex(self.maxIndex().?);
+        /// Remove and return the largest element from the dequeue, or `null` if empty
+        pub fn popMax(self: *Self) ?T {
+            return if (self.len > 0) self.popIndex(self.maxIndex().?) else null;
         }
 
         /// Remove and return element at index. Indices are in the
         /// same order as iterator, which is not necessarily priority
         /// order.
-        pub fn removeIndex(self: *Self, index: usize) T {
+        pub fn popIndex(self: *Self, index: usize) T {
             assert(self.len > index);
             const item = self.items[index];
             const last = self.items[self.len - 1];
@@ -333,14 +324,12 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
             return self.items.len;
         }
 
-        /// Dequeue takes ownership of the passed in slice. The slice must have been
-        /// allocated with `allocator`.
-        /// De-initialize with `deinit`.
-        pub fn fromOwnedSlice(allocator: Allocator, items: []T, context: Context) Self {
+        /// Dequeue takes ownership of the passed in slice. The slice must be de-initialize
+        /// with `deinit`.
+        pub fn fromOwnedSlice(items: []T, context: Context) Self {
             var queue = Self{
                 .items = items,
                 .len = items.len,
-                .allocator = allocator,
                 .context = context,
             };
 
@@ -356,29 +345,29 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
         }
 
         /// Ensure that the dequeue can fit at least `new_capacity` items.
-        pub fn ensureTotalCapacity(self: *Self, new_capacity: usize) !void {
+        pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, new_capacity: usize) !void {
             var better_capacity = self.capacity();
             if (better_capacity >= new_capacity) return;
             while (true) {
                 better_capacity += better_capacity / 2 + 8;
                 if (better_capacity >= new_capacity) break;
             }
-            self.items = try self.allocator.realloc(self.items, better_capacity);
+            self.items = try allocator.realloc(self.items, better_capacity);
         }
 
         /// Ensure that the dequeue can fit at least `additional_count` **more** items.
-        pub fn ensureUnusedCapacity(self: *Self, additional_count: usize) !void {
-            return self.ensureTotalCapacity(self.len + additional_count);
+        pub fn ensureUnusedCapacity(self: *Self, allocator: Allocator, additional_count: usize) !void {
+            return self.ensureTotalCapacity(allocator, self.len + additional_count);
         }
 
         /// Reduce allocated capacity to `new_len`.
-        pub fn shrinkAndFree(self: *Self, new_len: usize) void {
+        pub fn shrinkAndFree(self: *Self, allocator: Allocator, new_len: usize) void {
             assert(new_len <= self.items.len);
 
             // Cannot shrink to smaller than the current queue size without invalidating the heap property
             assert(new_len >= self.len);
 
-            self.items = self.allocator.realloc(self.items[0..], new_len) catch |e| switch (e) {
+            self.items = allocator.realloc(self.items[0..], new_len) catch |e| switch (e) {
                 error.OutOfMemory => { // no problem, capacity is still correct then.
                     self.items.len = new_len;
                     return;
@@ -395,8 +384,8 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
                 }
                 return error.ElementNotFound;
             };
-            _ = self.removeIndex(old_index);
-            self.addUnchecked(new_elem);
+            _ = self.popIndex(old_index);
+            self.pushUnchecked(new_elem);
         }
 
         pub const Iterator = struct {
@@ -460,33 +449,40 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
     };
 }
 
+/// If a min heap is constructed from slice `{5, 8, 2, 9, 7, 1, 4, 4}` using this
+/// method, then the elements will be in order: {1, 2, 4, 4, 5, 7, 8, 9}
 fn lessThanComparison(context: void, a: u32, b: u32) Order {
     _ = context;
     return std.math.order(a, b);
 }
 
-const PDQ = PriorityDequeue(u32, void, lessThanComparison);
+/// Elements with lower priority will be removed first
+const MinHeap = PriorityDequeue(u32, void, lessThanComparison);
 
-test "add and remove min" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "push and pop min in min heap" {
+    const gpa = std.testing.allocator;
 
-    try queue.add(54);
-    try queue.add(12);
-    try queue.add(7);
-    try queue.add(23);
-    try queue.add(25);
-    try queue.add(13);
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
 
-    try expectEqual(@as(u32, 7), queue.removeMin());
-    try expectEqual(@as(u32, 12), queue.removeMin());
-    try expectEqual(@as(u32, 13), queue.removeMin());
-    try expectEqual(@as(u32, 23), queue.removeMin());
-    try expectEqual(@as(u32, 25), queue.removeMin());
-    try expectEqual(@as(u32, 54), queue.removeMin());
+    try queue.push(gpa, 54);
+    try queue.push(gpa, 12);
+    try queue.push(gpa, 7);
+    try queue.push(gpa, 23);
+    try queue.push(gpa, 25);
+    try queue.push(gpa, 13);
+
+    try expectEqual(@as(u32, 7), queue.popMin());
+    try expectEqual(@as(u32, 12), queue.popMin());
+    try expectEqual(@as(u32, 13), queue.popMin());
+    try expectEqual(@as(u32, 23), queue.popMin());
+    try expectEqual(@as(u32, 25), queue.popMin());
+    try expectEqual(@as(u32, 54), queue.popMin());
 }
 
-test "add and remove min structs" {
+test "push and pop min structs" {
+    const gpa = std.testing.allocator;
+
     const S = struct {
         size: u32,
     };
@@ -495,310 +491,360 @@ test "add and remove min structs" {
             _ = context;
             return std.math.order(a.size, b.size);
         }
-    }.order).init(testing.allocator, {});
-    defer queue.deinit();
+    }.order).initContext({});
+    defer queue.deinit(gpa);
 
-    try queue.add(.{ .size = 54 });
-    try queue.add(.{ .size = 12 });
-    try queue.add(.{ .size = 7 });
-    try queue.add(.{ .size = 23 });
-    try queue.add(.{ .size = 25 });
-    try queue.add(.{ .size = 13 });
+    try queue.push(gpa, .{ .size = 54 });
+    try queue.push(gpa, .{ .size = 12 });
+    try queue.push(gpa, .{ .size = 7 });
+    try queue.push(gpa, .{ .size = 23 });
+    try queue.push(gpa, .{ .size = 25 });
+    try queue.push(gpa, .{ .size = 13 });
 
-    try expectEqual(@as(u32, 7), queue.removeMin().size);
-    try expectEqual(@as(u32, 12), queue.removeMin().size);
-    try expectEqual(@as(u32, 13), queue.removeMin().size);
-    try expectEqual(@as(u32, 23), queue.removeMin().size);
-    try expectEqual(@as(u32, 25), queue.removeMin().size);
-    try expectEqual(@as(u32, 54), queue.removeMin().size);
+    try expectEqual(@as(u32, 7), queue.popMin().?.size);
+    try expectEqual(@as(u32, 12), queue.popMin().?.size);
+    try expectEqual(@as(u32, 13), queue.popMin().?.size);
+    try expectEqual(@as(u32, 23), queue.popMin().?.size);
+    try expectEqual(@as(u32, 25), queue.popMin().?.size);
+    try expectEqual(@as(u32, 54), queue.popMin().?.size);
 }
 
-test "add and remove max" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "push and pop max in min heap" {
+    const gpa = std.testing.allocator;
 
-    try queue.add(54);
-    try queue.add(12);
-    try queue.add(7);
-    try queue.add(23);
-    try queue.add(25);
-    try queue.add(13);
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
 
-    try expectEqual(@as(u32, 54), queue.removeMax());
-    try expectEqual(@as(u32, 25), queue.removeMax());
-    try expectEqual(@as(u32, 23), queue.removeMax());
-    try expectEqual(@as(u32, 13), queue.removeMax());
-    try expectEqual(@as(u32, 12), queue.removeMax());
-    try expectEqual(@as(u32, 7), queue.removeMax());
+    try queue.push(gpa, 54);
+    try queue.push(gpa, 12);
+    try queue.push(gpa, 7);
+    try queue.push(gpa, 23);
+    try queue.push(gpa, 25);
+    try queue.push(gpa, 13);
+
+    try expectEqual(@as(u32, 54), queue.popMax());
+    try expectEqual(@as(u32, 25), queue.popMax());
+    try expectEqual(@as(u32, 23), queue.popMax());
+    try expectEqual(@as(u32, 13), queue.popMax());
+    try expectEqual(@as(u32, 12), queue.popMax());
+    try expectEqual(@as(u32, 7), queue.popMax());
 }
 
-test "add and remove same min" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "push and pop same min in min heap" {
+    const gpa = std.testing.allocator;
 
-    try queue.add(1);
-    try queue.add(1);
-    try queue.add(2);
-    try queue.add(2);
-    try queue.add(1);
-    try queue.add(1);
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
 
-    try expectEqual(@as(u32, 1), queue.removeMin());
-    try expectEqual(@as(u32, 1), queue.removeMin());
-    try expectEqual(@as(u32, 1), queue.removeMin());
-    try expectEqual(@as(u32, 1), queue.removeMin());
-    try expectEqual(@as(u32, 2), queue.removeMin());
-    try expectEqual(@as(u32, 2), queue.removeMin());
+    try queue.push(gpa, 1);
+    try queue.push(gpa, 1);
+    try queue.push(gpa, 2);
+    try queue.push(gpa, 2);
+    try queue.push(gpa, 1);
+    try queue.push(gpa, 1);
+
+    try expectEqual(@as(u32, 1), queue.popMin());
+    try expectEqual(@as(u32, 1), queue.popMin());
+    try expectEqual(@as(u32, 1), queue.popMin());
+    try expectEqual(@as(u32, 1), queue.popMin());
+    try expectEqual(@as(u32, 2), queue.popMin());
+    try expectEqual(@as(u32, 2), queue.popMin());
 }
 
-test "add and remove same max" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "push and pop same max in min heap" {
+    const gpa = std.testing.allocator;
 
-    try queue.add(1);
-    try queue.add(1);
-    try queue.add(2);
-    try queue.add(2);
-    try queue.add(1);
-    try queue.add(1);
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
 
-    try expectEqual(@as(u32, 2), queue.removeMax());
-    try expectEqual(@as(u32, 2), queue.removeMax());
-    try expectEqual(@as(u32, 1), queue.removeMax());
-    try expectEqual(@as(u32, 1), queue.removeMax());
-    try expectEqual(@as(u32, 1), queue.removeMax());
-    try expectEqual(@as(u32, 1), queue.removeMax());
+    try queue.push(gpa, 1);
+    try queue.push(gpa, 1);
+    try queue.push(gpa, 2);
+    try queue.push(gpa, 2);
+    try queue.push(gpa, 1);
+    try queue.push(gpa, 1);
+
+    try expectEqual(@as(u32, 2), queue.popMax());
+    try expectEqual(@as(u32, 2), queue.popMax());
+    try expectEqual(@as(u32, 1), queue.popMax());
+    try expectEqual(@as(u32, 1), queue.popMax());
+    try expectEqual(@as(u32, 1), queue.popMax());
+    try expectEqual(@as(u32, 1), queue.popMax());
 }
 
-test "removeOrNull empty" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "pop empty in min heap" {
+    const gpa = std.testing.allocator;
 
-    try expect(queue.removeMinOrNull() == null);
-    try expect(queue.removeMaxOrNull() == null);
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
+
+    try expect(queue.popMin() == null);
+    try expect(queue.popMax() == null);
 }
 
-test "edge case 3 elements" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "edge case 3 elements popMin in min heap" {
+    const gpa = std.testing.allocator;
 
-    try queue.add(9);
-    try queue.add(3);
-    try queue.add(2);
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
 
-    try expectEqual(@as(u32, 2), queue.removeMin());
-    try expectEqual(@as(u32, 3), queue.removeMin());
-    try expectEqual(@as(u32, 9), queue.removeMin());
+    try queue.push(gpa, 9);
+    try queue.push(gpa, 3);
+    try queue.push(gpa, 2);
+
+    try expectEqual(@as(u32, 2), queue.popMin());
+    try expectEqual(@as(u32, 3), queue.popMin());
+    try expectEqual(@as(u32, 9), queue.popMin());
 }
 
-test "edge case 3 elements max" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "edge case 3 elements popmax in min heap" {
+    const gpa = std.testing.allocator;
 
-    try queue.add(9);
-    try queue.add(3);
-    try queue.add(2);
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
 
-    try expectEqual(@as(u32, 9), queue.removeMax());
-    try expectEqual(@as(u32, 3), queue.removeMax());
-    try expectEqual(@as(u32, 2), queue.removeMax());
+    try queue.push(gpa, 9);
+    try queue.push(gpa, 3);
+    try queue.push(gpa, 2);
+
+    try expectEqual(@as(u32, 9), queue.popMax());
+    try expectEqual(@as(u32, 3), queue.popMax());
+    try expectEqual(@as(u32, 2), queue.popMax());
 }
 
-test "peekMin" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "peekMin in min heap" {
+    const gpa = std.testing.allocator;
+
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
 
     try expect(queue.peekMin() == null);
 
-    try queue.add(9);
-    try queue.add(3);
-    try queue.add(2);
+    try queue.push(gpa, 9);
+    try queue.push(gpa, 3);
+    try queue.push(gpa, 2);
 
     try expect(queue.peekMin().? == 2);
     try expect(queue.peekMin().? == 2);
 }
 
-test "peekMax" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "peekMax in min heap" {
+    const gpa = std.testing.allocator;
+
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
 
     try expect(queue.peekMin() == null);
 
-    try queue.add(9);
-    try queue.add(3);
-    try queue.add(2);
+    try queue.push(gpa, 9);
+    try queue.push(gpa, 3);
+    try queue.push(gpa, 2);
 
     try expect(queue.peekMax().? == 9);
     try expect(queue.peekMax().? == 9);
 }
 
-test "sift up with odd indices, removeMin" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "sift up with odd indices and popMin in min heap" {
+    const gpa = std.testing.allocator;
+
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
+
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
     for (items) |e| {
-        try queue.add(e);
+        try queue.push(gpa, e);
     }
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        try expectEqual(e, queue.removeMin());
+        try expectEqual(e, queue.popMin());
     }
 }
 
-test "sift up with odd indices, removeMax" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "sift up with odd indices and popMax in min heap" {
+    const gpa = std.testing.allocator;
+
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
+
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
     for (items) |e| {
-        try queue.add(e);
+        try queue.push(gpa, e);
     }
 
     const sorted_items = [_]u32{ 25, 24, 24, 22, 21, 16, 15, 15, 14, 13, 12, 11, 7, 7, 6, 5, 2, 1 };
     for (sorted_items) |e| {
-        try expectEqual(e, queue.removeMax());
+        try expectEqual(e, queue.popMax());
     }
 }
 
-test "addSlice min" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "pushSlice in min heap and popMin" {
+    const gpa = std.testing.allocator;
+
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
+
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
-    try queue.addSlice(items[0..]);
+    try queue.pushSlice(gpa, items[0..]);
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        try expectEqual(e, queue.removeMin());
+        try expectEqual(e, queue.popMin());
     }
 }
 
-test "addSlice max" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "pushSlice in min heap and popMax" {
+    const gpa = std.testing.allocator;
+
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
+
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
-    try queue.addSlice(items[0..]);
+    try queue.pushSlice(gpa, items[0..]);
 
     const sorted_items = [_]u32{ 25, 24, 24, 22, 21, 16, 15, 15, 14, 13, 12, 11, 7, 7, 6, 5, 2, 1 };
     for (sorted_items) |e| {
-        try expectEqual(e, queue.removeMax());
+        try expectEqual(e, queue.popMax());
     }
 }
 
-test "fromOwnedSlice trivial case 0" {
+test "fromOwnedSlice trivial case 0 min heap" {
+    const gpa = std.testing.allocator;
+
     const items = [0]u32{};
-    const queue_items = try testing.allocator.dupe(u32, &items);
-    var queue = PDQ.fromOwnedSlice(testing.allocator, queue_items[0..], {});
-    defer queue.deinit();
+    const queue_items = try gpa.dupe(u32, &items);
+
+    var queue: MinHeap = .fromOwnedSlice(queue_items[0..], {});
+    defer queue.deinit(gpa);
+
     try expectEqual(@as(usize, 0), queue.len);
-    try expect(queue.removeMinOrNull() == null);
+    try expect(queue.popMin() == null);
 }
 
-test "fromOwnedSlice trivial case 1" {
+test "fromOwnedSlice trivial case 1 min heap" {
+    const gpa = std.testing.allocator;
+
     const items = [1]u32{1};
-    const queue_items = try testing.allocator.dupe(u32, &items);
-    var queue = PDQ.fromOwnedSlice(testing.allocator, queue_items[0..], {});
-    defer queue.deinit();
+    const queue_items = try gpa.dupe(u32, &items);
+
+    var queue: MinHeap = .fromOwnedSlice(queue_items[0..], {});
+    defer queue.deinit(gpa);
 
     try expectEqual(@as(usize, 1), queue.len);
-    try expectEqual(items[0], queue.removeMin());
-    try expect(queue.removeMinOrNull() == null);
+    try expectEqual(items[0], queue.popMin());
+    try expect(queue.popMin() == null);
 }
 
-test "fromOwnedSlice" {
+test "fromOwnedSlice min heap" {
+    const gpa = std.testing.allocator;
+
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
-    const queue_items = try testing.allocator.dupe(u32, items[0..]);
-    var queue = PDQ.fromOwnedSlice(testing.allocator, queue_items[0..], {});
-    defer queue.deinit();
+    const queue_items = try gpa.dupe(u32, items[0..]);
+
+    var queue: MinHeap = .fromOwnedSlice(queue_items[0..], {});
+    defer queue.deinit(gpa);
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
     for (sorted_items) |e| {
-        try expectEqual(e, queue.removeMin());
+        try expectEqual(e, queue.popMin());
     }
 }
 
-test "update min queue" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "update and popMin in min heap" {
+    const gpa = std.testing.allocator;
 
-    try queue.add(55);
-    try queue.add(44);
-    try queue.add(11);
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
+
+    try queue.push(gpa, 55);
+    try queue.push(gpa, 44);
+    try queue.push(gpa, 11);
     try queue.update(55, 5);
     try queue.update(44, 4);
     try queue.update(11, 1);
-    try expectEqual(@as(u32, 1), queue.removeMin());
-    try expectEqual(@as(u32, 4), queue.removeMin());
-    try expectEqual(@as(u32, 5), queue.removeMin());
+    try expectEqual(@as(u32, 1), queue.popMin());
+    try expectEqual(@as(u32, 4), queue.popMin());
+    try expectEqual(@as(u32, 5), queue.popMin());
 }
 
-test "update same min queue" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "update same element and popMin in min heap" {
+    const gpa = std.testing.allocator;
 
-    try queue.add(1);
-    try queue.add(1);
-    try queue.add(2);
-    try queue.add(2);
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
+
+    try queue.push(gpa, 1);
+    try queue.push(gpa, 1);
+    try queue.push(gpa, 2);
+    try queue.push(gpa, 2);
     try queue.update(1, 5);
     try queue.update(2, 4);
-    try expectEqual(@as(u32, 1), queue.removeMin());
-    try expectEqual(@as(u32, 2), queue.removeMin());
-    try expectEqual(@as(u32, 4), queue.removeMin());
-    try expectEqual(@as(u32, 5), queue.removeMin());
+    try expectEqual(@as(u32, 1), queue.popMin());
+    try expectEqual(@as(u32, 2), queue.popMin());
+    try expectEqual(@as(u32, 4), queue.popMin());
+    try expectEqual(@as(u32, 5), queue.popMin());
 }
 
-test "update max queue" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "update and popMax in min heap" {
+    const gpa = std.testing.allocator;
 
-    try queue.add(55);
-    try queue.add(44);
-    try queue.add(11);
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
+
+    try queue.push(gpa, 55);
+    try queue.push(gpa, 44);
+    try queue.push(gpa, 11);
     try queue.update(55, 5);
     try queue.update(44, 1);
     try queue.update(11, 4);
 
-    try expectEqual(@as(u32, 5), queue.removeMax());
-    try expectEqual(@as(u32, 4), queue.removeMax());
-    try expectEqual(@as(u32, 1), queue.removeMax());
+    try expectEqual(@as(u32, 5), queue.popMax());
+    try expectEqual(@as(u32, 4), queue.popMax());
+    try expectEqual(@as(u32, 1), queue.popMax());
 }
 
-test "update same max queue" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "update same element and popMax in min heap" {
+    const gpa = std.testing.allocator;
 
-    try queue.add(1);
-    try queue.add(1);
-    try queue.add(2);
-    try queue.add(2);
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
+
+    try queue.push(gpa, 1);
+    try queue.push(gpa, 1);
+    try queue.push(gpa, 2);
+    try queue.push(gpa, 2);
     try queue.update(1, 5);
     try queue.update(2, 4);
-    try expectEqual(@as(u32, 5), queue.removeMax());
-    try expectEqual(@as(u32, 4), queue.removeMax());
-    try expectEqual(@as(u32, 2), queue.removeMax());
-    try expectEqual(@as(u32, 1), queue.removeMax());
+    try expectEqual(@as(u32, 5), queue.popMax());
+    try expectEqual(@as(u32, 4), queue.popMax());
+    try expectEqual(@as(u32, 2), queue.popMax());
+    try expectEqual(@as(u32, 1), queue.popMax());
 }
 
-test "update after remove" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "update after pop in min heap" {
+    const gpa = std.testing.allocator;
 
-    try queue.add(1);
-    try expectEqual(@as(u32, 1), queue.removeMin());
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
+
+    try queue.push(gpa, 1);
+    try expectEqual(@as(u32, 1), queue.popMin());
     try expectError(error.ElementNotFound, queue.update(1, 1));
 }
 
-test "iterator" {
-    var queue = PDQ.init(testing.allocator, {});
+test "min heap iterator" {
+    const gpa = std.testing.allocator;
+
+    var queue: MinHeap = .empty;
     var map = std.AutoHashMap(u32, void).init(testing.allocator);
     defer {
-        queue.deinit();
+        queue.deinit(gpa);
         map.deinit();
     }
 
     const items = [_]u32{ 54, 12, 7, 23, 25, 13 };
     for (items) |e| {
-        _ = try queue.add(e);
+        _ = try queue.push(gpa, e);
         _ = try map.put(e, {});
     }
 
@@ -810,13 +856,15 @@ test "iterator" {
     try expectEqual(@as(usize, 0), map.count());
 }
 
-test "remove at index" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "pop at index in min heap" {
+    const gpa = std.testing.allocator;
 
-    try queue.add(3);
-    try queue.add(2);
-    try queue.add(1);
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
+
+    try queue.push(gpa, 3);
+    try queue.push(gpa, 2);
+    try queue.push(gpa, 1);
 
     var it = queue.iterator();
     var elem = it.next();
@@ -827,42 +875,46 @@ test "remove at index" {
         idx += 1;
     } else unreachable;
 
-    try expectEqual(queue.removeIndex(two_idx), 2);
-    try expectEqual(queue.removeMin(), 1);
-    try expectEqual(queue.removeMin(), 3);
-    try expectEqual(queue.removeMinOrNull(), null);
+    try expectEqual(queue.popIndex(two_idx), 2);
+    try expectEqual(queue.popMin(), 1);
+    try expectEqual(queue.popMin(), 3);
+    try expectEqual(queue.popMin(), null);
 }
 
-test "iterator while empty" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "min heap iterator while empty" {
+    const gpa = std.testing.allocator;
+
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
 
     var it = queue.iterator();
 
     try expectEqual(it.next(), null);
 }
 
-test "shrinkAndFree" {
-    var queue = PDQ.init(testing.allocator, {});
-    defer queue.deinit();
+test "min heap shrinkAndFree" {
+    const gpa = std.testing.allocator;
 
-    try queue.ensureTotalCapacity(4);
+    var queue: MinHeap = .empty;
+    defer queue.deinit(gpa);
+
+    try queue.ensureTotalCapacity(gpa, 4);
     try expect(queue.capacity() >= 4);
 
-    try queue.add(1);
-    try queue.add(2);
-    try queue.add(3);
+    try queue.push(gpa, 1);
+    try queue.push(gpa, 2);
+    try queue.push(gpa, 3);
     try expect(queue.capacity() >= 4);
     try expectEqual(@as(usize, 3), queue.len);
 
-    queue.shrinkAndFree(3);
+    queue.shrinkAndFree(gpa, 3);
     try expectEqual(@as(usize, 3), queue.capacity());
     try expectEqual(@as(usize, 3), queue.len);
 
-    try expectEqual(@as(u32, 3), queue.removeMax());
-    try expectEqual(@as(u32, 2), queue.removeMax());
-    try expectEqual(@as(u32, 1), queue.removeMax());
-    try expect(queue.removeMaxOrNull() == null);
+    try expectEqual(@as(u32, 3), queue.popMax());
+    try expectEqual(@as(u32, 2), queue.popMax());
+    try expectEqual(@as(u32, 1), queue.popMax());
+    try expect(queue.popMax() == null);
 }
 
 test "fuzz testing min" {
@@ -879,14 +931,15 @@ test "fuzz testing min" {
 }
 
 fn fuzzTestMin(rng: std.Random, comptime queue_size: usize) !void {
-    const allocator = testing.allocator;
-    const items = try generateRandomSlice(allocator, rng, queue_size);
+    const gpa = std.testing.allocator;
 
-    var queue = PDQ.fromOwnedSlice(allocator, items, {});
-    defer queue.deinit();
+    const items = try generateRandomSlice(gpa, rng, queue_size);
+
+    var queue: MinHeap = .fromOwnedSlice(items, {});
+    defer queue.deinit(gpa);
 
     var last_removed: ?u32 = null;
-    while (queue.removeMinOrNull()) |next| {
+    while (queue.popMin()) |next| {
         if (last_removed) |last| {
             try expect(last <= next);
         }
@@ -908,14 +961,15 @@ test "fuzz testing max" {
 }
 
 fn fuzzTestMax(rng: std.Random, queue_size: usize) !void {
-    const allocator = testing.allocator;
-    const items = try generateRandomSlice(allocator, rng, queue_size);
+    const gpa = std.testing.allocator;
 
-    var queue = PDQ.fromOwnedSlice(testing.allocator, items, {});
-    defer queue.deinit();
+    const items = try generateRandomSlice(gpa, rng, queue_size);
+
+    var queue: MinHeap = .fromOwnedSlice(items, {});
+    defer queue.deinit(gpa);
 
     var last_removed: ?u32 = null;
-    while (queue.removeMaxOrNull()) |next| {
+    while (queue.popMax()) |next| {
         if (last_removed) |last| {
             try expect(last >= next);
         }
@@ -937,24 +991,25 @@ test "fuzz testing min and max" {
 }
 
 fn fuzzTestMinMax(rng: std.Random, queue_size: usize) !void {
-    const allocator = testing.allocator;
-    const items = try generateRandomSlice(allocator, rng, queue_size);
+    const gpa = std.testing.allocator;
 
-    var queue = PDQ.fromOwnedSlice(allocator, items, {});
-    defer queue.deinit();
+    const items = try generateRandomSlice(gpa, rng, queue_size);
+
+    var queue: MinHeap = .fromOwnedSlice(items, {});
+    defer queue.deinit(gpa);
 
     var last_min: ?u32 = null;
     var last_max: ?u32 = null;
     var i: usize = 0;
     while (i < queue_size) : (i += 1) {
         if (i % 2 == 0) {
-            const next = queue.removeMin();
+            const next = queue.popMin().?;
             if (last_min) |last| {
                 try expect(last <= next);
             }
             last_min = next;
         } else {
-            const next = queue.removeMax();
+            const next = queue.popMax().?;
             if (last_max) |last| {
                 try expect(last >= next);
             }
@@ -980,48 +1035,52 @@ fn contextLessThanComparison(context: []const u32, a: usize, b: usize) Order {
     return std.math.order(context[a], context[b]);
 }
 
-const CPDQ = PriorityDequeue(usize, []const u32, contextLessThanComparison);
+const MinHeapWithContext = PriorityDequeue(usize, []const u32, contextLessThanComparison);
 
-test "add and remove" {
+test "push and pop" {
+    const gpa = std.testing.allocator;
+
     const context = [_]u32{ 5, 3, 4, 2, 2, 8, 0 };
 
-    var queue = CPDQ.init(testing.allocator, context[0..]);
-    defer queue.deinit();
+    var queue: MinHeapWithContext = .initContext(context[0..]);
+    defer queue.deinit(gpa);
 
-    try queue.add(0);
-    try queue.add(1);
-    try queue.add(2);
-    try queue.add(3);
-    try queue.add(4);
-    try queue.add(5);
-    try queue.add(6);
-    try expectEqual(@as(usize, 6), queue.removeMin());
-    try expectEqual(@as(usize, 5), queue.removeMax());
-    try expectEqual(@as(usize, 3), queue.removeMin());
-    try expectEqual(@as(usize, 0), queue.removeMax());
-    try expectEqual(@as(usize, 4), queue.removeMin());
-    try expectEqual(@as(usize, 2), queue.removeMax());
-    try expectEqual(@as(usize, 1), queue.removeMin());
+    try queue.push(gpa, 0);
+    try queue.push(gpa, 1);
+    try queue.push(gpa, 2);
+    try queue.push(gpa, 3);
+    try queue.push(gpa, 4);
+    try queue.push(gpa, 5);
+    try queue.push(gpa, 6);
+    try expectEqual(@as(usize, 6), queue.popMin());
+    try expectEqual(@as(usize, 5), queue.popMax());
+    try expectEqual(@as(usize, 3), queue.popMin());
+    try expectEqual(@as(usize, 0), queue.popMax());
+    try expectEqual(@as(usize, 4), queue.popMin());
+    try expectEqual(@as(usize, 2), queue.popMax());
+    try expectEqual(@as(usize, 1), queue.popMin());
 }
 
 var all_cmps_unique = true;
 
 test "don't compare a value to a copy of itself" {
+    const gpa = std.testing.allocator;
+
     var depq = PriorityDequeue(u32, void, struct {
         fn uniqueLessThan(_: void, a: u32, b: u32) Order {
             all_cmps_unique = all_cmps_unique and (a != b);
             return std.math.order(a, b);
         }
-    }.uniqueLessThan).init(testing.allocator, {});
-    defer depq.deinit();
+    }.uniqueLessThan).initContext({});
+    defer depq.deinit(gpa);
 
-    try depq.add(1);
-    try depq.add(2);
-    try depq.add(3);
-    try depq.add(4);
-    try depq.add(5);
-    try depq.add(6);
+    try depq.push(gpa, 1);
+    try depq.push(gpa, 2);
+    try depq.push(gpa, 3);
+    try depq.push(gpa, 4);
+    try depq.push(gpa, 5);
+    try depq.push(gpa, 6);
 
-    _ = depq.removeIndex(2);
+    _ = depq.popIndex(2);
     try expectEqual(all_cmps_unique, true);
 }

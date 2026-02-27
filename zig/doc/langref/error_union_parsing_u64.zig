@@ -35,7 +35,7 @@ fn charToDigit(c: u8) u8 {
 
 test "parse u64" {
     const result = try parseU64("1234", 10);
-    try std.testing.expect(result == 1234);
+    try std.testing.expectEqual(1234, result);
 }
 
 // test

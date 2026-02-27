@@ -31,7 +31,7 @@ fn sum(numbers: []const i32) i32 {
 }
 
 test "variable values" {
-    try @import("std").testing.expect(sum_of_first_25_primes == 1060);
+    try @import("std").testing.expectEqual(1060, sum_of_first_25_primes);
 }
 
 // test
