@@ -1205,7 +1205,7 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
     Node->setNodeId(-1);
     return;
   }
-  if (Subtarget->hasVendorXespv2p1() && selectESP(Node))
+  if (Subtarget->hasESPVTargetLowering() && selectESP(Node))
     return;
 
   // Instruction Selection not handled by the auto-generated tablegen selection
@@ -2801,7 +2801,7 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
     SDLoc DL(V);
 
     // ESP32P4: Handle special ESPV extract_subvector cases
-    if (Subtarget->hasVendorXespv()) {
+    if (Subtarget->hasESPVTargetLowering()) {
       selectESPVExtractSubvector(Node, V, Idx, InVT, VT, DL);
       return;
     }
@@ -3157,7 +3157,7 @@ bool RISCVDAGToDAGISel::selectESP(SDNode *Node) {
         MachineMemOperand *MMO = MemNode->getMemOperand();
         CurDAG->setNodeMemRefs(cast<MachineSDNode>(NewNode), {MMO});
       }
-  
+
       ReplaceNode(Node, NewNode);
       return true;
     }
@@ -3170,7 +3170,7 @@ bool RISCVDAGToDAGISel::selectESP(SDNode *Node) {
       SDValue Vec = Node->getOperand(1);
       SDValue Ptr = Node->getOperand(2);
       SDValue Reg = Node->getOperand(3);
-  
+
       // getMachineNode will automatically select operands if needed
       // Instruction outputs: (rs1r, chain)
       SDVTList VTs = CurDAG->getVTList(XLenVT, MVT::Other);
@@ -3178,13 +3178,13 @@ bool RISCVDAGToDAGISel::selectESP(SDNode *Node) {
       // Order: [instruction operands..., chain]
       SDValue Ops[] = {Reg, Vec, Ptr, Chain};
       SDNode *NewNode = CurDAG->getMachineNode(RISCV::ESP_VST_128_XP, DL, VTs, Ops);
-  
+
       // Copy MMO from MemSDNode if present
       if (auto *MemNode = dyn_cast<MemSDNode>(Node)) {
         MachineMemOperand *MMO = MemNode->getMemOperand();
         CurDAG->setNodeMemRefs(cast<MachineSDNode>(NewNode), {MMO});
       }
-  
+
       ReplaceNode(Node, NewNode);
       return true;
     }
@@ -4106,7 +4106,442 @@ bool RISCVDAGToDAGISel::selectESP(SDNode *Node) {
       ReplaceNode(Node, NewNode);
       return true;
     }
+  case RISCVISD::ESP_VMULAS_S16_XACC_M:
+  case RISCVISD::ESP_VMULAS_S8_XACC_M:
+  case RISCVISD::ESP_VMULAS_U16_XACC_M:
+  case RISCVISD::ESP_VMULAS_U8_XACC_M: {
+    // Handle ESP_VMULAS_*_XACC_M nodes - Mixed model: XACC as {i32 low, i32 high}
+    // SDNode: (xacc_low_in, xacc_high_in, qx, qy) -> (xacc_low_out, xacc_high_out)
+    // Instruction: ESP_VMULAS_*_XACC (ins XACC_LOW:$xacc_low_in, XACC_HIGH:$xacc_high_in, QR:$qx, QR:$qy)
+    //              (outs XACC_LOW:$xacc_low_out, XACC_HIGH:$xacc_high_out)
+    SDValue XACCLowIn = Node->getOperand(0);
+    SDValue XACCHighIn = Node->getOperand(1);
+    SDValue QX = Node->getOperand(2);
+    SDValue QY = Node->getOperand(3);
     
+    // Select instruction opcode
+    unsigned Opc;
+    switch (Opcode) {
+    default: llvm_unreachable("Unexpected opcode");
+    case RISCVISD::ESP_VMULAS_S16_XACC_M:
+      Opc = RISCV::ESP_VMULAS_S16_XACC;
+      break;
+    case RISCVISD::ESP_VMULAS_S8_XACC_M:
+      Opc = RISCV::ESP_VMULAS_S8_XACC;
+      break;
+    case RISCVISD::ESP_VMULAS_U16_XACC_M:
+      Opc = RISCV::ESP_VMULAS_U16_XACC;
+      break;
+    case RISCVISD::ESP_VMULAS_U8_XACC_M:
+      Opc = RISCV::ESP_VMULAS_U8_XACC;
+      break;
+    }
+    
+    // Build VTList: (xacc_low_out, xacc_high_out)
+    SDVTList VTs = CurDAG->getVTList(MVT::i32, MVT::i32);
+    
+    // Build operand list: (xacc_low_in, xacc_high_in, qx, qy)
+    // Order must match instruction definition
+    SDValue Ops[] = {XACCLowIn, XACCHighIn, QX, QY};
+    SDNode *NewNode = CurDAG->getMachineNode(Opc, DL, VTs, Ops);
+    
+    // Replace uses
+    ReplaceUses(SDValue(Node, 0), SDValue(NewNode, 0));  // XACC Low
+    ReplaceUses(SDValue(Node, 1), SDValue(NewNode, 1)); // XACC High
+    
+    CurDAG->RemoveDeadNode(Node);
+    return true;
+  }
+  case RISCVISD::ESP_SRS_S_XACC_M:
+  case RISCVISD::ESP_SRS_U_XACC_M: {
+    // Handle ESP_SRS_*_XACC_M nodes - Mixed model: XACC as {i32 low, i32 high}
+    // SDNode: (xacc_high_in, xacc_low_in, shift_amount) -> (saturated_value, new_xacc_high, new_xacc_low)
+    // Instruction: ESP_SRS_*_XACC (ins XACC_LOW:$xacc_low_in, XACC_HIGH:$xacc_high_in, GPRPIE:$rs1)
+    //              (outs GPRPIE:$rd, XACC_LOW:$xacc_low_out, XACC_HIGH:$xacc_high_out)
+    SDValue XACCHighIn = Node->getOperand(0);
+    SDValue XACCLowIn = Node->getOperand(1);
+    SDValue ShiftAmount = Node->getOperand(2);
+    
+    // Select instruction opcode
+    unsigned Opc;
+    switch (Opcode) {
+    default: llvm_unreachable("Unexpected opcode");
+    case RISCVISD::ESP_SRS_S_XACC_M:
+      Opc = RISCV::ESP_SRS_S_XACC;
+      break;
+    case RISCVISD::ESP_SRS_U_XACC_M:
+      Opc = RISCV::ESP_SRS_U_XACC;
+      break;
+    }
+    
+    // Build VTList: (rd, xacc_low_out, xacc_high_out)
+    SDVTList VTs = CurDAG->getVTList(MVT::i32, MVT::i32, MVT::i32);
+    
+    // Build operand list: (xacc_low_in, xacc_high_in, rs1)
+    // Order must match instruction definition
+    SDValue Ops[] = {XACCLowIn, XACCHighIn, ShiftAmount};
+    SDNode *NewNode = CurDAG->getMachineNode(Opc, DL, VTs, Ops);
+    
+    // Replace uses
+    // SDNode result order: (saturated_value, new_xacc_high, new_xacc_low)
+    // Instruction output order: (rd, xacc_low_out, xacc_high_out)
+    ReplaceUses(SDValue(Node, 0), SDValue(NewNode, 0));  // saturated value -> rd
+    ReplaceUses(SDValue(Node, 1), SDValue(NewNode, 2));  // new_xacc_high -> xacc_high_out
+    ReplaceUses(SDValue(Node, 2), SDValue(NewNode, 1));  // new_xacc_low -> xacc_low_out
+    
+    CurDAG->RemoveDeadNode(Node);
+    return true;
+  }
+  case RISCVISD::ESP_VMULAS_S16_XACC_LD_IP_M:
+  case RISCVISD::ESP_VMULAS_S8_XACC_LD_IP_M:
+  case RISCVISD::ESP_VMULAS_U16_XACC_LD_IP_M:
+  case RISCVISD::ESP_VMULAS_U8_XACC_LD_IP_M: {
+    // Handle ESP_VMULAS_*_XACC_LD_IP_M nodes - Mixed model: XACC as {i32 low, i32 high}
+    // SDNode: (chain, xacc_low_in, xacc_high_in, qx, qy, ptr, offset) -> (qu, ptr, xacc_low_out, xacc_high_out, chain, glue)
+    // Instruction: ESP_VMULAS_*_XACC_LD_IP (ins XACC_LOW:$xacc_low_in, XACC_HIGH:$xacc_high_in, QR:$qx, QR:$qy, GPRPIE:$rs1, offset_16_16:$off1616)
+    //              (outs QR:$qu, GPRPIE:$rs1r, XACC_LOW:$xacc_low_out, XACC_HIGH:$xacc_high_out)
+    SDValue Chain = Node->getOperand(0);
+    SDValue XACCLowIn = Node->getOperand(1);
+    SDValue XACCHighIn = Node->getOperand(2);
+    SDValue QX = Node->getOperand(3);
+    SDValue QY = Node->getOperand(4);
+    SDValue Ptr = Node->getOperand(5);
+    SDValue Offset = Node->getOperand(6);
+    
+    // Select instruction opcode
+    unsigned Opc;
+    switch (Opcode) {
+    default: llvm_unreachable("Unexpected opcode");
+    case RISCVISD::ESP_VMULAS_S16_XACC_LD_IP_M:
+      Opc = RISCV::ESP_VMULAS_S16_XACC_LD_IP;
+      break;
+    case RISCVISD::ESP_VMULAS_S8_XACC_LD_IP_M:
+      Opc = RISCV::ESP_VMULAS_S8_XACC_LD_IP;
+      break;
+    case RISCVISD::ESP_VMULAS_U16_XACC_LD_IP_M:
+      Opc = RISCV::ESP_VMULAS_U16_XACC_LD_IP;
+      break;
+    case RISCVISD::ESP_VMULAS_U8_XACC_LD_IP_M:
+      Opc = RISCV::ESP_VMULAS_U8_XACC_LD_IP;
+      break;
+    }
+    
+    // Check immediate operand
+    int64_t ImmVal = 0;
+    if (auto *C = dyn_cast<ConstantSDNode>(Offset)) {
+      ImmVal = C->getSExtValue();
+    } else {
+      SelectCode(Node);
+      return true;
+    }
+    
+    // Validate range: [-128, 112], step 16
+    if (ImmVal < -128 || ImmVal > 112 || (ImmVal % 16) != 0) {
+      SelectCode(Node);
+      return true;
+    }
+    
+    // Build VTList: (qu, rs1r, xacc_low_out, xacc_high_out, chain, glue)
+    SmallVector<EVT, 6> VTs;
+    VTs.push_back(MVT::v16i8); // qu
+    VTs.push_back(XLenVT);      // rs1r (ptr)
+    VTs.push_back(MVT::i32);    // xacc_low_out
+    VTs.push_back(MVT::i32);    // xacc_high_out
+    VTs.push_back(MVT::Other);  // chain
+    VTs.push_back(MVT::Glue);   // glue
+    SDVTList VTList = CurDAG->getVTList(VTs);
+    
+    // Build operand list: (xacc_low_in, xacc_high_in, qx, qy, ptr, offset, chain, glue)
+    SmallVector<SDValue, 8> Ops;
+    Ops.push_back(XACCLowIn);
+    Ops.push_back(XACCHighIn);
+    Ops.push_back(QX);
+    Ops.push_back(QY);
+    Ops.push_back(Ptr);
+    Ops.push_back(CurDAG->getTargetConstant(ImmVal, DL, XLenVT));
+    Ops.push_back(Chain);
+    if (Node->getGluedNode()) {
+      Ops.push_back(Node->getOperand(Node->getNumOperands() - 1));
+    }
+    
+    // Create machine instruction node
+    SDNode *InstNode = CurDAG->getMachineNode(Opc, DL, VTList, Ops);
+    
+    // Copy memory operand information
+    if (auto *MemNode = dyn_cast<MemSDNode>(Node)) {
+      MachineMemOperand *MMO = MemNode->getMemOperand();
+      CurDAG->setNodeMemRefs(cast<MachineSDNode>(InstNode), {MMO});
+    }
+    
+    // Replace uses
+    // SDNode: (qu, ptr, xacc_low, xacc_high, chain, glue)
+    // Instruction: (qu, rs1r, xacc_low, xacc_high, chain, glue)
+    ReplaceUses(SDValue(Node, 0), SDValue(InstNode, 0));  // qu
+    ReplaceUses(SDValue(Node, 1), SDValue(InstNode, 1));  // ptr
+    ReplaceUses(SDValue(Node, 2), SDValue(InstNode, 2));  // xacc_low
+    ReplaceUses(SDValue(Node, 3), SDValue(InstNode, 3));  // xacc_high
+    ReplaceUses(SDValue(Node, 4), SDValue(InstNode, 4));  // chain
+    if (Node->getValueType(Node->getNumValues() - 1) == MVT::Glue) {
+      ReplaceUses(SDValue(Node, Node->getNumValues() - 1), SDValue(InstNode, 5));
+    }
+    
+    CurDAG->RemoveDeadNode(Node);
+    return true;
+  }
+  case RISCVISD::ESP_VMULAS_S16_XACC_LD_XP_M:
+  case RISCVISD::ESP_VMULAS_S8_XACC_LD_XP_M:
+  case RISCVISD::ESP_VMULAS_U16_XACC_LD_XP_M:
+  case RISCVISD::ESP_VMULAS_U8_XACC_LD_XP_M: {
+    // Handle ESP_VMULAS_*_XACC_LD_XP_M nodes - Mixed model: XACC as {i32 low, i32 high}
+    // SDNode: (chain, xacc_low_in, xacc_high_in, qx, qy, ptr, rs2) -> (qu, ptr, xacc_low_out, xacc_high_out, chain, glue)
+    // Instruction: ESP_VMULAS_*_XACC_LD_XP (ins XACC_LOW:$xacc_low_in, XACC_HIGH:$xacc_high_in, GPRPIE:$rs2, QR:$qx, QR:$qy, GPRPIE:$rs1)
+    //              (outs QR:$qu, GPRPIE:$rs1r, XACC_LOW:$xacc_low_out, XACC_HIGH:$xacc_high_out)
+    SDValue Chain = Node->getOperand(0);
+    SDValue XACCLowIn = Node->getOperand(1);
+    SDValue XACCHighIn = Node->getOperand(2);
+    SDValue QX = Node->getOperand(3);
+    SDValue QY = Node->getOperand(4);
+    SDValue Ptr = Node->getOperand(5);
+    SDValue Rs2 = Node->getOperand(6);
+    
+    // Select instruction opcode
+    unsigned Opc;
+    switch (Opcode) {
+    default: llvm_unreachable("Unexpected opcode");
+    case RISCVISD::ESP_VMULAS_S16_XACC_LD_XP_M:
+      Opc = RISCV::ESP_VMULAS_S16_XACC_LD_XP;
+      break;
+    case RISCVISD::ESP_VMULAS_S8_XACC_LD_XP_M:
+      Opc = RISCV::ESP_VMULAS_S8_XACC_LD_XP;
+      break;
+    case RISCVISD::ESP_VMULAS_U16_XACC_LD_XP_M:
+      Opc = RISCV::ESP_VMULAS_U16_XACC_LD_XP;
+      break;
+    case RISCVISD::ESP_VMULAS_U8_XACC_LD_XP_M:
+      Opc = RISCV::ESP_VMULAS_U8_XACC_LD_XP;
+      break;
+    }
+    
+    // Build VTList: (qu, rs1r, xacc_low_out, xacc_high_out, chain, glue)
+    SmallVector<EVT, 6> VTs;
+    VTs.push_back(MVT::v16i8); // qu
+    VTs.push_back(XLenVT);      // rs1r (ptr)
+    VTs.push_back(MVT::i32);    // xacc_low_out
+    VTs.push_back(MVT::i32);    // xacc_high_out
+    VTs.push_back(MVT::Other);  // chain
+    VTs.push_back(MVT::Glue);   // glue
+    SDVTList VTList = CurDAG->getVTList(VTs);
+    
+    // Build operand list: (xacc_low_in, xacc_high_in, rs2, qx, qy, ptr, chain, glue)
+    SmallVector<SDValue, 8> Ops;
+    Ops.push_back(XACCLowIn);
+    Ops.push_back(XACCHighIn);
+    Ops.push_back(Rs2);
+    Ops.push_back(QX);
+    Ops.push_back(QY);
+    Ops.push_back(Ptr);
+    Ops.push_back(Chain);
+    if (Node->getGluedNode()) {
+      Ops.push_back(Node->getOperand(Node->getNumOperands() - 1));
+    }
+    
+    // Create machine instruction node
+    SDNode *InstNode = CurDAG->getMachineNode(Opc, DL, VTList, Ops);
+    
+    // Copy memory operand information
+    if (auto *MemNode = dyn_cast<MemSDNode>(Node)) {
+      MachineMemOperand *MMO = MemNode->getMemOperand();
+      CurDAG->setNodeMemRefs(cast<MachineSDNode>(InstNode), {MMO});
+    }
+    
+    // Replace uses
+    ReplaceUses(SDValue(Node, 0), SDValue(InstNode, 0));  // qu
+    ReplaceUses(SDValue(Node, 1), SDValue(InstNode, 1));  // ptr
+    ReplaceUses(SDValue(Node, 2), SDValue(InstNode, 2));  // xacc_low
+    ReplaceUses(SDValue(Node, 3), SDValue(InstNode, 3));  // xacc_high
+    ReplaceUses(SDValue(Node, 4), SDValue(InstNode, 4));  // chain
+    if (Node->getValueType(Node->getNumValues() - 1) == MVT::Glue) {
+      ReplaceUses(SDValue(Node, Node->getNumValues() - 1), SDValue(InstNode, 5));
+    }
+    
+    CurDAG->RemoveDeadNode(Node);
+    return true;
+  }
+  case RISCVISD::ESP_VMULAS_S16_XACC_ST_IP_M:
+  case RISCVISD::ESP_VMULAS_S8_XACC_ST_IP_M:
+  case RISCVISD::ESP_VMULAS_U16_XACC_ST_IP_M:
+  case RISCVISD::ESP_VMULAS_U8_XACC_ST_IP_M: {
+    // Handle ESP_VMULAS_*_XACC_ST_IP_M nodes - Mixed model: XACC as {i32 low, i32 high}
+    // SDNode: (chain, xacc_low_in, xacc_high_in, qu, qx, qy, ptr, offset) -> (ptr, xacc_low_out, xacc_high_out, chain, glue)
+    // Instruction: ESP_VMULAS_*_XACC_ST_IP (ins XACC_LOW:$xacc_low_in, XACC_HIGH:$xacc_high_in, QR:$qx, QR:$qy, QR:$qu, GPRPIE:$rs1, offset_16_16:$off1616)
+    //              (outs GPRPIE:$rs1r, XACC_LOW:$xacc_low_out, XACC_HIGH:$xacc_high_out)
+    SDValue Chain = Node->getOperand(0);
+    SDValue XACCLowIn = Node->getOperand(1);
+    SDValue XACCHighIn = Node->getOperand(2);
+    SDValue QU = Node->getOperand(3);
+    SDValue QX = Node->getOperand(4);
+    SDValue QY = Node->getOperand(5);
+    SDValue Ptr = Node->getOperand(6);
+    SDValue Offset = Node->getOperand(7);
+    
+    // Select instruction opcode
+    unsigned Opc;
+    switch (Opcode) {
+    default: llvm_unreachable("Unexpected opcode");
+    case RISCVISD::ESP_VMULAS_S16_XACC_ST_IP_M:
+      Opc = RISCV::ESP_VMULAS_S16_XACC_ST_IP;
+      break;
+    case RISCVISD::ESP_VMULAS_S8_XACC_ST_IP_M:
+      Opc = RISCV::ESP_VMULAS_S8_XACC_ST_IP;
+      break;
+    case RISCVISD::ESP_VMULAS_U16_XACC_ST_IP_M:
+      Opc = RISCV::ESP_VMULAS_U16_XACC_ST_IP;
+      break;
+    case RISCVISD::ESP_VMULAS_U8_XACC_ST_IP_M:
+      Opc = RISCV::ESP_VMULAS_U8_XACC_ST_IP;
+      break;
+    }
+    
+    // Check immediate operand
+    int64_t ImmVal = 0;
+    if (auto *C = dyn_cast<ConstantSDNode>(Offset)) {
+      ImmVal = C->getSExtValue();
+    } else {
+      SelectCode(Node);
+      return true;
+    }
+    
+    // Validate range: [-128, 112], step 16
+    if (ImmVal < -128 || ImmVal > 112 || (ImmVal % 16) != 0) {
+      SelectCode(Node);
+      return true;
+    }
+    
+    // Build VTList: (rs1r, xacc_low_out, xacc_high_out, chain, glue)
+    SmallVector<EVT, 5> VTs;
+    VTs.push_back(XLenVT);      // rs1r (ptr)
+    VTs.push_back(MVT::i32);     // xacc_low_out
+    VTs.push_back(MVT::i32);     // xacc_high_out
+    VTs.push_back(MVT::Other);   // chain
+    VTs.push_back(MVT::Glue);    // glue
+    SDVTList VTList = CurDAG->getVTList(VTs);
+    
+    // Build operand list: (xacc_low_in, xacc_high_in, qx, qy, qu, ptr, offset, chain, glue)
+    SmallVector<SDValue, 9> Ops;
+    Ops.push_back(XACCLowIn);
+    Ops.push_back(XACCHighIn);
+    Ops.push_back(QX);
+    Ops.push_back(QY);
+    Ops.push_back(QU);
+    Ops.push_back(Ptr);
+    Ops.push_back(CurDAG->getTargetConstant(ImmVal, DL, XLenVT));
+    Ops.push_back(Chain);
+    if (Node->getGluedNode()) {
+      Ops.push_back(Node->getOperand(Node->getNumOperands() - 1));
+    }
+    
+    // Create machine instruction node
+    SDNode *InstNode = CurDAG->getMachineNode(Opc, DL, VTList, Ops);
+    
+    // Copy memory operand information
+    if (auto *MemNode = dyn_cast<MemSDNode>(Node)) {
+      MachineMemOperand *MMO = MemNode->getMemOperand();
+      CurDAG->setNodeMemRefs(cast<MachineSDNode>(InstNode), {MMO});
+    }
+    
+    // Replace uses
+    // SDNode: (ptr, xacc_low, xacc_high, chain, glue)
+    // Instruction: (rs1r, xacc_low, xacc_high, chain, glue)
+    ReplaceUses(SDValue(Node, 0), SDValue(InstNode, 0));  // ptr
+    ReplaceUses(SDValue(Node, 1), SDValue(InstNode, 1));  // xacc_low
+    ReplaceUses(SDValue(Node, 2), SDValue(InstNode, 2));  // xacc_high
+    ReplaceUses(SDValue(Node, 3), SDValue(InstNode, 3));  // chain
+    if (Node->getValueType(Node->getNumValues() - 1) == MVT::Glue) {
+      ReplaceUses(SDValue(Node, Node->getNumValues() - 1), SDValue(InstNode, 4));
+    }
+    
+    CurDAG->RemoveDeadNode(Node);
+    return true;
+  }
+  case RISCVISD::ESP_VMULAS_S16_XACC_ST_XP_M:
+  case RISCVISD::ESP_VMULAS_S8_XACC_ST_XP_M:
+  case RISCVISD::ESP_VMULAS_U16_XACC_ST_XP_M:
+  case RISCVISD::ESP_VMULAS_U8_XACC_ST_XP_M: {
+    // Handle ESP_VMULAS_*_XACC_ST_XP_M nodes - Mixed model: XACC as {i32 low, i32 high}
+    // SDNode: (chain, xacc_low_in, xacc_high_in, qu, qx, qy, ptr, rs2) -> (ptr, xacc_low_out, xacc_high_out, chain, glue)
+    // Instruction: ESP_VMULAS_*_XACC_ST_XP (ins XACC_LOW:$xacc_low_in, XACC_HIGH:$xacc_high_in, GPRPIE:$rs2, QR:$qx, QR:$qy, QR:$qu, GPRPIE:$rs1)
+    //              (outs GPRPIE:$rs1r, XACC_LOW:$xacc_low_out, XACC_HIGH:$xacc_high_out)
+    SDValue Chain = Node->getOperand(0);
+    SDValue XACCLowIn = Node->getOperand(1);
+    SDValue XACCHighIn = Node->getOperand(2);
+    SDValue QU = Node->getOperand(3);
+    SDValue QX = Node->getOperand(4);
+    SDValue QY = Node->getOperand(5);
+    SDValue Ptr = Node->getOperand(6);
+    SDValue Rs2 = Node->getOperand(7);
+    
+    // Select instruction opcode
+    unsigned Opc;
+    switch (Opcode) {
+    default: llvm_unreachable("Unexpected opcode");
+    case RISCVISD::ESP_VMULAS_S16_XACC_ST_XP_M:
+      Opc = RISCV::ESP_VMULAS_S16_XACC_ST_XP;
+      break;
+    case RISCVISD::ESP_VMULAS_S8_XACC_ST_XP_M:
+      Opc = RISCV::ESP_VMULAS_S8_XACC_ST_XP;
+      break;
+    case RISCVISD::ESP_VMULAS_U16_XACC_ST_XP_M:
+      Opc = RISCV::ESP_VMULAS_U16_XACC_ST_XP;
+      break;
+    case RISCVISD::ESP_VMULAS_U8_XACC_ST_XP_M:
+      Opc = RISCV::ESP_VMULAS_U8_XACC_ST_XP;
+      break;
+    }
+    
+    // Build VTList: (rs1r, xacc_low_out, xacc_high_out, chain, glue)
+    SmallVector<EVT, 5> VTs;
+    VTs.push_back(XLenVT);      // rs1r (ptr)
+    VTs.push_back(MVT::i32);     // xacc_low_out
+    VTs.push_back(MVT::i32);     // xacc_high_out
+    VTs.push_back(MVT::Other);   // chain
+    VTs.push_back(MVT::Glue);     // glue
+    SDVTList VTList = CurDAG->getVTList(VTs);
+    
+    // Build operand list: (xacc_low_in, xacc_high_in, rs2, qx, qy, qu, ptr, chain, glue)
+    SmallVector<SDValue, 9> Ops;
+    Ops.push_back(XACCLowIn);
+    Ops.push_back(XACCHighIn);
+    Ops.push_back(Rs2);
+    Ops.push_back(QX);
+    Ops.push_back(QY);
+    Ops.push_back(QU);
+    Ops.push_back(Ptr);
+    Ops.push_back(Chain);
+    if (Node->getGluedNode()) {
+      Ops.push_back(Node->getOperand(Node->getNumOperands() - 1));
+    }
+    
+    // Create machine instruction node
+    SDNode *InstNode = CurDAG->getMachineNode(Opc, DL, VTList, Ops);
+    
+    // Copy memory operand information
+    if (auto *MemNode = dyn_cast<MemSDNode>(Node)) {
+      MachineMemOperand *MMO = MemNode->getMemOperand();
+      CurDAG->setNodeMemRefs(cast<MachineSDNode>(InstNode), {MMO});
+    }
+    
+    // Replace uses
+    ReplaceUses(SDValue(Node, 0), SDValue(InstNode, 0));  // ptr
+    ReplaceUses(SDValue(Node, 1), SDValue(InstNode, 1));  // xacc_low
+    ReplaceUses(SDValue(Node, 2), SDValue(InstNode, 2));  // xacc_high
+    ReplaceUses(SDValue(Node, 3), SDValue(InstNode, 3));  // chain
+    if (Node->getValueType(Node->getNumValues() - 1) == MVT::Glue) {
+      ReplaceUses(SDValue(Node, Node->getNumValues() - 1), SDValue(InstNode, 4));
+    }
+    
+    CurDAG->RemoveDeadNode(Node);
+    return true;
+  }
   case RISCVISD::ESP_ST_S_XACC_IP_M:
   case RISCVISD::ESP_ST_U_XACC_IP_M: {
     // Handle ESP_ST_S_XACC_IP_M and ESP_ST_U_XACC_IP_M nodes
@@ -4359,6 +4794,105 @@ bool RISCVDAGToDAGISel::selectESP(SDNode *Node) {
     SDValue QU = SDValue(Res, 0);  // qu output (Result 0)
     
     ReplaceUses(SDValue(Node, 0), QU);  // qu -> Node output 0
+    CurDAG->RemoveDeadNode(Node);
+    return true;
+  }
+  case RISCVISD::ESP_SRCMB_S16_Q_QACC_M: {
+    // Handle ESP_SRCMB_S16_Q_QACC_M node
+    // SDNode returns: v8i16 (qu)
+    // SDNode operands: (v0, v1, v2, v3, qw, sel2) - QACC as 4x128-bit explicit phantom operands
+    // v0: QACC_L[127:0], v1: QACC_L[255:128], v2: QACC_H[127:0], v3: QACC_H[255:128]
+    SDValue V0 = Node->getOperand(0);    // QACC_L[127:0] phantom operand
+    SDValue V1 = Node->getOperand(1);    // QACC_L[255:128] phantom operand
+    SDValue V2 = Node->getOperand(2);    // QACC_H[127:0] phantom operand
+    SDValue V3 = Node->getOperand(3);    // QACC_H[255:128] phantom operand
+    SDValue QW = Node->getOperand(4);    // Shift amounts vector
+    SDValue Sel2 = Node->getOperand(5);   // Saturation select
+    
+    unsigned Opc = RISCV::ESP_SRCMB_S16_Q_QACC;
+    
+    // Instruction outputs: QR:$qu
+    // Instruction inputs: QR:$v0, QR:$v1, QR:$v2, QR:$v3 (4x128-bit phantom operands), QR:$qw, select_2:$sel2
+    // Phantom operands are not shown in assembly string but are used for data flow tracking
+    SDVTList VTList = CurDAG->getVTList(MVT::v8i16);
+    // Operand order: [v0, v1, v2, v3, qw, sel2] - matches instruction definition
+    SDValue Ops[] = {V0, V1, V2, V3, QW, Sel2};
+    MachineSDNode *Res = CurDAG->getMachineNode(Opc, DL, VTList, Ops);
+    
+    // Extract explicit output from instruction
+    SDValue QU = SDValue(Res, 0);  // qu output (Result 0)
+    
+    ReplaceUses(SDValue(Node, 0), QU);  // qu -> Node output 0
+    CurDAG->RemoveDeadNode(Node);
+    return true;
+  }
+  case RISCVISD::ESP_SRCMB_S8_Q_QACC_M: {
+    // Handle ESP_SRCMB_S8_Q_QACC_M node
+    // SDNode returns: v16i8 (qu)
+    // SDNode operands: (v0, v1, v2, v3, qw, sel2) - QACC as 4x128-bit explicit phantom operands
+    // v0: QACC_L[127:0], v1: QACC_L[255:128], v2: QACC_H[127:0], v3: QACC_H[255:128]
+    SDValue V0 = Node->getOperand(0);    // QACC_L[127:0] phantom operand
+    SDValue V1 = Node->getOperand(1);    // QACC_L[255:128] phantom operand
+    SDValue V2 = Node->getOperand(2);    // QACC_H[127:0] phantom operand
+    SDValue V3 = Node->getOperand(3);    // QACC_H[255:128] phantom operand
+    SDValue QW = Node->getOperand(4);    // Shift amounts vector
+    SDValue Sel2 = Node->getOperand(5);   // Saturation select
+    
+    unsigned Opc = RISCV::ESP_SRCMB_S8_Q_QACC;
+    
+    // Instruction outputs: QR:$qu
+    // Instruction inputs: QR:$v0, QR:$v1, QR:$v2, QR:$v3 (4x128-bit phantom operands), QR:$qw, select_2:$sel2
+    // Phantom operands are not shown in assembly string but are used for data flow tracking
+    SDVTList VTList = CurDAG->getVTList(MVT::v16i8);
+    // Operand order: [v0, v1, v2, v3, qw, sel2] - matches instruction definition
+    SDValue Ops[] = {V0, V1, V2, V3, QW, Sel2};
+    MachineSDNode *Res = CurDAG->getMachineNode(Opc, DL, VTList, Ops);
+    
+    // Extract explicit output from instruction
+    SDValue QU = SDValue(Res, 0);  // qu output (Result 0)
+    
+    ReplaceUses(SDValue(Node, 0), QU);  // qu -> Node output 0
+    CurDAG->RemoveDeadNode(Node);
+    return true;
+  }
+  case RISCVISD::ESP_VSMULAS_S16_QACC_M:
+  case RISCVISD::ESP_VSMULAS_S8_QACC_M: {
+    // Handle VSMULAS QACC nodes
+    // SDNode returns: (v16i8, v16i8, v16i8, v16i8) - 4x128-bit QACC directly
+    // SDNode operands: (v0, v1, v2, v3, qx, qy, sel16) - 4x128-bit passthru as explicit phantom operands
+    SDValue V0In = Node->getOperand(0);  // QACC_L[127:0] passthru (v16i8)
+    SDValue V1In = Node->getOperand(1);  // QACC_L[255:128] passthru (v16i8)
+    SDValue V2In = Node->getOperand(2);  // QACC_H[127:0] passthru (v16i8)
+    SDValue V3In = Node->getOperand(3);  // QACC_H[255:128] passthru (v16i8)
+    SDValue QX = Node->getOperand(4);
+    SDValue QY = Node->getOperand(5);
+    SDValue SEL16 = Node->getOperand(6);
+    
+    unsigned Opc;
+    if (Opcode == RISCVISD::ESP_VSMULAS_S16_QACC_M) {
+      Opc = RISCV::ESP_VSMULAS_S16_QACC;
+    } else {
+      Opc = RISCV::ESP_VSMULAS_S8_QACC;
+    }
+    
+    // Instruction outputs: (QACC_L_LOW, QACC_L_HIGH, QACC_H_LOW, QACC_H_HIGH)
+    // Instruction inputs: (QACC_L_LOW_in, QACC_L_HIGH_in, QACC_H_LOW_in, QACC_H_HIGH_in, QR:$qx, QR:$qy, select_16:$sel16)
+    SmallVector<EVT, 4> VTList = {MVT::v16i8, MVT::v16i8, MVT::v16i8, MVT::v16i8};
+    SDVTList VTs = CurDAG->getVTList(VTList);
+    // Operand order: [v0, v1, v2, v3, qx, qy, sel16] - matches instruction definition
+    SDValue Ops[] = {V0In, V1In, V2In, V3In, QX, QY, SEL16};
+    MachineSDNode *Res = CurDAG->getMachineNode(Opc, DL, VTs, Ops);
+    
+    // Extract explicit outputs from instruction
+    SDValue V0Out = SDValue(Res, 0);  // QACC_L[127:0] output (Result 0)
+    SDValue V1Out = SDValue(Res, 1);  // QACC_L[255:128] output (Result 1)
+    SDValue V2Out = SDValue(Res, 2);  // QACC_H[127:0] output (Result 2)
+    SDValue V3Out = SDValue(Res, 3);  // QACC_H[255:128] output (Result 3)
+    
+    ReplaceUses(SDValue(Node, 0), V0Out);  // v0 -> Node output 0
+    ReplaceUses(SDValue(Node, 1), V1Out);  // v1 -> Node output 1
+    ReplaceUses(SDValue(Node, 2), V2Out);  // v2 -> Node output 2
+    ReplaceUses(SDValue(Node, 3), V3Out);  // v3 -> Node output 3
     CurDAG->RemoveDeadNode(Node);
     return true;
   }
@@ -6081,6 +6615,86 @@ bool RISCVDAGToDAGISel::selectESP(SDNode *Node) {
       ReplaceNode(Node, NewNode);
       return true;
     }
+  case RISCVISD::ESP_LD_XACC_IP_M: {
+    // Handle ESP_LD_XACC_IP_M node - Mixed model: XACC as {i32 low, i32 high}
+    // Custom instruction selection needed because XACC_LOW/XACC_HIGH have only one physical register
+    // This ensures virtual registers are correctly passed to register allocator
+    SDValue Chain = Node->getOperand(0);
+    SDValue XACCLowIn = Node->getOperand(1);
+    SDValue XACCHighIn = Node->getOperand(2);
+    SDValue Ptr = Node->getOperand(3);
+    SDValue Offset = Node->getOperand(4);
+    
+    // Check immediate operand: extract constant value if possible
+    int64_t ImmVal = 0;
+    if (auto *C = dyn_cast<ConstantSDNode>(Offset)) {
+      ImmVal = C->getSExtValue();
+    } else {
+      // If offset is not a constant, we cannot select this instruction
+      // (ESP_LD_XACC_IP only accepts immediate offsets)
+      SelectCode(Node);
+      return true;
+    }
+    
+    // Verify immediate range: [-1024, 1016], step 8 (ESP32P4 hardware limitation)
+    if (ImmVal < -1024 || ImmVal > 1016 || (ImmVal % 8) != 0) {
+      SelectCode(Node);
+      return true;
+    }
+    
+    // Build MachineSDNode
+    // Result types: [Ptr, XACC_LO, XACC_HI, Chain, Glue(optional)]
+    SmallVector<EVT, 5> VTs = {XLenVT, MVT::i32, MVT::i32, MVT::Other, MVT::Glue};
+    SDVTList VTList = CurDAG->getVTList(VTs);
+    
+    // Build operand list
+    // Note: Operand order must match instruction definition: (ins XACC_LOW:$xacc_low_in, XACC_HIGH:$xacc_high_in, GPRPIE:$rs1, offset_256_8:$off2568)
+    SmallVector<SDValue, 6> Ops = {
+        XACCLowIn, 
+        XACCHighIn, 
+        Ptr, 
+        CurDAG->getTargetConstant(ImmVal, DL, XLenVT), 
+        Chain
+    };
+    
+    // Safely handle Glue operand (fix potential out-of-bounds access)
+    // Node->getNumOperands() includes Chain, inputs, and optional Glue
+    // If Glue exists, it's always the last operand
+    if (Node->getGluedNode()) {
+      Ops.push_back(Node->getOperand(Node->getNumOperands() - 1));
+    }
+    
+    // Create machine instruction node
+    SDNode *InstNode = CurDAG->getMachineNode(RISCV::ESP_LD_XACC_IP, DL, VTList, Ops);
+    
+    // Copy memory operand information (MemOperand) to preserve alias analysis info
+    if (auto *MemNode = dyn_cast<MemSDNode>(Node)) {
+      MachineMemOperand *MMO = MemNode->getMemOperand();
+      CurDAG->setNodeMemRefs(cast<MachineSDNode>(InstNode), {MMO});
+    }
+    
+    // Extract results from instruction
+    // Original Node result order: 0:Ptr, 1:XACCLo, 2:XACCHi, 3:Chain, (4:Glue)
+    SDValue PtrOut = SDValue(InstNode, 0);
+    SDValue NewXACCLow = SDValue(InstNode, 1);
+    SDValue NewXACCHigh = SDValue(InstNode, 2);
+    SDValue InstChain = SDValue(InstNode, 3);
+    SDValue InstGlue = SDValue(InstNode, 4);
+    
+    // Replace uses
+    ReplaceUses(SDValue(Node, 0), PtrOut);       // Ptr
+    ReplaceUses(SDValue(Node, 1), NewXACCLow);  // XACC Low
+    ReplaceUses(SDValue(Node, 2), NewXACCHigh); // XACC High
+    ReplaceUses(SDValue(Node, 3), InstChain);    // Chain
+    
+    // If original node produced Glue, replace it too
+    if (Node->getValueType(Node->getNumValues() - 1) == MVT::Glue) {
+      ReplaceUses(SDValue(Node, Node->getNumValues() - 1), InstGlue);
+    }
+    
+    CurDAG->RemoveDeadNode(Node);
+    return true;
+  }
   default:
     return false;
   }

@@ -15,6 +15,7 @@
 ; CHECK-NEXT:   disable-latency-sched-heuristic  - Disable latency scheduling heuristic.
 ; CHECK-NEXT:   dlen-factor-2                    - Vector unit DLEN(data path width) is half of VLEN.
 ; CHECK-NEXT:   e                                - 'E' (Embedded Instruction Set with 16 GPRs).
+; CHECK-NEXT:   espv-lowering                     - Enable Espressif ESPV target lowering (DAG/instruction selection).
 ; CHECK-NEXT:   exact-asm                        - Enable Exact Assembly (Disables Compression and Relaxation).
 ; CHECK-NEXT:   experimental                     - Experimental intrinsics.
 ; CHECK-NEXT:   experimental-p                   - 'P' ('Base P' (Packed SIMD)).
@@ -189,7 +190,7 @@
 ; CHECK-NEXT:   xespdsp                          - 'Xespdsp' ('Espressif ESPDSP').
 ; CHECK-NEXT:   xesploop                         - 'Xesploop' ('Espressif ESPLOOP').
 ; CHECK-NEXT:   xespv                            - 'Xespv' ('Espressif ESPV 2.2').
-; CHECK-NEXT:   xespv2p1                         - 'Xespv2p1' ('Espressif ESPV 2.1').
+; CHECK-NEXT:   xespv1v                          - 'Xespv1v' ('Espressif ESPV 2.1').
 ; CHECK-NEXT:   xmipscbop                        - 'XMIPSCBOP' (MIPS Software Prefetch).
 ; CHECK-NEXT:   xmipscmov                        - 'XMIPSCMov' (MIPS conditional move instruction (mips.ccmov)).
 ; CHECK-NEXT:   xmipslsp                         - 'XMIPSLSP' (MIPS optimization for hardware load-store bonding).

@@ -39,4 +39,5 @@ let Predicates = [HasVendorXespv] in {
   def : EspVectorStPatZeroGPR<store, QR, v16i8>;
   def : EspVectorStPatZeroGPR<store, QR, v8i16>;
   def : EspVectorStPatZeroGPR<store, QR, v4i32>;
+
 }
