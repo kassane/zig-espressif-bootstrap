@@ -13,7 +13,7 @@ const assembly_backend = @import("assembly_backend");
 var debug_allocator: std.heap.DebugAllocator(.{
     .stack_trace_frames = 0,
     // A unique value so that when a default-constructed
-    // GeneralPurposeAllocator is incorrectly passed to testing allocator, or
+    // DebugAllocator is incorrectly passed to testing allocator, or
     // vice versa, panic occurs.
     .canary = @truncate(0xc647026dc6875134),
 }) = .{};

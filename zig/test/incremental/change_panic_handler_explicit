@@ -47,7 +47,7 @@ fn myPanic(msg: []const u8, _: ?usize) noreturn {
     std.process.exit(0);
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="panic message: integer overflow\n"
 
 #update=change the panic handler body
@@ -95,7 +95,7 @@ fn myPanic(msg: []const u8, _: ?usize) noreturn {
     std.process.exit(0);
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="new panic message: integer overflow\n"
 
 #update=change the panic handler function value
@@ -143,5 +143,5 @@ fn myPanicNew(msg: []const u8, _: ?usize) noreturn {
     std.process.exit(0);
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="third panic message: integer overflow\n"

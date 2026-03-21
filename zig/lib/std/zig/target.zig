@@ -21,8 +21,8 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .arm, .os = .netbsd, .abi = .eabi, .os_ver = .{ .major = 1, .minor = 2, .patch = 0 } },
     .{ .arch = .arm, .os = .netbsd, .abi = .eabihf, .os_ver = .{ .major = 1, .minor = 2, .patch = 0 } },
     .{ .arch = .arm, .os = .openbsd, .abi = .eabi, .os_ver = .{ .major = 6, .minor = 1, .patch = 0 } },
-    .{ .arch = .armeb, .os = .linux, .abi = .gnueabi, .os_ver = .{ .major = 2, .minor = 6, .patch = 0 } },
-    .{ .arch = .armeb, .os = .linux, .abi = .gnueabihf, .os_ver = .{ .major = 2, .minor = 6, .patch = 0 } },
+    .{ .arch = .armeb, .os = .linux, .abi = .gnueabi, .os_ver = .{ .major = 2, .minor = 6, .patch = 0 }, .glibc_triple = "armeb-linux-gnueabi-be8" },
+    .{ .arch = .armeb, .os = .linux, .abi = .gnueabihf, .os_ver = .{ .major = 2, .minor = 6, .patch = 0 }, .glibc_triple = "armeb-linux-gnueabihf-be8" },
     .{ .arch = .armeb, .os = .linux, .abi = .musleabi, .os_ver = .{ .major = 2, .minor = 6, .patch = 0 } },
     .{ .arch = .armeb, .os = .linux, .abi = .musleabihf, .os_ver = .{ .major = 2, .minor = 6, .patch = 0 } },
     .{ .arch = .armeb, .os = .netbsd, .abi = .eabi, .os_ver = .{ .major = 1, .minor = 2, .patch = 0 } },
@@ -49,6 +49,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .loongarch64, .os = .linux, .abi = .gnu, .os_ver = .{ .major = 5, .minor = 19, .patch = 0 }, .glibc_min = .{ .major = 2, .minor = 36, .patch = 0 }, .glibc_triple = "loongarch64-linux-gnuf64" },
     .{ .arch = .loongarch64, .os = .linux, .abi = .gnusf, .os_ver = .{ .major = 5, .minor = 19, .patch = 0 }, .glibc_min = .{ .major = 2, .minor = 36, .patch = 0 }, .glibc_triple = "loongarch64-linux-gnusf" },
     .{ .arch = .loongarch64, .os = .linux, .abi = .musl, .os_ver = .{ .major = 5, .minor = 19, .patch = 0 } },
+    .{ .arch = .loongarch64, .os = .linux, .abi = .muslf32, .os_ver = .{ .major = 5, .minor = 19, .patch = 0 } },
     .{ .arch = .loongarch64, .os = .linux, .abi = .muslsf, .os_ver = .{ .major = 5, .minor = 19, .patch = 0 } },
     .{ .arch = .m68k, .os = .linux, .abi = .gnu, .os_ver = .{ .major = 1, .minor = 3, .patch = 94 } },
     .{ .arch = .m68k, .os = .linux, .abi = .musl, .os_ver = .{ .major = 1, .minor = 3, .patch = 94 } },
@@ -502,8 +503,7 @@ pub fn intByteSize(target: *const std.Target, bits: u16) u16 {
 pub fn intAlignment(target: *const std.Target, bits: u16) u16 {
     return switch (target.cpu.arch) {
         .x86 => switch (bits) {
-            0 => 0,
-            1...8 => 1,
+            0...8 => 1,
             9...16 => 2,
             17...32 => 4,
             33...64 => switch (target.os.tag) {
@@ -513,17 +513,19 @@ pub fn intAlignment(target: *const std.Target, bits: u16) u16 {
             else => 16,
         },
         .x86_64 => switch (bits) {
-            0 => 0,
-            1...8 => 1,
+            0...8 => 1,
             9...16 => 2,
             17...32 => 4,
             33...64 => 8,
             else => 16,
         },
-        else => return @min(
-            std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
-            target.cMaxIntAlignment(),
-        ),
+        else => switch (bits) {
+            0 => 1,
+            else => @min(
+                std.math.ceilPowerOfTwoPromote(u16, @intCast((@as(u17, bits) + 7) / 8)),
+                target.cMaxIntAlignment(),
+            ),
+        },
     };
 }
 

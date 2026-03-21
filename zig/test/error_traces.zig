@@ -435,6 +435,8 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext) void {
             .{ .x86_64, .netbsd },
             .{ .x86_64, .linux },
             .{ .x86, .linux },
+            .{ .aarch64, .freebsd },
+            .{ .aarch64, .netbsd },
             .{ .aarch64, .linux },
             .{ .loongarch64, .linux },
             .{ .powerpc64le, .linux },

@@ -539,28 +539,6 @@ test "sentinel element count towards the ABI size calculation" {
     try comptime S.doTheTest();
 }
 
-test "zero-sized array with recursive type definition" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
-    const U = struct {
-        fn foo(comptime T: type, comptime n: usize) type {
-            return struct {
-                s: [n]T,
-                x: usize = n,
-            };
-        }
-    };
-
-    const S = struct {
-        list: U.foo(@This(), 0),
-    };
-
-    var t: S = .{ .list = .{ .s = undefined } };
-    _ = &t;
-    try expect(@as(usize, 0) == t.list.x);
-}
-
 test "type coercion of anon struct literal to array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;

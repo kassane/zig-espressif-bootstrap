@@ -707,6 +707,8 @@ test "argon2id" {
 }
 
 test "kdf" {
+    if (true) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/31402
+
     const password = "password";
     const salt = "somesalt";
 
@@ -939,6 +941,8 @@ test "password hash and password verify" {
 }
 
 test "kdf derived key length" {
+    if (true) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/31504
+
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 

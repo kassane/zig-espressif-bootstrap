@@ -42,10 +42,10 @@ pub fn genericResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     if (msg.step_idx >= step_list.*.len) @panic("malformed GenericResult message");
     const inner_html = try std.fmt.allocPrint(gpa,
         \\<code slot="step-name">{[step_name]f}</code>
-        \\<span slot="stat-total-time">{[stat_total_time]D}</span>
+        \\<span slot="stat-total-time">{[stat_total_time]f}</span>
     , .{
         .step_name = fmtEscapeHtml(step_list.*[msg.step_idx].name),
-        .stat_total_time = msg.ns_total,
+        .stat_total_time = std.Io.Duration{ .nanoseconds = msg.ns_total },
     });
     defer gpa.free(inner_html);
     js.updateGeneric(msg.step_idx, inner_html.ptr, inner_html.len);
@@ -139,16 +139,16 @@ pub fn compileResultMessage(msg_bytes: []u8) error{ OutOfMemory, WriteFailed }!v
         \\<span slot="stat-imported-files">{[stat_imported_files]d}</span>
         \\<span slot="stat-generic-instances">{[stat_generic_instances]d}</span>
         \\<span slot="stat-inline-calls">{[stat_inline_calls]d}</span>
-        \\<span slot="stat-compilation-time">{[stat_compilation_time]D}</span>
-        \\<span slot="cpu-time-parse">{[cpu_time_parse]D}</span>
-        \\<span slot="cpu-time-astgen">{[cpu_time_astgen]D}</span>
-        \\<span slot="cpu-time-sema">{[cpu_time_sema]D}</span>
-        \\<span slot="cpu-time-codegen">{[cpu_time_codegen]D}</span>
-        \\<span slot="cpu-time-link">{[cpu_time_link]D}</span>
-        \\<span slot="real-time-files">{[real_time_files]D}</span>
-        \\<span slot="real-time-decls">{[real_time_decls]D}</span>
-        \\<span slot="real-time-llvm-emit">{[real_time_llvm_emit]D}</span>
-        \\<span slot="real-time-link-flush">{[real_time_link_flush]D}</span>
+        \\<span slot="stat-compilation-time">{[stat_compilation_time]f}</span>
+        \\<span slot="cpu-time-parse">{[cpu_time_parse]f}</span>
+        \\<span slot="cpu-time-astgen">{[cpu_time_astgen]f}</span>
+        \\<span slot="cpu-time-sema">{[cpu_time_sema]f}</span>
+        \\<span slot="cpu-time-codegen">{[cpu_time_codegen]f}</span>
+        \\<span slot="cpu-time-link">{[cpu_time_link]f}</span>
+        \\<span slot="real-time-files">{[real_time_files]f}</span>
+        \\<span slot="real-time-decls">{[real_time_decls]f}</span>
+        \\<span slot="real-time-llvm-emit">{[real_time_llvm_emit]f}</span>
+        \\<span slot="real-time-link-flush">{[real_time_link_flush]f}</span>
         \\<pre slot="llvm-pass-timings"><code>{[llvm_pass_timings]f}</code></pre>
         \\
     , .{
@@ -157,17 +157,17 @@ pub fn compileResultMessage(msg_bytes: []u8) error{ OutOfMemory, WriteFailed }!v
         .stat_imported_files = stats.n_imported_files,
         .stat_generic_instances = stats.n_generic_instances,
         .stat_inline_calls = stats.n_inline_calls,
-        .stat_compilation_time = hdr.ns_total,
+        .stat_compilation_time = std.Io.Duration{ .nanoseconds = hdr.ns_total },
 
-        .cpu_time_parse = stats.cpu_ns_parse,
-        .cpu_time_astgen = stats.cpu_ns_astgen,
-        .cpu_time_sema = stats.cpu_ns_sema,
-        .cpu_time_codegen = stats.cpu_ns_codegen,
-        .cpu_time_link = stats.cpu_ns_link,
-        .real_time_files = stats.real_ns_files,
-        .real_time_decls = stats.real_ns_decls,
-        .real_time_llvm_emit = stats.real_ns_llvm_emit,
-        .real_time_link_flush = stats.real_ns_link_flush,
+        .cpu_time_parse = std.Io.Duration{ .nanoseconds = stats.cpu_ns_parse },
+        .cpu_time_astgen = std.Io.Duration{ .nanoseconds = stats.cpu_ns_astgen },
+        .cpu_time_sema = std.Io.Duration{ .nanoseconds = stats.cpu_ns_sema },
+        .cpu_time_codegen = std.Io.Duration{ .nanoseconds = stats.cpu_ns_codegen },
+        .cpu_time_link = std.Io.Duration{ .nanoseconds = stats.cpu_ns_link },
+        .real_time_files = std.Io.Duration{ .nanoseconds = stats.real_ns_files },
+        .real_time_decls = std.Io.Duration{ .nanoseconds = stats.real_ns_decls },
+        .real_time_llvm_emit = std.Io.Duration{ .nanoseconds = stats.real_ns_llvm_emit },
+        .real_time_link_flush = std.Io.Duration{ .nanoseconds = stats.real_ns_link_flush },
 
         .llvm_pass_timings = fmtEscapeHtml(llvm_pass_timings),
     });
@@ -180,18 +180,18 @@ pub fn compileResultMessage(msg_bytes: []u8) error{ OutOfMemory, WriteFailed }!v
         try file_table_html.writer.print(
             \\<tr>
             \\  <th scope="row"><code>{f}</code></th>
-            \\  <td>{D}</td>
-            \\  <td>{D}</td>
-            \\  <td>{D}</td>
-            \\  <td>{D}</td>
+            \\  <td>{f}</td>
+            \\  <td>{f}</td>
+            \\  <td>{f}</td>
+            \\  <td>{f}</td>
             \\</tr>
             \\
         , .{
             fmtEscapeHtml(file.name),
-            file.ns_sema,
-            file.ns_codegen,
-            file.ns_link,
-            file.ns_sema + file.ns_codegen + file.ns_link,
+            std.Io.Duration{ .nanoseconds = file.ns_sema },
+            std.Io.Duration{ .nanoseconds = file.ns_codegen },
+            std.Io.Duration{ .nanoseconds = file.ns_link },
+            std.Io.Duration{ .nanoseconds = file.ns_sema + file.ns_codegen + file.ns_link },
         });
     }
     if (slowest_files.len > max_table_rows) {
@@ -210,20 +210,20 @@ pub fn compileResultMessage(msg_bytes: []u8) error{ OutOfMemory, WriteFailed }!v
             \\  <th scope="row"><code>{f}</code></th>
             \\  <th scope="row"><code>{f}</code></th>
             \\  <td>{d}</td>
-            \\  <td>{D}</td>
-            \\  <td>{D}</td>
-            \\  <td>{D}</td>
-            \\  <td>{D}</td>
+            \\  <td>{f}</td>
+            \\  <td>{f}</td>
+            \\  <td>{f}</td>
+            \\  <td>{f}</td>
             \\</tr>
             \\
         , .{
             fmtEscapeHtml(decl.file_name),
             fmtEscapeHtml(decl.name),
             decl.sema_count,
-            decl.ns_sema,
-            decl.ns_codegen,
-            decl.ns_link,
-            decl.ns_sema + decl.ns_codegen + decl.ns_link,
+            std.Io.Duration{ .nanoseconds = decl.ns_sema },
+            std.Io.Duration{ .nanoseconds = decl.ns_codegen },
+            std.Io.Duration{ .nanoseconds = decl.ns_link },
+            std.Io.Duration{ .nanoseconds = decl.ns_sema + decl.ns_codegen + decl.ns_link },
         });
     }
     if (slowest_decls.len > max_table_rows) {
@@ -265,7 +265,7 @@ pub fn runTestResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
         if (test_ns == std.math.maxInt(u64)) {
             try table_html.appendSlice(gpa, "<td class=\"empty-cell\"></td>"); // didn't run
         } else {
-            try table_html.print(gpa, "<td>{D}</td>", .{test_ns});
+            try table_html.print(gpa, "<td>{f}</td>", .{std.Io.Duration{ .nanoseconds = test_ns }});
         }
         try table_html.appendSlice(gpa, "</tr>\n");
     }

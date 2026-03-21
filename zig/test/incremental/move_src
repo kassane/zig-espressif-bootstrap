@@ -16,7 +16,7 @@ fn foo() u32 {
 fn bar() u32 {
     return 123;
 }
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="7 123\n"
 
 #update=add newline
@@ -33,5 +33,5 @@ fn foo() u32 {
 fn bar() u32 {
     return 123;
 }
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="8 123\n"

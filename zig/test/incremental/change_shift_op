@@ -13,7 +13,7 @@ fn foo(x: u16) !void {
     try stdout_writer.interface.print("0x{x}\n", .{x << 4});
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="0x3000\n"
 #update=change to right shift
 #file=main.zig
@@ -25,5 +25,5 @@ fn foo(x: u16) !void {
     try stdout_writer.interface.print("0x{x}\n", .{x >> 4});
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="0x130\n"

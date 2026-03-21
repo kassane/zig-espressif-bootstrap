@@ -145,9 +145,9 @@ pub fn start(fuzz: *Fuzz) void {
     }
 
     for (fuzz.run_steps) |run| {
-        for (run.fuzz_tests.items) |unit_test_index| {
+        for (run.fuzz_tests.items) |unit_test_name| {
             assert(run.rebuilt_executable != null);
-            fuzz.group.async(io, fuzzWorkerRun, .{ fuzz, run, unit_test_index });
+            fuzz.group.async(io, fuzzWorkerRun, .{ fuzz, run, unit_test_name });
         }
     }
 }
@@ -193,17 +193,16 @@ fn rebuildTestsWorkerRunFallible(run: *Step.Run, gpa: Allocator, parent_prog_nod
     run.rebuilt_executable = try rebuilt_bin_path.join(gpa, compile.out_filename);
 }
 
-fn fuzzWorkerRun(fuzz: *Fuzz, run: *Step.Run, unit_test_index: u32) void {
+fn fuzzWorkerRun(fuzz: *Fuzz, run: *Step.Run, unit_test_name: []const u8) void {
     const owner = run.step.owner;
     const gpa = owner.allocator;
     const graph = owner.graph;
     const io = graph.io;
-    const test_name = run.cached_test_metadata.?.testName(unit_test_index);
 
-    const prog_node = fuzz.prog_node.start(test_name, 0);
+    const prog_node = fuzz.prog_node.start(unit_test_name, 0);
     defer prog_node.end();
 
-    run.rerunInFuzzMode(fuzz, unit_test_index, prog_node) catch |err| switch (err) {
+    run.rerunInFuzzMode(fuzz, unit_test_name, prog_node) catch |err| switch (err) {
         error.MakeFailed => {
             var buf: [256]u8 = undefined;
             const stderr = io.lockStderr(&buf, graph.stderr_mode) catch |e| switch (e) {
@@ -214,7 +213,7 @@ fn fuzzWorkerRun(fuzz: *Fuzz, run: *Step.Run, unit_test_index: u32) void {
             return;
         },
         else => {
-            log.err("step '{s}': failed to rerun '{s}' in fuzz mode: {t}", .{ run.step.name, test_name, err });
+            log.err("step '{s}': failed to rerun '{s}' in fuzz mode: {t}", .{ run.step.name, unit_test_name, err });
             return;
         },
     };
@@ -390,7 +389,7 @@ fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutO
         .coverage = std.debug.Coverage.init,
         .mapped_memory = undefined, // populated below
         .source_locations = undefined, // populated below
-        .entry_points = .{},
+        .entry_points = .empty,
         .start_timestamp = ws.now(),
         .start_n_runs = undefined, // populated below
     };
@@ -450,7 +449,7 @@ fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutO
 
     // Unfortunately the PCs array that LLVM gives us from the 8-bit PC
     // counters feature is not sorted.
-    var sorted_pcs: std.MultiArrayList(struct { pc: u64, index: u32, sl: Coverage.SourceLocation }) = .{};
+    var sorted_pcs: std.MultiArrayList(struct { pc: u64, index: u32, sl: Coverage.SourceLocation }) = .empty;
     defer sorted_pcs.deinit(gpa);
     try sorted_pcs.resize(gpa, pcs.len);
     @memcpy(sorted_pcs.items(.pc), pcs);
@@ -588,7 +587,7 @@ pub fn waitAndPrintReport(fuzz: *Fuzz) Io.Cancelable!void {
             \\
         , .{
             cov.run.step.name,
-            cov.run.cached_test_metadata.?.testName(cov.run.fuzz_tests.items[0]),
+            cov.run.fuzz_tests.items[0],
             cov.id,
             cov.cumulative.runs,
             header.n_runs,

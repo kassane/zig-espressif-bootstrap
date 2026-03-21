@@ -148,6 +148,7 @@ const err = @as(anyerror!Agg, Agg{
 const array = [_]Value{ v1, v2, v1, v2 };
 
 test "unions embedded in aggregate types" {
+    if (builtin.zig_backend == .stage2_c and builtin.target.abi == .msvc) return error.SkipZigTest;
     switch (array[1]) {
         Value.Array => |arr| try expect(arr[4] == 3),
         else => unreachable,
@@ -215,26 +216,6 @@ test "union with specified enum tag" {
 
     try doTest();
     try comptime doTest();
-}
-
-test "packed union generates correctly aligned type" {
-    // This test will be removed after the following accepted proposal is implemented:
-    // https://github.com/ziglang/zig/issues/24657
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-
-    const U = packed union {
-        f1: *const fn () error{TestUnexpectedResult}!void,
-        f2: usize,
-    };
-    var foo = [_]U{
-        U{ .f1 = doTest },
-        U{ .f2 = 0 },
-    };
-    try foo[0].f1();
 }
 
 fn doTest() error{TestUnexpectedResult}!void {
@@ -359,12 +340,12 @@ test "simple union(enum(u32))" {
     try expect(@intFromEnum(@as(Tag(MultipleChoice), x)) == 60);
 }
 
-const PackedPtrOrInt = packed union {
-    ptr: *u8,
-    int: usize,
-};
 test "packed union size" {
-    comptime assert(@sizeOf(PackedPtrOrInt) == @sizeOf(usize));
+    const U = packed union {
+        signed: isize,
+        unsigned: usize,
+    };
+    comptime assert(@sizeOf(U) == @sizeOf(usize));
 }
 
 const ZeroBits = union {
@@ -703,25 +684,23 @@ test "union with only 1 field casted to its enum type which has enum value speci
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const Literal = union(enum) {
-        Number: f64,
-        Bool: bool,
+        number: f64,
+        bool: bool,
     };
 
-    const ExprTag = enum(comptime_int) {
-        Literal = 33,
-    };
+    const ExprTag = enum(u32) { literal = 33 };
+    const Expr = union(ExprTag) { literal: Literal };
 
-    const Expr = union(ExprTag) {
-        Literal: Literal,
-    };
+    comptime assert(Tag(ExprTag) == u32);
 
-    var e = Expr{ .Literal = Literal{ .Bool = true } };
-    _ = &e;
-    comptime assert(Tag(ExprTag) == comptime_int);
-    const t = comptime @as(ExprTag, e);
-    try expect(t == Expr.Literal);
-    try expect(@intFromEnum(t) == 33);
+    var e: Expr = undefined;
+    e = .{ .literal = .{ .bool = true } };
+
+    const t: ExprTag = e;
+    comptime assert(t == Expr.literal);
     comptime assert(@intFromEnum(t) == 33);
+    try expect(t == Expr.literal);
+    try expect(@intFromEnum(t) == 33);
 }
 
 test "@intFromEnum works on unions" {
@@ -893,15 +872,6 @@ test "union no tag with struct member" {
     u.foo();
 }
 
-test "union with comptime_int tag" {
-    const Union = union(enum(comptime_int)) {
-        X: u32,
-        Y: u16,
-        Z: u8,
-    };
-    comptime assert(Tag(Tag(Union)) == comptime_int);
-}
-
 test "extern union doesn't trigger field check at comptime" {
     const U = extern union {
         x: u32,
@@ -1031,7 +1001,7 @@ test "containers with single-field enums" {
     try comptime S.doTheTest();
 }
 
-test "@unionInit on union with tag but no fields" {
+test "@unionInit on union with u8 tag but no fields" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -1046,10 +1016,6 @@ test "@unionInit on union with tag but no fields" {
                 return @unionInit(Data, "no_op", {});
             }
         };
-
-        comptime {
-            assert(@sizeOf(Data) == 1);
-        }
 
         fn doTheTest() !void {
             var data: Data = .{ .no_op = {} };
@@ -2057,6 +2023,7 @@ test "runtime union init, most-aligned field != largest" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and builtin.target.abi == .msvc) return error.SkipZigTest;
 
     const U = union(enum) {
         x: u128,

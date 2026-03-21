@@ -210,7 +210,7 @@ pub const source_timer_flags_t = packed struct(usize) {
     STRICT: bool = false,
     unused1: @Int(.unsigned, @bitSizeOf(usize) - 1) = 0,
 };
-pub const source_flags_t = packed union {
+pub const source_flags_t = packed union(usize) {
     raw: usize,
     MACH_SEND: source_mach_send_flags_t,
     MACH_RECV: source_mach_recv_flags_t,

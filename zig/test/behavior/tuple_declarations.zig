@@ -22,13 +22,13 @@ test "tuple declaration type info" {
         try expect(info.fields[0].type == u32);
         try expect(info.fields[0].defaultValue() == 1);
         try expect(info.fields[0].is_comptime);
-        try expect(info.fields[0].alignment == @alignOf(u32));
+        try expect(info.fields[0].alignment == null);
 
         try expectEqualStrings(info.fields[1].name, "1");
         try expect(info.fields[1].type == []const u8);
         try expect(info.fields[1].defaultValue() == null);
         try expect(!info.fields[1].is_comptime);
-        try expect(info.fields[1].alignment == @alignOf([]const u8));
+        try expect(info.fields[1].alignment == null);
     }
 }
 

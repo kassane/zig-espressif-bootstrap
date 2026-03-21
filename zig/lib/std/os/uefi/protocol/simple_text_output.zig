@@ -3,7 +3,6 @@ const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 /// Character output devices
 pub const SimpleTextOutput = extern struct {
@@ -49,7 +48,7 @@ pub const SimpleTextOutput = extern struct {
     pub fn reset(self: *SimpleTextOutput, verify: bool) ResetError!void {
         switch (self._reset(self, verify)) {
             .success => {},
-            .device_error => return Error.DeviceError,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -61,8 +60,8 @@ pub const SimpleTextOutput = extern struct {
         switch (self._output_string(self, msg)) {
             .success => return true,
             .warn_unknown_glyph => return false,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -81,8 +80,8 @@ pub const SimpleTextOutput = extern struct {
         var geo: Geometry = undefined;
         switch (self._query_mode(self, mode_number, &geo.columns, &geo.rows)) {
             .success => return geo,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -91,8 +90,8 @@ pub const SimpleTextOutput = extern struct {
     pub fn setMode(self: *SimpleTextOutput, mode_number: usize) SetModeError!void {
         switch (self._set_mode(self, mode_number)) {
             .success => {},
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -102,7 +101,7 @@ pub const SimpleTextOutput = extern struct {
         const attr_as_num: u8 = @bitCast(attribute);
         switch (self._set_attribute(self, @intCast(attr_as_num))) {
             .success => {},
-            .device_error => return Error.DeviceError,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -111,8 +110,8 @@ pub const SimpleTextOutput = extern struct {
     pub fn clearScreen(self: *SimpleTextOutput) ClearScreenError!void {
         switch (self._clear_screen(self)) {
             .success => {},
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -125,8 +124,8 @@ pub const SimpleTextOutput = extern struct {
     ) SetCursorPositionError!void {
         switch (self._set_cursor_position(self, column, row)) {
             .success => {},
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -135,8 +134,8 @@ pub const SimpleTextOutput = extern struct {
     pub fn enableCursor(self: *SimpleTextOutput, visible: bool) EnableCursorError!void {
         switch (self._enable_cursor(self, visible)) {
             .success => {},
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

@@ -63,6 +63,11 @@ pub fn calcLimbLen(scalar: anytype) usize {
     }
 }
 
+/// Same as `calcToStringLimbsBufferLen`, without the useless base check.
+pub fn calcLog10LimbsBufferLen(a_len: usize) usize {
+    return a_len + 2 + a_len + calcDivLimbsBufferLen(a_len, 1);
+}
+
 pub fn calcToStringLimbsBufferLen(a_len: usize, base: u8) usize {
     if (math.isPowerOfTwo(base))
         return 0;
@@ -919,7 +924,12 @@ pub const Mutable = struct {
     /// Asserts the result fits in `r`. Upper bound on the number of limbs needed by
     /// r is `calcTwosCompLimbCount(bit_count)`.
     pub fn bitReverse(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
-        if (bit_count == 0) return;
+        if (bit_count == 0) {
+            r.limbs[0] = 0;
+            r.len = 1;
+            r.positive = true;
+            return;
+        }
 
         r.copy(a);
 
@@ -981,7 +991,12 @@ pub const Mutable = struct {
     /// Asserts the result fits in `r`. Upper bound on the number of limbs needed by
     /// r is `calcTwosCompLimbCount(8*byte_count)`.
     pub fn byteSwap(r: *Mutable, a: Const, signedness: Signedness, byte_count: usize) void {
-        if (byte_count == 0) return;
+        if (byte_count == 0) {
+            r.limbs[0] = 0;
+            r.len = 1;
+            r.positive = true;
+            return;
+        }
 
         r.copy(a);
         const limbs_required = calcTwosCompLimbCount(8 * byte_count);
@@ -2669,6 +2684,60 @@ pub const Const = struct {
             if (limb_tz != @bitSizeOf(Limb)) break;
         }
         return @min(result, bits);
+    }
+
+    /// Calculate the base 2 logarithm, rounded down.
+    pub fn log2(a: Const) Limb {
+        assert(a.positive);
+        assert(!a.eqlZero());
+        return a.bitCountAbs() - 1;
+    }
+
+    /// Calculate the base 10 logarithm, rounded down.
+    ///
+    /// The allocator is used to allocate a temporary buffer.
+    pub fn log10Alloc(a: Const, allocator: Allocator) Allocator.Error!Limb {
+        const limbs_buffer = try allocator.alloc(Limb, calcLog10LimbsBufferLen(a.limbs.len));
+        defer allocator.free(limbs_buffer);
+
+        return a.log10(limbs_buffer);
+    }
+
+    /// Calculate the base 10 logarithm, rounded down.
+    ///
+    /// `limbs_buffer` is used for temporary storage. The amount required is given by `calcLog10LimbsBufferLen`.
+    pub fn log10(a: Const, limbs_buffer: []Limb) Limb {
+        assert(a.positive);
+        assert(!a.eqlZero());
+        const limb_base_as_bigint: Const = .{ .limbs = &.{constants.big_bases[10]}, .positive = true };
+
+        var q: Mutable = .{
+            .limbs = limbs_buffer[0 .. a.limbs.len + 2],
+            .positive = true,
+            .len = a.limbs.len,
+        };
+        @memcpy(q.limbs[0..a.limbs.len], a.limbs);
+
+        var remainder: Mutable = .{
+            .limbs = limbs_buffer[q.limbs.len..][0..a.limbs.len],
+            .positive = true,
+            .len = 1,
+        };
+
+        const division_buf = limbs_buffer[q.limbs.len + remainder.limbs.len ..];
+
+        var num_digits: Limb = 0;
+        while (q.len >= 2) {
+            q.divTrunc(&remainder, q.toConst(), limb_base_as_bigint, division_buf);
+            num_digits += constants.digits_per_limb[10];
+        }
+        var remaining_limb = q.limbs[0];
+        while (remaining_limb != 0) {
+            remaining_limb /= 10;
+            num_digits += 1;
+        }
+
+        return num_digits - 1;
     }
 };
 

@@ -160,7 +160,7 @@ test "slice of type" {
 
 test "pass a slice of types to a function" {
     const S = struct {
-        fn checkTypesSlice(types_slice: []const type) !void {
+        fn checkTypesSlice(comptime types_slice: []const type) !void {
             try expect(types_slice.len == 2);
             try expect(types_slice[0] == anyerror);
             try expect(types_slice[1] == bool);

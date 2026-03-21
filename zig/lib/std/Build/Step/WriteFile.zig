@@ -94,8 +94,8 @@ pub fn create(owner: *std.Build) *WriteFile {
             .owner = owner,
             .makeFn = make,
         }),
-        .files = .{},
-        .directories = .{},
+        .files = .empty,
+        .directories = .empty,
         .generated_directory = .{ .step = &write_file.step },
     };
     return write_file;

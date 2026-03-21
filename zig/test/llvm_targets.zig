@@ -230,7 +230,7 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .riscv64, .os_tag = .serenity, .abi = .none },
     // .{ .cpu_arch = .riscv64, .os_tag = .uefi, .abi = .none },
 
-    // .{ .cpu_arch = .riscv64, .os_tag = .freestanding, .abi = .none },
+    // .{ .cpu_arch = .riscv64be, .os_tag = .freestanding, .abi = .none },
 
     .{ .cpu_arch = .s390x, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .s390x, .os_tag = .linux, .abi = .gnu },

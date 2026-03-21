@@ -736,8 +736,7 @@ pub fn markImportsExports(self: *Object, elf_file: *Elf) void {
         const ref = self.resolveSymbol(@intCast(idx), elf_file);
         const sym = elf_file.symbol(ref) orelse continue;
         const file = sym.file(elf_file).?;
-        // https://github.com/ziglang/zig/issues/21678
-        if (@as(u16, @bitCast(sym.version_index)) == @as(u16, @bitCast(elf.Versym.LOCAL))) continue;
+        if (sym.version_index == elf.Versym.LOCAL) continue;
         const vis: elf.STV = @enumFromInt(@as(u3, @truncate(sym.elfSym(elf_file).st_other)));
         if (vis == .HIDDEN) continue;
         if (file == .shared_object and !sym.isAbs(elf_file)) {
@@ -775,7 +774,7 @@ pub fn checkDuplicates(self: *Object, dupes: anytype, elf_file: *Elf) error{OutO
 
         const gop = try dupes.getOrPut(self.symbols_resolver.items[i]);
         if (!gop.found_existing) {
-            gop.value_ptr.* = .{};
+            gop.value_ptr.* = .empty;
         }
         try gop.value_ptr.append(elf_file.base.comp.gpa, self.index);
     }
@@ -1244,6 +1243,16 @@ pub fn codeDecompressAlloc(self: *Object, elf_file: *Elf, atom_index: Atom.Index
                 try aw.ensureUnusedCapacity(size);
                 defer aw.deinit();
                 _ = try zlib_stream.reader.streamRemaining(&aw.writer);
+                return aw.toOwnedSlice();
+            },
+            .ZSTD => {
+                var input: std.Io.Reader = .fixed(data[@sizeOf(elf.Elf64_Chdr)..]);
+                var stream: std.compress.zstd.Decompress = .init(&input, &.{}, .{});
+                const size = std.math.cast(usize, chdr.ch_size) orelse return error.Overflow;
+                var aw: std.Io.Writer.Allocating = try .initCapacity(gpa, size);
+                defer aw.deinit();
+                _ = try stream.reader.streamRemaining(&aw.writer);
+
                 return aw.toOwnedSlice();
             },
             else => @panic("TODO unhandled compression scheme"),

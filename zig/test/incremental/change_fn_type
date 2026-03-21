@@ -12,7 +12,7 @@ fn foo(x: u8) !void {
     return stdout_writer.interface.print("{d}\n", .{x});
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="123\n"
 
 #update=change function type
@@ -25,7 +25,7 @@ fn foo(x: i64) !void {
     return stdout_writer.interface.print("{d}\n", .{x});
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="123\n"
 
 #update=change function argument
@@ -38,5 +38,5 @@ fn foo(x: i64) !void {
     return stdout_writer.interface.print("{d}\n", .{x});
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="-42\n"

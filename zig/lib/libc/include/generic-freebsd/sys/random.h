@@ -156,8 +156,11 @@ random_harvest_direct(const void *entropy, u_int size, enum random_entropy_sourc
 
 #else /* !_KERNEL */
 
+// zig patch: ssp/random.h header was added in FreeBSD 15
+#if __FreeBSD_version >= 1500500
 #if defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
 #include <ssp/random.h>
+#endif
 #endif
 
 #endif /* _KERNEL */

@@ -388,8 +388,8 @@ const BinaryElfOutput = struct {
 
     pub fn parse(allocator: Allocator, in: *File.Reader, elf_hdr: elf.Header) !Self {
         var self: Self = .{
-            .segments = .{},
-            .sections = .{},
+            .segments = .empty,
+            .sections = .empty,
             .allocator = allocator,
             .shstrtab = null,
         };

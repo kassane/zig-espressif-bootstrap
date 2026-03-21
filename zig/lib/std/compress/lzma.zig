@@ -349,7 +349,7 @@ pub const Decode = struct {
 
         pub fn init(dict_size: usize, mem_limit: usize) CircularBuffer {
             return .{
-                .buf = .{},
+                .buf = .empty,
                 .dict_size = dict_size,
                 .mem_limit = mem_limit,
                 .cursor = 0,

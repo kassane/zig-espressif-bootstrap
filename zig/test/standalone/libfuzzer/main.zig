@@ -2,7 +2,9 @@ const std = @import("std");
 const abi = std.Build.abi.fuzz;
 const native_endian = @import("builtin").cpu.arch.endian();
 
-fn testOne() callconv(.c) void {}
+fn testOne() callconv(.c) bool {
+    return false;
+}
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;

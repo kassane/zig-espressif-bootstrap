@@ -4072,3 +4072,40 @@ test "ctz" {
     try testing.expectEqual(0, limb_max_squared.ctz(@bitSizeOf(Limb) * 2));
     try testing.expectEqual(0, limb_max_squared.ctz(@bitSizeOf(Limb) * 2 + 1));
 }
+
+test "log2" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    try a.setString(2, "1");
+    try testing.expectEqual(0, a.toConst().log2());
+
+    try a.setString(2, "1111011");
+    try testing.expectEqual(6, a.toConst().log2());
+
+    try a.setString(2, "10100111011101010");
+    try testing.expectEqual(16, a.toConst().log2());
+
+    try a.setString(16, "a22d71c87a9ce406da4f5895f9f3cc3d603192baf6c8a2b5c32649d0465bf188fe799b3618085e49d71bdaec01");
+    try testing.expectEqual(359, a.toConst().log2());
+}
+
+test "log10" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    try a.setString(10, "1");
+    try testing.expectEqual(0, a.toConst().log10Alloc(testing.allocator));
+
+    try a.setString(10, "1234");
+    try testing.expectEqual(3, a.toConst().log10Alloc(testing.allocator));
+
+    try a.setString(10, "123456789");
+    try testing.expectEqual(8, a.toConst().log10Alloc(testing.allocator));
+
+    try a.setString(10, "57594534510580048222343352832931567593656037535732288627581929757527496850784");
+    try testing.expectEqual(76, a.toConst().log10Alloc(testing.allocator));
+
+    try a.setString(10, "504758845984192913149382719638135788792820830414213085834451043864912744833203879823150928260925344757009154551640690830148486352800955148298533547472300");
+    try testing.expectEqual(152, a.toConst().log10Alloc(testing.allocator));
+}

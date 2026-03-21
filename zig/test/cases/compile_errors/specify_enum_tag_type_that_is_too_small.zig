@@ -1,9 +1,9 @@
 const Small = enum(u2) {
-    One,
-    Two,
-    Three,
-    Four,
-    Five,
+    one,
+    two,
+    three,
+    four,
+    five,
 };
 
 const SmallUnion = union(enum(u2)) {
@@ -14,13 +14,13 @@ const SmallUnion = union(enum(u2)) {
 };
 
 comptime {
-    _ = Small;
+    _ = Small.one;
 }
 comptime {
-    _ = SmallUnion;
+    _ = SmallUnion.one;
 }
 
 // error
 //
-// :6:5: error: enumeration value '4' too large for type 'u2'
-// :13:5: error: enumeration value '4' too large for type 'u2'
+// :6:5: error: enum tag value '4' too large for type 'u2'
+// :13:5: error: enum tag value '4' too large for type 'u2'

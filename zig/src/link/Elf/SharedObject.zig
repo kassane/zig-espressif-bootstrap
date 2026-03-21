@@ -281,9 +281,7 @@ pub fn parse(
         else
             .{ .VERSION = versyms[i].VERSION, .HIDDEN = false };
 
-        // https://github.com/ziglang/zig/issues/21678
-        //if (ver == .LOCAL) continue;
-        if (@as(u16, @bitCast(ver)) == 0) continue;
+        if (ver == elf.Versym.LOCAL) continue;
 
         try nonlocal_esyms.ensureUnusedCapacity(gpa, 1);
         try nonlocal_versyms.ensureUnusedCapacity(gpa, 1);

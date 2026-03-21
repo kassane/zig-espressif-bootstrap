@@ -72,8 +72,11 @@ typedef __pthread_t pthread_t;
 #endif
 #endif /* __POSIX_VISIBLE || __XSI_VISIBLE */
 
+// zig patch: ssp/signal.h header was added in FreeBSD 15
+#if __FreeBSD_version >= 1500500
 #if !defined(_STANDALONE) && defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
 #include <ssp/signal.h>
+#endif
 #endif
 
 __BEGIN_DECLS

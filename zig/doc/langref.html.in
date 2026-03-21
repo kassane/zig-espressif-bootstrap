@@ -2103,8 +2103,9 @@ or
       less than {#syntax#}1 << 29{#endsyntax#}.
       </p>
       <p>
-      In Zig, a pointer type has an alignment value. If the value is equal to the
-      alignment of the underlying type, it can be omitted from the type:
+      Pointer types may explicitly specify an alignment in bytes. If it is not
+      specified, the alignment is assumed to be equal to the alignment of the
+      underlying type.
       </p>
       {#code|test_variable_alignment.zig#}
 
@@ -2512,6 +2513,13 @@ or
       <p>A {#syntax#}packed union{#endsyntax#} has well-defined in-memory layout and is eligible
           to be in a {#link|packed struct#}.</p>
       <p>All fields in a packed union must have the same {#link|@bitSizeOf#}.</p>
+
+      <p>
+      Equating packed unions results in a comparison of the backing integer,
+      and only works for the {#syntax#}=={#endsyntax#} and {#syntax#}!={#endsyntax#} {#link|Operators#}.
+      </p>
+      {#code|test_packed_union_equality.zig#}
+
       {#header_close#}
 
       {#header_open|Anonymous Union Literals#}
@@ -4865,7 +4873,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@errorFromInt#}
-      <pre>{#syntax#}@errorFromInt(value: std.meta.Int(.unsigned, @bitSizeOf(anyerror))) anyerror{#endsyntax#}</pre>
+      <pre>{#syntax#}@errorFromInt(value: @Int(.unsigned, @bitSizeOf(anyerror))) anyerror{#endsyntax#}</pre>
       <p>
       Converts from the integer representation of an error into {#link|The Global Error Set#} type.
       </p>
@@ -5106,7 +5114,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@intFromError#}
-      <pre>{#syntax#}@intFromError(err: anytype) std.meta.Int(.unsigned, @bitSizeOf(anyerror)){#endsyntax#}</pre>
+      <pre>{#syntax#}@intFromError(err: anytype) @Int(.unsigned, @bitSizeOf(anyerror)){#endsyntax#}</pre>
       <p>
       Supports the following types:
       </p>
@@ -6367,7 +6375,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       <p>
       Zig has a general purpose allocator available to be imported
-      with {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#}. However, it is still recommended to
+      with {#syntax#}std.heap.DebugAllocator{#endsyntax#}. However, it is still recommended to
       follow the {#link|Choosing an Allocator#} guide.
       </p>
 

@@ -1372,8 +1372,7 @@ pub const VerneedSection = struct {
 
         for (verneed.items[1..]) |ver| {
             if (ver.shared_object == last.shared_object) {
-                // https://github.com/ziglang/zig/issues/21678
-                if (@as(u16, @bitCast(ver.version_index)) != @as(u16, @bitCast(last.version_index))) {
+                if (ver.version_index != last.version_index) {
                     last_vernaux = try vern.addVernaux(last_verneed, ver.versionString(elf_file), elf_file);
                 }
             } else {

@@ -11,7 +11,7 @@ fn foo() !void {
     try std.Io.File.stdout().writeStreamingAll(io, "Hello, World!\n");
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="Hello, World!\n"
 
 #update=make function inline
@@ -23,7 +23,7 @@ inline fn foo() !void {
     try std.Io.File.stdout().writeStreamingAll(io, "Hello, World!\n");
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="Hello, World!\n"
 
 #update=change string
@@ -35,5 +35,5 @@ inline fn foo() !void {
     try std.Io.File.stdout().writeStreamingAll(io, "Hello, `inline` World!\n");
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="Hello, `inline` World!\n"

@@ -4,7 +4,6 @@ const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 /// Protocol for mice.
 pub const SimplePointer = struct {
@@ -23,7 +22,7 @@ pub const SimplePointer = struct {
     pub fn reset(self: *SimplePointer, verify: bool) ResetError!void {
         switch (self._reset(self, verify)) {
             .success => {},
-            .device_error => return Error.DeviceError,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -33,8 +32,8 @@ pub const SimplePointer = struct {
         var state: State = undefined;
         switch (self._get_state(self, &state)) {
             .success => return state,
-            .not_ready => return Error.NotReady,
-            .device_error => return Error.DeviceError,
+            .not_ready => return error.NotReady,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

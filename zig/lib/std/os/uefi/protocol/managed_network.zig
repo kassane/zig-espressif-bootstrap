@@ -141,13 +141,13 @@ pub const ManagedNetwork = extern struct {
     pub fn transmit(self: *ManagedNetwork, token: *CompletionToken) TransmitError!void {
         switch (self._transmit(self, token)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .access_denied => return Error.AccessDenied,
-            .out_of_resources => return Error.OutOfResources,
-            .device_error => return Error.DeviceError,
-            .not_ready => return Error.NotReady,
-            .no_media => return Error.NoMedia,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .access_denied => return error.AccessDenied,
+            .out_of_resources => return error.OutOfResources,
+            .device_error => return error.DeviceError,
+            .not_ready => return error.NotReady,
+            .no_media => return error.NoMedia,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -156,13 +156,13 @@ pub const ManagedNetwork = extern struct {
     pub fn receive(self: *ManagedNetwork, token: *CompletionToken) TransmitError!void {
         switch (self._receive(self, token)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
-            .device_error => return Error.DeviceError,
-            .access_denied => return Error.AccessDenied,
-            .not_ready => return Error.NotReady,
-            .no_media => return Error.NoMedia,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
+            .device_error => return error.DeviceError,
+            .access_denied => return error.AccessDenied,
+            .not_ready => return error.NotReady,
+            .no_media => return error.NoMedia,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -171,9 +171,9 @@ pub const ManagedNetwork = extern struct {
     pub fn cancel(self: *ManagedNetwork, token: ?*const CompletionToken) CancelError!void {
         switch (self._cancel(self, token)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .not_found => return Error.NotFound,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .not_found => return error.NotFound,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -182,10 +182,10 @@ pub const ManagedNetwork = extern struct {
     pub fn poll(self: *ManagedNetwork) PollError!void {
         switch (self._poll(self)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .device_error => return Error.DeviceError,
-            .not_ready => return Error.NotReady,
-            .timeout => return Error.Timeout,
+            .not_started => return error.NotStarted,
+            .device_error => return error.DeviceError,
+            .not_ready => return error.NotReady,
+            .timeout => return error.Timeout,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

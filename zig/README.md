@@ -616,17 +616,17 @@ a few releases old, or may be missing newer targets such as aarch64 and RISC-V.
 [ziglang/qemu-static](https://codeberg.org/ziglang/qemu-static) offers static
 binaries of the latest QEMU version.
 
-##### Testing Non-Native glibc Targets
+##### Testing Non-Native libc Targets
 
-Testing foreign architectures with dynamically linked glibc is one step trickier.
-This requires enabling `--glibc-runtimes /path/to/glibc/multi/install/glibcs`.
-This path is obtained by building glibc for multiple architectures. This
-process for me took an entire day to complete and takes up 65 GiB on my hard
-drive. The CI server does not provide this test coverage.
+Testing foreign architectures with dynamically linked libc is one step trickier.
+This requires enabling `--libc-runtimes /path/to/libcs`. This path is obtained
+by building glibc and musl for multiple architectures. This process for me took
+an entire day to complete and takes up 65 GiB on my hard drive.
 
-[Instructions for producing this path](https://codeberg.org/ziglang/infra/src/branch/master/building-libcs.md#linux-glibc) (just the part with `build-many-glibcs.py`).
+[Instructions for producing this path.](https://codeberg.org/ziglang/infra/src/branch/master/building-libcs.md)
 
-It is understood that most contributors will not have these tests enabled.
+It is understood that most contributors will not have these tests enabled. The
+CI machines provide coverage for these.
 
 #### Testing Windows from a Linux Machine with Wine
 

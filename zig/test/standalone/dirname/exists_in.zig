@@ -26,7 +26,7 @@ pub fn main(init: std.process.Init) !void {
         return error.BadUsage;
     };
 
-    const io = std.Io.Threaded.global_single_threaded.ioBasic();
+    const io = std.Io.Threaded.global_single_threaded.io();
 
     var dir = try std.Io.Dir.cwd().openDir(io, dir_path, .{});
     defer dir.close(io);

@@ -1,8 +1,9 @@
 export fn entry() void {
-    _ = @Enum(u32, .nonexhaustive, &.{ "A", "A" }, &.{ 0, 1 });
+    const E = @Enum(u32, .nonexhaustive, &.{ "A", "A" }, &.{ 0, 1 });
+    _ = @as(E, undefined);
 }
 
 // error
 //
-// :2:36: error: duplicate enum field 'A'
-// :2:36: note: other field here
+// :2:42: error: duplicate enum field 'A' at index '1'
+// :2:42: note: previous field at index '0'

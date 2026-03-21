@@ -13,7 +13,7 @@ pub fn main() !void {
 inline fn getStr() []const u8 {
     return "foo\n";
 }
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="foo\n"
 #update=change the string
 #file=main.zig
@@ -25,5 +25,5 @@ pub fn main() !void {
 inline fn getStr() []const u8 {
     return "bar\n";
 }
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="bar\n"

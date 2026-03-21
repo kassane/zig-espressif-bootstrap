@@ -252,8 +252,11 @@ __END_DECLS
 #define	L_ctermid	1024	/* size for ctermid(3); PATH_MAX */
 #endif /* __POSIX_VISIBLE */
 
+// zig patch: ssp/stdio.h header was added in FreeBSD 15
+#if __FreeBSD_version >= 1500500
 #if !defined(_STANDALONE) && defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
 #include <ssp/stdio.h>
+#endif
 #endif
 
 __BEGIN_DECLS

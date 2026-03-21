@@ -814,8 +814,8 @@ fn compareDiskDesignators(comptime T: type, kind: DiskDesignatorKind, p1: []cons
             return eql(drive_letter1, drive_letter2);
         },
         .unc => {
-            var unc1 = parseUNC(T, p1);
-            var unc2 = parseUNC(T, p2);
+            const unc1 = parseUNC(T, p1);
+            const unc2 = parseUNC(T, p2);
 
             return eql(unc1.server, unc2.server) and
                 eql(unc1.share, unc2.share);

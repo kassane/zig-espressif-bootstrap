@@ -19,7 +19,7 @@ pub fn main() !void {
     try stdout_writer.interface.print("{s}\n", .{@tagName(val)});
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="a\n"
 #update=too many enum fields
 #file=main.zig
@@ -43,8 +43,8 @@ comptime {
     std.debug.assert(@TypeOf(@intFromEnum(Foo.e)) == Tag);
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
-#expect_error=main.zig:7:5: error: enumeration value '4' too large for type 'u2'
+const io = std.Io.Threaded.global_single_threaded.io();
+#expect_error=main.zig:7:5: error: enum tag value '4' too large for type 'u2'
 #update=increase tag size
 #file=main.zig
 const Tag = u3;
@@ -62,5 +62,5 @@ pub fn main() !void {
     try stdout_writer.interface.print("{s}\n", .{@tagName(val)});
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="a\n"

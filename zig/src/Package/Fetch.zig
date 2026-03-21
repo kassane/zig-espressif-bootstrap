@@ -402,6 +402,10 @@ pub const JobQueue = struct {
                     },
                 }
                 const entry_path = try arena.dupe(u8, entry.path);
+                // If necessary, normalize path separators to POSIX-style since the tar format requires that.
+                if (comptime std.fs.path.sep != std.fs.path.sep_posix) {
+                    std.mem.replaceScalar(u8, entry_path, std.fs.path.sep, std.fs.path.sep_posix);
+                }
                 try scanned_files.append(gpa, entry_path);
             }
 
@@ -443,7 +447,7 @@ pub const JobQueue = struct {
 
         // intentionally omitting the pointless trailer
         //try archiver.finish();
-        compress.writer.flush() catch |err| switch (err) {
+        compress.finish() catch |err| switch (err) {
             error.WriteFailed => return file_writer.err.?,
         };
         try file_writer.flush();
@@ -598,7 +602,7 @@ pub fn run(f: *Fetch) RunError!void {
         } else |err| switch (err) {
             error.FileNotFound => {
                 log.debug("FileNotFound: {f}", .{package_root});
-                if (job_queue.read_only) return f.fail(
+                if (job_queue.read_only and f.lazy_status == .eager) return f.fail(
                     f.name_tok,
                     try eb.printString("package not found at '{f}'", .{package_root}),
                 );

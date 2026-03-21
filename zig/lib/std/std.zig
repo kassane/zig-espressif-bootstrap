@@ -174,6 +174,9 @@ pub const Options = struct {
     /// stack traces will just print an error to the relevant `Io.Writer` and return.
     allow_stack_tracing: bool = !@import("builtin").strip_debug_info,
 
+    /// Allows disabling networking in std.Io implementations.
+    networking: bool = true,
+
     /// TODO This is a separate decl instead of a field as a workaround around
     /// compilation errors due to zig not being lazy enough.
     pub const logTerminalMode: fn () Io.Terminal.Mode = log.defaultTerminalMode;
@@ -202,7 +205,7 @@ pub const Options = struct {
     /// implementation based on coroutines, one likely wants `std.debug.print`
     /// to directly write to stderr without trying to interact with the code
     /// being debugged.
-    pub const debug_io: Io = if (@hasDecl(root, "std_options_debug_io")) root.std_options_debug_io else debug_threaded_io.?.ioBasic();
+    pub const debug_io: Io = if (@hasDecl(root, "std_options_debug_io")) root.std_options_debug_io else debug_threaded_io.?.io();
 
     /// Overrides `std.Io.File.Permissions`.
     pub const FilePermissions: ?type = if (@hasDecl(root, "std_options_FilePermissions")) root.std_options_FilePermissions else null;

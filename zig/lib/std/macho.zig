@@ -851,7 +851,7 @@ pub const nlist = extern struct {
 
 pub const nlist_64 = extern struct {
     n_strx: u32,
-    n_type: packed union {
+    n_type: packed union(u8) {
         bits: packed struct(u8) {
             ext: bool,
             type: enum(u3) {

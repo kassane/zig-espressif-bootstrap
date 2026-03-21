@@ -509,3 +509,90 @@ test "switch loop for error handling" {
     try S.doTheTest();
     try comptime S.doTheTest();
 }
+
+test "switch loop with packed structs" {
+    const P = packed struct {
+        a: u7,
+        b: u20,
+
+        fn doTheTest(p: @This()) !void {
+            const result = s: switch (p) {
+                .{ .a = 5, .b = 10 } => |x| x,
+                else => |x| continue :s .{ .a = x.a, .b = x.b + 1 },
+            };
+            try expect(result == @This(){ .a = 5, .b = 10 });
+        }
+    };
+    try P.doTheTest(.{ .a = 5, .b = 0 });
+    try comptime P.doTheTest(.{ .a = 5, .b = 0 });
+}
+
+test "switch loop with packed unions" {
+    const P = packed union {
+        a: u7,
+        b: i7,
+
+        fn doTheTest(p: @This()) !void {
+            const result = s: switch (p) {
+                .{ .a = 10 } => |x| x,
+                else => |x| continue :s .{ .b = @intCast(x.a + 1) },
+            };
+            try expect(result == @This(){ .b = 10 });
+        }
+    };
+    try P.doTheTest(.{ .a = 5 });
+    try comptime P.doTheTest(.{ .a = 5 });
+}
+
+test "switch loop with packed unions with OPV" {
+    const P = packed union {
+        a: u0,
+        b: i0,
+
+        fn doTheTest(p: @This()) !void {
+            var looped = false;
+            s: switch (p) {
+                .{ .b = 0 } => |x| {
+                    comptime assert(x.a == 0);
+                    if (looped) break :s;
+                    looped = true;
+                    continue :s .{ .a = 0 };
+                },
+            }
+        }
+    };
+    try P.doTheTest(.{ .a = 0 });
+    try comptime P.doTheTest(.{ .a = 0 });
+}
+
+test "switch loop on large types" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest(a: u128, b: i500) !void {
+            label: switch (a) {
+                0x0,
+                0x3...0xFFFF_FFFF_FFFF_FFFF_FFFF_ABCD,
+                0xFFFF_FFFF_FFFF_FFFF_FFFF_EF00,
+                => return error.TestFailed,
+                0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_0000...0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFF0,
+                => |val| {
+                    continue :label val + 1;
+                },
+                else => {},
+            }
+            label: switch (b) {
+                0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_0000...0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_1234,
+                => return error.TestFailed,
+                0xFFFF_1234,
+                0xFFFF_FFFF_FFFF_FFFF_FFFF_0123...0xFFFF_FFFF_FFFF_FFFF_FFFF_4567,
+                => |val| {
+                    continue :label val + 1;
+                },
+                else => {},
+            }
+        }
+    };
+    try S.doTheTest(0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FF00, 0xFFFF_FFFF_FFFF_FFFF_FFFF_4550);
+    try comptime S.doTheTest(0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FF00, 0xFFFF_FFFF_FFFF_FFFF_FFFF_4550);
+}

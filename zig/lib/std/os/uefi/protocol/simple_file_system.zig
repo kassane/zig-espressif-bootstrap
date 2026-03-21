@@ -4,7 +4,6 @@ const Guid = uefi.Guid;
 const File = uefi.protocol.File;
 const Status = uefi.Status;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 pub const SimpleFileSystem = extern struct {
     revision: u64,
@@ -24,13 +23,13 @@ pub const SimpleFileSystem = extern struct {
         var root: *File = undefined;
         switch (self._open_volume(self, &root)) {
             .success => return root,
-            .unsupported => return Error.Unsupported,
-            .no_media => return Error.NoMedia,
-            .device_error => return Error.DeviceError,
-            .volume_corrupted => return Error.VolumeCorrupted,
-            .access_denied => return Error.AccessDenied,
-            .out_of_resources => return Error.OutOfResources,
-            .media_changed => return Error.MediaChanged,
+            .unsupported => return error.Unsupported,
+            .no_media => return error.NoMedia,
+            .device_error => return error.DeviceError,
+            .volume_corrupted => return error.VolumeCorrupted,
+            .access_denied => return error.AccessDenied,
+            .out_of_resources => return error.OutOfResources,
+            .media_changed => return error.MediaChanged,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

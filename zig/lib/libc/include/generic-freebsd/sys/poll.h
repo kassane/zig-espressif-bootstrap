@@ -109,8 +109,11 @@ typedef	__sigset_t	sigset_t;
 
 #endif
 
+// zig patch: ssp/poll.h header was added in FreeBSD 15
+#if __FreeBSD_version >= 1500500
 #if defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
 #include <ssp/poll.h>
+#endif
 #endif
 
 __BEGIN_DECLS

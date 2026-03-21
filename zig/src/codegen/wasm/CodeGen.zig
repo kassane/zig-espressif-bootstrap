@@ -36,6 +36,11 @@ pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
         .expand_add_safe,
         .expand_sub_safe,
         .expand_mul_safe,
+
+        .expand_packed_load,
+        .expand_packed_store,
+        .expand_packed_struct_field_val,
+        .expand_packed_aggregate_init,
     });
 }
 
@@ -238,467 +243,8 @@ const WValue = union(enum) {
     }
 };
 
-const Op = enum {
-    @"unreachable",
-    nop,
-    block,
-    loop,
-    @"if",
-    @"else",
-    end,
-    br,
-    br_if,
-    br_table,
-    @"return",
-    call,
-    drop,
-    select,
-    global_get,
-    global_set,
-    load,
-    store,
-    memory_size,
-    memory_grow,
-    @"const",
-    eqz,
-    eq,
-    ne,
-    lt,
-    gt,
-    le,
-    ge,
-    clz,
-    ctz,
-    popcnt,
-    add,
-    sub,
-    mul,
-    div,
-    rem,
-    @"and",
-    @"or",
-    xor,
-    shl,
-    shr,
-    rotl,
-    rotr,
-    abs,
-    neg,
-    ceil,
-    floor,
-    trunc,
-    nearest,
-    sqrt,
-    min,
-    max,
-    copysign,
-    wrap,
-    convert,
-    demote,
-    promote,
-    reinterpret,
-    extend,
-};
-
-const OpcodeBuildArguments = struct {
-    /// First valtype in the opcode (usually represents the type of the output)
-    valtype1: ?std.wasm.Valtype = null,
-    /// The operation (e.g. call, unreachable, div, min, sqrt, etc.)
-    op: Op,
-    /// Width of the operation (e.g. 8 for i32_load8_s, 16 for i64_extend16_i32_s)
-    width: ?u8 = null,
-    /// Second valtype in the opcode name (usually represents the type of the input)
-    valtype2: ?std.wasm.Valtype = null,
-    /// Signedness of the op
-    signedness: ?std.builtin.Signedness = null,
-};
-
-/// TODO: deprecated, should be split up per tag.
-fn buildOpcode(args: OpcodeBuildArguments) std.wasm.Opcode {
-    switch (args.op) {
-        .@"unreachable" => unreachable,
-        .nop => unreachable,
-        .block => unreachable,
-        .loop => unreachable,
-        .@"if" => unreachable,
-        .@"else" => unreachable,
-        .end => unreachable,
-        .br => unreachable,
-        .br_if => unreachable,
-        .br_table => unreachable,
-        .@"return" => unreachable,
-        .call => unreachable,
-        .drop => unreachable,
-        .select => unreachable,
-        .global_get => unreachable,
-        .global_set => unreachable,
-
-        .load => if (args.width) |width| switch (width) {
-            8 => switch (args.valtype1.?) {
-                .i32 => if (args.signedness.? == .signed) return .i32_load8_s else return .i32_load8_u,
-                .i64 => if (args.signedness.? == .signed) return .i64_load8_s else return .i64_load8_u,
-                .f32, .f64, .v128 => unreachable,
-            },
-            16 => switch (args.valtype1.?) {
-                .i32 => if (args.signedness.? == .signed) return .i32_load16_s else return .i32_load16_u,
-                .i64 => if (args.signedness.? == .signed) return .i64_load16_s else return .i64_load16_u,
-                .f32, .f64, .v128 => unreachable,
-            },
-            32 => switch (args.valtype1.?) {
-                .i64 => if (args.signedness.? == .signed) return .i64_load32_s else return .i64_load32_u,
-                .i32 => return .i32_load,
-                .f32 => return .f32_load,
-                .f64, .v128 => unreachable,
-            },
-            64 => switch (args.valtype1.?) {
-                .i64 => return .i64_load,
-                .f64 => return .f64_load,
-                else => unreachable,
-            },
-            else => unreachable,
-        } else switch (args.valtype1.?) {
-            .i32 => return .i32_load,
-            .i64 => return .i64_load,
-            .f32 => return .f32_load,
-            .f64 => return .f64_load,
-            .v128 => unreachable, // handled independently
-        },
-        .store => if (args.width) |width| {
-            switch (width) {
-                8 => switch (args.valtype1.?) {
-                    .i32 => return .i32_store8,
-                    .i64 => return .i64_store8,
-                    .f32, .f64, .v128 => unreachable,
-                },
-                16 => switch (args.valtype1.?) {
-                    .i32 => return .i32_store16,
-                    .i64 => return .i64_store16,
-                    .f32, .f64, .v128 => unreachable,
-                },
-                32 => switch (args.valtype1.?) {
-                    .i64 => return .i64_store32,
-                    .i32 => return .i32_store,
-                    .f32 => return .f32_store,
-                    .f64, .v128 => unreachable,
-                },
-                64 => switch (args.valtype1.?) {
-                    .i64 => return .i64_store,
-                    .f64 => return .f64_store,
-                    else => unreachable,
-                },
-                else => unreachable,
-            }
-        } else {
-            switch (args.valtype1.?) {
-                .i32 => return .i32_store,
-                .i64 => return .i64_store,
-                .f32 => return .f32_store,
-                .f64 => return .f64_store,
-                .v128 => unreachable, // handled independently
-            }
-        },
-
-        .memory_size => return .memory_size,
-        .memory_grow => return .memory_grow,
-
-        .@"const" => switch (args.valtype1.?) {
-            .i32 => return .i32_const,
-            .i64 => return .i64_const,
-            .f32 => return .f32_const,
-            .f64 => return .f64_const,
-            .v128 => unreachable, // handled independently
-        },
-
-        .eqz => switch (args.valtype1.?) {
-            .i32 => return .i32_eqz,
-            .i64 => return .i64_eqz,
-            .f32, .f64, .v128 => unreachable,
-        },
-        .eq => switch (args.valtype1.?) {
-            .i32 => return .i32_eq,
-            .i64 => return .i64_eq,
-            .f32 => return .f32_eq,
-            .f64 => return .f64_eq,
-            .v128 => unreachable, // handled independently
-        },
-        .ne => switch (args.valtype1.?) {
-            .i32 => return .i32_ne,
-            .i64 => return .i64_ne,
-            .f32 => return .f32_ne,
-            .f64 => return .f64_ne,
-            .v128 => unreachable, // handled independently
-        },
-
-        .lt => switch (args.valtype1.?) {
-            .i32 => if (args.signedness.? == .signed) return .i32_lt_s else return .i32_lt_u,
-            .i64 => if (args.signedness.? == .signed) return .i64_lt_s else return .i64_lt_u,
-            .f32 => return .f32_lt,
-            .f64 => return .f64_lt,
-            .v128 => unreachable, // handled independently
-        },
-        .gt => switch (args.valtype1.?) {
-            .i32 => if (args.signedness.? == .signed) return .i32_gt_s else return .i32_gt_u,
-            .i64 => if (args.signedness.? == .signed) return .i64_gt_s else return .i64_gt_u,
-            .f32 => return .f32_gt,
-            .f64 => return .f64_gt,
-            .v128 => unreachable, // handled independently
-        },
-        .le => switch (args.valtype1.?) {
-            .i32 => if (args.signedness.? == .signed) return .i32_le_s else return .i32_le_u,
-            .i64 => if (args.signedness.? == .signed) return .i64_le_s else return .i64_le_u,
-            .f32 => return .f32_le,
-            .f64 => return .f64_le,
-            .v128 => unreachable, // handled independently
-        },
-        .ge => switch (args.valtype1.?) {
-            .i32 => if (args.signedness.? == .signed) return .i32_ge_s else return .i32_ge_u,
-            .i64 => if (args.signedness.? == .signed) return .i64_ge_s else return .i64_ge_u,
-            .f32 => return .f32_ge,
-            .f64 => return .f64_ge,
-            .v128 => unreachable, // handled independently
-        },
-
-        .clz => switch (args.valtype1.?) {
-            .i32 => return .i32_clz,
-            .i64 => return .i64_clz,
-            .f32, .f64 => unreachable,
-            .v128 => unreachable, // handled independently
-        },
-        .ctz => switch (args.valtype1.?) {
-            .i32 => return .i32_ctz,
-            .i64 => return .i64_ctz,
-            .f32, .f64 => unreachable,
-            .v128 => unreachable, // handled independently
-        },
-        .popcnt => switch (args.valtype1.?) {
-            .i32 => return .i32_popcnt,
-            .i64 => return .i64_popcnt,
-            .f32, .f64 => unreachable,
-            .v128 => unreachable, // handled independently
-        },
-
-        .add => switch (args.valtype1.?) {
-            .i32 => return .i32_add,
-            .i64 => return .i64_add,
-            .f32 => return .f32_add,
-            .f64 => return .f64_add,
-            .v128 => unreachable, // handled independently
-        },
-        .sub => switch (args.valtype1.?) {
-            .i32 => return .i32_sub,
-            .i64 => return .i64_sub,
-            .f32 => return .f32_sub,
-            .f64 => return .f64_sub,
-            .v128 => unreachable, // handled independently
-        },
-        .mul => switch (args.valtype1.?) {
-            .i32 => return .i32_mul,
-            .i64 => return .i64_mul,
-            .f32 => return .f32_mul,
-            .f64 => return .f64_mul,
-            .v128 => unreachable, // handled independently
-        },
-
-        .div => switch (args.valtype1.?) {
-            .i32 => if (args.signedness.? == .signed) return .i32_div_s else return .i32_div_u,
-            .i64 => if (args.signedness.? == .signed) return .i64_div_s else return .i64_div_u,
-            .f32 => return .f32_div,
-            .f64 => return .f64_div,
-            .v128 => unreachable, // handled independently
-        },
-        .rem => switch (args.valtype1.?) {
-            .i32 => if (args.signedness.? == .signed) return .i32_rem_s else return .i32_rem_u,
-            .i64 => if (args.signedness.? == .signed) return .i64_rem_s else return .i64_rem_u,
-            .f32, .f64 => unreachable,
-            .v128 => unreachable, // handled independently
-        },
-
-        .@"and" => switch (args.valtype1.?) {
-            .i32 => return .i32_and,
-            .i64 => return .i64_and,
-            .f32, .f64 => unreachable,
-            .v128 => unreachable, // handled independently
-        },
-        .@"or" => switch (args.valtype1.?) {
-            .i32 => return .i32_or,
-            .i64 => return .i64_or,
-            .f32, .f64 => unreachable,
-            .v128 => unreachable, // handled independently
-        },
-        .xor => switch (args.valtype1.?) {
-            .i32 => return .i32_xor,
-            .i64 => return .i64_xor,
-            .f32, .f64 => unreachable,
-            .v128 => unreachable, // handled independently
-        },
-
-        .shl => switch (args.valtype1.?) {
-            .i32 => return .i32_shl,
-            .i64 => return .i64_shl,
-            .f32, .f64 => unreachable,
-            .v128 => unreachable, // handled independently
-        },
-        .shr => switch (args.valtype1.?) {
-            .i32 => if (args.signedness.? == .signed) return .i32_shr_s else return .i32_shr_u,
-            .i64 => if (args.signedness.? == .signed) return .i64_shr_s else return .i64_shr_u,
-            .f32, .f64 => unreachable,
-            .v128 => unreachable, // handled independently
-        },
-        .rotl => switch (args.valtype1.?) {
-            .i32 => return .i32_rotl,
-            .i64 => return .i64_rotl,
-            .f32, .f64 => unreachable,
-            .v128 => unreachable, // handled independently
-        },
-        .rotr => switch (args.valtype1.?) {
-            .i32 => return .i32_rotr,
-            .i64 => return .i64_rotr,
-            .f32, .f64 => unreachable,
-            .v128 => unreachable, // handled independently
-        },
-
-        .abs => switch (args.valtype1.?) {
-            .i32, .i64 => unreachable,
-            .f32 => return .f32_abs,
-            .f64 => return .f64_abs,
-            .v128 => unreachable, // handled independently
-        },
-        .neg => switch (args.valtype1.?) {
-            .i32, .i64 => unreachable,
-            .f32 => return .f32_neg,
-            .f64 => return .f64_neg,
-            .v128 => unreachable, // handled independently
-        },
-        .ceil => switch (args.valtype1.?) {
-            .i64 => unreachable,
-            .i32 => return .f32_ceil, // when valtype is f16, we store it in i32.
-            .f32 => return .f32_ceil,
-            .f64 => return .f64_ceil,
-            .v128 => unreachable, // handled independently
-        },
-        .floor => switch (args.valtype1.?) {
-            .i64 => unreachable,
-            .i32 => return .f32_floor, // when valtype is f16, we store it in i32.
-            .f32 => return .f32_floor,
-            .f64 => return .f64_floor,
-            .v128 => unreachable, // handled independently
-        },
-        .trunc => switch (args.valtype1.?) {
-            .i32 => if (args.valtype2) |valty| switch (valty) {
-                .i32 => unreachable,
-                .i64 => unreachable,
-                .f32 => if (args.signedness.? == .signed) return .i32_trunc_f32_s else return .i32_trunc_f32_u,
-                .f64 => if (args.signedness.? == .signed) return .i32_trunc_f64_s else return .i32_trunc_f64_u,
-                .v128 => unreachable, // handled independently
-            } else return .f32_trunc, // when no valtype2, it's an f16 instead which is stored in an i32.
-            .i64 => switch (args.valtype2.?) {
-                .i32 => unreachable,
-                .i64 => unreachable,
-                .f32 => if (args.signedness.? == .signed) return .i64_trunc_f32_s else return .i64_trunc_f32_u,
-                .f64 => if (args.signedness.? == .signed) return .i64_trunc_f64_s else return .i64_trunc_f64_u,
-                .v128 => unreachable, // handled independently
-            },
-            .f32 => return .f32_trunc,
-            .f64 => return .f64_trunc,
-            .v128 => unreachable, // handled independently
-        },
-        .nearest => switch (args.valtype1.?) {
-            .i32, .i64 => unreachable,
-            .f32 => return .f32_nearest,
-            .f64 => return .f64_nearest,
-            .v128 => unreachable, // handled independently
-        },
-        .sqrt => switch (args.valtype1.?) {
-            .i32, .i64 => unreachable,
-            .f32 => return .f32_sqrt,
-            .f64 => return .f64_sqrt,
-            .v128 => unreachable, // handled independently
-        },
-        .min => switch (args.valtype1.?) {
-            .i32, .i64 => unreachable,
-            .f32 => return .f32_min,
-            .f64 => return .f64_min,
-            .v128 => unreachable, // handled independently
-        },
-        .max => switch (args.valtype1.?) {
-            .i32, .i64 => unreachable,
-            .f32 => return .f32_max,
-            .f64 => return .f64_max,
-            .v128 => unreachable, // handled independently
-        },
-        .copysign => switch (args.valtype1.?) {
-            .i32, .i64 => unreachable,
-            .f32 => return .f32_copysign,
-            .f64 => return .f64_copysign,
-            .v128 => unreachable, // handled independently
-        },
-
-        .wrap => switch (args.valtype1.?) {
-            .i32 => switch (args.valtype2.?) {
-                .i32 => unreachable,
-                .i64 => return .i32_wrap_i64,
-                .f32, .f64 => unreachable,
-                .v128 => unreachable, // handled independently
-            },
-            .i64, .f32, .f64 => unreachable,
-            .v128 => unreachable, // handled independently
-        },
-        .convert => switch (args.valtype1.?) {
-            .i32, .i64 => unreachable,
-            .f32 => switch (args.valtype2.?) {
-                .i32 => if (args.signedness.? == .signed) return .f32_convert_i32_s else return .f32_convert_i32_u,
-                .i64 => if (args.signedness.? == .signed) return .f32_convert_i64_s else return .f32_convert_i64_u,
-                .f32, .f64 => unreachable,
-                .v128 => unreachable, // handled independently
-            },
-            .f64 => switch (args.valtype2.?) {
-                .i32 => if (args.signedness.? == .signed) return .f64_convert_i32_s else return .f64_convert_i32_u,
-                .i64 => if (args.signedness.? == .signed) return .f64_convert_i64_s else return .f64_convert_i64_u,
-                .f32, .f64 => unreachable,
-                .v128 => unreachable, // handled independently
-            },
-            .v128 => unreachable, // handled independently
-        },
-        .demote => if (args.valtype1.? == .f32 and args.valtype2.? == .f64) return .f32_demote_f64 else unreachable,
-        .promote => if (args.valtype1.? == .f64 and args.valtype2.? == .f32) return .f64_promote_f32 else unreachable,
-        .reinterpret => switch (args.valtype1.?) {
-            .i32 => if (args.valtype2.? == .f32) return .i32_reinterpret_f32 else unreachable,
-            .i64 => if (args.valtype2.? == .f64) return .i64_reinterpret_f64 else unreachable,
-            .f32 => if (args.valtype2.? == .i32) return .f32_reinterpret_i32 else unreachable,
-            .f64 => if (args.valtype2.? == .i64) return .f64_reinterpret_i64 else unreachable,
-            .v128 => unreachable, // handled independently
-        },
-        .extend => switch (args.valtype1.?) {
-            .i32 => switch (args.width.?) {
-                8 => if (args.signedness.? == .signed) return .i32_extend8_s else unreachable,
-                16 => if (args.signedness.? == .signed) return .i32_extend16_s else unreachable,
-                else => unreachable,
-            },
-            .i64 => switch (args.width.?) {
-                8 => if (args.signedness.? == .signed) return .i64_extend8_s else unreachable,
-                16 => if (args.signedness.? == .signed) return .i64_extend16_s else unreachable,
-                32 => if (args.signedness.? == .signed) return .i64_extend32_s else unreachable,
-                else => unreachable,
-            },
-            .f32, .f64 => unreachable,
-            .v128 => unreachable, // handled independently
-        },
-    }
-}
-
-test "Wasm - buildOpcode" {
-    // Make sure buildOpcode is referenced, and test some examples
-    const i32_const = buildOpcode(.{ .op = .@"const", .valtype1 = .i32 });
-    const i64_extend32_s = buildOpcode(.{ .op = .extend, .valtype1 = .i64, .width = 32, .signedness = .signed });
-    const f64_reinterpret_i64 = buildOpcode(.{ .op = .reinterpret, .valtype1 = .f64, .valtype2 = .i64 });
-
-    try testing.expectEqual(@as(std.wasm.Opcode, .i32_const), i32_const);
-    try testing.expectEqual(@as(std.wasm.Opcode, .i64_extend32_s), i64_extend32_s);
-    try testing.expectEqual(@as(std.wasm.Opcode, .f64_reinterpret_i64), f64_reinterpret_i64);
-}
-
 /// Hashmap to store generated `WValue` for each `Air.Inst.Ref`
-pub const ValueTable = std.AutoArrayHashMapUnmanaged(Air.Inst.Ref, WValue);
+const ValueTable = std.AutoArrayHashMapUnmanaged(Air.Inst.Ref, WValue);
 
 const bookkeeping_init = if (std.debug.runtime_safety) @as(usize, 0) else {};
 
@@ -759,7 +305,7 @@ fn resolveInst(cg: *CodeGen, ref: Air.Inst.Ref) InnerError!WValue {
     const zcu = pt.zcu;
     const val = (try cg.air.value(ref, pt)).?;
     const ty = cg.typeOf(ref);
-    if (!ty.hasRuntimeBitsIgnoreComptime(zcu) and !ty.isInt(zcu) and !ty.isError(zcu)) {
+    if (!ty.hasRuntimeBits(zcu) and !ty.isInt(zcu) and !ty.isError(zcu)) {
         gop.value_ptr.* = .none;
         return .none;
     }
@@ -773,7 +319,7 @@ fn resolveInst(cg: *CodeGen, ref: Air.Inst.Ref) InnerError!WValue {
     const result: WValue = if (isByRef(ty, zcu, cg.target))
         .{ .uav_ref = .{ .ip_index = val.toIntern() } }
     else
-        try cg.lowerConstant(val, ty);
+        try cg.lowerConstant(val);
 
     gop.value_ptr.* = result;
     return result;
@@ -786,7 +332,7 @@ fn resolveValue(cg: *CodeGen, val: Value) InnerError!WValue {
     return if (isByRef(ty, zcu, cg.target))
         .{ .uav_ref = .{ .ip_index = val.toIntern() } }
     else
-        try cg.lowerConstant(val, ty);
+        try cg.lowerConstant(val);
 }
 
 /// NOTE: if result == .stack, it will be stored in .local
@@ -980,7 +526,6 @@ fn addExtraAssumeCapacity(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
 
 /// For `std.builtin.CallingConvention.auto`.
 pub fn typeToValtype(ty: Type, zcu: *const Zcu, target: *const std.Target) std.wasm.Valtype {
-    const ip = &zcu.intern_pool;
     return switch (ty.zigTypeTag(zcu)) {
         .float => switch (ty.floatBits(target)) {
             16 => .i32, // stored/loaded as u16
@@ -994,25 +539,13 @@ pub fn typeToValtype(ty: Type, zcu: *const Zcu, target: *const std.Target) std.w
             33...64 => .i64,
             else => .i32,
         },
-        .@"struct" => blk: {
-            if (zcu.typeToPackedStruct(ty)) |packed_struct| {
-                const backing_int_ty = Type.fromInterned(packed_struct.backingIntTypeUnordered(ip));
-                break :blk typeToValtype(backing_int_ty, zcu, target);
-            } else {
-                break :blk .i32;
-            }
-        },
         .vector => switch (CodeGen.determineSimdStoreStrategy(ty, zcu, target)) {
             .direct => .v128,
             .unrolled => .i32,
         },
-        .@"union" => switch (ty.containerLayout(zcu)) {
-            .@"packed" => switch (ty.bitSize(zcu)) {
-                0...32 => .i32,
-                33...64 => .i64,
-                else => .i32,
-            },
-            else => .i32,
+        .@"union", .@"struct" => switch (ty.containerLayout(zcu)) {
+            .@"packed" => typeToValtype(ty.bitpackBackingInt(zcu), zcu, target),
+            .auto, .@"extern" => .i32,
         },
         else => .i32, // all represented as reference/immediate
     };
@@ -1042,7 +575,7 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
         .nav_ref => |nav_ref| {
             const zcu = cg.pt.zcu;
             const ip = &zcu.intern_pool;
-            if (ip.getNav(nav_ref.nav_index).isFn(ip)) {
+            if (ip.zigTypeTag(ip.getNav(nav_ref.nav_index).resolved.?.type) == .@"fn") {
                 assert(nav_ref.offset == 0);
                 try cg.mir_indirect_function_set.put(cg.gpa, nav_ref.nav_index, {});
                 try cg.addInst(.{ .tag = .func_ref, .data = .{ .nav_index = nav_ref.nav_index } });
@@ -1185,7 +718,7 @@ pub fn generate(
     const fn_ty = zcu.navValue(cg.owner_nav).typeOf(zcu);
     const fn_info = zcu.typeToFunc(fn_ty).?;
     const ret_ty: Type = .fromInterned(fn_info.return_type);
-    const any_returns = !firstParamSRet(fn_info.cc, ret_ty, zcu, target) and ret_ty.hasRuntimeBitsIgnoreComptime(zcu);
+    const any_returns = !firstParamSRet(fn_info.cc, ret_ty, zcu, target) and ret_ty.hasRuntimeBits(zcu);
 
     var cc_result = try resolveCallingConventionValues(zcu, fn_ty, target);
     defer cc_result.deinit(gpa);
@@ -1244,7 +777,7 @@ fn generateInner(cg: *CodeGen, any_returns: bool) InnerError!Mir {
     if (any_returns and cg.air.instructions.len > 0) {
         const inst: Air.Inst.Index = @enumFromInt(cg.air.instructions.len - 1);
         const last_inst_ty = cg.typeOfIndex(inst);
-        if (!last_inst_ty.hasRuntimeBitsIgnoreComptime(zcu) or last_inst_ty.isNoReturn(zcu)) {
+        if (!last_inst_ty.hasRuntimeBits(zcu)) {
             try cg.addTag(.@"unreachable");
         }
     }
@@ -1316,7 +849,7 @@ fn resolveCallingConventionValues(
     switch (cc) {
         .auto => {
             for (fn_info.param_types.get(ip)) |ty| {
-                if (!Type.fromInterned(ty).hasRuntimeBitsIgnoreComptime(zcu)) {
+                if (!Type.fromInterned(ty).hasRuntimeBits(zcu)) {
                     continue;
                 }
 
@@ -1326,7 +859,7 @@ fn resolveCallingConventionValues(
         },
         .wasm_mvp => {
             for (fn_info.param_types.get(ip)) |ty| {
-                if (!Type.fromInterned(ty).hasRuntimeBitsIgnoreComptime(zcu)) {
+                if (!Type.fromInterned(ty).hasRuntimeBits(zcu)) {
                     continue;
                 }
                 switch (abi.classifyType(.fromInterned(ty), zcu)) {
@@ -1357,7 +890,7 @@ pub fn firstParamSRet(
     zcu: *const Zcu,
     target: *const std.Target,
 ) bool {
-    if (!return_type.hasRuntimeBitsIgnoreComptime(zcu)) return false;
+    if (!return_type.hasRuntimeBits(zcu)) return false;
     switch (cc) {
         .@"inline" => unreachable,
         .auto => return isByRef(return_type, zcu, target),
@@ -1457,7 +990,7 @@ fn restoreStackPointer(cg: *CodeGen) !void {
 fn allocStack(cg: *CodeGen, ty: Type) !WValue {
     const pt = cg.pt;
     const zcu = pt.zcu;
-    assert(ty.hasRuntimeBitsIgnoreComptime(zcu));
+    assert(ty.hasRuntimeBits(zcu));
     if (cg.initial_stack_value == .none) {
         try cg.initializeStack();
     }
@@ -1491,7 +1024,7 @@ fn allocStackPtr(cg: *CodeGen, inst: Air.Inst.Index) !WValue {
         try cg.initializeStack();
     }
 
-    if (!pointee_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+    if (!pointee_ty.hasRuntimeBits(zcu)) {
         return cg.allocStack(Type.usize); // create a value containing just the stack pointer.
     }
 
@@ -1507,13 +1040,6 @@ fn allocStackPtr(cg: *CodeGen, inst: Air.Inst.Index) !WValue {
     defer cg.stack_size = offset + abi_size;
 
     return .{ .stack_offset = .{ .value = offset, .references = 1 } };
-}
-
-/// From given zig bitsize, returns the wasm bitsize
-fn toWasmBits(bits: u16) ?u16 {
-    return for ([_]u16{ 32, 64, 128 }) |wasm_bits| {
-        if (bits <= wasm_bits) return wasm_bits;
-    } else null;
 }
 
 /// Performs a copy of bytes for a given type. Copying all bytes
@@ -1676,7 +1202,6 @@ fn ptrSize(cg: *const CodeGen) u16 {
 /// For a given `Type`, will return true when the type will be passed
 /// by reference, rather than by value
 fn isByRef(ty: Type, zcu: *const Zcu, target: *const std.Target) bool {
-    const ip = &zcu.intern_pool;
     switch (ty.zigTypeTag(zcu)) {
         .type,
         .comptime_int,
@@ -1697,20 +1222,10 @@ fn isByRef(ty: Type, zcu: *const Zcu, target: *const std.Target) bool {
 
         .array,
         .frame,
-        => return ty.hasRuntimeBitsIgnoreComptime(zcu),
-        .@"union" => {
-            if (zcu.typeToUnion(ty)) |union_obj| {
-                if (union_obj.flagsUnordered(ip).layout == .@"packed") {
-                    return ty.abiSize(zcu) > 8;
-                }
-            }
-            return ty.hasRuntimeBitsIgnoreComptime(zcu);
-        },
-        .@"struct" => {
-            if (zcu.typeToPackedStruct(ty)) |packed_struct| {
-                return isByRef(Type.fromInterned(packed_struct.backingIntTypeUnordered(ip)), zcu, target);
-            }
-            return ty.hasRuntimeBitsIgnoreComptime(zcu);
+        => return ty.hasRuntimeBits(zcu),
+        .@"struct", .@"union" => switch (ty.containerLayout(zcu)) {
+            .@"packed" => return isByRef(ty.bitpackBackingInt(zcu), zcu, target),
+            .@"extern", .auto => return ty.hasRuntimeBits(zcu),
         },
         .vector => return determineSimdStoreStrategy(ty, zcu, target) == .unrolled,
         .int => return ty.intInfo(zcu).bits > 64,
@@ -1718,7 +1233,7 @@ fn isByRef(ty: Type, zcu: *const Zcu, target: *const std.Target) bool {
         .float => return ty.floatBits(target) > 64,
         .error_union => {
             const pl_ty = ty.errorUnionPayload(zcu);
-            if (!pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+            if (!pl_ty.hasRuntimeBits(zcu)) {
                 return false;
             }
             return true;
@@ -1727,7 +1242,7 @@ fn isByRef(ty: Type, zcu: *const Zcu, target: *const std.Target) bool {
             if (ty.isPtrLikeOptional(zcu)) return false;
             const pl_type = ty.optionalChild(zcu);
             if (pl_type.zigTypeTag(zcu) == .error_set) return false;
-            return pl_type.hasRuntimeBitsIgnoreComptime(zcu);
+            return pl_type.hasRuntimeBits(zcu);
         },
         .pointer => {
             // Slices act like struct and will be passed by reference
@@ -1784,6 +1299,7 @@ fn buildPointerOffset(cg: *CodeGen, ptr_value: WValue, offset: u64, action: enum
 }
 
 fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const zcu = cg.pt.zcu;
     const air_tags = cg.air.instructions.items(.tag);
     return switch (air_tags[@intFromEnum(inst)]) {
         // No "scalarize" legalizations are enabled, so these instructions never appear.
@@ -1794,57 +1310,405 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
-        .add => cg.airBinOp(inst, .add),
-        .add_sat => cg.airSatBinOp(inst, .add),
-        .add_wrap => cg.airWrapBinOp(inst, .add),
-        .sub => cg.airBinOp(inst, .sub),
-        .sub_sat => cg.airSatBinOp(inst, .sub),
-        .sub_wrap => cg.airWrapBinOp(inst, .sub),
-        .mul => cg.airBinOp(inst, .mul),
-        .mul_sat => cg.airSatMul(inst),
-        .mul_wrap => cg.airWrapBinOp(inst, .mul),
-        .div_float, .div_exact => cg.airDiv(inst),
-        .div_trunc => cg.airDivTrunc(inst),
-        .div_floor => cg.airDivFloor(inst),
-        .bit_and => cg.airBinOp(inst, .@"and"),
-        .bit_or => cg.airBinOp(inst, .@"or"),
-        .bool_and => cg.airBinOp(inst, .@"and"),
-        .bool_or => cg.airBinOp(inst, .@"or"),
-        .rem => cg.airRem(inst),
-        .mod => cg.airMod(inst),
-        .shl => cg.airWrapBinOp(inst, .shl),
-        .shl_exact => cg.airBinOp(inst, .shl),
-        .shl_sat => cg.airShlSat(inst),
-        .shr, .shr_exact => cg.airBinOp(inst, .shr),
-        .xor => cg.airBinOp(inst, .xor),
-        .max => cg.airMaxMin(inst, .fmax, .gt),
-        .min => cg.airMaxMin(inst, .fmin, .lt),
-        .mul_add => cg.airMulAdd(inst),
+        .add,
+        .sub,
+        .mul,
+        .rem,
+        .mod,
+        .max,
+        .min,
+        .div_trunc,
+        .div_floor,
+        => |tag| {
+            const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+            const lhs = try cg.resolveInst(bin_op.lhs);
+            const rhs = try cg.resolveInst(bin_op.rhs);
 
-        .sqrt => cg.airUnaryFloatOp(inst, .sqrt),
-        .sin => cg.airUnaryFloatOp(inst, .sin),
-        .cos => cg.airUnaryFloatOp(inst, .cos),
-        .tan => cg.airUnaryFloatOp(inst, .tan),
-        .exp => cg.airUnaryFloatOp(inst, .exp),
-        .exp2 => cg.airUnaryFloatOp(inst, .exp2),
-        .log => cg.airUnaryFloatOp(inst, .log),
-        .log2 => cg.airUnaryFloatOp(inst, .log2),
-        .log10 => cg.airUnaryFloatOp(inst, .log10),
-        .floor => cg.airUnaryFloatOp(inst, .floor),
-        .ceil => cg.airUnaryFloatOp(inst, .ceil),
-        .round => cg.airUnaryFloatOp(inst, .round),
-        .trunc_float => cg.airUnaryFloatOp(inst, .trunc),
-        .neg => cg.airUnaryFloatOp(inst, .neg),
+            const ty = cg.typeOfIndex(inst);
+            const type_tag = ty.zigTypeTag(zcu);
 
-        .abs => cg.airAbs(inst),
+            if (type_tag == .vector) {
+                return cg.fail("TODO: implement AIR op: {s} for vectors", .{@tagName(tag)});
+            }
 
-        .add_with_overflow => cg.airAddSubWithOverflow(inst, .add),
-        .sub_with_overflow => cg.airAddSubWithOverflow(inst, .sub),
-        .shl_with_overflow => cg.airShlWithOverflow(inst),
-        .mul_with_overflow => cg.airMulWithOverflow(inst),
+            if (type_tag == .float) {
+                const float_ty: FloatType = .fromType(cg, ty);
 
-        .clz => cg.airClz(inst),
-        .ctz => cg.airCtz(inst),
+                const result = switch (tag) {
+                    .add => try cg.floatAdd(float_ty, lhs, rhs),
+                    .sub => try cg.floatSub(float_ty, lhs, rhs),
+                    .mul => try cg.floatMul(float_ty, lhs, rhs),
+                    .rem => try cg.floatRem(float_ty, lhs, rhs),
+                    .mod => try cg.floatMod(float_ty, lhs, rhs),
+                    .max => try cg.floatMax(float_ty, lhs, rhs),
+                    .min => try cg.floatMin(float_ty, lhs, rhs),
+                    .div_trunc => try cg.floatDivTrunc(float_ty, lhs, rhs),
+                    .div_floor => try cg.floatDivFloor(float_ty, lhs, rhs),
+                    else => unreachable,
+                };
+
+                try cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
+            } else if (type_tag == .int) {
+                const int_ty: IntType = .fromType(cg, ty);
+
+                const result = switch (tag) {
+                    .add => try cg.intAdd(int_ty, lhs, rhs),
+                    .sub => try cg.intSub(int_ty, lhs, rhs),
+                    .mul => try cg.intMul(int_ty, lhs, rhs),
+                    .rem => try cg.intRem(int_ty, lhs, rhs),
+                    .mod => try cg.intMod(int_ty, lhs, rhs),
+                    .max => try cg.intMax(int_ty, lhs, rhs),
+                    .min => try cg.intMin(int_ty, lhs, rhs),
+                    .div_trunc => try cg.intDiv(int_ty, lhs, rhs),
+                    .div_floor => try cg.intDivFloor(int_ty, lhs, rhs),
+                    else => unreachable,
+                };
+
+                try cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
+            } else {
+                unreachable;
+            }
+        },
+        .div_float => {
+            const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+            const lhs = try cg.resolveInst(bin_op.lhs);
+            const rhs = try cg.resolveInst(bin_op.rhs);
+            const ty = cg.typeOfIndex(inst);
+
+            if (ty.zigTypeTag(zcu) == .vector) {
+                return cg.fail("TODO: implement AIR op: div_float for vectors", .{});
+            }
+
+            const result = try cg.floatDiv(.fromType(cg, ty), lhs, rhs);
+            try cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
+        },
+        .div_exact => {
+            const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+            const lhs = try cg.resolveInst(bin_op.lhs);
+            const rhs = try cg.resolveInst(bin_op.rhs);
+            const ty = cg.typeOfIndex(inst);
+
+            if (ty.zigTypeTag(zcu) == .vector) {
+                return cg.fail("TODO: implement AIR op: div_exact for vectors", .{});
+            }
+
+            const result = try cg.intDiv(.fromType(cg, ty), lhs, rhs);
+            try cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
+        },
+        .abs => {
+            const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+            const operand = try cg.resolveInst(ty_op.operand);
+
+            const ty = cg.typeOf(ty_op.operand);
+            const type_tag = ty.zigTypeTag(zcu);
+
+            if (type_tag == .vector) {
+                return cg.fail("TODO: implement AIR op: abs for vectors", .{});
+            }
+
+            if (type_tag == .float) {
+                const result = try cg.floatAbs(.fromType(cg, ty), operand);
+                return cg.finishAir(inst, result, &.{ty_op.operand});
+            } else if (type_tag == .int) {
+                const result = try cg.intAbs(.fromType(cg, ty), operand);
+                return cg.finishAir(inst, result, &.{ty_op.operand});
+            } else {
+                unreachable;
+            }
+        },
+        .mul_add => {
+            const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
+            const bin_op = cg.air.extraData(Air.Bin, pl_op.payload).data;
+            const addend = try cg.resolveInst(pl_op.operand);
+            const lhs = try cg.resolveInst(bin_op.lhs);
+            const rhs = try cg.resolveInst(bin_op.rhs);
+            const ty = cg.typeOfIndex(inst);
+
+            if (ty.zigTypeTag(cg.pt.zcu) == .vector) {
+                return cg.fail("TODO: implement AIR op: mul_add for vectors", .{});
+            }
+
+            const result = try cg.floatMulAdd(.fromType(cg, ty), lhs, rhs, addend);
+            return cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs, pl_op.operand });
+        },
+
+        .add_sat,
+        .sub_sat,
+        .mul_sat,
+        .shl_sat,
+        => |tag| {
+            const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+            const lhs = try cg.resolveInst(bin_op.lhs);
+            const rhs = try cg.resolveInst(bin_op.rhs);
+            const ty = cg.typeOfIndex(inst);
+
+            if (ty.zigTypeTag(cg.pt.zcu) == .vector) {
+                return cg.fail("TODO: implement AIR op: {s} for vectors", .{@tagName(tag)});
+            }
+
+            const int_ty: IntType = .fromType(cg, ty);
+            const result = switch (tag) {
+                .add_sat => try cg.intAddSat(int_ty, lhs, rhs),
+                .sub_sat => try cg.intSubSat(int_ty, lhs, rhs),
+                .mul_sat => try cg.intMulSat(int_ty, lhs, rhs),
+                .shl_sat => try cg.intShlSat(int_ty, lhs, rhs),
+                else => unreachable,
+            };
+
+            try cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
+        },
+
+        .add_with_overflow,
+        .sub_with_overflow,
+        .mul_with_overflow,
+        .shl_with_overflow,
+        => |tag| {
+            const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+            const extra = cg.air.extraData(Air.Bin, ty_pl.payload).data;
+
+            const lhs = try cg.resolveInst(extra.lhs);
+            const rhs = try cg.resolveInst(extra.rhs);
+
+            const ty = cg.typeOf(extra.lhs);
+            const int_ty: IntType = .fromType(cg, ty);
+
+            const out = switch (tag) {
+                .add_with_overflow => try cg.intAddOverflow(int_ty, lhs, rhs),
+                .sub_with_overflow => try cg.intSubOverflow(int_ty, lhs, rhs),
+                .mul_with_overflow => try cg.intMulOverflow(int_ty, lhs, rhs),
+                .shl_with_overflow => try cg.intShlOverflow(int_ty, lhs, rhs),
+                else => unreachable,
+            };
+
+            var ov_tmp = try out.ov.toLocal(cg, Type.u1);
+            defer ov_tmp.free(cg);
+
+            var res_tmp = try out.result.toLocal(cg, ty);
+            defer res_tmp.free(cg);
+
+            const result = try cg.allocStack(cg.typeOfIndex(inst));
+            const offset: u32 = @intCast(ty.abiSize(cg.pt.zcu));
+
+            try cg.store(result, res_tmp, ty, 0);
+            try cg.store(result, ov_tmp, Type.u1, offset);
+
+            try cg.finishAir(inst, result, &.{ extra.lhs, extra.rhs });
+        },
+
+        .add_wrap, .sub_wrap, .mul_wrap, .shl => |tag| {
+            const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+            const lhs = try cg.resolveInst(bin_op.lhs);
+            const rhs = try cg.resolveInst(bin_op.rhs);
+            const ty = cg.typeOfIndex(inst);
+
+            if (ty.zigTypeTag(zcu) == .vector) {
+                return cg.fail("TODO: implement AIR op: {s} for vectors", .{@tagName(tag)});
+            }
+
+            const int_ty: IntType = .fromType(cg, ty);
+            const raw_result = switch (tag) {
+                .add_wrap => try cg.intAdd(int_ty, lhs, rhs),
+                .sub_wrap => try cg.intSub(int_ty, lhs, rhs),
+                .mul_wrap => try cg.intMul(int_ty, lhs, rhs),
+                .shl => try cg.intShl(int_ty, lhs, rhs),
+                else => unreachable,
+            };
+            const result = try cg.intWrap(int_ty, raw_result);
+
+            try cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
+        },
+
+        .bit_and, .bit_or, .bool_and, .bool_or, .xor, .shl_exact, .shr, .shr_exact => |tag| {
+            const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+            const lhs = try cg.resolveInst(bin_op.lhs);
+            const rhs = try cg.resolveInst(bin_op.rhs);
+            const ty = cg.typeOfIndex(inst);
+
+            if (ty.zigTypeTag(zcu) == .vector) {
+                return cg.fail("TODO: implement AIR op: {s} for vectors", .{@tagName(tag)});
+            }
+
+            const int_ty: IntType = .fromType(cg, ty);
+            const result = switch (tag) {
+                .bit_and, .bool_and => try cg.intAnd(int_ty, lhs, rhs),
+                .bit_or, .bool_or => try cg.intOr(int_ty, lhs, rhs),
+                .xor => try cg.intXor(int_ty, lhs, rhs),
+                .shl_exact => try cg.intShl(int_ty, lhs, rhs),
+                .shr, .shr_exact => try cg.intShr(int_ty, lhs, rhs),
+                else => unreachable,
+            };
+
+            try cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
+        },
+
+        .not => {
+            const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+            const operand = try cg.resolveInst(ty_op.operand);
+            const ty = cg.typeOf(ty_op.operand);
+
+            if (ty.zigTypeTag(zcu) == .vector) {
+                return cg.fail("TODO: implement AIR op: not for vectors", .{});
+            }
+
+            const result = try cg.intNot(.fromType(cg, ty), operand);
+            try cg.finishAir(inst, result, &.{ty_op.operand});
+        },
+
+        .bitcast => cg.airBitcast(inst),
+
+        .intcast => {
+            const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+
+            const dest_ty = ty_op.ty.toType();
+            const operand = try cg.resolveInst(ty_op.operand);
+            const src_ty = cg.typeOf(ty_op.operand);
+
+            if (dest_ty.zigTypeTag(zcu) == .vector) {
+                return cg.fail("TODO: implement AIR op: intcast for vectors", .{});
+            }
+
+            const src_int_ty: IntType = .fromType(cg, src_ty);
+            const dest_int_ty: IntType = .fromType(cg, dest_ty);
+
+            const src_bits = src_int_ty.bits;
+            const dest_bits = dest_int_ty.bits;
+
+            const same_class: bool = (src_bits <= 32 and dest_bits <= 32) or
+                (src_bits >= 33 and src_bits <= 64 and dest_bits >= 33 and dest_bits <= 64) or
+                (src_bits >= 65 and src_bits <= 128 and dest_bits >= 65 and dest_bits <= 128);
+
+            const result = if (same_class)
+                cg.reuseOperand(ty_op.operand, operand)
+            else
+                try cg.intCast(dest_int_ty, src_int_ty, operand);
+
+            try cg.finishAir(inst, result, &.{ty_op.operand});
+        },
+        .trunc => {
+            const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+
+            const operand = try cg.resolveInst(ty_op.operand);
+            const dest_ty = ty_op.ty.toType();
+            const src_ty = cg.typeOf(ty_op.operand);
+
+            if (dest_ty.zigTypeTag(zcu) == .vector or src_ty.zigTypeTag(zcu) == .vector) {
+                return cg.fail("TODO: implement AIR op: trunc for vectors", .{});
+            }
+
+            const src_int_ty: IntType = .fromType(cg, src_ty);
+            const dest_int_ty: IntType = .fromType(cg, dest_ty);
+
+            const result = if (src_int_ty.bits == dest_int_ty.bits)
+                cg.reuseOperand(ty_op.operand, operand)
+            else blk: {
+                break :blk try cg.intTrunc(dest_int_ty, src_int_ty, operand);
+            };
+
+            try cg.finishAir(inst, result, &.{ty_op.operand});
+        },
+
+        .fptrunc, .fpext => |tag| {
+            const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+
+            const operand = try cg.resolveInst(ty_op.operand);
+            const src_ty = cg.typeOf(ty_op.operand);
+            const dest_ty = cg.typeOfIndex(inst);
+
+            if (dest_ty.zigTypeTag(cg.pt.zcu) == .vector) {
+                return cg.fail("TODO: implement AIR op: {s} for vectors", .{@tagName(tag)});
+            }
+
+            const src_float_ty: FloatType = .fromType(cg, src_ty);
+            const dest_float_ty: FloatType = .fromType(cg, dest_ty);
+
+            const result = switch (tag) {
+                .fptrunc => try cg.floatTruncCast(dest_float_ty, src_float_ty, operand),
+                .fpext => try cg.floatExtendCast(dest_float_ty, src_float_ty, operand),
+                else => unreachable,
+            };
+
+            try cg.finishAir(inst, result, &.{ty_op.operand});
+        },
+
+        .int_from_float => {
+            const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+            const operand = try cg.resolveInst(ty_op.operand);
+            const src_ty = cg.typeOf(ty_op.operand);
+            const dest_ty = cg.typeOfIndex(inst);
+
+            if (src_ty.zigTypeTag(zcu) == .vector) {
+                return cg.fail("TODO: implement AIR op: int_from_float for vectors", .{});
+            }
+
+            const result = try cg.intFromFloat(.fromType(cg, dest_ty), .fromType(cg, src_ty), operand);
+            try cg.finishAir(inst, result, &.{ty_op.operand});
+        },
+        .float_from_int => {
+            const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+            const operand = try cg.resolveInst(ty_op.operand);
+            const src_ty = cg.typeOf(ty_op.operand);
+            const dest_ty = cg.typeOfIndex(inst);
+
+            if (src_ty.zigTypeTag(zcu) == .vector) {
+                return cg.fail("TODO: implement AIR op: float_from_int for vectors", .{});
+            }
+
+            const result = try cg.floatFromInt(.fromType(cg, dest_ty), .fromType(cg, src_ty), operand);
+            try cg.finishAir(inst, result, &.{ty_op.operand});
+        },
+
+        .clz, .ctz, .popcount, .byte_swap, .bit_reverse => |tag| {
+            const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+            const operand = try cg.resolveInst(ty_op.operand);
+
+            const ty = cg.typeOf(ty_op.operand);
+
+            if (ty.zigTypeTag(zcu) == .vector) {
+                return cg.fail("TODO: implement AIR op: {s} for vectors", .{@tagName(tag)});
+            }
+
+            const int_ty: IntType = .fromType(cg, ty);
+            const result = switch (tag) {
+                .clz => try cg.intClz(int_ty, operand),
+                .ctz => try cg.intCtz(int_ty, operand),
+                .popcount => try cg.intPopCount(int_ty, operand),
+                .byte_swap => try cg.intByteSwap(int_ty, operand),
+                .bit_reverse => try cg.intBitReverse(int_ty, operand),
+                else => unreachable,
+            };
+            try cg.finishAir(inst, result, &.{ty_op.operand});
+        },
+
+        .sqrt, .sin, .cos, .tan, .exp, .exp2, .log, .log2, .log10, .floor, .ceil, .round, .trunc_float, .neg => |tag| {
+            const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
+            const operand = try cg.resolveInst(un_op);
+            const ty = cg.typeOfIndex(inst);
+
+            if (ty.zigTypeTag(zcu) == .vector) {
+                return cg.fail("TODO: implement AIR op: {s} for vectors", .{@tagName(tag)});
+            }
+
+            const float_ty: FloatType = .fromType(cg, ty);
+            const result = switch (tag) {
+                .sqrt => try cg.floatSqrt(float_ty, operand),
+                .sin => try cg.floatSin(float_ty, operand),
+                .cos => try cg.floatCos(float_ty, operand),
+                .tan => try cg.floatTan(float_ty, operand),
+                .exp => try cg.floatExp(float_ty, operand),
+                .exp2 => try cg.floatExp2(float_ty, operand),
+                .log => try cg.floatLog(float_ty, operand),
+                .log2 => try cg.floatLog2(float_ty, operand),
+                .log10 => try cg.floatLog10(float_ty, operand),
+                .floor => try cg.floatFloor(float_ty, operand),
+                .ceil => try cg.floatCeil(float_ty, operand),
+                .round => try cg.floatRound(float_ty, operand),
+                .trunc_float => try cg.floatTrunc(float_ty, operand),
+                .neg => try cg.floatNeg(float_ty, operand),
+                else => unreachable,
+            };
+
+            try cg.finishAir(inst, result, &.{un_op});
+        },
 
         .cmp_eq => cg.airCmp(inst, .eq),
         .cmp_gte => cg.airCmp(inst, .gte),
@@ -1860,20 +1724,14 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .array_to_slice => cg.airArrayToSlice(inst),
         .alloc => cg.airAlloc(inst),
         .arg => cg.airArg(inst),
-        .bitcast => cg.airBitcast(inst),
         .block => cg.airBlock(inst),
         .trap => cg.airTrap(inst),
+        .unreach => cg.airUnreachable(inst),
         .breakpoint => cg.airBreakpoint(inst),
         .br => cg.airBr(inst),
         .repeat => cg.airRepeat(inst),
         .switch_dispatch => cg.airSwitchDispatch(inst),
         .cond_br => cg.airCondBr(inst),
-        .intcast => cg.airIntcast(inst),
-        .fptrunc => cg.airFptrunc(inst),
-        .fpext => cg.airFpext(inst),
-        .int_from_float => cg.airIntFromFloat(inst),
-        .float_from_int => cg.airFloatFromInt(inst),
-        .get_union_tag => cg.airGetUnionTag(inst),
 
         .@"try" => cg.airTry(inst),
         .try_cold => cg.airTry(inst),
@@ -1906,7 +1764,6 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .loop => cg.airLoop(inst),
         .memset => cg.airMemset(inst, false),
         .memset_safe => cg.airMemset(inst, true),
-        .not => cg.airNot(inst),
         .optional_payload => cg.airOptionalPayload(inst),
         .optional_payload_ptr => cg.airOptionalPayloadPtr(inst),
         .optional_payload_ptr_set => cg.airOptionalPayloadPtrSet(inst),
@@ -1926,9 +1783,6 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .aggregate_init => cg.airAggregateInit(inst),
         .union_init => cg.airUnionInit(inst),
         .prefetch => cg.airPrefetch(inst),
-        .popcount => cg.airPopcount(inst),
-        .byte_swap => cg.airByteSwap(inst),
-        .bit_reverse => cg.airBitReverse(inst),
 
         .slice => cg.airSlice(inst),
         .slice_len => cg.airSliceLen(inst),
@@ -1941,6 +1795,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .store_safe => cg.airStore(inst, true),
 
         .set_union_tag => cg.airSetUnionTag(inst),
+        .get_union_tag => cg.airGetUnionTag(inst),
         .struct_field_ptr => cg.airStructFieldPtr(inst),
         .struct_field_ptr_index_0 => cg.airStructFieldPtrIndex(inst, 0),
         .struct_field_ptr_index_1 => cg.airStructFieldPtrIndex(inst, 1),
@@ -1951,8 +1806,6 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         .switch_br => cg.airSwitchBr(inst, false),
         .loop_switch_br => cg.airSwitchBr(inst, true),
-        .trunc => cg.airTrunc(inst),
-        .unreach => cg.airUnreachable(inst),
 
         .wrap_optional => cg.airWrapOptional(inst),
         .unwrap_errunion_payload => cg.airUnwrapErrUnionPayload(inst, false),
@@ -1978,7 +1831,6 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .runtime_nav_ptr => cg.airRuntimeNavPtr(inst),
 
         .assembly,
-
         .err_return_trace,
         .set_err_return_trace,
         .save_err_return_trace_index,
@@ -2069,7 +1921,7 @@ fn airRet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // to the stack instead
     if (cg.return_value != .none) {
         try cg.store(cg.return_value, operand, ret_ty, 0);
-    } else if (fn_info.cc == .wasm_mvp and ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+    } else if (fn_info.cc == .wasm_mvp and ret_ty.hasRuntimeBits(zcu)) {
         switch (abi.classifyType(ret_ty, zcu)) {
             .direct => |scalar_type| {
                 assert(!abi.lowerAsDoubleI64(scalar_type, zcu));
@@ -2082,7 +1934,7 @@ fn airRet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             .indirect => unreachable,
         }
     } else {
-        if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu) and ret_ty.isError(zcu)) {
+        if (!ret_ty.hasRuntimeBits(zcu) and ret_ty.isError(zcu)) {
             try cg.addImm32(0);
         } else {
             try cg.emitWValue(operand);
@@ -2099,7 +1951,7 @@ fn airRetPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const child_type = cg.typeOfIndex(inst).childType(zcu);
 
     const result = result: {
-        if (!child_type.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) {
+        if (!child_type.hasRuntimeBits(zcu)) {
             break :result try cg.allocStack(Type.usize); // create pointer to void
         }
 
@@ -2121,7 +1973,7 @@ fn airRetLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ret_ty = cg.typeOf(un_op).childType(zcu);
 
     const fn_info = zcu.typeToFunc(zcu.navValue(cg.owner_nav).typeOf(zcu)).?;
-    if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+    if (!ret_ty.hasRuntimeBits(zcu)) {
         if (ret_ty.isError(zcu)) {
             try cg.addImm32(0);
         }
@@ -2177,7 +2029,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
         const arg_val = try cg.resolveInst(arg);
 
         const arg_ty = cg.typeOf(arg);
-        if (!arg_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
+        if (!arg_ty.hasRuntimeBits(zcu)) continue;
 
         try cg.lowerArg(zcu.typeToFunc(fn_ty).?.cc, arg_ty, arg_val);
     }
@@ -2199,10 +2051,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
     }
 
     const result_value = result_value: {
-        if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu) and !ret_ty.isError(zcu)) {
-            break :result_value .none;
-        } else if (ret_ty.isNoReturn(zcu)) {
-            try cg.addTag(.@"unreachable");
+        if (!ret_ty.hasRuntimeBits(zcu) and !ret_ty.isError(zcu)) {
             break :result_value .none;
         } else if (first_param_sret) {
             break :result_value sret;
@@ -2257,62 +2106,9 @@ fn airStore(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void {
         return cg.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
     }
 
-    if (ptr_info.packed_offset.host_size == 0) {
-        try cg.store(lhs, rhs, ty, 0);
-    } else {
-        // at this point we have a non-natural alignment, we must
-        // load the value, and then shift+or the rhs into the result location.
-        const host_size = ptr_info.packed_offset.host_size * 8;
-        const host_ty = try pt.intType(.unsigned, host_size);
-        const bit_size: u16 = @intCast(ty.bitSize(zcu));
-        const bit_offset = ptr_info.packed_offset.bit_offset;
+    assert(ptr_info.packed_offset.host_size == 0); // legalize .expand_packed_store
 
-        const mask_val = try cg.resolveValue(val: {
-            const limbs = try cg.gpa.alloc(
-                std.math.big.Limb,
-                std.math.big.int.calcTwosCompLimbCount(host_size) + 1,
-            );
-            defer cg.gpa.free(limbs);
-
-            var mask_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
-            mask_bigint.setTwosCompIntLimit(.max, .unsigned, host_size);
-
-            if (bit_size != host_size) {
-                mask_bigint.shiftRight(mask_bigint.toConst(), host_size - bit_size);
-            }
-            if (bit_offset != 0) {
-                mask_bigint.shiftLeft(mask_bigint.toConst(), bit_offset);
-            }
-            mask_bigint.bitNotWrap(mask_bigint.toConst(), .unsigned, host_size);
-
-            break :val try pt.intValue_big(host_ty, mask_bigint.toConst());
-        });
-
-        const shift_val: WValue = if (33 <= host_size and host_size <= 64)
-            .{ .imm64 = bit_offset }
-        else
-            .{ .imm32 = bit_offset };
-
-        if (host_size <= 64) {
-            try cg.emitWValue(lhs);
-        }
-        const loaded = if (host_size <= 64)
-            try cg.load(lhs, host_ty, 0)
-        else
-            lhs;
-        const anded = try cg.binOp(loaded, mask_val, host_ty, .@"and");
-        const extended_value = try cg.intcast(rhs, ty, host_ty);
-        const shifted_value = if (bit_offset > 0)
-            try cg.binOp(extended_value, shift_val, host_ty, .shl)
-        else
-            extended_value;
-        const result = try cg.binOp(anded, shifted_value, host_ty, .@"or");
-        if (host_size <= 64) {
-            try cg.store(.stack, result, host_ty, lhs.offset());
-        } else {
-            try cg.store(lhs, result, host_ty, lhs.offset());
-        }
-    }
+    try cg.store(lhs, rhs, ty, 0);
 
     return cg.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
 }
@@ -2323,108 +2119,50 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
     const zcu = pt.zcu;
     const abi_size = ty.abiSize(zcu);
 
-    if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) return;
+    if (!ty.hasRuntimeBits(zcu)) return;
 
-    switch (ty.zigTypeTag(zcu)) {
-        .error_union => {
-            const pl_ty = ty.errorUnionPayload(zcu);
-            if (!pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                return cg.store(lhs, rhs, Type.anyerror, offset);
-            }
-
-            const len = @as(u32, @intCast(abi_size));
-            assert(offset == 0);
-            return cg.memcpy(lhs, rhs, .{ .imm32 = len });
-        },
-        .optional => {
-            if (ty.isPtrLikeOptional(zcu)) {
-                return cg.store(lhs, rhs, Type.usize, offset);
-            }
-            const pl_ty = ty.optionalChild(zcu);
-            if (!pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                return cg.store(lhs, rhs, Type.u8, offset);
-            }
-            if (pl_ty.zigTypeTag(zcu) == .error_set) {
-                return cg.store(lhs, rhs, Type.anyerror, offset);
-            }
-
-            const len = @as(u32, @intCast(abi_size));
-            assert(offset == 0);
-            return cg.memcpy(lhs, rhs, .{ .imm32 = len });
-        },
-        .@"struct", .array, .@"union" => if (isByRef(ty, zcu, cg.target)) {
-            const len = @as(u32, @intCast(abi_size));
-            assert(offset == 0);
-            return cg.memcpy(lhs, rhs, .{ .imm32 = len });
-        },
-        .vector => switch (determineSimdStoreStrategy(ty, zcu, cg.target)) {
-            .unrolled => {
-                const len: u32 = @intCast(abi_size);
-                return cg.memcpy(lhs, rhs, .{ .imm32 = len });
-            },
-            .direct => {
-                try cg.emitWValue(lhs);
-                try cg.lowerToStack(rhs);
-                // TODO: Add helper functions for simd opcodes
-                const extra_index: u32 = @intCast(cg.mir_extra.items.len);
-                // stores as := opcode, offset, alignment (opcode::memarg)
-                try cg.mir_extra.appendSlice(cg.gpa, &[_]u32{
-                    @intFromEnum(std.wasm.SimdOpcode.v128_store),
-                    offset + lhs.offset(),
-                    @intCast(ty.abiAlignment(zcu).toByteUnits() orelse 0),
-                });
-                return cg.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
-            },
-        },
-        .pointer => {
-            if (ty.isSlice(zcu)) {
-                assert(offset == 0);
-                // store pointer first
-                // lower it to the stack so we do not have to store rhs into a local first
-                try cg.emitWValue(lhs);
-                const ptr_local = try cg.load(rhs, Type.usize, 0);
-                try cg.store(.stack, ptr_local, Type.usize, 0 + lhs.offset());
-
-                // retrieve length from rhs, and store that alongside lhs as well
-                try cg.emitWValue(lhs);
-                const len_local = try cg.load(rhs, Type.usize, cg.ptrSize());
-                try cg.store(.stack, len_local, Type.usize, cg.ptrSize() + lhs.offset());
-                return;
-            }
-        },
-        .int, .@"enum", .float => if (abi_size > 8 and abi_size <= 16) {
-            assert(offset == 0);
-            try cg.emitWValue(lhs);
-            const lsb = try cg.load(rhs, Type.u64, 0);
-            try cg.store(.stack, lsb, Type.u64, 0 + lhs.offset());
-
-            try cg.emitWValue(lhs);
-            const msb = try cg.load(rhs, Type.u64, 8);
-            try cg.store(.stack, msb, Type.u64, 8 + lhs.offset());
-            return;
-        } else if (abi_size > 16) {
-            assert(offset == 0);
-            try cg.memcpy(lhs, rhs, .{ .imm32 = @as(u32, @intCast(ty.abiSize(zcu))) });
-        },
-        else => if (abi_size > 8) {
-            return cg.fail("TODO: `store` for type `{f}` with abisize `{d}`", .{ ty.fmt(pt), abi_size });
-        },
+    if (isByRef(ty, zcu, cg.target)) {
+        return cg.memcpy(lhs, rhs, .{ .imm32 = @intCast(abi_size) });
     }
+
+    if (ty.zigTypeTag(zcu) == .vector) {
+        try cg.emitWValue(lhs);
+        try cg.lowerToStack(rhs);
+        // TODO: Add helper functions for simd opcodes
+        const extra_index: u32 = @intCast(cg.mir_extra.items.len);
+        // stores as := opcode, offset, alignment (opcode::memarg)
+        try cg.mir_extra.appendSlice(cg.gpa, &[_]u32{
+            @intFromEnum(std.wasm.SimdOpcode.v128_store),
+            offset + lhs.offset(),
+            @intCast(ty.abiAlignment(zcu).toByteUnits() orelse 0),
+        });
+        return cg.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
+    }
+
+    const store_opcode: Mir.Inst.Tag = opcode: {
+        if (ty.isAnyFloat()) {
+            break :opcode switch (abi_size) {
+                2 => .i32_store16,
+                4 => .f32_store,
+                8 => .f64_store,
+                else => unreachable,
+            };
+        } else {
+            break :opcode switch (abi_size) {
+                1 => .i32_store8,
+                2 => .i32_store16,
+                4 => .i32_store,
+                8 => .i64_store,
+                else => unreachable,
+            };
+        }
+    };
+
     try cg.emitWValue(lhs);
-    // In this case we're actually interested in storing the stack position
-    // into lhs, so we calculate that and emit that instead
     try cg.lowerToStack(rhs);
 
-    const valtype = typeToValtype(ty, zcu, cg.target);
-    const opcode = buildOpcode(.{
-        .valtype1 = valtype,
-        .width = @as(u8, @intCast(abi_size * 8)),
-        .op = .store,
-    });
-
-    // store rhs value at stack pointer's location in memory
     try cg.addMemArg(
-        Mir.Inst.Tag.fromOpcode(opcode),
+        store_opcode,
         .{
             .offset = offset + lhs.offset(),
             .alignment = @intCast(ty.abiAlignment(zcu).toByteUnits().?),
@@ -2441,7 +2179,9 @@ fn airLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ptr_ty = cg.typeOf(ty_op.operand);
     const ptr_info = ptr_ty.ptrInfo(zcu);
 
-    if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) return cg.finishAir(inst, .none, &.{ty_op.operand});
+    if (!ty.hasRuntimeBits(zcu)) return cg.finishAir(inst, .none, &.{ty_op.operand});
+
+    assert(ptr_info.packed_offset.host_size == 0); // legalize .expand_packed_load
 
     const result = result: {
         if (isByRef(ty, zcu, cg.target)) {
@@ -2450,30 +2190,17 @@ fn airLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result new_local;
         }
 
-        if (ptr_info.packed_offset.host_size == 0) {
-            const loaded = try cg.load(operand, ty, 0);
-            const ty_size = ty.abiSize(zcu);
-            if (ty.isAbiInt(zcu) and ty_size * 8 > ty.bitSize(zcu)) {
-                const int_elem_ty = try pt.intType(.unsigned, @intCast(ty_size * 8));
-                break :result try cg.trunc(loaded, ty, int_elem_ty);
-            } else {
-                break :result loaded;
-            }
+        const loaded = try cg.load(operand, ty, 0);
+        const ty_size = ty.abiSize(zcu);
+        if (ty.isAbiInt(zcu) and ty_size * 8 > ty.bitSize(zcu)) {
+            const int_info = ty.intInfo(zcu);
+            const loaded_int_ty: IntType = .{
+                .is_signed = int_info.signedness == .signed,
+                .bits = @intCast(ty_size * 8),
+            };
+            break :result try cg.intTrunc(.fromType(cg, ty), loaded_int_ty, loaded);
         } else {
-            const int_elem_ty = try pt.intType(.unsigned, ptr_info.packed_offset.host_size * 8);
-            const shift_val: WValue = if (ptr_info.packed_offset.host_size <= 4)
-                .{ .imm32 = ptr_info.packed_offset.bit_offset }
-            else if (ptr_info.packed_offset.host_size <= 8)
-                .{ .imm64 = ptr_info.packed_offset.bit_offset }
-            else
-                .{ .imm32 = ptr_info.packed_offset.bit_offset };
-
-            const stack_loaded = if (ptr_info.packed_offset.host_size <= 8)
-                try cg.load(operand, int_elem_ty, 0)
-            else
-                operand;
-            const shifted = try cg.binOp(stack_loaded, shift_val, int_elem_ty, .shr);
-            break :result try cg.trunc(shifted, ty, int_elem_ty);
+            break :result loaded;
         }
     };
     return cg.finishAir(inst, result, &.{ty_op.operand});
@@ -2499,16 +2226,29 @@ fn load(cg: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValue 
         return .stack;
     }
 
-    const abi_size: u8 = @intCast(ty.abiSize(zcu));
-    const opcode = buildOpcode(.{
-        .valtype1 = typeToValtype(ty, zcu, cg.target),
-        .width = abi_size * 8,
-        .op = .load,
-        .signedness = if (ty.isSignedInt(zcu)) .signed else .unsigned,
-    });
+    const abi_size = ty.abiSize(zcu);
+    const load_opcode: Mir.Inst.Tag = opcode: {
+        if (ty.isAnyFloat()) {
+            break :opcode switch (abi_size) {
+                2 => .i32_load16_u,
+                4 => .f32_load,
+                8 => .f64_load,
+                else => unreachable,
+            };
+        } else {
+            const is_signed = if (ty.isAbiInt(zcu)) ty.intInfo(zcu).signedness == .signed else false;
+            break :opcode switch (abi_size) {
+                1 => if (is_signed) .i32_load8_s else .i32_load8_u,
+                2 => if (is_signed) .i32_load16_s else .i32_load16_u,
+                4 => .i32_load,
+                8 => .i64_load,
+                else => unreachable,
+            };
+        }
+    };
 
     try cg.addMemArg(
-        Mir.Inst.Tag.fromOpcode(opcode),
+        load_opcode,
         .{
             .offset = offset + operand.offset(),
             .alignment = @intCast(ty.abiAlignment(zcu).toByteUnits().?),
@@ -2545,521 +2285,866 @@ fn airArg(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.finishAir(inst, arg, &.{});
 }
 
-fn airBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
-    const zcu = cg.pt.zcu;
-    const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const lhs = try cg.resolveInst(bin_op.lhs);
-    const rhs = try cg.resolveInst(bin_op.rhs);
-    const lhs_ty = cg.typeOf(bin_op.lhs);
-    const rhs_ty = cg.typeOf(bin_op.rhs);
+const IntType = struct {
+    is_signed: bool,
+    bits: u16,
 
-    // For certain operations, such as shifting, the types are different.
-    // When converting this to a WebAssembly type, they *must* match to perform
-    // an operation. For this reason we verify if the WebAssembly type is different, in which
-    // case we first coerce the operands to the same type before performing the operation.
-    // For big integers we can ignore this as we will call into compiler-rt which handles this.
-    const result = switch (op) {
-        .shr, .shl => result: {
-            if (lhs_ty.isVector(zcu) and !rhs_ty.isVector(zcu)) {
-                return cg.fail("TODO: implement vector '{s}' with scalar rhs", .{@tagName(op)});
-            }
+    const @"i32": IntType = .{ .is_signed = true, .bits = 32 };
+    const @"i64": IntType = .{ .is_signed = true, .bits = 64 };
+    const @"u32": IntType = .{ .is_signed = false, .bits = 32 };
+    const @"u64": IntType = .{ .is_signed = false, .bits = 64 };
 
-            const lhs_wasm_bits = toWasmBits(@intCast(lhs_ty.bitSize(zcu))) orelse {
-                return cg.fail("TODO: implement '{s}' for types larger than 128 bits", .{@tagName(op)});
-            };
-            const rhs_wasm_bits = toWasmBits(@intCast(rhs_ty.bitSize(zcu))).?;
-            const new_rhs = if (lhs_wasm_bits != rhs_wasm_bits and lhs_wasm_bits != 128)
-                try (try cg.intcast(rhs, rhs_ty, lhs_ty)).toLocal(cg, lhs_ty)
-            else
-                rhs;
-            break :result try cg.binOp(lhs, new_rhs, lhs_ty, op);
-        },
-        else => try cg.binOp(lhs, rhs, lhs_ty, op),
-    };
-
-    return cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
-}
-
-/// Performs a binary operation on the given `WValue`'s
-/// NOTE: THis leaves the value on top of the stack.
-fn binOp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
-    assert(!(lhs != .stack and rhs == .stack));
-
-    if (ty.isAnyFloat()) {
-        const float_op = FloatOp.fromOp(op);
-        return cg.floatOp(float_op, ty, &.{ lhs, rhs });
+    // Adapted from x86_64 backend
+    // Differ from Type.intInfo as it treats pointers/booleans/packed/enums/errors as integer
+    fn fromType(cg: *CodeGen, ty: Type) IntType {
+        const zcu = cg.pt.zcu;
+        const ip = &zcu.intern_pool;
+        var ty_index = ty.ip_index;
+        while (true) switch (ip.indexToKey(ty_index)) {
+            .int_type => |int_type| return .{ .is_signed = int_type.signedness == .signed, .bits = int_type.bits },
+            .ptr_type => |ptr_type| return switch (ptr_type.flags.size) {
+                .one, .many, .c => .{ .is_signed = false, .bits = cg.target.ptrBitWidth() },
+                .slice => unreachable,
+            },
+            .opt_type => |opt_child| return if (!Type.fromInterned(opt_child).hasRuntimeBits(zcu))
+                .{ .is_signed = false, .bits = 1 }
+            else switch (ip.indexToKey(opt_child)) {
+                .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
+                    .one, .many => switch (ptr_type.flags.is_allowzero) {
+                        false => .{ .is_signed = false, .bits = cg.target.ptrBitWidth() },
+                        true => unreachable,
+                    },
+                    .slice, .c => unreachable,
+                },
+                else => unreachable,
+            },
+            .error_union_type => |error_union_type| return if (!Type.fromInterned(error_union_type.payload_type)
+                .hasRuntimeBits(zcu)) .{ .is_signed = false, .bits = zcu.errorSetBits() } else unreachable,
+            .simple_type => |simple_type| return switch (simple_type) {
+                .bool => .{ .is_signed = false, .bits = 1 },
+                .anyerror => .{ .is_signed = false, .bits = zcu.errorSetBits() },
+                .isize => .{ .is_signed = true, .bits = cg.target.ptrBitWidth() },
+                .usize => .{ .is_signed = false, .bits = cg.target.ptrBitWidth() },
+                .c_char => .{ .is_signed = cg.target.cCharSignedness() == .signed, .bits = cg.target.cTypeBitSize(.char) },
+                .c_short => .{ .is_signed = true, .bits = cg.target.cTypeBitSize(.short) },
+                .c_ushort => .{ .is_signed = false, .bits = cg.target.cTypeBitSize(.short) },
+                .c_int => .{ .is_signed = true, .bits = cg.target.cTypeBitSize(.int) },
+                .c_uint => .{ .is_signed = false, .bits = cg.target.cTypeBitSize(.int) },
+                .c_long => .{ .is_signed = true, .bits = cg.target.cTypeBitSize(.long) },
+                .c_ulong => .{ .is_signed = false, .bits = cg.target.cTypeBitSize(.long) },
+                .c_longlong => .{ .is_signed = true, .bits = cg.target.cTypeBitSize(.longlong) },
+                .c_ulonglong => .{ .is_signed = false, .bits = cg.target.cTypeBitSize(.longlong) },
+                .f16, .f32, .f64, .f80, .f128, .c_longdouble => unreachable,
+                .anyopaque, .void, .type, .comptime_int, .comptime_float, .noreturn, .null, .undefined, .enum_literal, .adhoc_inferred_error_set, .generic_poison => unreachable,
+            },
+            .struct_type => {
+                const loaded_struct = ip.loadStructType(ty_index);
+                switch (loaded_struct.layout) {
+                    .auto, .@"extern" => unreachable,
+                    .@"packed" => ty_index = loaded_struct.packed_backing_int_type,
+                }
+            },
+            .union_type => return switch (ip.loadUnionType(ty_index).layout) {
+                .auto, .@"extern" => unreachable,
+                .@"packed" => .{ .is_signed = false, .bits = @intCast(ty.bitSize(zcu)) },
+            },
+            .enum_type => ty_index = ip.loadEnumType(ty_index).int_tag_type,
+            .error_set_type, .inferred_error_set_type => return .{ .is_signed = false, .bits = zcu.errorSetBits() },
+            else => unreachable,
+        };
     }
+};
 
-    if (isByRef(ty, zcu, cg.target)) {
-        if (ty.zigTypeTag(zcu) == .int) {
-            return cg.binOpBigInt(lhs, rhs, ty, op);
-        } else {
-            return cg.fail("TODO: Implement binary operation for type: {f}", .{ty.fmt(pt)});
-        }
-    }
-
-    const opcode: std.wasm.Opcode = buildOpcode(.{
-        .op = op,
-        .valtype1 = typeToValtype(ty, zcu, cg.target),
-        .signedness = if (ty.isSignedInt(zcu)) .signed else .unsigned,
-    });
-    try cg.emitWValue(lhs);
-    try cg.emitWValue(rhs);
-
-    try cg.addTag(Mir.Inst.Tag.fromOpcode(opcode));
-
-    return .stack;
-}
-
-fn binOpBigInt(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
-    const zcu = cg.pt.zcu;
-    const int_info = ty.intInfo(zcu);
-    if (int_info.bits > 128) {
-        return cg.fail("TODO: Implement binary operation for big integers larger than 128 bits", .{});
-    }
-
-    switch (op) {
-        .mul => return cg.callIntrinsic(.__multi3, &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
-        .div => switch (int_info.signedness) {
-            .signed => return cg.callIntrinsic(.__divti3, &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
-            .unsigned => return cg.callIntrinsic(.__udivti3, &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+fn intAdd(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.i32_add);
+            return .stack;
         },
-        .rem => switch (int_info.signedness) {
-            .signed => return cg.callIntrinsic(.__modti3, &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
-            .unsigned => return cg.callIntrinsic(.__umodti3, &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+        33...64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.i64_add);
+            return .stack;
         },
-        .shr => switch (int_info.signedness) {
-            .signed => return cg.callIntrinsic(.__ashrti3, &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
-            .unsigned => return cg.callIntrinsic(.__lshrti3, &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
-        },
-        .shl => return cg.callIntrinsic(.__ashlti3, &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
-        .@"and", .@"or", .xor => {
-            const result = try cg.allocStack(ty);
-            try cg.emitWValue(result);
-            const lhs_lsb = try cg.load(lhs, Type.u64, 0);
-            const rhs_lsb = try cg.load(rhs, Type.u64, 0);
-            const op_lsb = try cg.binOp(lhs_lsb, rhs_lsb, Type.u64, op);
-            try cg.store(.stack, op_lsb, Type.u64, result.offset());
+        65...128 => {
+            const result = try cg.allocStack(Type.u128);
 
-            try cg.emitWValue(result);
-            const lhs_msb = try cg.load(lhs, Type.u64, 8);
-            const rhs_msb = try cg.load(rhs, Type.u64, 8);
-            const op_msb = try cg.binOp(lhs_msb, rhs_msb, Type.u64, op);
-            try cg.store(.stack, op_msb, Type.u64, result.offset() + 8);
-            return result;
-        },
-        .add, .sub => {
-            const result = try cg.allocStack(ty);
             var lhs_lsb = try (try cg.load(lhs, Type.u64, 0)).toLocal(cg, Type.u64);
             defer lhs_lsb.free(cg);
             var rhs_lsb = try (try cg.load(rhs, Type.u64, 0)).toLocal(cg, Type.u64);
             defer rhs_lsb.free(cg);
-            var op_lsb = try (try cg.binOp(lhs_lsb, rhs_lsb, Type.u64, op)).toLocal(cg, Type.u64);
+            var op_lsb = try (try cg.intAdd(.u64, lhs_lsb, rhs_lsb)).toLocal(cg, Type.u64);
             defer op_lsb.free(cg);
 
             const lhs_msb = try cg.load(lhs, Type.u64, 8);
             const rhs_msb = try cg.load(rhs, Type.u64, 8);
-            const op_msb = try cg.binOp(lhs_msb, rhs_msb, Type.u64, op);
+            const op_msb = try cg.intAdd(.u64, lhs_msb, rhs_msb);
 
-            const lt = if (op == .add) blk: {
-                break :blk try cg.cmp(op_lsb, rhs_lsb, Type.u64, .lt);
-            } else if (op == .sub) blk: {
-                break :blk try cg.cmp(lhs_lsb, rhs_lsb, Type.u64, .lt);
-            } else unreachable;
-            const tmp = try cg.intcast(lt, Type.u32, Type.u64);
-            var tmp_op = try (try cg.binOp(op_msb, tmp, Type.u64, op)).toLocal(cg, Type.u64);
+            const lt = try cg.intCmp(.u64, .lt, op_lsb, rhs_lsb);
+            const tmp = try cg.intCast(.u64, .u32, lt);
+            var tmp_op = try (try cg.intAdd(.u64, op_msb, tmp)).toLocal(cg, Type.u64);
             defer tmp_op.free(cg);
 
             try cg.store(result, op_lsb, Type.u64, 0);
             try cg.store(result, tmp_op, Type.u64, 8);
             return result;
         },
-        else => return cg.fail("TODO: Implement binary operation for big integers: '{s}'", .{@tagName(op)}),
+        else => return cg.fail("TODO: Support intAdd for integer bitsize: {d}", .{ty.bits}),
     }
 }
 
-const FloatOp = enum {
-    add,
-    ceil,
-    cos,
-    div,
-    exp,
-    exp2,
-    fabs,
-    floor,
-    fma,
-    fmax,
-    fmin,
-    fmod,
-    log,
-    log10,
-    log2,
-    mul,
-    neg,
-    round,
-    sin,
-    sqrt,
-    sub,
-    tan,
-    trunc,
-
-    pub fn fromOp(op: Op) FloatOp {
-        return switch (op) {
-            .add => .add,
-            .ceil => .ceil,
-            .div => .div,
-            .abs => .fabs,
-            .floor => .floor,
-            .max => .fmax,
-            .min => .fmin,
-            .mul => .mul,
-            .neg => .neg,
-            .nearest => .round,
-            .sqrt => .sqrt,
-            .sub => .sub,
-            .trunc => .trunc,
-            .rem => .fmod,
-            else => unreachable,
-        };
-    }
-
-    pub fn toOp(float_op: FloatOp) ?Op {
-        return switch (float_op) {
-            .add => .add,
-            .ceil => .ceil,
-            .div => .div,
-            .fabs => .abs,
-            .floor => .floor,
-            .fmax => .max,
-            .fmin => .min,
-            .mul => .mul,
-            .neg => .neg,
-            .round => .nearest,
-            .sqrt => .sqrt,
-            .sub => .sub,
-            .trunc => .trunc,
-
-            .cos,
-            .exp,
-            .exp2,
-            .fma,
-            .fmod,
-            .log,
-            .log10,
-            .log2,
-            .sin,
-            .tan,
-            => null,
-        };
-    }
-
-    fn intrinsic(op: FloatOp, bits: u16) Mir.Intrinsic {
-        return switch (op) {
-            inline .add, .sub, .div, .mul => |ct_op| switch (bits) {
-                inline 16, 80, 128 => |ct_bits| @field(
-                    Mir.Intrinsic,
-                    "__" ++ @tagName(ct_op) ++ compilerRtFloatAbbrev(ct_bits) ++ "f3",
-                ),
-                else => unreachable,
-            },
-
-            inline .ceil,
-            .fabs,
-            .floor,
-            .fmax,
-            .fmin,
-            .round,
-            .sqrt,
-            .trunc,
-            => |ct_op| switch (bits) {
-                inline 16, 80, 128 => |ct_bits| @field(
-                    Mir.Intrinsic,
-                    libcFloatPrefix(ct_bits) ++ @tagName(ct_op) ++ libcFloatSuffix(ct_bits),
-                ),
-                else => unreachable,
-            },
-
-            inline .cos,
-            .exp,
-            .exp2,
-            .fma,
-            .fmod,
-            .log,
-            .log10,
-            .log2,
-            .sin,
-            .tan,
-            => |ct_op| switch (bits) {
-                inline 16, 32, 64, 80, 128 => |ct_bits| @field(
-                    Mir.Intrinsic,
-                    libcFloatPrefix(ct_bits) ++ @tagName(ct_op) ++ libcFloatSuffix(ct_bits),
-                ),
-                else => unreachable,
-            },
-
-            .neg => unreachable,
-        };
-    }
-};
-
-fn airAbs(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
-    const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const operand = try cg.resolveInst(ty_op.operand);
-    const ty = cg.typeOf(ty_op.operand);
-    const scalar_ty = ty.scalarType(zcu);
-
-    switch (scalar_ty.zigTypeTag(zcu)) {
-        .int => if (ty.zigTypeTag(zcu) == .vector) {
-            return cg.fail("TODO implement airAbs for {f}", .{ty.fmt(pt)});
-        } else {
-            const int_bits = ty.intInfo(zcu).bits;
-            const wasm_bits = toWasmBits(int_bits) orelse {
-                return cg.fail("TODO: airAbs for signed integers larger than '{d}' bits", .{int_bits});
-            };
-
-            switch (wasm_bits) {
-                32 => {
-                    try cg.emitWValue(operand);
-
-                    try cg.addImm32(31);
-                    try cg.addTag(.i32_shr_s);
-
-                    var tmp = try cg.allocLocal(ty);
-                    defer tmp.free(cg);
-                    try cg.addLocal(.local_tee, tmp.local.value);
-
-                    try cg.emitWValue(operand);
-                    try cg.addTag(.i32_xor);
-                    try cg.emitWValue(tmp);
-                    try cg.addTag(.i32_sub);
-                    return cg.finishAir(inst, .stack, &.{ty_op.operand});
-                },
-                64 => {
-                    try cg.emitWValue(operand);
-
-                    try cg.addImm64(63);
-                    try cg.addTag(.i64_shr_s);
-
-                    var tmp = try cg.allocLocal(ty);
-                    defer tmp.free(cg);
-                    try cg.addLocal(.local_tee, tmp.local.value);
-
-                    try cg.emitWValue(operand);
-                    try cg.addTag(.i64_xor);
-                    try cg.emitWValue(tmp);
-                    try cg.addTag(.i64_sub);
-                    return cg.finishAir(inst, .stack, &.{ty_op.operand});
-                },
-                128 => {
-                    const mask = try cg.allocStack(Type.u128);
-                    try cg.emitWValue(mask);
-                    try cg.emitWValue(mask);
-
-                    _ = try cg.load(operand, Type.u64, 8);
-                    try cg.addImm64(63);
-                    try cg.addTag(.i64_shr_s);
-
-                    var tmp = try cg.allocLocal(Type.u64);
-                    defer tmp.free(cg);
-                    try cg.addLocal(.local_tee, tmp.local.value);
-                    try cg.store(.stack, .stack, Type.u64, mask.offset() + 0);
-                    try cg.emitWValue(tmp);
-                    try cg.store(.stack, .stack, Type.u64, mask.offset() + 8);
-
-                    const a = try cg.binOpBigInt(operand, mask, Type.u128, .xor);
-                    const b = try cg.binOpBigInt(a, mask, Type.u128, .sub);
-
-                    return cg.finishAir(inst, b, &.{ty_op.operand});
-                },
-                else => unreachable,
-            }
-        },
-        .float => {
-            const result = try cg.floatOp(.fabs, ty, &.{operand});
-            return cg.finishAir(inst, result, &.{ty_op.operand});
-        },
-        else => unreachable,
-    }
-}
-
-fn airUnaryFloatOp(cg: *CodeGen, inst: Air.Inst.Index, op: FloatOp) InnerError!void {
-    const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const operand = try cg.resolveInst(un_op);
-    const ty = cg.typeOf(un_op);
-
-    const result = try cg.floatOp(op, ty, &.{operand});
-    return cg.finishAir(inst, result, &.{un_op});
-}
-
-fn floatOp(cg: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) InnerError!WValue {
-    const zcu = cg.pt.zcu;
-    if (ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: Implement floatOps for vectors", .{});
-    }
-
-    const float_bits = ty.floatBits(cg.target);
-
-    if (float_op == .neg) {
-        return cg.floatNeg(ty, args[0]);
-    }
-
-    if (float_bits == 32 or float_bits == 64) {
-        if (float_op.toOp()) |op| {
-            for (args) |operand| {
-                try cg.emitWValue(operand);
-            }
-            const opcode = buildOpcode(.{ .op = op, .valtype1 = typeToValtype(ty, zcu, cg.target) });
-            try cg.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+fn intSub(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.i32_sub);
             return .stack;
-        }
+        },
+        33...64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.i64_sub);
+            return .stack;
+        },
+        65...128 => {
+            const result = try cg.allocStack(Type.u128);
+
+            var lhs_lsb = try (try cg.load(lhs, Type.u64, 0)).toLocal(cg, Type.u64);
+            defer lhs_lsb.free(cg);
+            var rhs_lsb = try (try cg.load(rhs, Type.u64, 0)).toLocal(cg, Type.u64);
+            defer rhs_lsb.free(cg);
+            var op_lsb = try (try cg.intSub(.u64, lhs_lsb, rhs_lsb)).toLocal(cg, Type.u64);
+            defer op_lsb.free(cg);
+
+            const lhs_msb = try cg.load(lhs, Type.u64, 8);
+            const rhs_msb = try cg.load(rhs, Type.u64, 8);
+            const op_msb = try cg.intSub(.u64, lhs_msb, rhs_msb);
+
+            const lt = try cg.intCmp(.u64, .lt, lhs_lsb, rhs_lsb);
+            const tmp = try cg.intCast(.u64, .u32, lt);
+            var tmp_op = try (try cg.intSub(.u64, op_msb, tmp)).toLocal(cg, Type.u64);
+            defer tmp_op.free(cg);
+
+            try cg.store(result, op_lsb, Type.u64, 0);
+            try cg.store(result, tmp_op, Type.u64, 8);
+            return result;
+        },
+        else => return cg.fail("TODO: Support intSub for integer bitsize: {d}", .{ty.bits}),
     }
-
-    const intrinsic = float_op.intrinsic(float_bits);
-
-    // fma requires three operands
-    var param_types_buffer: [3]InternPool.Index = .{ ty.ip_index, ty.ip_index, ty.ip_index };
-    const param_types = param_types_buffer[0..args.len];
-    return cg.callIntrinsic(intrinsic, param_types, ty, args);
 }
 
-/// NOTE: The result value remains on top of the stack.
-fn floatNeg(cg: *CodeGen, ty: Type, arg: WValue) InnerError!WValue {
-    const float_bits = ty.floatBits(cg.target);
-    switch (float_bits) {
-        16 => {
-            try cg.emitWValue(arg);
-            try cg.addImm32(0x8000);
+fn intMul(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.i32_mul);
+            return .stack;
+        },
+        33...64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.i64_mul);
+            return .stack;
+        },
+        65...128 => return cg.callIntrinsic(.__multi3, &.{ .i128_type, .i128_type }, Type.i128, &.{ lhs, rhs }),
+        else => return cg.fail("TODO: Support intMul for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn intDiv(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(if (ty.is_signed) .i32_div_s else .i32_div_u);
+            return .stack;
+        },
+        33...64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(if (ty.is_signed) .i64_div_s else .i64_div_u);
+            return .stack;
+        },
+        65...128 => {
+            if (ty.is_signed) {
+                return cg.callIntrinsic(.__divti3, &.{ .i128_type, .i128_type }, Type.i128, &.{ lhs, rhs });
+            } else {
+                return cg.callIntrinsic(.__udivti3, &.{ .i128_type, .i128_type }, Type.i128, &.{ lhs, rhs });
+            }
+        },
+        else => return cg.fail("TODO: Support intDiv for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn intDivFloor(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    if (!ty.is_signed) {
+        return cg.intDiv(ty, lhs, rhs);
+    }
+
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            var q = try (try cg.intDiv(ty, lhs, rhs)).toLocal(cg, Type.i32);
+            defer q.free(cg);
+
+            const zero: WValue = .{ .imm32 = 0 };
+
+            const r = try cg.intRem(ty, lhs, rhs);
+            var r_nonzero = try (try cg.intCmp(ty, .neq, r, zero)).toLocal(cg, Type.i32);
+            defer r_nonzero.free(cg);
+
+            const sign_xor = try cg.intXor(ty, lhs, rhs);
+            var sign_diff = try (try cg.intCmp(ty, .lt, sign_xor, zero)).toLocal(cg, Type.i32);
+            defer sign_diff.free(cg);
+
+            try cg.emitWValue(q);
+            const need_adjust = try cg.intAnd(.u32, r_nonzero, sign_diff);
+            try cg.emitWValue(need_adjust);
+            try cg.addTag(.i32_sub);
+            return .stack;
+        },
+        33...64 => {
+            var q = try (try cg.intDiv(ty, lhs, rhs)).toLocal(cg, Type.i64);
+            defer q.free(cg);
+
+            const zero: WValue = .{ .imm64 = 0 };
+
+            const r = try cg.intRem(ty, lhs, rhs);
+            var r_nonzero = try (try cg.intCmp(ty, .neq, r, zero)).toLocal(cg, Type.i32);
+            defer r_nonzero.free(cg);
+
+            const sign_xor = try cg.intXor(ty, lhs, rhs);
+            var sign_diff = try (try cg.intCmp(ty, .lt, sign_xor, zero)).toLocal(cg, Type.i32);
+            defer sign_diff.free(cg);
+
+            try cg.emitWValue(q);
+            const need_adjust = try cg.intAnd(.u32, r_nonzero, sign_diff);
+            try cg.emitWValue(need_adjust);
+            try cg.addTag(.i64_extend_i32_u);
+            try cg.addTag(.i64_sub);
+            return .stack;
+        },
+        else => return cg.fail("TODO: Support intDivFloor for signed integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn intRem(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(if (ty.is_signed) .i32_rem_s else .i32_rem_u);
+            return .stack;
+        },
+        33...64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(if (ty.is_signed) .i64_rem_s else .i64_rem_u);
+            return .stack;
+        },
+        65...128 => {
+            if (ty.is_signed) {
+                return cg.callIntrinsic(.__modti3, &.{ .i128_type, .i128_type }, Type.i128, &.{ lhs, rhs });
+            } else {
+                return cg.callIntrinsic(.__umodti3, &.{ .i128_type, .i128_type }, Type.i128, &.{ lhs, rhs });
+            }
+        },
+        else => return cg.fail("TODO: Support intRem for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn intMod(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    if (!ty.is_signed) {
+        return cg.intRem(ty, lhs, rhs);
+    }
+
+    // mod_s(a, b) = rem_s(rem_s(a, b) + b, b)
+    const rem = try cg.intRem(ty, lhs, rhs);
+    const sum = try cg.intAdd(ty, rem, rhs);
+    return cg.intRem(ty, sum, rhs);
+}
+
+fn intAnd(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.i32_and);
+            return .stack;
+        },
+        33...64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.i64_and);
+            return .stack;
+        },
+        65...128 => {
+            const result = try cg.allocStack(Type.u128);
+
+            const lhs_lsb = try cg.load(lhs, Type.u64, 0);
+            const rhs_lsb = try cg.load(rhs, Type.u64, 0);
+            const and_lsb = try (try cg.intAnd(.u64, lhs_lsb, rhs_lsb)).toLocal(cg, Type.u64);
+            try cg.store(result, and_lsb, Type.u64, 0);
+
+            const lhs_msb = try cg.load(lhs, Type.u64, 8);
+            const rhs_msb = try cg.load(rhs, Type.u64, 8);
+            const and_msb = try (try cg.intAnd(.u64, lhs_msb, rhs_msb)).toLocal(cg, Type.u64);
+            try cg.store(result, and_msb, Type.u64, 8);
+
+            return result;
+        },
+        else => return cg.fail("TODO: Support intAnd for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn intOr(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.i32_or);
+            return .stack;
+        },
+        33...64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.i64_or);
+            return .stack;
+        },
+        65...128 => {
+            const result = try cg.allocStack(Type.u128);
+
+            const lhs_lsb = try cg.load(lhs, Type.u64, 0);
+            const rhs_lsb = try cg.load(rhs, Type.u64, 0);
+            const or_lsb = try (try cg.intOr(.u64, lhs_lsb, rhs_lsb)).toLocal(cg, Type.u64);
+            try cg.store(result, or_lsb, Type.u64, 0);
+
+            const lhs_msb = try cg.load(lhs, Type.u64, 8);
+            const rhs_msb = try cg.load(rhs, Type.u64, 8);
+            const or_msb = try (try cg.intOr(.u64, lhs_msb, rhs_msb)).toLocal(cg, Type.u64);
+            try cg.store(result, or_msb, Type.u64, 8);
+
+            return result;
+        },
+        else => return cg.fail("TODO: Support intOr for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn intXor(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
             try cg.addTag(.i32_xor);
             return .stack;
         },
-        32, 64 => {
-            try cg.emitWValue(arg);
-            const val_type: std.wasm.Valtype = if (float_bits == 32) .f32 else .f64;
-            const opcode = buildOpcode(.{ .op = .neg, .valtype1 = val_type });
-            try cg.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+        33...64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.i64_xor);
             return .stack;
         },
-        80, 128 => {
-            const result = try cg.allocStack(ty);
-            try cg.emitWValue(result);
-            try cg.emitWValue(arg);
-            try cg.addMemArg(.i64_load, .{ .offset = 0 + arg.offset(), .alignment = 2 });
-            try cg.addMemArg(.i64_store, .{ .offset = 0 + result.offset(), .alignment = 2 });
+        65...128 => {
+            const result = try cg.allocStack(Type.u128);
 
-            try cg.emitWValue(result);
-            try cg.emitWValue(arg);
-            try cg.addMemArg(.i64_load, .{ .offset = 8 + arg.offset(), .alignment = 2 });
+            const lhs_lsb = try cg.load(lhs, Type.u64, 0);
+            const rhs_lsb = try cg.load(rhs, Type.u64, 0);
+            const xor_lsb = try (try cg.intXor(.u64, lhs_lsb, rhs_lsb)).toLocal(cg, Type.u64);
+            try cg.store(result, xor_lsb, Type.u64, 0);
 
-            if (float_bits == 80) {
-                try cg.addImm64(0x8000);
-                try cg.addTag(.i64_xor);
-                try cg.addMemArg(.i64_store16, .{ .offset = 8 + result.offset(), .alignment = 2 });
-            } else {
-                try cg.addImm64(0x8000000000000000);
-                try cg.addTag(.i64_xor);
-                try cg.addMemArg(.i64_store, .{ .offset = 8 + result.offset(), .alignment = 2 });
-            }
+            const lhs_msb = try cg.load(lhs, Type.u64, 8);
+            const rhs_msb = try cg.load(rhs, Type.u64, 8);
+            const xor_msb = try (try cg.intXor(.u64, lhs_msb, rhs_msb)).toLocal(cg, Type.u64);
+            try cg.store(result, xor_msb, Type.u64, 8);
+
             return result;
         },
-        else => unreachable,
+        else => return cg.fail("TODO: Support intXor for integer bitsize: {d}", .{ty.bits}),
     }
 }
 
-fn airWrapBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
-    const zcu = cg.pt.zcu;
-    const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
-    const lhs = try cg.resolveInst(bin_op.lhs);
-    const rhs = try cg.resolveInst(bin_op.rhs);
-    const lhs_ty = cg.typeOf(bin_op.lhs);
-    const rhs_ty = cg.typeOf(bin_op.rhs);
-
-    if (lhs_ty.isVector(zcu)) {
-        if ((op == .shr or op == .shl) and !rhs_ty.isVector(zcu)) {
-            return cg.fail("TODO: implement wrapping vector '{s}' with scalar rhs", .{@tagName(op)});
-        } else {
-            return cg.fail("TODO: implement wrapping '{s}' for vectors", .{@tagName(op)});
-        }
-    }
-
-    // For certain operations, such as shifting, the types are different.
-    // When converting this to a WebAssembly type, they *must* match to perform
-    // an operation. For this reason we verify if the WebAssembly type is different, in which
-    // case we first coerce the operands to the same type before performing the operation.
-    // For big integers we can ignore this as we will call into compiler-rt which handles this.
-    const result = switch (op) {
-        .shr, .shl => result: {
-            const lhs_wasm_bits = toWasmBits(@intCast(lhs_ty.bitSize(zcu))) orelse {
-                return cg.fail("TODO: implement '{s}' for types larger than 128 bits", .{@tagName(op)});
-            };
-            const rhs_wasm_bits = toWasmBits(@intCast(rhs_ty.bitSize(zcu))).?;
-            const new_rhs = if (lhs_wasm_bits != rhs_wasm_bits and lhs_wasm_bits != 128)
-                try (try cg.intcast(rhs, rhs_ty, lhs_ty)).toLocal(cg, lhs_ty)
-            else
-                rhs;
-            break :result try cg.wrapBinOp(lhs, new_rhs, lhs_ty, op);
-        },
-        else => try cg.wrapBinOp(lhs, rhs, lhs_ty, op),
-    };
-
-    return cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
-}
-
-/// Performs a wrapping binary operation.
-/// Asserts rhs is not a stack value when lhs also isn't.
-/// NOTE: Leaves the result on the stack when its Type is <= 64 bits
-fn wrapBinOp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
-    const bin_local = try cg.binOp(lhs, rhs, ty, op);
-    return cg.wrapOperand(bin_local, ty);
-}
-
-/// Wraps an operand based on a given type's bitsize.
-/// Asserts `Type` is <= 128 bits.
-/// NOTE: When the Type is <= 64 bits, leaves the value on top of the stack, if wrapping was needed.
-fn wrapOperand(cg: *CodeGen, operand: WValue, ty: Type) InnerError!WValue {
-    const zcu = cg.pt.zcu;
-    assert(ty.abiSize(zcu) <= 16);
-    const int_bits: u16 = @intCast(ty.bitSize(zcu)); // TODO use ty.intInfo(zcu).bits
-    const wasm_bits = toWasmBits(int_bits) orelse {
-        return cg.fail("TODO: Implement wrapOperand for bitsize '{d}'", .{int_bits});
-    };
-
-    if (wasm_bits == int_bits) return operand;
-
-    switch (wasm_bits) {
-        32 => {
+fn intNot(cg: *CodeGen, ty: IntType, operand: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1 => {
             try cg.emitWValue(operand);
-            if (ty.isSignedInt(zcu)) {
-                try cg.addImm32(32 - int_bits);
+            if (ty.is_signed) {
+                try cg.addImm32(~@as(u32, 0));
+                try cg.addTag(.i32_xor);
+            } else {
+                try cg.addTag(.i32_eqz);
+            }
+            return .stack;
+        },
+        2...32 => {
+            const mask: u32 = if (ty.is_signed)
+                ~@as(u32, 0)
+            else
+                ~@as(u32, 0) >> @intCast(32 - ty.bits);
+            try cg.emitWValue(operand);
+            try cg.addImm32(mask);
+            try cg.addTag(.i32_xor);
+            return .stack;
+        },
+        33...64 => {
+            const mask: u64 = if (ty.is_signed)
+                ~@as(u64, 0)
+            else
+                ~@as(u64, 0) >> @intCast(64 - ty.bits);
+            try cg.emitWValue(operand);
+            try cg.addImm64(mask);
+            try cg.addTag(.i64_xor);
+            return .stack;
+        },
+        65...128 => {
+            const result = try cg.allocStack(Type.u128);
+
+            try cg.emitWValue(result);
+            _ = try cg.load(operand, Type.u64, 0);
+            try cg.addImm64(~@as(u64, 0));
+            try cg.addTag(.i64_xor);
+            try cg.store(.stack, .stack, Type.u64, result.offset());
+
+            try cg.emitWValue(result);
+            _ = try cg.load(operand, Type.u64, 8);
+            const high_mask: u64 = if (ty.is_signed)
+                ~@as(u64, 0)
+            else
+                ~@as(u64, 0) >> @intCast(128 - ty.bits);
+            try cg.addImm64(high_mask);
+            try cg.addTag(.i64_xor);
+            try cg.store(.stack, .stack, Type.u64, result.offset() + 8);
+
+            return result;
+        },
+        else => return cg.fail("TODO: Support intNot for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+// rhs is a shift count, pointing to i32 value
+fn intShl(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.i32_shl);
+            return .stack;
+        },
+        33...64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.i64_extend_i32_u);
+            try cg.addTag(.i64_shl);
+            return .stack;
+        },
+        65...128 => return cg.callIntrinsic(.__ashlti3, &.{ .i128_type, .i32_type }, Type.i128, &.{ lhs, rhs }),
+        else => return cg.fail("TODO: Support intShl for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+// rhs is a shift count, pointing to i32 value
+fn intShr(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(if (ty.is_signed) .i32_shr_s else .i32_shr_u);
+            return .stack;
+        },
+        33...64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.i64_extend_i32_u);
+            try cg.addTag(if (ty.is_signed) .i64_shr_s else .i64_shr_u);
+            return .stack;
+        },
+        65...128 => {
+            if (ty.is_signed) {
+                return cg.callIntrinsic(.__ashrti3, &.{ .i128_type, .i32_type }, Type.i128, &.{ lhs, rhs });
+            } else {
+                return cg.callIntrinsic(.__lshrti3, &.{ .i128_type, .i32_type }, Type.i128, &.{ lhs, rhs });
+            }
+        },
+        else => return cg.fail("TODO: Support intShr for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn intAbs(cg: *CodeGen, ty: IntType, operand: WValue) InnerError!WValue {
+    if (!ty.is_signed) return operand;
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            try cg.emitWValue(operand);
+            try cg.addImm32(31);
+            try cg.addTag(.i32_shr_s);
+
+            var mask = try cg.allocLocal(Type.i32);
+            defer mask.free(cg);
+            try cg.addLocal(.local_tee, mask.local.value);
+
+            try cg.emitWValue(operand);
+            try cg.addTag(.i32_xor);
+            try cg.emitWValue(mask);
+            try cg.addTag(.i32_sub);
+            return .stack;
+        },
+        33...64 => {
+            try cg.emitWValue(operand);
+            try cg.addImm64(63);
+            try cg.addTag(.i64_shr_s);
+
+            var mask = try cg.allocLocal(Type.i64);
+            defer mask.free(cg);
+            try cg.addLocal(.local_tee, mask.local.value);
+
+            try cg.emitWValue(operand);
+            try cg.addTag(.i64_xor);
+            try cg.emitWValue(mask);
+            try cg.addTag(.i64_sub);
+            return .stack;
+        },
+        65...128 => {
+            const u128_ty: IntType = .{ .is_signed = false, .bits = 128 };
+
+            const mask = try cg.allocStack(Type.u128);
+            try cg.emitWValue(mask);
+            try cg.emitWValue(mask);
+
+            _ = try cg.load(operand, Type.u64, 8);
+            try cg.addImm64(63);
+            try cg.addTag(.i64_shr_s);
+
+            var tmp = try cg.allocLocal(Type.u64);
+            defer tmp.free(cg);
+            try cg.addLocal(.local_tee, tmp.local.value);
+            try cg.store(.stack, .stack, Type.u64, mask.offset() + 0);
+            try cg.emitWValue(tmp);
+            try cg.store(.stack, .stack, Type.u64, mask.offset() + 8);
+
+            const a = try cg.intXor(u128_ty, operand, mask);
+            const b = try cg.intSub(u128_ty, a, mask);
+            return b;
+        },
+        else => return cg.fail("TODO: Support intAbs for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn intMax(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    try cg.lowerToStack(lhs);
+    try cg.lowerToStack(rhs);
+    _ = try cg.intCmp(ty, .gt, lhs, rhs);
+    try cg.addTag(.select);
+    return .stack;
+}
+
+fn intMin(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    try cg.lowerToStack(lhs);
+    try cg.lowerToStack(rhs);
+    _ = try cg.intCmp(ty, .lt, lhs, rhs);
+    try cg.addTag(.select);
+    return .stack;
+}
+
+fn intClz(cg: *CodeGen, ty: IntType, operand: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            if (ty.is_signed and ty.bits < 32) {
+                const mask: u32 = ~@as(u32, 0) >> @intCast(32 - ty.bits);
+                _ = try cg.intAnd(.u32, operand, .{ .imm32 = mask });
+            } else {
+                try cg.emitWValue(operand);
+            }
+            try cg.addTag(.i32_clz);
+            if (ty.bits < 32) {
+                try cg.addImm32(32 - ty.bits);
+                try cg.addTag(.i32_sub);
+            }
+            return .stack;
+        },
+        33...64 => {
+            if (ty.is_signed and ty.bits < 64) {
+                const mask: u64 = ~@as(u64, 0) >> @intCast(64 - ty.bits);
+                _ = try cg.intAnd(.u64, operand, .{ .imm64 = mask });
+            } else {
+                try cg.emitWValue(operand);
+            }
+            try cg.addTag(.i64_clz);
+            try cg.addTag(.i32_wrap_i64);
+            if (ty.bits < 64) {
+                try cg.addImm32(64 - ty.bits);
+                try cg.addTag(.i32_sub);
+            }
+            return .stack;
+        },
+        65...128 => {
+            var msb = try (try cg.load(operand, Type.u64, 8)).toLocal(cg, Type.u64);
+            defer msb.free(cg);
+
+            try cg.emitWValue(msb);
+            try cg.addTag(.i64_clz);
+            _ = try cg.load(operand, Type.u64, 0);
+            try cg.addTag(.i64_clz);
+            try cg.emitWValue(.{ .imm64 = 64 });
+            try cg.addTag(.i64_add);
+            _ = try cg.intCmp(.u64, .neq, msb, .{ .imm64 = 0 });
+            try cg.addTag(.select);
+            try cg.addTag(.i32_wrap_i64);
+            return .stack;
+        },
+        else => return cg.fail("TODO: Support intClz for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn intCtz(cg: *CodeGen, ty: IntType, operand: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            if (ty.bits < 32) {
+                _ = try cg.intOr(.u32, operand, .{ .imm32 = @as(u32, 1) << @intCast(ty.bits) });
+            } else {
+                try cg.emitWValue(operand);
+            }
+            try cg.addTag(.i32_ctz);
+            return .stack;
+        },
+        33...64 => {
+            if (ty.bits < 64) {
+                _ = try cg.intOr(.u64, operand, .{ .imm64 = @as(u64, 1) << @intCast(ty.bits) });
+            } else {
+                try cg.emitWValue(operand);
+            }
+            try cg.addTag(.i64_ctz);
+            try cg.addTag(.i32_wrap_i64);
+            return .stack;
+        },
+        65...128 => {
+            var lsb = try (try cg.load(operand, Type.u64, 0)).toLocal(cg, Type.u64);
+            defer lsb.free(cg);
+
+            try cg.emitWValue(lsb);
+            try cg.addTag(.i64_ctz);
+
+            _ = try cg.load(operand, Type.u64, 8);
+            if (ty.bits < 128) {
+                try cg.addImm64(@as(u64, 1) << @intCast(ty.bits - 64));
+                try cg.addTag(.i64_or);
+            }
+            try cg.addTag(.i64_ctz);
+            try cg.addImm64(64);
+            try cg.addTag(.i64_add);
+            _ = try cg.intCmp(.u64, .neq, lsb, .{ .imm64 = 0 });
+            try cg.addTag(.select);
+            try cg.addTag(.i32_wrap_i64);
+            return .stack;
+        },
+        else => return cg.fail("TODO: Support intCtz for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn intPopCount(cg: *CodeGen, ty: IntType, operand: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            try cg.emitWValue(operand);
+            if (ty.is_signed and ty.bits < 32) {
+                try cg.addImm32(32 - ty.bits);
                 try cg.addTag(.i32_shl);
-                try cg.addImm32(32 - int_bits);
+            }
+            try cg.addTag(.i32_popcnt);
+            return .stack;
+        },
+        33...64 => {
+            try cg.emitWValue(operand);
+            if (ty.is_signed and ty.bits < 64) {
+                try cg.addImm64(64 - ty.bits);
+                try cg.addTag(.i64_shl);
+            }
+            try cg.addTag(.i64_popcnt);
+            try cg.addTag(.i32_wrap_i64);
+            return .stack;
+        },
+        65...128 => {
+            _ = try cg.load(operand, Type.u64, 0);
+            try cg.addTag(.i64_popcnt);
+            _ = try cg.load(operand, Type.u64, 8);
+            if (ty.is_signed and ty.bits < 128) {
+                try cg.addImm64(128 - ty.bits);
+                try cg.addTag(.i64_shl);
+            }
+            try cg.addTag(.i64_popcnt);
+
+            try cg.addTag(.i64_add);
+            try cg.addTag(.i32_wrap_i64);
+            return .stack;
+        },
+        else => return cg.fail("TODO: Support intPopCount for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn intBitReverse(cg: *CodeGen, ty: IntType, operand: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            const intrin_ret = try cg.callIntrinsic(
+                .__bitreversesi2,
+                &.{.u32_type},
+                Type.u32,
+                &.{operand},
+            );
+            if (ty.bits == 32) return intrin_ret;
+            return cg.intShr(ty, intrin_ret, .{ .imm32 = 32 - ty.bits });
+        },
+        33...64 => {
+            const intrin_ret = try cg.callIntrinsic(
+                .__bitreversedi2,
+                &.{.u64_type},
+                Type.u64,
+                &.{operand},
+            );
+            if (ty.bits == 64) return intrin_ret;
+            return cg.intShr(ty, intrin_ret, .{ .imm32 = 64 - ty.bits });
+        },
+        65...128 => {
+            const tmp = try cg.allocStack(Type.u128);
+
+            try cg.emitWValue(tmp);
+            const hi = try cg.load(operand, Type.u64, 8);
+            const hi_rev = try cg.callIntrinsic(
+                .__bitreversedi2,
+                &.{.u64_type},
+                Type.u64,
+                &.{hi},
+            );
+            try cg.emitWValue(hi_rev);
+            try cg.store(.stack, .stack, Type.u64, tmp.offset());
+
+            try cg.emitWValue(tmp);
+            const lo = try cg.load(operand, Type.u64, 0);
+            const lo_rev = try cg.callIntrinsic(
+                .__bitreversedi2,
+                &.{.u64_type},
+                Type.u64,
+                &.{lo},
+            );
+            try cg.emitWValue(lo_rev);
+            try cg.store(.stack, .stack, Type.u64, tmp.offset() + 8);
+
+            if (ty.bits < 128) {
+                const shift_ty: IntType = .{ .is_signed = ty.is_signed, .bits = 128 };
+                return cg.intShr(shift_ty, tmp, .{ .imm32 = 128 - ty.bits });
+            } else {
+                return tmp;
+            }
+        },
+        else => return cg.fail("TODO: Support intBitReverse for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn intByteSwap(cg: *CodeGen, ty: IntType, operand: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            const intrin_ret = try cg.callIntrinsic(
+                .__bswapsi2,
+                &.{.u32_type},
+                Type.u32,
+                &.{operand},
+            );
+            if (ty.bits == 32) return intrin_ret;
+            return cg.intShr(ty, intrin_ret, .{ .imm32 = 32 - ty.bits });
+        },
+        33...64 => {
+            const intrin_ret = try cg.callIntrinsic(
+                .__bswapdi2,
+                &.{.u64_type},
+                Type.u64,
+                &.{operand},
+            );
+            if (ty.bits == 64) return intrin_ret;
+            return cg.intShr(ty, intrin_ret, .{ .imm32 = 64 - ty.bits });
+        },
+        65...128 => {
+            const tmp = try cg.allocStack(Type.u128);
+
+            const low = try cg.load(operand, Type.u64, 0);
+            const high = try cg.load(operand, Type.u64, 8);
+
+            const swap_low = try cg.callIntrinsic(
+                .__bswapdi2,
+                &.{.u64_type},
+                Type.u64,
+                &.{low},
+            );
+            const swap_high = try cg.callIntrinsic(
+                .__bswapdi2,
+                &.{.u64_type},
+                Type.u64,
+                &.{high},
+            );
+
+            try cg.store(tmp, swap_low, Type.u64, tmp.offset() + 8);
+            try cg.store(tmp, swap_high, Type.u64, tmp.offset());
+
+            if (ty.bits < 128) {
+                const shift_ty: IntType = .{ .is_signed = ty.is_signed, .bits = 128 };
+                return cg.intShr(shift_ty, tmp, .{ .imm32 = 128 - ty.bits });
+            } else {
+                return tmp;
+            }
+        },
+        else => return cg.fail("TODO: Support intByteSwap for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn intWrap(cg: *CodeGen, ty: IntType, operand: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...31 => {
+            try cg.emitWValue(operand);
+            if (ty.is_signed) {
+                try cg.addImm32(32 - ty.bits);
+                try cg.addTag(.i32_shl);
+                try cg.addImm32(32 - ty.bits);
                 try cg.addTag(.i32_shr_s);
             } else {
-                try cg.addImm32(~@as(u32, 0) >> @intCast(32 - int_bits));
+                try cg.addImm32(~@as(u32, 0) >> @intCast(32 - ty.bits));
                 try cg.addTag(.i32_and);
             }
             return .stack;
         },
-        64 => {
+        32 => return operand,
+        33...63 => {
             try cg.emitWValue(operand);
-            if (ty.isSignedInt(zcu)) {
-                try cg.addImm64(64 - int_bits);
+            if (ty.is_signed) {
+                try cg.addImm64(64 - ty.bits);
                 try cg.addTag(.i64_shl);
-                try cg.addImm64(64 - int_bits);
+                try cg.addImm64(64 - ty.bits);
                 try cg.addTag(.i64_shr_s);
             } else {
-                try cg.addImm64(~@as(u64, 0) >> @intCast(64 - int_bits));
+                try cg.addImm64(~@as(u64, 0) >> @intCast(64 - ty.bits));
                 try cg.addTag(.i64_and);
             }
             return .stack;
         },
-        128 => {
-            assert(operand != .stack);
-            const result = try cg.allocStack(ty);
+        64 => return operand,
+        65...127 => {
+            const result = try cg.allocStack(Type.u128);
 
             try cg.emitWValue(result);
             _ = try cg.load(operand, Type.u64, 0);
@@ -3067,20 +3152,1167 @@ fn wrapOperand(cg: *CodeGen, operand: WValue, ty: Type) InnerError!WValue {
 
             try cg.emitWValue(result);
             _ = try cg.load(operand, Type.u64, 8);
-            if (ty.isSignedInt(zcu)) {
-                try cg.addImm64(128 - int_bits);
+            if (ty.is_signed) {
+                try cg.addImm64(128 - ty.bits);
                 try cg.addTag(.i64_shl);
-                try cg.addImm64(128 - int_bits);
+                try cg.addImm64(128 - ty.bits);
                 try cg.addTag(.i64_shr_s);
             } else {
-                try cg.addImm64(~@as(u64, 0) >> @intCast(128 - int_bits));
+                try cg.addImm64(~@as(u64, 0) >> @intCast(128 - ty.bits));
                 try cg.addTag(.i64_and);
             }
             try cg.store(.stack, .stack, Type.u64, result.offset() + 8);
 
             return result;
         },
+        128 => return operand,
+        else => return cg.fail("TODO: Support intWrap for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn intMaxValue(cg: *CodeGen, int_ty: IntType) InnerError!WValue {
+    if (int_ty.bits <= 32) {
+        if (int_ty.is_signed) {
+            return .{ .imm32 = (~@as(u32, 0) >> @intCast(32 - int_ty.bits)) >> 1 };
+        } else {
+            return .{ .imm32 = ~@as(u32, 0) >> @intCast(32 - int_ty.bits) };
+        }
+    } else if (int_ty.bits <= 64) {
+        if (int_ty.is_signed) {
+            return .{ .imm64 = (~@as(u64, 0) >> @intCast(64 - int_ty.bits)) >> 1 };
+        } else {
+            return .{ .imm64 = ~@as(u64, 0) >> @intCast(64 - int_ty.bits) };
+        }
+    } else {
+        const result = try cg.allocStack(Type.u128);
+        try cg.store(result, .{ .imm64 = ~@as(u64, 0) }, Type.u64, 0);
+
+        if (int_ty.is_signed) {
+            try cg.store(result, .{ .imm64 = (~@as(u64, 0) >> @intCast(128 - int_ty.bits)) >> 1 }, Type.u64, 8);
+        } else {
+            try cg.store(result, .{ .imm64 = ~@as(u64, 0) >> @intCast(128 - int_ty.bits) }, Type.u64, 8);
+        }
+        return result;
+    }
+}
+
+fn intMinValue(cg: *CodeGen, int_ty: IntType) InnerError!WValue {
+    if (!int_ty.is_signed) {
+        return cg.intZeroValue(int_ty);
+    }
+    if (int_ty.bits <= 32) {
+        return .{ .imm32 = ~@as(u32, 0) << @intCast(int_ty.bits - 1) };
+    } else if (int_ty.bits <= 64) {
+        return .{ .imm64 = ~@as(u64, 0) << @intCast(int_ty.bits - 1) };
+    } else {
+        const result = try cg.allocStack(Type.u128);
+        try cg.store(result, .{ .imm64 = 0 }, Type.u64, 0);
+        try cg.store(result, .{ .imm64 = ~@as(u64, 0) << @intCast(int_ty.bits - 65) }, Type.u64, 8);
+        return result;
+    }
+}
+
+fn intAddSat(cg: *CodeGen, int_ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    const raw_val = try cg.intAdd(int_ty, lhs, rhs);
+    var op_val = try cg.toLocalInt(try cg.intWrap(int_ty, raw_val), int_ty);
+    defer op_val.free(cg);
+
+    const max_val = try cg.intMaxValue(int_ty);
+
+    if (int_ty.is_signed) {
+        const zero = try cg.intZeroValue(int_ty);
+        var rhs_is_neg = try cg.toLocalInt(try cg.intCmp(int_ty, .lt, rhs, zero), .u32);
+        defer rhs_is_neg.free(cg);
+        const min_val = try cg.intMinValue(int_ty);
+
+        try cg.emitWValue(min_val);
+        try cg.emitWValue(max_val);
+        try cg.emitWValue(rhs_is_neg);
+        try cg.addTag(.select);
+
+        try cg.emitWValue(op_val);
+        const overflow_cmp = try cg.intCmp(int_ty, .lt, op_val, lhs);
+        const is_overflow = try cg.intCmp(.u32, .neq, rhs_is_neg, overflow_cmp);
+        try cg.emitWValue(is_overflow);
+        try cg.addTag(.select);
+        return .stack;
+    } else {
+        try cg.emitWValue(max_val);
+        try cg.emitWValue(op_val);
+
+        const is_overflow = try cg.intCmp(int_ty, .lt, op_val, lhs);
+        try cg.emitWValue(is_overflow);
+        try cg.addTag(.select);
+        return .stack;
+    }
+}
+
+fn intSubSat(cg: *CodeGen, int_ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    const raw_val = try cg.intSub(int_ty, lhs, rhs);
+    var op_val = try cg.toLocalInt(try cg.intWrap(int_ty, raw_val), int_ty);
+    defer op_val.free(cg);
+
+    if (int_ty.is_signed) {
+        const zero = try cg.intZeroValue(int_ty);
+        var rhs_is_neg = try cg.toLocalInt(try cg.intCmp(int_ty, .lt, rhs, zero), .u32);
+        defer rhs_is_neg.free(cg);
+        const max_val = try cg.intMaxValue(int_ty);
+        const min_val = try cg.intMinValue(int_ty);
+
+        try cg.emitWValue(max_val);
+        try cg.emitWValue(min_val);
+        try cg.emitWValue(rhs_is_neg);
+        try cg.addTag(.select);
+
+        try cg.emitWValue(op_val);
+        const overflow_cmp = try cg.intCmp(int_ty, .gt, op_val, lhs);
+        const is_overflow = try cg.intCmp(.u32, .neq, rhs_is_neg, overflow_cmp);
+        try cg.emitWValue(is_overflow);
+        try cg.addTag(.select);
+        return .stack;
+    } else {
+        const zero = try cg.intZeroValue(int_ty);
+
+        try cg.emitWValue(zero);
+        try cg.emitWValue(op_val);
+        const is_overflow = try cg.intCmp(int_ty, .lt, lhs, rhs);
+        try cg.emitWValue(is_overflow);
+        try cg.addTag(.select);
+        return .stack;
+    }
+}
+
+fn intMulSat(cg: *CodeGen, int_ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    // Remove when > 128 int ops will be implemented in backend
+    if (int_ty.bits == 128) {
+        if (!int_ty.is_signed) {
+            return cg.fail("TODO: mul_sat for unsigned 128-bit integers", .{});
+        }
+
+        const overflow_ret = try cg.allocStack(Type.i32);
+        const ret = try cg.callIntrinsic(
+            .__muloti4,
+            &[_]InternPool.Index{ .i128_type, .i128_type, .usize_type },
+            Type.i128,
+            &.{ lhs, rhs, overflow_ret },
+        );
+        try cg.lowerToStack(ret);
+
+        const xor = try cg.intXor(int_ty, lhs, rhs);
+        const sign_v = try cg.intShr(int_ty, xor, .{ .imm32 = 127 });
+
+        // xor ~@as(u127, 0)
+        try cg.emitWValue(sign_v);
+        const lsb = try cg.load(sign_v, Type.u64, 0);
+        _ = try cg.intXor(.u64, lsb, .{ .imm64 = ~@as(u64, 0) });
+        try cg.store(.stack, .stack, Type.u64, sign_v.offset());
+
+        try cg.emitWValue(sign_v);
+        const msb = try cg.load(sign_v, Type.u64, 8);
+        _ = try cg.intXor(.u64, msb, .{ .imm64 = ~@as(u64, 0) >> 1 });
+        try cg.store(.stack, .stack, Type.u64, sign_v.offset() + 8);
+
+        try cg.lowerToStack(sign_v);
+        _ = try cg.load(overflow_ret, Type.i32, 0);
+        try cg.addTag(.i32_eqz);
+        try cg.addTag(.select);
+
+        return .stack;
+    }
+
+    const ext_ty: IntType = .{ .is_signed = int_ty.is_signed, .bits = int_ty.bits * 2 };
+
+    const lhs_ext = try cg.intCast(ext_ty, int_ty, lhs);
+    const rhs_ext = try cg.intCast(ext_ty, int_ty, rhs);
+
+    var mul_ext = try cg.toLocalInt(try cg.intMul(ext_ty, lhs_ext, rhs_ext), ext_ty);
+    defer mul_ext.free(cg);
+
+    var op_val = try cg.toLocalInt(try cg.intTrunc(int_ty, ext_ty, mul_ext), int_ty);
+    defer op_val.free(cg);
+    const max_val = try cg.intMaxValue(int_ty);
+
+    if (int_ty.is_signed) {
+        const min_val = try cg.intMinValue(int_ty);
+
+        try cg.emitWValue(min_val);
+
+        try cg.emitWValue(max_val);
+        try cg.emitWValue(op_val);
+        const max_ext = try cg.intCast(ext_ty, int_ty, max_val);
+        const ov_pos = try cg.intCmp(ext_ty, .lt, max_ext, mul_ext);
+        try cg.emitWValue(ov_pos);
+        try cg.addTag(.select);
+
+        const min_ext = try cg.intCast(ext_ty, int_ty, min_val);
+        const ov_neg = try cg.intCmp(ext_ty, .gt, min_ext, mul_ext);
+        try cg.emitWValue(ov_neg);
+        try cg.addTag(.select);
+        return .stack;
+    } else {
+        try cg.emitWValue(max_val);
+        try cg.emitWValue(op_val);
+        const max_ext = try cg.intCast(ext_ty, int_ty, max_val);
+        const is_overflow = try cg.intCmp(ext_ty, .lt, max_ext, mul_ext);
+        try cg.emitWValue(is_overflow);
+        try cg.addTag(.select);
+        return .stack;
+    }
+}
+
+fn intShlSat(cg: *CodeGen, int_ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    const raw_val = try cg.intShl(int_ty, lhs, rhs);
+    var op_val = try cg.toLocalInt(try cg.intWrap(int_ty, raw_val), int_ty);
+    defer op_val.free(cg);
+
+    var check_val = try cg.toLocalInt(try cg.intShr(int_ty, op_val, rhs), int_ty);
+    defer check_val.free(cg);
+
+    const max_val = try cg.intMaxValue(int_ty);
+
+    if (int_ty.is_signed) {
+        const zero = try cg.intZeroValue(int_ty);
+        const min_val = try cg.intMinValue(int_ty);
+
+        try cg.emitWValue(min_val);
+        try cg.emitWValue(max_val);
+        const lhs_is_neg = try cg.intCmp(int_ty, .lt, lhs, zero);
+        try cg.emitWValue(lhs_is_neg);
+        try cg.addTag(.select);
+
+        try cg.emitWValue(op_val);
+        const is_overflow = try cg.intCmp(int_ty, .neq, check_val, lhs);
+        try cg.emitWValue(is_overflow);
+        try cg.addTag(.select);
+        return .stack;
+    } else {
+        try cg.emitWValue(max_val);
+        try cg.emitWValue(op_val);
+        const is_overflow = try cg.intCmp(int_ty, .neq, check_val, lhs);
+        try cg.emitWValue(is_overflow);
+        try cg.addTag(.select);
+        return .stack;
+    }
+}
+
+fn intZeroValue(cg: *CodeGen, int_ty: IntType) InnerError!WValue {
+    switch (int_ty.bits) {
+        0 => unreachable,
+        1...32 => return .{ .imm32 = 0 },
+        33...64 => return .{ .imm64 = 0 },
+        65...128 => {
+            const result = try cg.allocStack(Type.u128);
+            try cg.store(result, .{ .imm64 = 0 }, Type.u64, 0);
+            try cg.store(result, .{ .imm64 = 0 }, Type.u64, 8);
+            return result;
+        },
+        else => return cg.fail("TODO: Implement intZeroValue for integer bitsize: {d}", .{int_ty.bits}),
+    }
+}
+
+fn toLocalInt(cg: *CodeGen, value: WValue, int_ty: IntType) InnerError!WValue {
+    switch (value) {
+        .stack => {
+            const ty: Type = switch (int_ty.bits) {
+                0 => unreachable,
+                1...32 => .u32,
+                33...64 => .u64,
+                65...128 => .u128,
+                else => return cg.fail("TODO: Support toLocalInt for integer bitsize: {d}", .{int_ty.bits}),
+            };
+            const new_local = try cg.allocLocal(ty);
+            try cg.addLocal(.local_set, new_local.local.value);
+            return new_local;
+        },
+        .local, .stack_offset => return value,
         else => unreachable,
+    }
+}
+
+const OverflowResult = struct {
+    result: WValue,
+    ov: WValue,
+};
+
+fn intAddOverflow(cg: *CodeGen, int_ty: IntType, lhs: WValue, rhs: WValue) InnerError!OverflowResult {
+    switch (int_ty.bits) {
+        0 => unreachable,
+        1...128 => {
+            const raw_result = try cg.intAdd(int_ty, lhs, rhs);
+            const op_result = try cg.intWrap(int_ty, raw_result);
+            const op_tmp = try cg.toLocalInt(op_result, int_ty);
+
+            const overflow_bit = if (int_ty.is_signed) blk: {
+                const zero = try cg.intZeroValue(int_ty);
+                const rhs_is_neg = try cg.intCmp(int_ty, .lt, rhs, zero);
+                const overflow_cmp = try cg.intCmp(int_ty, .lt, op_tmp, lhs);
+                break :blk try cg.intCmp(.u32, .neq, rhs_is_neg, overflow_cmp);
+            } else try cg.intCmp(int_ty, .lt, op_tmp, lhs);
+
+            return .{ .result = op_tmp, .ov = overflow_bit };
+        },
+        else => return cg.fail("TODO: Support intAddOverflow for integer bitsize: {d}", .{int_ty.bits}),
+    }
+}
+
+fn intSubOverflow(cg: *CodeGen, int_ty: IntType, lhs: WValue, rhs: WValue) InnerError!OverflowResult {
+    switch (int_ty.bits) {
+        0 => unreachable,
+        1...128 => {
+            const raw_result = try cg.intSub(int_ty, lhs, rhs);
+            const op_result = try cg.intWrap(int_ty, raw_result);
+            const op_tmp = try cg.toLocalInt(op_result, int_ty);
+
+            const overflow_bit = if (int_ty.is_signed) blk: {
+                const zero = try cg.intZeroValue(int_ty);
+                const rhs_is_neg = try cg.intCmp(int_ty, .lt, rhs, zero);
+                const overflow_cmp = try cg.intCmp(int_ty, .gt, op_tmp, lhs);
+                break :blk try cg.intCmp(.u32, .neq, rhs_is_neg, overflow_cmp);
+            } else try cg.intCmp(int_ty, .gt, op_tmp, lhs);
+
+            return .{ .result = op_tmp, .ov = overflow_bit };
+        },
+        else => return cg.fail("TODO: Support intSubOverflow for integer bitsize: {d}", .{int_ty.bits}),
+    }
+}
+
+fn intMulOverflow(cg: *CodeGen, int_ty: IntType, lhs: WValue, rhs: WValue) InnerError!OverflowResult {
+    const overflow_bit = try cg.allocLocal(Type.u32);
+    try cg.addImm32(0);
+    try cg.addLocal(.local_set, overflow_bit.local.value);
+
+    const result_val = if (int_ty.bits <= 32) blk: {
+        const new_ty: IntType = .{ .is_signed = int_ty.is_signed, .bits = 64 };
+        const lhs_upcast = try cg.intCast(new_ty, int_ty, lhs);
+        const rhs_upcast = try cg.intCast(new_ty, int_ty, rhs);
+        const mul_raw = try cg.intMul(new_ty, lhs_upcast, rhs_upcast);
+        const bin_op = try cg.toLocalInt(mul_raw, new_ty);
+
+        const res = try cg.intTrunc(int_ty, new_ty, bin_op);
+        const res_tmp = try cg.toLocalInt(res, int_ty);
+
+        const res_upcast = try cg.intCast(new_ty, int_ty, res_tmp);
+        _ = try cg.intCmp(new_ty, .neq, res_upcast, bin_op);
+        try cg.addLocal(.local_set, overflow_bit.local.value);
+        break :blk res_tmp;
+    } else if (int_ty.bits <= 64) blk: {
+        const new_ty: IntType = .{ .is_signed = int_ty.is_signed, .bits = 128 };
+        const lhs_upcast = try cg.intCast(new_ty, int_ty, lhs);
+        const rhs_upcast = try cg.intCast(new_ty, int_ty, rhs);
+        const mul_raw = try cg.intMul(new_ty, lhs_upcast, rhs_upcast);
+        const bin_op = try cg.toLocalInt(mul_raw, new_ty);
+
+        const res = try cg.intTrunc(int_ty, new_ty, bin_op);
+        const res_tmp = try cg.toLocalInt(res, int_ty);
+
+        const res_upcast = try cg.intCast(new_ty, int_ty, res_tmp);
+        _ = try cg.intCmp(new_ty, .neq, res_upcast, bin_op);
+        try cg.addLocal(.local_set, overflow_bit.local.value);
+        break :blk res_tmp;
+    } else if (int_ty.bits == 128 and !int_ty.is_signed) blk: {
+        var lhs_lsb = try (try cg.load(lhs, Type.u64, 0)).toLocal(cg, Type.u64);
+        defer lhs_lsb.free(cg);
+        var lhs_msb = try (try cg.load(lhs, Type.u64, 8)).toLocal(cg, Type.u64);
+        defer lhs_msb.free(cg);
+        var rhs_lsb = try (try cg.load(rhs, Type.u64, 0)).toLocal(cg, Type.u64);
+        defer rhs_lsb.free(cg);
+        var rhs_msb = try (try cg.load(rhs, Type.u64, 8)).toLocal(cg, Type.u64);
+        defer rhs_msb.free(cg);
+
+        const zero: WValue = .{ .imm64 = 0 };
+
+        const cross_1 = try cg.callIntrinsic(
+            .__multi3,
+            &[_]InternPool.Index{.i64_type} ** 4,
+            Type.i128,
+            &.{ lhs_msb, zero, rhs_lsb, zero },
+        );
+        const cross_2 = try cg.callIntrinsic(
+            .__multi3,
+            &[_]InternPool.Index{.i64_type} ** 4,
+            Type.i128,
+            &.{ rhs_msb, zero, lhs_lsb, zero },
+        );
+        const mul_lsb = try cg.callIntrinsic(
+            .__multi3,
+            &[_]InternPool.Index{.i64_type} ** 4,
+            Type.i128,
+            &.{ rhs_lsb, zero, lhs_lsb, zero },
+        );
+
+        const rhs_msb_not_zero = try cg.intCmp(.u64, .neq, rhs_msb, zero);
+        const lhs_msb_not_zero = try cg.intCmp(.u64, .neq, lhs_msb, zero);
+        const both_msb_not_zero = try cg.intAnd(.u32, rhs_msb_not_zero, lhs_msb_not_zero);
+
+        const cross_1_msb = try cg.load(cross_1, .u64, 8);
+        const cross_1_msb_not_zero = try cg.intCmp(.u64, .neq, cross_1_msb, zero);
+        const cond_1 = try cg.intOr(.u32, both_msb_not_zero, cross_1_msb_not_zero);
+
+        const cross_2_msb = try cg.load(cross_2, Type.u64, 8);
+        const cross_2_msb_not_zero = try cg.intCmp(.u64, .neq, cross_2_msb, zero);
+        const cond_2 = try cg.intOr(.u32, cond_1, cross_2_msb_not_zero);
+
+        const cross_1_lsb = try cg.load(cross_1, Type.u64, 0);
+        const cross_2_lsb = try cg.load(cross_2, Type.u64, 0);
+        const cross_add = try cg.intAdd(.u64, cross_1_lsb, cross_2_lsb);
+
+        var mul_lsb_msb = try (try cg.load(mul_lsb, Type.u64, 8)).toLocal(cg, Type.u64);
+        defer mul_lsb_msb.free(cg);
+        var all_add = try (try cg.intAdd(.u64, cross_add, mul_lsb_msb)).toLocal(cg, Type.u64);
+        defer all_add.free(cg);
+        const add_overflow = try cg.intCmp(.u64, .lt, all_add, mul_lsb_msb);
+
+        _ = try cg.intOr(.u32, cond_2, add_overflow);
+        try cg.addLocal(.local_set, overflow_bit.local.value);
+
+        const tmp_result = try cg.allocStack(Type.u128);
+        try cg.emitWValue(tmp_result);
+        const mul_lsb_lsb = try cg.load(mul_lsb, Type.u64, 0);
+        try cg.store(.stack, mul_lsb_lsb, Type.u64, tmp_result.offset());
+        try cg.store(tmp_result, all_add, Type.u64, 8);
+        break :blk tmp_result;
+    } else if (int_ty.bits == 128 and int_ty.is_signed) blk: {
+        const overflow_ret = try cg.allocStack(Type.i32);
+        const res = try cg.callIntrinsic(
+            .__muloti4,
+            &[_]InternPool.Index{ .i128_type, .i128_type, .usize_type },
+            Type.i128,
+            &.{ lhs, rhs, overflow_ret },
+        );
+        _ = try cg.load(overflow_ret, Type.i32, 0);
+        try cg.addLocal(.local_set, overflow_bit.local.value);
+        break :blk res;
+    } else return cg.fail("TODO: intMulOverflow for bitsize {d}", .{int_ty.bits});
+
+    return .{ .result = result_val, .ov = .{ .local = overflow_bit.local } };
+}
+
+fn intShlOverflow(cg: *CodeGen, int_ty: IntType, lhs: WValue, rhs: WValue) InnerError!OverflowResult {
+    switch (int_ty.bits) {
+        0 => unreachable,
+        1...128 => {
+            const raw_shl = try cg.intShl(int_ty, lhs, rhs);
+            const wrapped_shl = try cg.intWrap(int_ty, raw_shl);
+            const shl_tmp = try cg.toLocalInt(wrapped_shl, int_ty);
+
+            const shr = try cg.intShr(int_ty, shl_tmp, rhs);
+            const overflow_bit = try cg.intCmp(int_ty, .neq, shr, lhs);
+
+            return .{ .result = shl_tmp, .ov = overflow_bit };
+        },
+        else => return cg.fail("TODO: Support intShlOverflow for integer bitsize: {d}", .{int_ty.bits}),
+    }
+}
+
+fn intCast(cg: *CodeGen, dest_ty: IntType, src_ty: IntType, operand: WValue) InnerError!WValue {
+    const src_bits: u16 = switch (src_ty.bits) {
+        0 => unreachable,
+        1...32 => 32,
+        33...64 => 64,
+        65...128 => 128,
+        else => unreachable,
+    };
+
+    const dest_bits: u16 = switch (dest_ty.bits) {
+        0 => unreachable,
+        1...32 => 32,
+        33...64 => 64,
+        65...128 => 128,
+        else => unreachable,
+    };
+
+    if (src_bits == dest_bits) {
+        return operand;
+    }
+
+    if (src_bits == 64 and dest_bits == 32) {
+        try cg.emitWValue(operand);
+        try cg.addTag(.i32_wrap_i64);
+        return .stack;
+    } else if (src_bits == 32 and dest_bits == 64) {
+        try cg.emitWValue(operand);
+        try cg.addTag(if (dest_ty.is_signed) .i64_extend_i32_s else .i64_extend_i32_u);
+        return .stack;
+    } else if (dest_bits == 128) {
+        const stack_ptr = try cg.allocStack(Type.u128);
+        try cg.emitWValue(stack_ptr);
+
+        const lhs = if (src_bits == 32) blk: {
+            const sign_ty: IntType = .{ .is_signed = dest_ty.is_signed, .bits = 64 };
+            break :blk try (try cg.intCast(sign_ty, src_ty, operand)).toLocal(cg, Type.u64);
+        } else operand;
+
+        try cg.store(.stack, lhs, Type.u64, stack_ptr.offset());
+
+        if (dest_ty.is_signed) {
+            try cg.emitWValue(stack_ptr);
+            const shr = try cg.intShr(IntType.i64, lhs, .{ .imm32 = 63 });
+            try cg.store(.stack, shr, Type.u64, 8 + stack_ptr.offset());
+        } else {
+            try cg.store(stack_ptr, .{ .imm64 = 0 }, Type.u64, 8);
+        }
+
+        if (src_bits == 32) {
+            var tmp_lhs = lhs;
+            tmp_lhs.free(cg);
+        }
+
+        return stack_ptr;
+    } else {
+        const load_ty = if (dest_bits == 32) Type.u32 else Type.u64;
+        return cg.load(operand, load_ty, 0);
+    }
+}
+
+fn intTrunc(cg: *CodeGen, dest_ty: IntType, src_ty: IntType, operand: WValue) InnerError!WValue {
+    var result = try cg.intCast(dest_ty, src_ty, operand);
+
+    const dest_wasm_bits: u16 = switch (dest_ty.bits) {
+        0 => unreachable,
+        1...32 => 32,
+        33...64 => 64,
+        65...128 => 128,
+        else => return cg.fail("TODO: Implement wasm integer truncation for integer bitsize: {d}", .{dest_ty.bits}),
+    };
+
+    if (dest_wasm_bits != dest_ty.bits) {
+        result = try cg.intWrap(dest_ty, result);
+    }
+
+    return result;
+}
+
+const FloatType = enum {
+    f16,
+    f32,
+    f64,
+    f80,
+    f128,
+
+    fn fromType(cg: *CodeGen, ty: Type) FloatType {
+        assert(ty.isRuntimeFloat());
+        return switch (ty.floatBits(cg.target)) {
+            16 => .f16,
+            32 => .f32,
+            64 => .f64,
+            80 => .f80,
+            128 => .f128,
+            else => unreachable,
+        };
+    }
+};
+
+fn floatAdd(cg: *CodeGen, ty: FloatType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__addhf3, &.{ .f16_type, .f16_type }, Type.f16, &.{ lhs, rhs }),
+        .f32 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.f32_add);
+            return .stack;
+        },
+        .f64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.f64_add);
+            return .stack;
+        },
+        .f80 => return cg.callIntrinsic(.__addxf3, &.{ .f80_type, .f80_type }, Type.f80, &.{ lhs, rhs }),
+        .f128 => return cg.callIntrinsic(.__addtf3, &.{ .f128_type, .f128_type }, Type.f128, &.{ lhs, rhs }),
+    }
+}
+
+fn floatSub(cg: *CodeGen, ty: FloatType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__subhf3, &.{ .f16_type, .f16_type }, Type.f16, &.{ lhs, rhs }),
+        .f32 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.f32_sub);
+            return .stack;
+        },
+        .f64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.f64_sub);
+            return .stack;
+        },
+        .f80 => return cg.callIntrinsic(.__subxf3, &.{ .f80_type, .f80_type }, Type.f80, &.{ lhs, rhs }),
+        .f128 => return cg.callIntrinsic(.__subtf3, &.{ .f128_type, .f128_type }, Type.f128, &.{ lhs, rhs }),
+    }
+}
+
+fn floatMul(cg: *CodeGen, ty: FloatType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__mulhf3, &.{ .f16_type, .f16_type }, Type.f16, &.{ lhs, rhs }),
+        .f32 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.f32_mul);
+            return .stack;
+        },
+        .f64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.f64_mul);
+            return .stack;
+        },
+        .f80 => return cg.callIntrinsic(.__mulxf3, &.{ .f80_type, .f80_type }, Type.f80, &.{ lhs, rhs }),
+        .f128 => return cg.callIntrinsic(.__multf3, &.{ .f128_type, .f128_type }, Type.f128, &.{ lhs, rhs }),
+    }
+}
+
+fn floatMulAdd(cg: *CodeGen, ty: FloatType, lhs: WValue, rhs: WValue, addend: WValue) InnerError!WValue {
+    const mul_result = try cg.floatMul(ty, lhs, rhs);
+    return cg.floatAdd(ty, mul_result, addend);
+}
+
+fn floatDiv(cg: *CodeGen, ty: FloatType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__divhf3, &.{ .f16_type, .f16_type }, Type.f16, &.{ lhs, rhs }),
+        .f32 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.f32_div);
+            return .stack;
+        },
+        .f64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(.f64_div);
+            return .stack;
+        },
+        .f80 => return cg.callIntrinsic(.__divxf3, &.{ .f80_type, .f80_type }, Type.f80, &.{ lhs, rhs }),
+        .f128 => return cg.callIntrinsic(.__divtf3, &.{ .f128_type, .f128_type }, Type.f128, &.{ lhs, rhs }),
+    }
+}
+
+fn floatRem(cg: *CodeGen, ty: FloatType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__fmodh, &.{ .f16_type, .f16_type }, Type.f16, &.{ lhs, rhs }),
+        .f32 => return cg.callIntrinsic(.fmodf, &.{ .f32_type, .f32_type }, Type.f32, &.{ lhs, rhs }),
+        .f64 => return cg.callIntrinsic(.fmod, &.{ .f64_type, .f64_type }, Type.f64, &.{ lhs, rhs }),
+        .f80 => return cg.callIntrinsic(.__fmodx, &.{ .f80_type, .f80_type }, Type.f80, &.{ lhs, rhs }),
+        .f128 => return cg.callIntrinsic(.fmodq, &.{ .f128_type, .f128_type }, Type.f128, &.{ lhs, rhs }),
+    }
+}
+
+// div_trunc(a, b) = trunc(a / b)
+fn floatDivTrunc(cg: *CodeGen, ty: FloatType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    const div_result = try cg.floatDiv(ty, lhs, rhs);
+    return cg.floatTrunc(ty, div_result);
+}
+
+// div_floor(a, b) = floor(a / b)
+fn floatDivFloor(cg: *CodeGen, ty: FloatType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    const div_result = try cg.floatDiv(ty, lhs, rhs);
+    return cg.floatFloor(ty, div_result);
+}
+
+// mod(a, b) = fmod(fmod(a, b) + b, b)
+fn floatMod(cg: *CodeGen, ty: FloatType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    const r = try cg.floatRem(ty, lhs, rhs);
+    const s = try cg.floatAdd(ty, r, rhs);
+    return cg.floatRem(ty, s, rhs);
+}
+
+// wasm fN_max NaN semantics differ with Zig
+fn floatMax(cg: *CodeGen, ty: FloatType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__fmaxh, &.{ .f16_type, .f16_type }, Type.f16, &.{ lhs, rhs }),
+        .f32 => return cg.callIntrinsic(.fmaxf, &.{ .f32_type, .f32_type }, Type.f32, &.{ lhs, rhs }),
+        .f64 => return cg.callIntrinsic(.fmax, &.{ .f64_type, .f64_type }, Type.f64, &.{ lhs, rhs }),
+        .f80 => return cg.callIntrinsic(.__fmaxx, &.{ .f80_type, .f80_type }, Type.f80, &.{ lhs, rhs }),
+        .f128 => return cg.callIntrinsic(.fmaxq, &.{ .f128_type, .f128_type }, Type.f128, &.{ lhs, rhs }),
+    }
+}
+
+// wasm fN_min NaN semantics differ with Zig
+fn floatMin(cg: *CodeGen, ty: FloatType, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__fminh, &.{ .f16_type, .f16_type }, Type.f16, &.{ lhs, rhs }),
+        .f32 => return cg.callIntrinsic(.fminf, &.{ .f32_type, .f32_type }, Type.f32, &.{ lhs, rhs }),
+        .f64 => return cg.callIntrinsic(.fmin, &.{ .f64_type, .f64_type }, Type.f64, &.{ lhs, rhs }),
+        .f80 => return cg.callIntrinsic(.__fminx, &.{ .f80_type, .f80_type }, Type.f80, &.{ lhs, rhs }),
+        .f128 => return cg.callIntrinsic(.fminq, &.{ .f128_type, .f128_type }, Type.f128, &.{ lhs, rhs }),
+    }
+}
+
+fn floatSqrt(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__sqrth, &.{.f16_type}, Type.f16, &.{arg}),
+        .f32 => {
+            try cg.emitWValue(arg);
+            try cg.addTag(.f32_sqrt);
+            return .stack;
+        },
+        .f64 => {
+            try cg.emitWValue(arg);
+            try cg.addTag(.f64_sqrt);
+            return .stack;
+        },
+        .f80 => return cg.callIntrinsic(.__sqrtx, &.{.f80_type}, Type.f80, &.{arg}),
+        .f128 => return cg.callIntrinsic(.sqrtq, &.{.f128_type}, Type.f128, &.{arg}),
+    }
+}
+
+fn floatSin(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__sinh, &.{.f16_type}, Type.f16, &.{arg}),
+        .f32 => return cg.callIntrinsic(.sinf, &.{.f32_type}, Type.f32, &.{arg}),
+        .f64 => return cg.callIntrinsic(.sin, &.{.f64_type}, Type.f64, &.{arg}),
+        .f80 => return cg.callIntrinsic(.__sinx, &.{.f80_type}, Type.f80, &.{arg}),
+        .f128 => return cg.callIntrinsic(.sinq, &.{.f128_type}, Type.f128, &.{arg}),
+    }
+}
+
+fn floatCos(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__cosh, &.{.f16_type}, Type.f16, &.{arg}),
+        .f32 => return cg.callIntrinsic(.cosf, &.{.f32_type}, Type.f32, &.{arg}),
+        .f64 => return cg.callIntrinsic(.cos, &.{.f64_type}, Type.f64, &.{arg}),
+        .f80 => return cg.callIntrinsic(.__cosx, &.{.f80_type}, Type.f80, &.{arg}),
+        .f128 => return cg.callIntrinsic(.cosq, &.{.f128_type}, Type.f128, &.{arg}),
+    }
+}
+
+fn floatTan(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__tanh, &.{.f16_type}, Type.f16, &.{arg}),
+        .f32 => return cg.callIntrinsic(.tanf, &.{.f32_type}, Type.f32, &.{arg}),
+        .f64 => return cg.callIntrinsic(.tan, &.{.f64_type}, Type.f64, &.{arg}),
+        .f80 => return cg.callIntrinsic(.__tanx, &.{.f80_type}, Type.f80, &.{arg}),
+        .f128 => return cg.callIntrinsic(.tanq, &.{.f128_type}, Type.f128, &.{arg}),
+    }
+}
+
+fn floatExp(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__exph, &.{.f16_type}, Type.f16, &.{arg}),
+        .f32 => return cg.callIntrinsic(.expf, &.{.f32_type}, Type.f32, &.{arg}),
+        .f64 => return cg.callIntrinsic(.exp, &.{.f64_type}, Type.f64, &.{arg}),
+        .f80 => return cg.callIntrinsic(.__expx, &.{.f80_type}, Type.f80, &.{arg}),
+        .f128 => return cg.callIntrinsic(.expq, &.{.f128_type}, Type.f128, &.{arg}),
+    }
+}
+
+fn floatExp2(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__exp2h, &.{.f16_type}, Type.f16, &.{arg}),
+        .f32 => return cg.callIntrinsic(.exp2f, &.{.f32_type}, Type.f32, &.{arg}),
+        .f64 => return cg.callIntrinsic(.exp2, &.{.f64_type}, Type.f64, &.{arg}),
+        .f80 => return cg.callIntrinsic(.__exp2x, &.{.f80_type}, Type.f80, &.{arg}),
+        .f128 => return cg.callIntrinsic(.exp2q, &.{.f128_type}, Type.f128, &.{arg}),
+    }
+}
+
+fn floatLog(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__logh, &.{.f16_type}, Type.f16, &.{arg}),
+        .f32 => return cg.callIntrinsic(.logf, &.{.f32_type}, Type.f32, &.{arg}),
+        .f64 => return cg.callIntrinsic(.log, &.{.f64_type}, Type.f64, &.{arg}),
+        .f80 => return cg.callIntrinsic(.__logx, &.{.f80_type}, Type.f80, &.{arg}),
+        .f128 => return cg.callIntrinsic(.logq, &.{.f128_type}, Type.f128, &.{arg}),
+    }
+}
+
+fn floatLog2(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__log2h, &.{.f16_type}, Type.f16, &.{arg}),
+        .f32 => return cg.callIntrinsic(.log2f, &.{.f32_type}, Type.f32, &.{arg}),
+        .f64 => return cg.callIntrinsic(.log2, &.{.f64_type}, Type.f64, &.{arg}),
+        .f80 => return cg.callIntrinsic(.__log2x, &.{.f80_type}, Type.f80, &.{arg}),
+        .f128 => return cg.callIntrinsic(.log2q, &.{.f128_type}, Type.f128, &.{arg}),
+    }
+}
+
+fn floatLog10(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__log10h, &.{.f16_type}, Type.f16, &.{arg}),
+        .f32 => return cg.callIntrinsic(.log10f, &.{.f32_type}, Type.f32, &.{arg}),
+        .f64 => return cg.callIntrinsic(.log10, &.{.f64_type}, Type.f64, &.{arg}),
+        .f80 => return cg.callIntrinsic(.__log10x, &.{.f80_type}, Type.f80, &.{arg}),
+        .f128 => return cg.callIntrinsic(.log10q, &.{.f128_type}, Type.f128, &.{arg}),
+    }
+}
+
+fn floatFloor(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__floorh, &.{.f16_type}, Type.f16, &.{arg}),
+        .f32 => {
+            try cg.emitWValue(arg);
+            try cg.addTag(.f32_floor);
+            return .stack;
+        },
+        .f64 => {
+            try cg.emitWValue(arg);
+            try cg.addTag(.f64_floor);
+            return .stack;
+        },
+        .f80 => return cg.callIntrinsic(.__floorx, &.{.f80_type}, Type.f80, &.{arg}),
+        .f128 => return cg.callIntrinsic(.floorq, &.{.f128_type}, Type.f128, &.{arg}),
+    }
+}
+
+fn floatCeil(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__ceilh, &.{.f16_type}, Type.f16, &.{arg}),
+        .f32 => {
+            try cg.emitWValue(arg);
+            try cg.addTag(.f32_ceil);
+            return .stack;
+        },
+        .f64 => {
+            try cg.emitWValue(arg);
+            try cg.addTag(.f64_ceil);
+            return .stack;
+        },
+        .f80 => return cg.callIntrinsic(.__ceilx, &.{.f80_type}, Type.f80, &.{arg}),
+        .f128 => return cg.callIntrinsic(.ceilq, &.{.f128_type}, Type.f128, &.{arg}),
+    }
+}
+
+fn floatRound(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__roundh, &.{.f16_type}, Type.f16, &.{arg}),
+        .f32 => {
+            try cg.emitWValue(arg);
+            try cg.addTag(.f32_nearest);
+            return .stack;
+        },
+        .f64 => {
+            try cg.emitWValue(arg);
+            try cg.addTag(.f64_nearest);
+            return .stack;
+        },
+        .f80 => return cg.callIntrinsic(.__roundx, &.{.f80_type}, Type.f80, &.{arg}),
+        .f128 => return cg.callIntrinsic(.roundq, &.{.f128_type}, Type.f128, &.{arg}),
+    }
+}
+
+fn floatTrunc(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__trunch, &.{.f16_type}, Type.f16, &.{arg}),
+        .f32 => {
+            try cg.emitWValue(arg);
+            try cg.addTag(.f32_trunc);
+            return .stack;
+        },
+        .f64 => {
+            try cg.emitWValue(arg);
+            try cg.addTag(.f64_trunc);
+            return .stack;
+        },
+        .f80 => return cg.callIntrinsic(.__truncx, &.{.f80_type}, Type.f80, &.{arg}),
+        .f128 => return cg.callIntrinsic(.truncq, &.{.f128_type}, Type.f128, &.{arg}),
+    }
+}
+
+fn floatNeg(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => {
+            try cg.emitWValue(arg);
+            try cg.addImm32(0x8000);
+            try cg.addTag(.i32_xor);
+            return .stack;
+        },
+        .f32 => {
+            try cg.emitWValue(arg);
+            try cg.addTag(.f32_neg);
+            return .stack;
+        },
+        .f64 => {
+            try cg.emitWValue(arg);
+            try cg.addTag(.f64_neg);
+            return .stack;
+        },
+        .f80 => {
+            const result = try cg.allocStack(Type.f80);
+            try cg.emitWValue(result);
+            try cg.emitWValue(arg);
+            try cg.addMemArg(.i64_load, .{ .offset = 0 + arg.offset(), .alignment = 2 });
+            try cg.addMemArg(.i64_store, .{ .offset = 0 + result.offset(), .alignment = 2 });
+            try cg.emitWValue(result);
+            try cg.emitWValue(arg);
+            try cg.addMemArg(.i64_load, .{ .offset = 8 + arg.offset(), .alignment = 2 });
+            try cg.addImm64(0x8000);
+            try cg.addTag(.i64_xor);
+            try cg.addMemArg(.i64_store16, .{ .offset = 8 + result.offset(), .alignment = 2 });
+            return result;
+        },
+        .f128 => {
+            const result = try cg.allocStack(Type.f128);
+            try cg.emitWValue(result);
+            try cg.emitWValue(arg);
+            try cg.addMemArg(.i64_load, .{ .offset = 0 + arg.offset(), .alignment = 2 });
+            try cg.addMemArg(.i64_store, .{ .offset = 0 + result.offset(), .alignment = 2 });
+            try cg.emitWValue(result);
+            try cg.emitWValue(arg);
+            try cg.addMemArg(.i64_load, .{ .offset = 8 + arg.offset(), .alignment = 2 });
+            try cg.addImm64(0x8000000000000000);
+            try cg.addTag(.i64_xor);
+            try cg.addMemArg(.i64_store, .{ .offset = 8 + result.offset(), .alignment = 2 });
+            return result;
+        },
+    }
+}
+
+fn floatAbs(cg: *CodeGen, ty: FloatType, arg: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => return cg.callIntrinsic(.__fabsh, &.{.f16_type}, Type.f16, &.{arg}),
+        .f32 => {
+            try cg.emitWValue(arg);
+            try cg.addTag(.f32_abs);
+            return .stack;
+        },
+        .f64 => {
+            try cg.emitWValue(arg);
+            try cg.addTag(.f64_abs);
+            return .stack;
+        },
+        .f80 => return cg.callIntrinsic(.__fabsx, &.{.f80_type}, Type.f80, &.{arg}),
+        .f128 => return cg.callIntrinsic(.fabsq, &.{.f128_type}, Type.f128, &.{arg}),
+    }
+}
+
+fn floatExtendCast(cg: *CodeGen, dest_ty: FloatType, src_ty: FloatType, operand: WValue) InnerError!WValue {
+    switch (dest_ty) {
+        .f16 => unreachable,
+        .f32 => switch (src_ty) {
+            .f16 => {
+                _ = try cg.callIntrinsic(.__extendhfsf2, &.{.f16_type}, Type.f32, &.{operand});
+                return .stack;
+            },
+            else => unreachable,
+        },
+        .f64 => switch (src_ty) {
+            .f16 => {
+                _ = try cg.callIntrinsic(.__extendhfsf2, &.{.f16_type}, Type.f32, &.{operand});
+                try cg.addTag(.f64_promote_f32);
+                return .stack;
+            },
+            .f32 => {
+                try cg.emitWValue(operand);
+                try cg.addTag(.f64_promote_f32);
+                return .stack;
+            },
+            else => unreachable,
+        },
+        .f80 => switch (src_ty) {
+            .f16 => return cg.callIntrinsic(.__extendhfxf2, &.{.f16_type}, Type.f80, &.{operand}),
+            .f32 => return cg.callIntrinsic(.__extendsfxf2, &.{.f32_type}, Type.f80, &.{operand}),
+            .f64 => return cg.callIntrinsic(.__extenddfxf2, &.{.f64_type}, Type.f80, &.{operand}),
+            else => unreachable,
+        },
+        .f128 => switch (src_ty) {
+            .f16 => return cg.callIntrinsic(.__extendhftf2, &.{.f16_type}, Type.f128, &.{operand}),
+            .f32 => return cg.callIntrinsic(.__extendsftf2, &.{.f32_type}, Type.f128, &.{operand}),
+            .f64 => return cg.callIntrinsic(.__extenddftf2, &.{.f64_type}, Type.f128, &.{operand}),
+            .f80 => return cg.callIntrinsic(.__extendxftf2, &.{.f80_type}, Type.f128, &.{operand}),
+            else => unreachable,
+        },
+    }
+}
+
+fn floatTruncCast(cg: *CodeGen, dest_ty: FloatType, src_ty: FloatType, operand: WValue) InnerError!WValue {
+    switch (dest_ty) {
+        .f16 => switch (src_ty) {
+            .f32 => return cg.callIntrinsic(.__truncsfhf2, &.{.f32_type}, Type.f16, &.{operand}),
+            .f64 => {
+                try cg.emitWValue(operand);
+                try cg.addTag(.f32_demote_f64);
+                return cg.callIntrinsic(.__truncsfhf2, &.{.f32_type}, Type.f16, &.{.stack});
+            },
+            .f80 => return cg.callIntrinsic(.__truncxfhf2, &.{.f80_type}, Type.f16, &.{operand}),
+            .f128 => return cg.callIntrinsic(.__trunctfhf2, &.{.f128_type}, Type.f16, &.{operand}),
+            else => unreachable,
+        },
+        .f32 => switch (src_ty) {
+            .f64 => {
+                try cg.emitWValue(operand);
+                try cg.addTag(.f32_demote_f64);
+                return .stack;
+            },
+            .f80 => return cg.callIntrinsic(.__truncxfsf2, &.{.f80_type}, Type.f32, &.{operand}),
+            .f128 => return cg.callIntrinsic(.__trunctfsf2, &.{.f128_type}, Type.f32, &.{operand}),
+            else => unreachable,
+        },
+        .f64 => switch (src_ty) {
+            .f80 => return cg.callIntrinsic(.__truncxfdf2, &.{.f80_type}, Type.f64, &.{operand}),
+            .f128 => return cg.callIntrinsic(.__trunctfdf2, &.{.f128_type}, Type.f64, &.{operand}),
+            else => unreachable,
+        },
+        .f80 => switch (src_ty) {
+            .f128 => return cg.callIntrinsic(.__trunctfxf2, &.{.f128_type}, Type.f80, &.{operand}),
+            else => unreachable,
+        },
+        .f128 => unreachable,
+    }
+}
+
+fn intFromFloat(cg: *CodeGen, dest_ty: IntType, src_ty: FloatType, operand: WValue) InnerError!WValue {
+    switch (dest_ty.bits) {
+        0 => unreachable,
+        1...32 => switch (src_ty) {
+            .f16 => {
+                const intrinsic: Mir.Intrinsic = if (dest_ty.is_signed) .__fixhfsi else .__fixunshfsi;
+                return cg.callIntrinsic(intrinsic, &.{.f16_type}, Type.u32, &.{operand});
+            },
+            .f32 => {
+                try cg.emitWValue(operand);
+                try cg.addTag(if (dest_ty.is_signed) .i32_trunc_f32_s else .i32_trunc_f32_u);
+                return .stack;
+            },
+            .f64 => {
+                try cg.emitWValue(operand);
+                try cg.addTag(if (dest_ty.is_signed) .i32_trunc_f64_s else .i32_trunc_f64_u);
+                return .stack;
+            },
+            .f80 => {
+                const intrinsic: Mir.Intrinsic = if (dest_ty.is_signed) .__fixxfsi else .__fixunsxfsi;
+                return cg.callIntrinsic(intrinsic, &.{.f80_type}, Type.u32, &.{operand});
+            },
+            .f128 => {
+                const intrinsic: Mir.Intrinsic = if (dest_ty.is_signed) .__fixtfsi else .__fixunstfsi;
+                return cg.callIntrinsic(intrinsic, &.{.f128_type}, Type.u32, &.{operand});
+            },
+        },
+        33...64 => switch (src_ty) {
+            .f16 => {
+                const intrinsic: Mir.Intrinsic = if (dest_ty.is_signed) .__fixhfdi else .__fixunshfdi;
+                return cg.callIntrinsic(intrinsic, &.{.f16_type}, Type.u64, &.{operand});
+            },
+            .f32 => {
+                try cg.emitWValue(operand);
+                try cg.addTag(if (dest_ty.is_signed) .i64_trunc_f32_s else .i64_trunc_f32_u);
+                return .stack;
+            },
+            .f64 => {
+                try cg.emitWValue(operand);
+                try cg.addTag(if (dest_ty.is_signed) .i64_trunc_f64_s else .i64_trunc_f64_u);
+                return .stack;
+            },
+            .f80 => {
+                const intrinsic: Mir.Intrinsic = if (dest_ty.is_signed) .__fixxfdi else .__fixunsxfdi;
+                return cg.callIntrinsic(intrinsic, &.{.f80_type}, Type.u64, &.{operand});
+            },
+            .f128 => {
+                const intrinsic: Mir.Intrinsic = if (dest_ty.is_signed) .__fixtfdi else .__fixunstfdi;
+                return cg.callIntrinsic(intrinsic, &.{.f128_type}, Type.u64, &.{operand});
+            },
+        },
+        65...128 => switch (src_ty) {
+            .f16 => {
+                const intrinsic: Mir.Intrinsic = if (dest_ty.is_signed) .__fixhfti else .__fixunshfti;
+                return cg.callIntrinsic(intrinsic, &.{.f16_type}, Type.u128, &.{operand});
+            },
+            .f32 => {
+                const intrinsic: Mir.Intrinsic = if (dest_ty.is_signed) .__fixsfti else .__fixunssfti;
+                return cg.callIntrinsic(intrinsic, &.{.f32_type}, Type.u128, &.{operand});
+            },
+            .f64 => {
+                const intrinsic: Mir.Intrinsic = if (dest_ty.is_signed) .__fixdfti else .__fixunsdfti;
+                return cg.callIntrinsic(intrinsic, &.{.f64_type}, Type.u128, &.{operand});
+            },
+            .f80 => {
+                const intrinsic: Mir.Intrinsic = if (dest_ty.is_signed) .__fixxfti else .__fixunsxfti;
+                return cg.callIntrinsic(intrinsic, &.{.f80_type}, Type.u128, &.{operand});
+            },
+            .f128 => {
+                const intrinsic: Mir.Intrinsic = if (dest_ty.is_signed) .__fixtfti else .__fixunstfti;
+                return cg.callIntrinsic(intrinsic, &.{.f128_type}, Type.u128, &.{operand});
+            },
+        },
+        else => return cg.fail("TODO: Support intFromFloat for integer bitsize: {d}", .{dest_ty.bits}),
+    }
+}
+
+fn floatFromInt(cg: *CodeGen, dest_ty: FloatType, src_ty: IntType, operand: WValue) InnerError!WValue {
+    switch (dest_ty) {
+        .f16 => switch (src_ty.bits) {
+            0 => unreachable,
+            1...32 => {
+                const intrinsic: Mir.Intrinsic = if (src_ty.is_signed) .__floatsihf else .__floatunsihf;
+                return cg.callIntrinsic(intrinsic, &.{.i32_type}, Type.f16, &.{operand});
+            },
+            33...64 => {
+                const intrinsic: Mir.Intrinsic = if (src_ty.is_signed) .__floatdihf else .__floatundihf;
+                return cg.callIntrinsic(intrinsic, &.{.i64_type}, Type.f16, &.{operand});
+            },
+            65...128 => {
+                const intrinsic: Mir.Intrinsic = if (src_ty.is_signed) .__floattihf else .__floatuntihf;
+                return cg.callIntrinsic(intrinsic, &.{.i128_type}, Type.f16, &.{operand});
+            },
+            else => return cg.fail("TODO: Support floatFromInt for {d}-bit int to 16-bit float", .{src_ty.bits}),
+        },
+        .f32 => switch (src_ty.bits) {
+            0 => unreachable,
+            1...32 => {
+                try cg.emitWValue(operand);
+                try cg.addTag(if (src_ty.is_signed) .f32_convert_i32_s else .f32_convert_i32_u);
+                return .stack;
+            },
+            33...64 => {
+                try cg.emitWValue(operand);
+                try cg.addTag(if (src_ty.is_signed) .f32_convert_i64_s else .f32_convert_i64_u);
+                return .stack;
+            },
+            65...128 => {
+                const intrinsic: Mir.Intrinsic = if (src_ty.is_signed) .__floattisf else .__floatuntisf;
+                return cg.callIntrinsic(intrinsic, &.{.i128_type}, Type.f32, &.{operand});
+            },
+            else => return cg.fail("TODO: Support floatFromInt for {d}-bit int to 32-bit float", .{src_ty.bits}),
+        },
+        .f64 => switch (src_ty.bits) {
+            0 => unreachable,
+            1...32 => {
+                try cg.emitWValue(operand);
+                try cg.addTag(if (src_ty.is_signed) .f64_convert_i32_s else .f64_convert_i32_u);
+                return .stack;
+            },
+            33...64 => {
+                try cg.emitWValue(operand);
+                try cg.addTag(if (src_ty.is_signed) .f64_convert_i64_s else .f64_convert_i64_u);
+                return .stack;
+            },
+            65...128 => {
+                const intrinsic: Mir.Intrinsic = if (src_ty.is_signed) .__floattidf else .__floatuntidf;
+                return cg.callIntrinsic(intrinsic, &.{.i128_type}, Type.f64, &.{operand});
+            },
+            else => return cg.fail("TODO: Support floatFromInt for {d}-bit int to 64-bit float", .{src_ty.bits}),
+        },
+        .f80 => switch (src_ty.bits) {
+            0 => unreachable,
+            1...32 => {
+                const intrinsic: Mir.Intrinsic = if (src_ty.is_signed) .__floatsixf else .__floatunsixf;
+                return cg.callIntrinsic(intrinsic, &.{.i32_type}, Type.f80, &.{operand});
+            },
+            33...64 => {
+                const intrinsic: Mir.Intrinsic = if (src_ty.is_signed) .__floatdixf else .__floatundixf;
+                return cg.callIntrinsic(intrinsic, &.{.i64_type}, Type.f80, &.{operand});
+            },
+            65...128 => {
+                const intrinsic: Mir.Intrinsic = if (src_ty.is_signed) .__floattixf else .__floatuntixf;
+                return cg.callIntrinsic(intrinsic, &.{.i128_type}, Type.f80, &.{operand});
+            },
+            else => return cg.fail("TODO: Support floatFromInt for {d}-bit int to 80-bit float", .{src_ty.bits}),
+        },
+        .f128 => switch (src_ty.bits) {
+            0 => unreachable,
+            1...32 => {
+                const intrinsic: Mir.Intrinsic = if (src_ty.is_signed) .__floatsitf else .__floatunsitf;
+                return cg.callIntrinsic(intrinsic, &.{.i32_type}, Type.f128, &.{operand});
+            },
+            33...64 => {
+                const intrinsic: Mir.Intrinsic = if (src_ty.is_signed) .__floatditf else .__floatunditf;
+                return cg.callIntrinsic(intrinsic, &.{.i64_type}, Type.f128, &.{operand});
+            },
+            65...128 => {
+                const intrinsic: Mir.Intrinsic = if (src_ty.is_signed) .__floattitf else .__floatuntitf;
+                return cg.callIntrinsic(intrinsic, &.{.i128_type}, Type.f128, &.{operand});
+            },
+            else => return cg.fail("TODO: Support floatFromInt for {d}-bit int to 128-bit float", .{src_ty.bits}),
+        },
     }
 }
 
@@ -3092,7 +4324,7 @@ fn lowerPtr(cg: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerErro
     return switch (ptr.base_addr) {
         .nav => |nav| return .{ .nav_ref = .{ .nav_index = nav, .offset = @intCast(offset) } },
         .uav => |uav| return .{ .uav_ref = .{ .ip_index = uav.val, .offset = @intCast(offset), .orig_ptr_ty = uav.orig_ty } },
-        .int => return cg.lowerConstant(try pt.intValue(Type.usize, offset), Type.usize),
+        .int => return cg.lowerConstant(try pt.intValue(.usize, offset)),
         .eu_payload => |eu_ptr| try cg.lowerPtr(
             eu_ptr,
             offset + codegen.errUnionPayloadOffset(
@@ -3129,10 +4361,11 @@ fn lowerPtr(cg: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerErro
     };
 }
 
-/// Asserts that `isByRef` returns `false` for `ty`.
-fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
+/// Asserts that `isByRef` returns `false` for `val.typeOf(zcu)`.
+fn lowerConstant(cg: *CodeGen, val: Value) InnerError!WValue {
     const pt = cg.pt;
     const zcu = pt.zcu;
+    const ty = val.typeOf(zcu);
     assert(!isByRef(ty, zcu, cg.target));
     const ip = &zcu.intern_pool;
     if (val.isUndef(zcu)) return cg.emitUndefined(ty);
@@ -3158,10 +4391,8 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
 
         .undef => unreachable, // handled above
         .simple_value => |simple_value| switch (simple_value) {
-            .undefined,
             .void,
             .null,
-            .empty_tuple,
             .@"unreachable",
             => unreachable, // non-runtime values
             .false, .true => return .{ .imm32 = switch (simple_value) {
@@ -3170,11 +4401,9 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
                 else => unreachable,
             } },
         },
-        .variable,
         .@"extern",
         .func,
         .enum_literal,
-        .empty_enum_value,
         => unreachable, // non-runtime values
         .int => {
             const int_info = ty.intInfo(zcu);
@@ -3197,31 +4426,22 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
         },
         .error_union => |error_union| {
             const err_int_ty = try pt.errorIntType();
-            const err_ty, const err_val = switch (error_union.val) {
-                .err_name => |err_name| .{
-                    ty.errorUnionSet(zcu),
-                    Value.fromInterned(try pt.intern(.{ .err = .{
-                        .ty = ty.errorUnionSet(zcu).toIntern(),
-                        .name = err_name,
-                    } })),
-                },
-                .payload => .{
-                    err_int_ty,
-                    try pt.intValue(err_int_ty, 0),
-                },
+            const err_val: Value = switch (error_union.val) {
+                .err_name => |err_name| .fromInterned(try pt.intern(.{ .err = .{
+                    .ty = ty.errorUnionSet(zcu).toIntern(),
+                    .name = err_name,
+                } })),
+                .payload => try pt.intValue(err_int_ty, 0),
             };
             const payload_type = ty.errorUnionPayload(zcu);
-            if (!payload_type.hasRuntimeBitsIgnoreComptime(zcu)) {
+            if (!payload_type.hasRuntimeBits(zcu)) {
                 // We use the error type directly as the type.
-                return cg.lowerConstant(err_val, err_ty);
+                return cg.lowerConstant(err_val);
             }
 
             return cg.fail("Wasm TODO: lowerConstant error union with non-zero-bit payload type", .{});
         },
-        .enum_tag => |enum_tag| {
-            const int_tag_ty = ip.typeOf(enum_tag.int);
-            return cg.lowerConstant(Value.fromInterned(enum_tag.int), Type.fromInterned(int_tag_ty));
-        },
+        .enum_tag => |enum_tag| return cg.lowerConstant(.fromInterned(enum_tag.int)),
         .float => |float| switch (float.storage) {
             .f16 => |f16_val| return .{ .imm32 = @as(u16, @bitCast(f16_val)) },
             .f32 => |f32_val| return .{ .float32 = f32_val },
@@ -3231,9 +4451,8 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
         .slice => unreachable, // isByRef == true
         .ptr => return cg.lowerPtr(val.toIntern(), 0),
         .opt => if (ty.optionalReprIsPayload(zcu)) {
-            const pl_ty = ty.optionalChild(zcu);
             if (val.optionalValue(zcu)) |payload| {
-                return cg.lowerConstant(payload, pl_ty);
+                return cg.lowerConstant(payload);
             } else {
                 return .{ .imm32 = 0 };
             }
@@ -3248,33 +4467,11 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
                 val.writeToMemory(pt, &buf) catch unreachable;
                 return cg.storeSimdImmd(buf);
             },
-            .struct_type => {
-                const struct_type = ip.loadStructType(ty.toIntern());
-                // non-packed structs are not handled in this function because they
-                // are by-ref types.
-                assert(struct_type.layout == .@"packed");
-                var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
-                val.writeToPackedMemory(ty, pt, &buf, 0) catch unreachable;
-                const backing_int_ty = Type.fromInterned(struct_type.backingIntTypeUnordered(ip));
-                const int_val = try pt.intValue(
-                    backing_int_ty,
-                    mem.readInt(u64, &buf, .little),
-                );
-                return cg.lowerConstant(int_val, backing_int_ty);
-            },
+            .struct_type => unreachable, // packed structs use `bitpack`
             else => unreachable,
         },
-        .un => {
-            const int_type = try pt.intType(.unsigned, @intCast(ty.bitSize(zcu)));
-
-            var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
-            val.writeToPackedMemory(ty, pt, &buf, 0) catch unreachable;
-            const int_val = try pt.intValue(
-                int_type,
-                mem.readInt(u64, &buf, .little),
-            );
-            return cg.lowerConstant(int_val, int_type);
-        },
+        .un => unreachable, // packed unions use `bitpack`
+        .bitpack => |bitpack| return cg.lowerConstant(.fromInterned(bitpack.backing_int_val)),
         .memoized_call => unreachable,
     }
 }
@@ -3289,7 +4486,6 @@ fn storeSimdImmd(cg: *CodeGen, value: [16]u8) !WValue {
 
 fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
     const zcu = cg.pt.zcu;
-    const ip = &zcu.intern_pool;
     switch (ty.zigTypeTag(zcu)) {
         .bool, .error_set => return .{ .imm32 = 0xaaaaaaaa },
         .int, .@"enum" => switch (ty.intInfo(zcu).bits) {
@@ -3317,17 +4513,9 @@ fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
         .error_union => {
             return .{ .imm32 = 0xaaaaaaaa };
         },
-        .@"struct" => {
-            const packed_struct = zcu.typeToPackedStruct(ty).?;
-            return cg.emitUndefined(Type.fromInterned(packed_struct.backingIntTypeUnordered(ip)));
-        },
-        .@"union" => switch (ty.containerLayout(zcu)) {
-            .@"packed" => switch (ty.bitSize(zcu)) {
-                0...32 => return .{ .imm32 = 0xaaaaaaaa },
-                33...64 => return .{ .imm64 = 0xaaaaaaaaaaaaaaaa },
-                else => unreachable,
-            },
-            else => unreachable,
+        .@"struct", .@"union" => {
+            const backing_int_ty = ty.bitpackBackingInt(zcu);
+            return cg.emitUndefined(backing_int_ty);
         },
         else => return cg.fail("Wasm TODO: emitUndefined for type: {t}\n", .{ty.zigTypeTag(zcu)}),
     }
@@ -3341,7 +4529,7 @@ fn airBlock(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, block_ty: Type, body: []const Air.Inst.Index) InnerError!void {
     const zcu = cg.pt.zcu;
     // if wasm_block_ty is non-empty, we create a register to store the temporary value
-    const block_result: WValue = if (block_ty.hasRuntimeBitsIgnoreComptime(zcu))
+    const block_result: WValue = if (block_ty.hasRuntimeBits(zcu))
         try cg.allocLocal(block_ty)
     else
         .none;
@@ -3439,100 +4627,212 @@ fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
 fn airCmp(cg: *CodeGen, inst: Air.Inst.Index, op: std.math.CompareOperator) InnerError!void {
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
     const lhs = try cg.resolveInst(bin_op.lhs);
     const rhs = try cg.resolveInst(bin_op.rhs);
     const operand_ty = cg.typeOf(bin_op.lhs);
-    const result = try cg.cmp(lhs, rhs, operand_ty, op);
-    return cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
-}
-
-/// Compares two operands.
-/// Asserts rhs is not a stack value when the lhs isn't a stack value either
-/// NOTE: This leaves the result on top of the stack, rather than a new local.
-fn cmp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareOperator) InnerError!WValue {
-    assert(!(lhs != .stack and rhs == .stack));
     const zcu = cg.pt.zcu;
-    if (ty.zigTypeTag(zcu) == .optional and !ty.optionalReprIsPayload(zcu)) {
-        const payload_ty = ty.optionalChild(zcu);
-        if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-            // When we hit this case, we must check the value of optionals
-            // that are not pointers. This means first checking against non-null for
-            // both lhs and rhs, as well as checking the payload are matching of lhs and rhs
-            return cg.cmpOptionals(lhs, rhs, ty, op);
-        }
-    } else if (ty.isAnyFloat()) {
-        return cg.cmpFloat(ty, lhs, rhs, op);
-    } else if (isByRef(ty, zcu, cg.target)) {
-        return cg.cmpBigInt(lhs, rhs, ty, op);
+
+    const type_tag = operand_ty.zigTypeTag(zcu);
+
+    if (type_tag == .vector) {
+        return cg.fail("TODO: implement AIR op: cmp for vectors", .{});
     }
 
-    const signedness: std.builtin.Signedness = blk: {
-        // by default we tell the operand type is unsigned (i.e. bools and enum values)
-        if (ty.zigTypeTag(zcu) != .int) break :blk .unsigned;
+    if (type_tag == .optional and !operand_ty.optionalReprIsPayload(zcu)) {
+        const payload_ty = operand_ty.optionalChild(zcu);
 
-        // incase of an actual integer, we emit the correct signedness
-        break :blk ty.intInfo(zcu).signedness;
-    };
+        if (payload_ty.hasRuntimeBits(zcu)) {
+            assert(op == .eq or op == .neq);
+            assert(!isByRef(payload_ty, zcu, cg.target));
 
-    // ensure that when we compare pointers, we emit
-    // the true pointer of a stack value, rather than the stack pointer.
-    try cg.lowerToStack(lhs);
-    try cg.lowerToStack(rhs);
+            var result = try cg.allocLocal(Type.i32);
+            defer result.free(cg);
 
-    const opcode: std.wasm.Opcode = buildOpcode(.{
-        .valtype1 = typeToValtype(ty, zcu, cg.target),
-        .op = switch (op) {
-            .lt => .lt,
-            .lte => .le,
-            .eq => .eq,
-            .neq => .ne,
-            .gte => .ge,
-            .gt => .gt,
-        },
-        .signedness = signedness,
-    });
-    try cg.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+            var lhs_null = try cg.allocLocal(Type.i32);
+            defer lhs_null.free(cg);
 
-    return .stack;
+            try cg.startBlock(.block, .empty);
+
+            try cg.addImm32(if (op == .eq) 0 else 1);
+            try cg.addLocal(.local_set, result.local.value);
+
+            _ = try cg.isNull(lhs, operand_ty, .i32_eq);
+            try cg.addLocal(.local_tee, lhs_null.local.value);
+            _ = try cg.isNull(rhs, operand_ty, .i32_eq);
+            try cg.addTag(.i32_ne);
+            try cg.addLabel(.br_if, 0);
+
+            try cg.addImm32(if (op == .eq) 1 else 0);
+            try cg.addLocal(.local_set, result.local.value);
+
+            try cg.addLocal(.local_get, lhs_null.local.value);
+            try cg.addLabel(.br_if, 0);
+
+            _ = try cg.load(lhs, payload_ty, 0);
+            _ = try cg.load(rhs, payload_ty, 0);
+
+            if (payload_ty.isAnyFloat()) {
+                _ = try cg.floatCmp(.fromType(cg, payload_ty), op, .stack, .stack);
+            } else {
+                _ = try cg.intCmp(.fromType(cg, payload_ty), op, .stack, .stack);
+            }
+
+            try cg.addLocal(.local_set, result.local.value);
+            try cg.endBlock();
+
+            try cg.addLocal(.local_get, result.local.value);
+            try cg.finishAir(inst, .stack, &.{ bin_op.lhs, bin_op.rhs });
+        } else {
+            const result = try cg.intCmp(.fromType(cg, operand_ty), op, lhs, rhs);
+            try cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
+        }
+    } else if (type_tag == .float) {
+        const result = try cg.floatCmp(.fromType(cg, operand_ty), op, lhs, rhs);
+        try cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
+    } else {
+        const result = try cg.intCmp(.fromType(cg, operand_ty), op, lhs, rhs);
+        try cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
+    }
 }
 
-/// Compares two floats.
-/// NOTE: Leaves the result of the comparison on top of the stack.
-fn cmpFloat(cg: *CodeGen, ty: Type, lhs: WValue, rhs: WValue, cmp_op: std.math.CompareOperator) InnerError!WValue {
-    const float_bits = ty.floatBits(cg.target);
-
-    const op: Op = switch (cmp_op) {
-        .lt => .lt,
-        .lte => .le,
-        .eq => .eq,
-        .neq => .ne,
-        .gte => .ge,
-        .gt => .gt,
-    };
-
-    switch (float_bits) {
-        16 => {
-            _ = try cg.fpext(lhs, Type.f16, Type.f32);
-            _ = try cg.fpext(rhs, Type.f16, Type.f32);
-            const opcode = buildOpcode(.{ .op = op, .valtype1 = .f32 });
-            try cg.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+fn intCmp(cg: *CodeGen, ty: IntType, op: std.math.CompareOperator, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty.bits) {
+        0 => unreachable,
+        1...32 => {
+            // lhs or rhs could be stack pointers
+            try cg.lowerToStack(lhs);
+            try cg.lowerToStack(rhs);
+            const opcode: Mir.Inst.Tag = switch (op) {
+                .eq => .i32_eq,
+                .neq => .i32_ne,
+                .lt => if (ty.is_signed) .i32_lt_s else .i32_lt_u,
+                .lte => if (ty.is_signed) .i32_le_s else .i32_le_u,
+                .gte => if (ty.is_signed) .i32_ge_s else .i32_ge_u,
+                .gt => if (ty.is_signed) .i32_gt_s else .i32_gt_u,
+            };
+            try cg.addTag(opcode);
             return .stack;
         },
-        32, 64 => {
+        33...64 => {
+            // lhs or rhs could be stack pointers
+            try cg.lowerToStack(lhs);
+            try cg.lowerToStack(rhs);
+            const opcode: Mir.Inst.Tag = switch (op) {
+                .eq => .i64_eq,
+                .neq => .i64_ne,
+                .lt => if (ty.is_signed) .i64_lt_s else .i64_lt_u,
+                .lte => if (ty.is_signed) .i64_le_s else .i64_le_u,
+                .gte => if (ty.is_signed) .i64_ge_s else .i64_ge_u,
+                .gt => if (ty.is_signed) .i64_gt_s else .i64_gt_u,
+            };
+            try cg.addTag(opcode);
+            return .stack;
+        },
+        65...128 => {
+            var lhs_msb = try (try cg.load(lhs, Type.u64, 8)).toLocal(cg, Type.u64);
+            defer lhs_msb.free(cg);
+            var rhs_msb = try (try cg.load(rhs, Type.u64, 8)).toLocal(cg, Type.u64);
+            defer rhs_msb.free(cg);
+
+            switch (op) {
+                .eq, .neq => {
+                    const xor_high = try cg.intXor(.u64, lhs_msb, rhs_msb);
+                    const lhs_lsb = try cg.load(lhs, Type.u64, 0);
+                    const rhs_lsb = try cg.load(rhs, Type.u64, 0);
+                    const xor_low = try cg.intXor(.u64, lhs_lsb, rhs_lsb);
+                    const or_result = try cg.intOr(.u64, xor_high, xor_low);
+
+                    switch (op) {
+                        .eq => return cg.intCmp(.u64, .eq, or_result, .{ .imm64 = 0 }),
+                        .neq => return cg.intCmp(.u64, .neq, or_result, .{ .imm64 = 0 }),
+                        else => unreachable,
+                    }
+                },
+                else => {
+                    const word_int_ty: IntType = if (ty.is_signed) .i64 else .u64;
+
+                    const lhs_lsb = try cg.load(lhs, Type.u64, 0);
+                    const rhs_lsb = try cg.load(rhs, Type.u64, 0);
+
+                    // leave values on stack for 'select'
+                    _ = try cg.intCmp(.u64, op, lhs_lsb, rhs_lsb);
+                    _ = try cg.intCmp(word_int_ty, op, lhs_msb, rhs_msb);
+                    _ = try cg.intCmp(word_int_ty, .eq, lhs_msb, rhs_msb);
+                    try cg.addTag(.select);
+                },
+            }
+
+            return .stack;
+        },
+        else => return cg.fail("TODO: Support intCmp for integer bitsize: {d}", .{ty.bits}),
+    }
+}
+
+fn floatCmp(cg: *CodeGen, ty: FloatType, op: std.math.CompareOperator, lhs: WValue, rhs: WValue) InnerError!WValue {
+    switch (ty) {
+        .f16 => {
+            _ = try cg.floatExtendCast(.f32, .f16, lhs);
+            _ = try cg.floatExtendCast(.f32, .f16, rhs);
+            try cg.addTag(switch (op) {
+                .eq => .f32_eq,
+                .neq => .f32_ne,
+                .lt => .f32_lt,
+                .lte => .f32_le,
+                .gte => .f32_ge,
+                .gt => .f32_gt,
+            });
+            return .stack;
+        },
+        .f32 => {
             try cg.emitWValue(lhs);
             try cg.emitWValue(rhs);
-            const val_type: std.wasm.Valtype = if (float_bits == 32) .f32 else .f64;
-            const opcode = buildOpcode(.{ .op = op, .valtype1 = val_type });
-            try cg.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+            try cg.addTag(switch (op) {
+                .eq => .f32_eq,
+                .neq => .f32_ne,
+                .lt => .f32_lt,
+                .lte => .f32_le,
+                .gte => .f32_ge,
+                .gt => .f32_gt,
+            });
             return .stack;
         },
-        80, 128 => {
-            const intrinsic = floatCmpIntrinsic(cmp_op, float_bits);
-            const result = try cg.callIntrinsic(intrinsic, &.{ ty.ip_index, ty.ip_index }, Type.bool, &.{ lhs, rhs });
-            return cg.cmp(result, .{ .imm32 = 0 }, Type.i32, cmp_op);
+        .f64 => {
+            try cg.emitWValue(lhs);
+            try cg.emitWValue(rhs);
+            try cg.addTag(switch (op) {
+                .eq => .f64_eq,
+                .neq => .f64_ne,
+                .lt => .f64_lt,
+                .lte => .f64_le,
+                .gte => .f64_ge,
+                .gt => .f64_gt,
+            });
+            return .stack;
         },
-        else => unreachable,
+        .f80 => {
+            const intrinsic: Mir.Intrinsic = switch (op) {
+                .lt => .__ltxf2,
+                .lte => .__lexf2,
+                .eq => .__eqxf2,
+                .neq => .__nexf2,
+                .gte => .__gexf2,
+                .gt => .__gtxf2,
+            };
+            const result = try cg.callIntrinsic(intrinsic, &.{ .f80_type, .f80_type }, Type.bool, &.{ lhs, rhs });
+            return cg.intCmp(.i32, op, result, .{ .imm32 = 0 });
+        },
+        .f128 => {
+            const intrinsic: Mir.Intrinsic = switch (op) {
+                .lt => .__lttf2,
+                .lte => .__letf2,
+                .eq => .__eqtf2,
+                .neq => .__netf2,
+                .gte => .__getf2,
+                .gt => .__gttf2,
+            };
+            const result = try cg.callIntrinsic(intrinsic, &.{ .f128_type, .f128_type }, Type.bool, &.{ lhs, rhs });
+            return cg.intCmp(.i32, op, result, .{ .imm32 = 0 });
+        },
     }
 }
 
@@ -3549,7 +4849,7 @@ fn airCmpLtErrorsLen(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pt = cg.pt;
     const err_int_ty = try pt.errorIntType();
     try cg.addTag(.errors_len);
-    const result = try cg.cmp(.stack, .stack, err_int_ty, .lt);
+    const result = try cg.intCmp(.fromType(cg, err_int_ty), .lt, .stack, .stack);
 
     return cg.finishAir(inst, result, &.{un_op});
 }
@@ -3583,73 +4883,6 @@ fn airRepeat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.finishAir(inst, .none, &.{});
 }
 
-fn airNot(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-
-    const operand = try cg.resolveInst(ty_op.operand);
-    const operand_ty = cg.typeOf(ty_op.operand);
-    const pt = cg.pt;
-    const zcu = pt.zcu;
-
-    const result = result: {
-        if (operand_ty.zigTypeTag(zcu) == .bool) {
-            try cg.emitWValue(operand);
-            try cg.addTag(.i32_eqz);
-            const not_tmp = try cg.allocLocal(operand_ty);
-            try cg.addLocal(.local_set, not_tmp.local.value);
-            break :result not_tmp;
-        } else {
-            const int_info = operand_ty.intInfo(zcu);
-            const wasm_bits = toWasmBits(int_info.bits) orelse {
-                return cg.fail("TODO: Implement binary NOT for {f}", .{operand_ty.fmt(pt)});
-            };
-
-            switch (wasm_bits) {
-                32 => {
-                    try cg.emitWValue(operand);
-                    try cg.addImm32(switch (int_info.signedness) {
-                        .unsigned => ~@as(u32, 0) >> @intCast(32 - int_info.bits),
-                        .signed => ~@as(u32, 0),
-                    });
-                    try cg.addTag(.i32_xor);
-                    break :result .stack;
-                },
-                64 => {
-                    try cg.emitWValue(operand);
-                    try cg.addImm64(switch (int_info.signedness) {
-                        .unsigned => ~@as(u64, 0) >> @intCast(64 - int_info.bits),
-                        .signed => ~@as(u64, 0),
-                    });
-                    try cg.addTag(.i64_xor);
-                    break :result .stack;
-                },
-                128 => {
-                    const ptr = try cg.allocStack(operand_ty);
-
-                    try cg.emitWValue(ptr);
-                    _ = try cg.load(operand, Type.u64, 0);
-                    try cg.addImm64(~@as(u64, 0));
-                    try cg.addTag(.i64_xor);
-                    try cg.store(.stack, .stack, Type.u64, ptr.offset());
-
-                    try cg.emitWValue(ptr);
-                    _ = try cg.load(operand, Type.u64, 8);
-                    try cg.addImm64(switch (int_info.signedness) {
-                        .unsigned => ~@as(u64, 0) >> @intCast(128 - int_info.bits),
-                        .signed => ~@as(u64, 0),
-                    });
-                    try cg.addTag(.i64_xor);
-                    try cg.store(.stack, .stack, Type.u64, ptr.offset() + 8);
-
-                    break :result ptr;
-                },
-                else => unreachable,
-            }
-        }
-    };
-    return cg.finishAir(inst, result, &.{ty_op.operand});
-}
-
 fn airTrap(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try cg.addTag(.@"unreachable");
     return cg.finishAir(inst, .none, &.{});
@@ -3668,68 +4901,72 @@ fn airUnreachable(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airBitcast(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand = try cg.resolveInst(ty_op.operand);
-    const wanted_ty = cg.typeOfIndex(inst);
-    const given_ty = cg.typeOf(ty_op.operand);
+    const dest_ty = cg.typeOfIndex(inst);
+    const src_ty = cg.typeOf(ty_op.operand);
 
-    const bit_size = given_ty.bitSize(zcu);
-    const needs_wrapping = (given_ty.isSignedInt(zcu) != wanted_ty.isSignedInt(zcu)) and
-        bit_size != 32 and bit_size != 64 and bit_size != 128;
+    const result = (try cg.bitcast(dest_ty, src_ty, operand)) orelse cg.reuseOperand(ty_op.operand, operand);
 
-    const result = result: {
-        if (given_ty.isAnyFloat() or wanted_ty.isAnyFloat()) {
-            break :result try cg.bitcast(wanted_ty, given_ty, operand);
-        }
-
-        if (isByRef(given_ty, zcu, cg.target) and !isByRef(wanted_ty, zcu, cg.target)) {
-            const loaded_memory = try cg.load(operand, wanted_ty, 0);
-            if (needs_wrapping) {
-                break :result try cg.wrapOperand(loaded_memory, wanted_ty);
-            } else {
-                break :result loaded_memory;
-            }
-        }
-        if (!isByRef(given_ty, zcu, cg.target) and isByRef(wanted_ty, zcu, cg.target)) {
-            const stack_memory = try cg.allocStack(wanted_ty);
-            try cg.store(stack_memory, operand, given_ty, 0);
-            if (needs_wrapping) {
-                break :result try cg.wrapOperand(stack_memory, wanted_ty);
-            } else {
-                break :result stack_memory;
-            }
-        }
-
-        if (needs_wrapping) {
-            break :result try cg.wrapOperand(operand, wanted_ty);
-        }
-
-        break :result switch (operand) {
-            // for stack offset, return a pointer to this offset.
-            .stack_offset => try cg.buildPointerOffset(operand, 0, .new),
-            else => cg.reuseOperand(ty_op.operand, operand),
-        };
-    };
     return cg.finishAir(inst, result, &.{ty_op.operand});
 }
 
-fn bitcast(cg: *CodeGen, wanted_ty: Type, given_ty: Type, operand: WValue) InnerError!WValue {
+fn bitcast(cg: *CodeGen, dest_ty: Type, src_ty: Type, operand: WValue) InnerError!?WValue {
     const zcu = cg.pt.zcu;
-    // if we bitcast a float to or from an integer we must use the 'reinterpret' instruction
-    if (!(wanted_ty.isAnyFloat() or given_ty.isAnyFloat())) return operand;
-    if (wanted_ty.ip_index == .f16_type or given_ty.ip_index == .f16_type) return operand;
-    if (wanted_ty.bitSize(zcu) > 64) return operand;
-    assert((wanted_ty.isInt(zcu) and given_ty.isAnyFloat()) or (wanted_ty.isAnyFloat() and given_ty.isInt(zcu)));
+    const bit_size = src_ty.bitSize(zcu);
+    const needs_wrapping = (src_ty.isSignedInt(zcu) != dest_ty.isSignedInt(zcu)) and
+        bit_size != 32 and bit_size != 64 and bit_size != 128;
 
-    const opcode = buildOpcode(.{
-        .op = .reinterpret,
-        .valtype1 = typeToValtype(wanted_ty, zcu, cg.target),
-        .valtype2 = typeToValtype(given_ty, zcu, cg.target),
-    });
-    try cg.emitWValue(operand);
-    try cg.addTag(Mir.Inst.Tag.fromOpcode(opcode));
-    return .stack;
+    if (src_ty.isAnyFloat() or dest_ty.isAnyFloat()) {
+        if (dest_ty.ip_index == .f16_type or src_ty.ip_index == .f16_type) return null;
+        if (dest_ty.bitSize(zcu) > 64) return null;
+        assert((dest_ty.isInt(zcu) and src_ty.isAnyFloat()) or (dest_ty.isAnyFloat() and src_ty.isInt(zcu)));
+
+        const dest_valtype = typeToValtype(dest_ty, zcu, cg.target);
+        const opcode: Mir.Inst.Tag = switch (dest_valtype) {
+            .i32 => .i32_reinterpret_f32,
+            .i64 => .i64_reinterpret_f64,
+            .f32 => .f32_reinterpret_i32,
+            .f64 => .f64_reinterpret_i64,
+            else => unreachable,
+        };
+
+        try cg.emitWValue(operand);
+        try cg.addTag(opcode);
+        return .stack;
+    }
+
+    if (isByRef(src_ty, zcu, cg.target) and !isByRef(dest_ty, zcu, cg.target)) {
+        const loaded_memory = try cg.load(operand, dest_ty, 0);
+        if (needs_wrapping) {
+            const int_ty: IntType = .fromType(cg, dest_ty);
+            return try cg.intWrap(int_ty, loaded_memory);
+        } else {
+            return loaded_memory;
+        }
+    }
+
+    if (!isByRef(src_ty, zcu, cg.target) and isByRef(dest_ty, zcu, cg.target)) {
+        const stack_memory = try cg.allocStack(dest_ty);
+        try cg.store(stack_memory, operand, src_ty, 0);
+        if (needs_wrapping) {
+            const int_ty: IntType = .fromType(cg, dest_ty);
+            return try cg.intWrap(int_ty, stack_memory);
+        } else {
+            return stack_memory;
+        }
+    }
+
+    if (needs_wrapping) {
+        const int_ty: IntType = .fromType(cg, dest_ty);
+        return try cg.intWrap(int_ty, operand);
+    }
+
+    return switch (operand) {
+        // for stack offset, return a pointer to this offset.
+        .stack_offset => try cg.buildPointerOffset(operand, 0, .new),
+        else => null, // caller should use cg.reuseOperand, if returnes for AIR
+    };
 }
 
 fn airStructFieldPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -3798,7 +5035,6 @@ fn structFieldPtr(
 fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pt = cg.pt;
     const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const struct_field = cg.air.extraData(Air.StructField, ty_pl.payload).data;
 
@@ -3806,65 +5042,10 @@ fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const operand = try cg.resolveInst(struct_field.struct_operand);
     const field_index = struct_field.field_index;
     const field_ty = struct_ty.fieldType(field_index, zcu);
-    if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) return cg.finishAir(inst, .none, &.{struct_field.struct_operand});
+    if (!field_ty.hasRuntimeBits(zcu)) return cg.finishAir(inst, .none, &.{struct_field.struct_operand});
 
     const result: WValue = switch (struct_ty.containerLayout(zcu)) {
-        .@"packed" => switch (struct_ty.zigTypeTag(zcu)) {
-            .@"struct" => result: {
-                const packed_struct = zcu.typeToPackedStruct(struct_ty).?;
-                const offset = zcu.structPackedFieldBitOffset(packed_struct, field_index);
-                const backing_ty = Type.fromInterned(packed_struct.backingIntTypeUnordered(ip));
-                const host_bits = backing_ty.intInfo(zcu).bits;
-
-                const const_wvalue: WValue = if (33 <= host_bits and host_bits <= 64)
-                    .{ .imm64 = offset }
-                else
-                    .{ .imm32 = offset };
-
-                // for first field we don't require any shifting
-                const shifted_value = if (offset == 0)
-                    operand
-                else
-                    try cg.binOp(operand, const_wvalue, backing_ty, .shr);
-
-                if (field_ty.zigTypeTag(zcu) == .float) {
-                    const int_type = try pt.intType(.unsigned, @as(u16, @intCast(field_ty.bitSize(zcu))));
-                    const truncated = try cg.trunc(shifted_value, int_type, backing_ty);
-                    break :result try cg.bitcast(field_ty, int_type, truncated);
-                } else if (field_ty.isPtrAtRuntime(zcu) and packed_struct.field_types.len == 1) {
-                    // In this case we do not have to perform any transformations,
-                    // we can simply reuse the operand.
-                    break :result cg.reuseOperand(struct_field.struct_operand, operand);
-                } else if (field_ty.isPtrAtRuntime(zcu)) {
-                    const int_type = try pt.intType(.unsigned, @as(u16, @intCast(field_ty.bitSize(zcu))));
-                    break :result try cg.trunc(shifted_value, int_type, backing_ty);
-                }
-                break :result try cg.trunc(shifted_value, field_ty, backing_ty);
-            },
-            .@"union" => result: {
-                if (isByRef(struct_ty, zcu, cg.target)) {
-                    if (!isByRef(field_ty, zcu, cg.target)) {
-                        break :result try cg.load(operand, field_ty, 0);
-                    } else {
-                        const new_stack_val = try cg.allocStack(field_ty);
-                        try cg.store(new_stack_val, operand, field_ty, 0);
-                        break :result new_stack_val;
-                    }
-                }
-
-                const union_int_type = try pt.intType(.unsigned, @as(u16, @intCast(struct_ty.bitSize(zcu))));
-                if (field_ty.zigTypeTag(zcu) == .float) {
-                    const int_type = try pt.intType(.unsigned, @as(u16, @intCast(field_ty.bitSize(zcu))));
-                    const truncated = try cg.trunc(operand, int_type, union_int_type);
-                    break :result try cg.bitcast(field_ty, int_type, truncated);
-                } else if (field_ty.isPtrAtRuntime(zcu)) {
-                    const int_type = try pt.intType(.unsigned, @as(u16, @intCast(field_ty.bitSize(zcu))));
-                    break :result try cg.trunc(operand, int_type, union_int_type);
-                }
-                break :result try cg.trunc(operand, field_ty, union_int_type);
-            },
-            else => unreachable,
-        },
+        .@"packed" => unreachable, // legalize .expand_packed_struct_field_val
         else => result: {
             const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, zcu)) orelse {
                 return cg.fail("Field type '{f}' too big to fit into stack frame", .{field_ty.fmt(pt)});
@@ -3891,7 +5072,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
     const switch_br = cg.air.unwrapSwitch(inst);
     const target_ty = cg.typeOf(switch_br.operand);
 
-    assert(target_ty.hasRuntimeBitsIgnoreComptime(zcu));
+    assert(target_ty.hasRuntimeBits(zcu));
 
     // swap target value with placeholder local, for dispatching
     const target = if (is_dispatch_loop) target: {
@@ -3994,11 +5175,13 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
         break :cond true;
     };
 
+    const int_ty: IntType = .fromType(cg, target_ty);
+
     if (use_br_table) {
         const width = width_maybe.?;
 
-        const br_value_original = try cg.binOp(target, try cg.resolveValue(min.?), target_ty, .sub);
-        _ = try cg.intcast(br_value_original, target_ty, Type.u32);
+        const br_value_original = try cg.intSub(int_ty, target, try cg.resolveValue(min.?));
+        _ = try cg.intCast(.u32, int_ty, br_value_original);
 
         const jump_table: Mir.JumpTable = .{ .length = width + 1 };
         const table_extra_index = try cg.addExtra(jump_table);
@@ -4035,16 +5218,16 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
         while (cases_it.next()) |case| {
             for (case.items) |ref| {
                 const val = try cg.resolveInst(ref);
-                _ = try cg.cmp(target, val, target_ty, .eq);
+                _ = try cg.intCmp(int_ty, .eq, target, val);
                 try cg.addLabel(.br_if, case.idx); // item match found
             }
             for (case.ranges) |range| {
                 const low = try cg.resolveInst(range[0]);
                 const high = try cg.resolveInst(range[1]);
 
-                const gte = try cg.cmp(target, low, target_ty, .gte);
-                const lte = try cg.cmp(target, high, target_ty, .lte);
-                _ = try cg.binOp(gte, lte, Type.bool, .@"and");
+                const gte = try cg.intCmp(int_ty, .gte, target, low);
+                const lte = try cg.intCmp(int_ty, .lte, target, high);
+                _ = try cg.intAnd(.u32, gte, lte);
                 try cg.addLabel(.br_if, case.idx); // range match found
             }
         }
@@ -4125,7 +5308,7 @@ fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, opcode: std.wasm.Opcode, op_kind
         }
 
         try cg.emitWValue(operand);
-        if (op_kind == .ptr or pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+        if (op_kind == .ptr or pl_ty.hasRuntimeBits(zcu)) {
             try cg.addMemArg(.i32_load16_u, .{
                 .offset = operand.offset() + @as(u32, @intCast(errUnionErrorOffset(pl_ty, zcu))),
                 .alignment = @intCast(Type.anyerror.abiAlignment(zcu).toByteUnits().?),
@@ -4152,7 +5335,7 @@ fn airUnwrapErrUnionPayload(cg: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool)
     const payload_ty = eu_ty.errorUnionPayload(zcu);
 
     const result: WValue = result: {
-        if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+        if (!payload_ty.hasRuntimeBits(zcu)) {
             if (op_is_ptr) {
                 break :result cg.reuseOperand(ty_op.operand, operand);
             } else {
@@ -4172,7 +5355,7 @@ fn airUnwrapErrUnionPayload(cg: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool)
 }
 
 /// E!T -> E op_is_ptr == false
-/// *(E!T) -> E op_is_prt == true
+/// *(E!T) -> E op_is_ptr == true
 /// NOTE: op_is_ptr will not change return type
 fn airUnwrapErrUnionError(cg: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool) InnerError!void {
     const zcu = cg.pt.zcu;
@@ -4192,7 +5375,7 @@ fn airUnwrapErrUnionError(cg: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool) I
         if (op_is_ptr or isByRef(eu_ty, zcu, cg.target)) {
             break :result try cg.load(operand, Type.anyerror, err_offset);
         } else {
-            assert(!payload_ty.hasRuntimeBitsIgnoreComptime(zcu));
+            assert(!payload_ty.hasRuntimeBits(zcu));
             break :result cg.reuseOperand(ty_op.operand, operand);
         }
     };
@@ -4208,7 +5391,7 @@ fn airWrapErrUnionPayload(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const pl_ty = cg.typeOf(ty_op.operand);
     const result = result: {
-        if (!pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+        if (!pl_ty.hasRuntimeBits(zcu)) {
             break :result cg.reuseOperand(ty_op.operand, operand);
         }
 
@@ -4238,7 +5421,7 @@ fn airWrapErrUnionErr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pl_ty = err_ty.errorUnionPayload(zcu);
 
     const result = result: {
-        if (!pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+        if (!pl_ty.hasRuntimeBits(zcu)) {
             break :result cg.reuseOperand(ty_op.operand, operand);
         }
 
@@ -4254,83 +5437,6 @@ fn airWrapErrUnionErr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         break :result err_union;
     };
     return cg.finishAir(inst, result, &.{ty_op.operand});
-}
-
-fn airIntcast(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-
-    const ty = ty_op.ty.toType();
-    const operand = try cg.resolveInst(ty_op.operand);
-    const operand_ty = cg.typeOf(ty_op.operand);
-    const zcu = cg.pt.zcu;
-    if (ty.zigTypeTag(zcu) == .vector or operand_ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("todo Wasm intcast for vectors", .{});
-    }
-    if (ty.abiSize(zcu) > 16 or operand_ty.abiSize(zcu) > 16) {
-        return cg.fail("todo Wasm intcast for bitsize > 128", .{});
-    }
-
-    const op_bits = toWasmBits(@intCast(operand_ty.bitSize(zcu))).?;
-    const wanted_bits = toWasmBits(@intCast(ty.bitSize(zcu))).?;
-    const result = if (op_bits == wanted_bits)
-        cg.reuseOperand(ty_op.operand, operand)
-    else
-        try cg.intcast(operand, operand_ty, ty);
-
-    return cg.finishAir(inst, result, &.{ty_op.operand});
-}
-
-/// Upcasts or downcasts an integer based on the given and wanted types,
-/// and stores the result in a new operand.
-/// Asserts type's bitsize <= 128
-/// NOTE: May leave the result on the top of the stack.
-fn intcast(cg: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
-    const zcu = cg.pt.zcu;
-    const given_bitsize = @as(u16, @intCast(given.bitSize(zcu)));
-    const wanted_bitsize = @as(u16, @intCast(wanted.bitSize(zcu)));
-    assert(given_bitsize <= 128);
-    assert(wanted_bitsize <= 128);
-
-    const op_bits = toWasmBits(given_bitsize).?;
-    const wanted_bits = toWasmBits(wanted_bitsize).?;
-    if (op_bits == wanted_bits) {
-        return operand;
-    }
-
-    if (op_bits == 64 and wanted_bits == 32) {
-        try cg.emitWValue(operand);
-        try cg.addTag(.i32_wrap_i64);
-        return .stack;
-    } else if (op_bits == 32 and wanted_bits == 64) {
-        try cg.emitWValue(operand);
-        try cg.addTag(if (wanted.isSignedInt(zcu)) .i64_extend_i32_s else .i64_extend_i32_u);
-        return .stack;
-    } else if (wanted_bits == 128) {
-        // for 128bit integers we store the integer in the virtual stack, rather than a local
-        const stack_ptr = try cg.allocStack(wanted);
-        try cg.emitWValue(stack_ptr);
-
-        // for 32 bit integers, we first coerce the value into a 64 bit integer before storing it
-        // meaning less store operations are required.
-        const lhs = if (op_bits == 32) blk: {
-            const sign_ty = if (wanted.isSignedInt(zcu)) Type.i64 else Type.u64;
-            break :blk try (try cg.intcast(operand, given, sign_ty)).toLocal(cg, sign_ty);
-        } else operand;
-
-        // store lsb first
-        try cg.store(.stack, lhs, Type.u64, 0 + stack_ptr.offset());
-
-        // For signed integers we shift lsb by 63 (64bit integer - 1 sign bit) and store remaining value
-        if (wanted.isSignedInt(zcu)) {
-            try cg.emitWValue(stack_ptr);
-            const shr = try cg.binOp(lhs, .{ .imm64 = 63 }, Type.i64, .shr);
-            try cg.store(.stack, shr, Type.u64, 8 + stack_ptr.offset());
-        } else {
-            // Ensure memory of msb is zero'd
-            try cg.store(stack_ptr, .{ .imm64 = 0 }, Type.u64, 8);
-        }
-        return stack_ptr;
-    } else return cg.load(operand, wanted, 0);
 }
 
 fn airIsNull(cg: *CodeGen, inst: Air.Inst.Index, opcode: std.wasm.Opcode, op_kind: enum { value, ptr }) InnerError!void {
@@ -4354,7 +5460,7 @@ fn isNull(cg: *CodeGen, operand: WValue, optional_ty: Type, opcode: std.wasm.Opc
     if (!optional_ty.optionalReprIsPayload(zcu)) {
         // When payload is zero-bits, we can treat operand as a value, rather than
         // a pointer to the stack value
-        if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+        if (payload_ty.hasRuntimeBits(zcu)) {
             const offset = std.math.cast(u32, payload_ty.abiSize(zcu)) orelse {
                 return cg.fail("Optional type {f} too big to fit into stack frame", .{optional_ty.fmt(pt)});
             };
@@ -4379,7 +5485,7 @@ fn airOptionalPayload(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const opt_ty = cg.typeOf(ty_op.operand);
     const payload_ty = cg.typeOfIndex(inst);
-    if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+    if (!payload_ty.hasRuntimeBits(zcu)) {
         return cg.finishAir(inst, .none, &.{ty_op.operand});
     }
 
@@ -4404,7 +5510,7 @@ fn airOptionalPayloadPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const result = result: {
         const payload_ty = opt_ty.optionalChild(zcu);
-        if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu) or opt_ty.optionalReprIsPayload(zcu)) {
+        if (!payload_ty.hasRuntimeBits(zcu) or opt_ty.optionalReprIsPayload(zcu)) {
             break :result cg.reuseOperand(ty_op.operand, operand);
         }
 
@@ -4444,7 +5550,7 @@ fn airWrapOptional(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const zcu = pt.zcu;
 
     const result = result: {
-        if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+        if (!payload_ty.hasRuntimeBits(zcu)) {
             const non_null_bit = try cg.allocStack(Type.u1);
             try cg.emitWValue(non_null_bit);
             try cg.addImm32(1);
@@ -4562,44 +5668,6 @@ fn sliceLen(cg: *CodeGen, operand: WValue) InnerError!WValue {
     return len.toLocal(cg, Type.usize);
 }
 
-fn airTrunc(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-
-    const operand = try cg.resolveInst(ty_op.operand);
-    const wanted_ty: Type = ty_op.ty.toType();
-    const op_ty = cg.typeOf(ty_op.operand);
-    const zcu = cg.pt.zcu;
-
-    if (wanted_ty.zigTypeTag(zcu) == .vector or op_ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: trunc for vectors", .{});
-    }
-
-    const result = if (op_ty.bitSize(zcu) == wanted_ty.bitSize(zcu))
-        cg.reuseOperand(ty_op.operand, operand)
-    else
-        try cg.trunc(operand, wanted_ty, op_ty);
-
-    return cg.finishAir(inst, result, &.{ty_op.operand});
-}
-
-/// Truncates a given operand to a given type, discarding any overflown bits.
-/// NOTE: Resulting value is left on the stack.
-fn trunc(cg: *CodeGen, operand: WValue, wanted_ty: Type, given_ty: Type) InnerError!WValue {
-    const zcu = cg.pt.zcu;
-    const given_bits = @as(u16, @intCast(given_ty.bitSize(zcu)));
-    if (toWasmBits(given_bits) == null) {
-        return cg.fail("TODO: Implement wasm integer truncation for integer bitsize: {d}", .{given_bits});
-    }
-
-    var result = try cg.intcast(operand, given_ty, wanted_ty);
-    const wanted_bits = @as(u16, @intCast(wanted_ty.bitSize(zcu)));
-    const wasm_bits = toWasmBits(wanted_bits).?;
-    if (wasm_bits != wanted_bits) {
-        result = try cg.wrapOperand(result, wanted_ty);
-    }
-    return result;
-}
-
 fn airArrayToSlice(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -4612,7 +5680,7 @@ fn airArrayToSlice(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const slice_local = try cg.allocStack(slice_ty);
 
     // store the array ptr in the slice
-    if (array_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+    if (array_ty.hasRuntimeBits(zcu)) {
         try cg.store(slice_local, operand, Type.usize, 0);
     }
 
@@ -4682,7 +5750,7 @@ fn airPtrElemPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.finishAir(inst, .stack, &.{ bin_op.lhs, bin_op.rhs });
 }
 
-fn airPtrBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
+fn airPtrBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: enum { add, sub }) InnerError!void {
     const zcu = cg.pt.zcu;
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const bin_op = cg.air.extraData(Air.Bin, ty_pl.payload).data;
@@ -4695,15 +5763,27 @@ fn airPtrBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
         else => ptr_ty.childType(zcu),
     };
 
-    const valtype = typeToValtype(Type.usize, zcu, cg.target);
-    const mul_opcode = buildOpcode(.{ .valtype1 = valtype, .op = .mul });
-    const bin_opcode = buildOpcode(.{ .valtype1 = valtype, .op = op });
-
     try cg.lowerToStack(ptr);
     try cg.emitWValue(offset);
-    try cg.addImm32(@intCast(pointee_ty.abiSize(zcu)));
-    try cg.addTag(Mir.Inst.Tag.fromOpcode(mul_opcode));
-    try cg.addTag(Mir.Inst.Tag.fromOpcode(bin_opcode));
+
+    switch (cg.ptr_size) {
+        .wasm32 => {
+            try cg.addImm32(@intCast(pointee_ty.abiSize(zcu)));
+            try cg.addTag(.i32_mul);
+            try cg.addTag(switch (op) {
+                .add => .i32_add,
+                .sub => .i32_sub,
+            });
+        },
+        .wasm64 => {
+            try cg.addImm64(pointee_ty.abiSize(zcu));
+            try cg.addTag(.i64_mul);
+            try cg.addTag(switch (op) {
+                .add => .i64_add,
+                .sub => .i64_sub,
+            });
+        },
+    }
 
     return cg.finishAir(inst, .stack, &.{ bin_op.lhs, bin_op.rhs });
 }
@@ -4909,109 +5989,6 @@ fn airArrayElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.finishAir(inst, elem_result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
-fn airIntFromFloat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const zcu = cg.pt.zcu;
-    const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-
-    const operand = try cg.resolveInst(ty_op.operand);
-    const op_ty = cg.typeOf(ty_op.operand);
-    const op_bits = op_ty.floatBits(cg.target);
-
-    const dest_ty = cg.typeOfIndex(inst);
-    const dest_info = dest_ty.intInfo(zcu);
-
-    if (dest_info.bits > 128) {
-        return cg.fail("TODO: intFromFloat for integers/floats with bitsize {}", .{dest_info.bits});
-    }
-
-    if ((op_bits != 32 and op_bits != 64) or dest_info.bits > 64) {
-        const dest_bitsize = if (dest_info.bits <= 32) 32 else std.math.ceilPowerOfTwoAssert(u16, dest_info.bits);
-
-        const intrinsic = switch (dest_info.signedness) {
-            inline .signed, .unsigned => |ct_s| switch (op_bits) {
-                inline 16, 32, 64, 80, 128 => |ct_op_bits| switch (dest_bitsize) {
-                    inline 32, 64, 128 => |ct_dest_bits| @field(
-                        Mir.Intrinsic,
-                        "__fix" ++ switch (ct_s) {
-                            .signed => "",
-                            .unsigned => "uns",
-                        } ++
-                            compilerRtFloatAbbrev(ct_op_bits) ++ "f" ++
-                            compilerRtIntAbbrev(ct_dest_bits) ++ "i",
-                    ),
-                    else => unreachable,
-                },
-                else => unreachable,
-            },
-        };
-        const result = try cg.callIntrinsic(intrinsic, &.{op_ty.ip_index}, dest_ty, &.{operand});
-        return cg.finishAir(inst, result, &.{ty_op.operand});
-    }
-
-    try cg.emitWValue(operand);
-    const op = buildOpcode(.{
-        .op = .trunc,
-        .valtype1 = typeToValtype(dest_ty, zcu, cg.target),
-        .valtype2 = typeToValtype(op_ty, zcu, cg.target),
-        .signedness = dest_info.signedness,
-    });
-    try cg.addTag(Mir.Inst.Tag.fromOpcode(op));
-    const result = try cg.wrapOperand(.stack, dest_ty);
-    return cg.finishAir(inst, result, &.{ty_op.operand});
-}
-
-fn airFloatFromInt(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const zcu = cg.pt.zcu;
-    const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-
-    const operand = try cg.resolveInst(ty_op.operand);
-    const op_ty = cg.typeOf(ty_op.operand);
-    const op_info = op_ty.intInfo(zcu);
-
-    const dest_ty = cg.typeOfIndex(inst);
-    const dest_bits = dest_ty.floatBits(cg.target);
-
-    if (op_info.bits > 128) {
-        return cg.fail("TODO: floatFromInt for integers/floats with bitsize {d} bits", .{op_info.bits});
-    }
-
-    if (op_info.bits > 64 or (dest_bits > 64 or dest_bits < 32)) {
-        const op_bitsize = if (op_info.bits <= 32) 32 else std.math.ceilPowerOfTwoAssert(u16, op_info.bits);
-
-        const intrinsic = switch (op_info.signedness) {
-            inline .signed, .unsigned => |ct_s| switch (op_bitsize) {
-                inline 32, 64, 128 => |ct_int_bits| switch (dest_bits) {
-                    inline 16, 32, 64, 80, 128 => |ct_float_bits| @field(
-                        Mir.Intrinsic,
-                        "__float" ++ switch (ct_s) {
-                            .signed => "",
-                            .unsigned => "un",
-                        } ++
-                            compilerRtIntAbbrev(ct_int_bits) ++ "i" ++
-                            compilerRtFloatAbbrev(ct_float_bits) ++ "f",
-                    ),
-                    else => unreachable,
-                },
-                else => unreachable,
-            },
-        };
-
-        const result = try cg.callIntrinsic(intrinsic, &.{op_ty.ip_index}, dest_ty, &.{operand});
-        return cg.finishAir(inst, result, &.{ty_op.operand});
-    }
-
-    try cg.emitWValue(operand);
-    const op = buildOpcode(.{
-        .op = .convert,
-        .valtype1 = typeToValtype(dest_ty, zcu, cg.target),
-        .valtype2 = typeToValtype(op_ty, zcu, cg.target),
-        .signedness = op_info.signedness,
-    });
-    try cg.addTag(Mir.Inst.Tag.fromOpcode(op));
-
-    return cg.finishAir(inst, .stack, &.{ty_op.operand});
-}
-
 fn airSplat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -5111,7 +6088,7 @@ fn airShuffleOne(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try cg.emitWValue(dest_alloc);
         const elem_val = switch (mask_elem.unwrap()) {
             .elem => |idx| try cg.load(operand, elem_ty, @intCast(elem_size * idx)),
-            .value => |val| try cg.lowerConstant(.fromInterned(val), elem_ty),
+            .value => |val| try cg.lowerConstant(.fromInterned(val)),
         };
         try cg.store(.stack, elem_val, elem_ty, @intCast(dest_alloc.offset() + elem_size * out_idx));
     }
@@ -5198,7 +6175,6 @@ fn airReduce(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pt = cg.pt;
     const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const result_ty = cg.typeOfIndex(inst);
     const len = @as(usize, @intCast(result_ty.arrayLen(zcu)));
@@ -5246,52 +6222,7 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 break :result_value result;
             },
             .@"struct" => switch (result_ty.containerLayout(zcu)) {
-                .@"packed" => {
-                    if (isByRef(result_ty, zcu, cg.target)) {
-                        return cg.fail("TODO: airAggregateInit for packed structs larger than 64 bits", .{});
-                    }
-                    const packed_struct = zcu.typeToPackedStruct(result_ty).?;
-                    const field_types = packed_struct.field_types;
-                    const backing_type = Type.fromInterned(packed_struct.backingIntTypeUnordered(ip));
-
-                    // ensure the result is zero'd
-                    const result = try cg.allocLocal(backing_type);
-                    if (backing_type.bitSize(zcu) <= 32)
-                        try cg.addImm32(0)
-                    else
-                        try cg.addImm64(0);
-                    try cg.addLocal(.local_set, result.local.value);
-
-                    var current_bit: u16 = 0;
-                    for (elements, 0..) |elem, elem_index| {
-                        const field_ty = Type.fromInterned(field_types.get(ip)[elem_index]);
-                        if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
-
-                        const shift_val: WValue = if (backing_type.bitSize(zcu) <= 32)
-                            .{ .imm32 = current_bit }
-                        else
-                            .{ .imm64 = current_bit };
-
-                        const value = try cg.resolveInst(elem);
-                        const value_bit_size: u16 = @intCast(field_ty.bitSize(zcu));
-                        const int_ty = try pt.intType(.unsigned, value_bit_size);
-
-                        // load our current result on stack so we can perform all transformations
-                        // using only stack values. Saving the cost of loads and stores.
-                        try cg.emitWValue(result);
-                        const bitcasted = try cg.bitcast(int_ty, field_ty, value);
-                        const extended_val = try cg.intcast(bitcasted, int_ty, backing_type);
-                        // no need to shift any values when the current offset is 0
-                        const shifted = if (current_bit != 0) shifted: {
-                            break :shifted try cg.binOp(extended_val, shift_val, backing_type, .shl);
-                        } else extended_val;
-                        // we ignore the result as we keep it on the stack to assign it directly to `result`
-                        _ = try cg.binOp(.stack, shifted, backing_type, .@"or");
-                        try cg.addLocal(.local_set, result.local.value);
-                        current_bit += value_bit_size;
-                    }
-                    break :result_value result;
-                },
+                .@"packed" => unreachable, // legalize .expand_packed_aggregate_init
                 else => {
                     const result = try cg.allocStack(result_ty);
                     const offset = try cg.buildPointerOffset(result, 0, .new); // pointer to offset
@@ -5338,13 +6269,13 @@ fn airUnionInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const layout = union_ty.unionGetLayout(zcu);
         const union_obj = zcu.typeToUnion(union_ty).?;
         const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[extra.field_index]);
-        const field_name = union_obj.loadTagType(ip).names.get(ip)[extra.field_index];
+        const field_name = ip.loadEnumType(union_obj.enum_tag_type).field_names.get(ip)[extra.field_index];
 
         const tag_int = blk: {
             const tag_ty = union_ty.unionTagTypeHypothetical(zcu);
             const enum_field_index = tag_ty.enumFieldIndex(field_name, zcu).?;
             const tag_val = try pt.enumValueFieldIndex(tag_ty, enum_field_index);
-            break :blk try cg.lowerConstant(tag_val, tag_ty);
+            break :blk try cg.lowerConstant(tag_val);
         };
         if (layout.payload_size == 0) {
             if (layout.tag_size == 0) {
@@ -5366,7 +6297,7 @@ fn airUnionInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 }
 
                 if (layout.tag_size > 0) {
-                    try cg.store(result_ptr, tag_int, Type.fromInterned(union_obj.enum_tag_ty), 0);
+                    try cg.store(result_ptr, tag_int, .fromInterned(union_obj.enum_tag_type), 0);
                 }
             } else {
                 try cg.store(result_ptr, payload, field_ty, 0);
@@ -5374,7 +6305,7 @@ fn airUnionInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     try cg.store(
                         result_ptr,
                         tag_int,
-                        Type.fromInterned(union_obj.enum_tag_ty),
+                        .fromInterned(union_obj.enum_tag_type),
                         @intCast(layout.payload_size),
                     );
                 }
@@ -5382,16 +6313,7 @@ fn airUnionInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result result_ptr;
         } else {
             const operand = try cg.resolveInst(extra.init);
-            const union_int_type = try pt.intType(.unsigned, @as(u16, @intCast(union_ty.bitSize(zcu))));
-            if (field_ty.zigTypeTag(zcu) == .float) {
-                const int_type = try pt.intType(.unsigned, @intCast(field_ty.bitSize(zcu)));
-                const bitcasted = try cg.bitcast(field_ty, int_type, operand);
-                break :result try cg.trunc(bitcasted, int_type, union_int_type);
-            } else if (field_ty.isPtrAtRuntime(zcu)) {
-                const int_type = try pt.intType(.unsigned, @intCast(field_ty.bitSize(zcu)));
-                break :result try cg.intcast(operand, int_type, union_int_type);
-            }
-            break :result try cg.intcast(operand, field_ty, union_int_type);
+            break :result (try cg.bitcast(union_ty, field_ty, operand)) orelse cg.reuseOperand(extra.init, operand);
         }
     };
 
@@ -5417,93 +6339,6 @@ fn airWasmMemoryGrow(cg: *CodeGen, inst: Air.Inst.Index) !void {
     try cg.emitWValue(operand);
     try cg.addLabel(.memory_grow, pl_op.payload);
     return cg.finishAir(inst, .stack, &.{pl_op.operand});
-}
-
-fn cmpOptionals(cg: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
-    const zcu = cg.pt.zcu;
-    assert(operand_ty.hasRuntimeBitsIgnoreComptime(zcu));
-    assert(op == .eq or op == .neq);
-    const payload_ty = operand_ty.optionalChild(zcu);
-    assert(!isByRef(payload_ty, zcu, cg.target));
-
-    var result = try cg.allocLocal(Type.i32);
-    defer result.free(cg);
-
-    var lhs_null = try cg.allocLocal(Type.i32);
-    defer lhs_null.free(cg);
-
-    try cg.startBlock(.block, .empty);
-
-    try cg.addImm32(if (op == .eq) 0 else 1);
-    try cg.addLocal(.local_set, result.local.value);
-
-    _ = try cg.isNull(lhs, operand_ty, .i32_eq);
-    try cg.addLocal(.local_tee, lhs_null.local.value);
-    _ = try cg.isNull(rhs, operand_ty, .i32_eq);
-    try cg.addTag(.i32_ne);
-    try cg.addLabel(.br_if, 0); // only one is null
-
-    try cg.addImm32(if (op == .eq) 1 else 0);
-    try cg.addLocal(.local_set, result.local.value);
-
-    try cg.addLocal(.local_get, lhs_null.local.value);
-    try cg.addLabel(.br_if, 0); // both are null
-
-    _ = try cg.load(lhs, payload_ty, 0);
-    _ = try cg.load(rhs, payload_ty, 0);
-    _ = try cg.cmp(.stack, .stack, payload_ty, op);
-    try cg.addLocal(.local_set, result.local.value);
-
-    try cg.endBlock();
-
-    try cg.addLocal(.local_get, result.local.value);
-
-    return .stack;
-}
-
-/// Compares big integers by checking both its high bits and low bits.
-/// NOTE: Leaves the result of the comparison on top of the stack.
-/// TODO: Lower this to compiler_rt call when bitsize > 128
-fn cmpBigInt(cg: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
-    const zcu = cg.pt.zcu;
-    assert(operand_ty.abiSize(zcu) >= 16);
-    assert(!(lhs != .stack and rhs == .stack));
-    if (operand_ty.bitSize(zcu) > 128) {
-        return cg.fail("TODO: Support cmpBigInt for integer bitsize: '{d}'", .{operand_ty.bitSize(zcu)});
-    }
-
-    var lhs_msb = try (try cg.load(lhs, Type.u64, 8)).toLocal(cg, Type.u64);
-    defer lhs_msb.free(cg);
-    var rhs_msb = try (try cg.load(rhs, Type.u64, 8)).toLocal(cg, Type.u64);
-    defer rhs_msb.free(cg);
-
-    switch (op) {
-        .eq, .neq => {
-            const xor_high = try cg.binOp(lhs_msb, rhs_msb, Type.u64, .xor);
-            const lhs_lsb = try cg.load(lhs, Type.u64, 0);
-            const rhs_lsb = try cg.load(rhs, Type.u64, 0);
-            const xor_low = try cg.binOp(lhs_lsb, rhs_lsb, Type.u64, .xor);
-            const or_result = try cg.binOp(xor_high, xor_low, Type.u64, .@"or");
-
-            switch (op) {
-                .eq => return cg.cmp(or_result, .{ .imm64 = 0 }, Type.u64, .eq),
-                .neq => return cg.cmp(or_result, .{ .imm64 = 0 }, Type.u64, .neq),
-                else => unreachable,
-            }
-        },
-        else => {
-            const ty = if (operand_ty.isSignedInt(zcu)) Type.i64 else Type.u64;
-            // leave those value on top of the stack for '.select'
-            const lhs_lsb = try cg.load(lhs, Type.u64, 0);
-            const rhs_lsb = try cg.load(rhs, Type.u64, 0);
-            _ = try cg.cmp(lhs_lsb, rhs_lsb, Type.u64, op);
-            _ = try cg.cmp(lhs_msb, rhs_msb, ty, op);
-            _ = try cg.cmp(lhs_msb, rhs_msb, ty, .eq);
-            try cg.addTag(.select);
-        },
-    }
-
-    return .stack;
 }
 
 fn airSetUnionTag(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -5551,113 +6386,6 @@ fn airGetUnionTag(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.finishAir(inst, result, &.{ty_op.operand});
 }
 
-fn airFpext(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-
-    const dest_ty = cg.typeOfIndex(inst);
-    const operand = try cg.resolveInst(ty_op.operand);
-    const result = try cg.fpext(operand, cg.typeOf(ty_op.operand), dest_ty);
-    return cg.finishAir(inst, result, &.{ty_op.operand});
-}
-
-/// Extends a float from a given `Type` to a larger wanted `Type`, leaving the
-/// result on the stack.
-fn fpext(cg: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
-    const given_bits = given.floatBits(cg.target);
-    const wanted_bits = wanted.floatBits(cg.target);
-
-    const intrinsic: Mir.Intrinsic = switch (given_bits) {
-        16 => switch (wanted_bits) {
-            32 => {
-                assert(.stack == try cg.callIntrinsic(.__extendhfsf2, &.{.f16_type}, Type.f32, &.{operand}));
-                return .stack;
-            },
-            64 => {
-                assert(.stack == try cg.callIntrinsic(.__extendhfsf2, &.{.f16_type}, Type.f32, &.{operand}));
-                try cg.addTag(.f64_promote_f32);
-                return .stack;
-            },
-            80 => .__extendhfxf2,
-            128 => .__extendhftf2,
-            else => unreachable,
-        },
-        32 => switch (wanted_bits) {
-            64 => {
-                try cg.emitWValue(operand);
-                try cg.addTag(.f64_promote_f32);
-                return .stack;
-            },
-            80 => .__extendsfxf2,
-            128 => .__extendsftf2,
-            else => unreachable,
-        },
-        64 => switch (wanted_bits) {
-            80 => .__extenddfxf2,
-            128 => .__extenddftf2,
-            else => unreachable,
-        },
-        80 => switch (wanted_bits) {
-            128 => .__extendxftf2,
-            else => unreachable,
-        },
-        else => unreachable,
-    };
-    return cg.callIntrinsic(intrinsic, &.{given.ip_index}, wanted, &.{operand});
-}
-
-fn airFptrunc(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-
-    const dest_ty = cg.typeOfIndex(inst);
-    const operand = try cg.resolveInst(ty_op.operand);
-    const result = try cg.fptrunc(operand, cg.typeOf(ty_op.operand), dest_ty);
-    return cg.finishAir(inst, result, &.{ty_op.operand});
-}
-
-/// Truncates a float from a given `Type` to its wanted `Type`, leaving the
-/// result on the stack.
-fn fptrunc(cg: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
-    const given_bits = given.floatBits(cg.target);
-    const wanted_bits = wanted.floatBits(cg.target);
-
-    const intrinsic: Mir.Intrinsic = switch (given_bits) {
-        32 => switch (wanted_bits) {
-            16 => {
-                return cg.callIntrinsic(.__truncsfhf2, &.{.f32_type}, Type.f16, &.{operand});
-            },
-            else => unreachable,
-        },
-        64 => switch (wanted_bits) {
-            16 => {
-                try cg.emitWValue(operand);
-                try cg.addTag(.f32_demote_f64);
-                return cg.callIntrinsic(.__truncsfhf2, &.{.f32_type}, Type.f16, &.{.stack});
-            },
-            32 => {
-                try cg.emitWValue(operand);
-                try cg.addTag(.f32_demote_f64);
-                return .stack;
-            },
-            else => unreachable,
-        },
-        80 => switch (wanted_bits) {
-            16 => .__truncxfhf2,
-            32 => .__truncxfsf2,
-            64 => .__truncxfdf2,
-            else => unreachable,
-        },
-        128 => switch (wanted_bits) {
-            16 => .__trunctfhf2,
-            32 => .__trunctfsf2,
-            64 => .__trunctfdf2,
-            80 => .__trunctfxf2,
-            else => unreachable,
-        },
-        else => unreachable,
-    };
-    return cg.callIntrinsic(intrinsic, &.{given.ip_index}, wanted, &.{operand});
-}
-
 fn airErrUnionPayloadPtrSet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -5675,7 +6403,7 @@ fn airErrUnionPayloadPtrSet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void 
     );
 
     const result = result: {
-        if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+        if (!payload_ty.hasRuntimeBits(zcu)) {
             break :result cg.reuseOperand(ty_op.operand, operand);
         }
 
@@ -5765,153 +6493,6 @@ fn airRetAddr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     }, &.{});
 }
 
-fn airPopcount(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
-    const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-
-    const operand = try cg.resolveInst(ty_op.operand);
-    const op_ty = cg.typeOf(ty_op.operand);
-
-    if (op_ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: Implement @popCount for vectors", .{});
-    }
-
-    const int_info = op_ty.intInfo(zcu);
-    const bits = int_info.bits;
-    const wasm_bits = toWasmBits(bits) orelse {
-        return cg.fail("TODO: Implement @popCount for integers with bitsize '{d}'", .{bits});
-    };
-
-    switch (wasm_bits) {
-        32 => {
-            try cg.emitWValue(operand);
-            if (op_ty.isSignedInt(zcu) and bits != wasm_bits) {
-                _ = try cg.wrapOperand(.stack, try pt.intType(.unsigned, bits));
-            }
-            try cg.addTag(.i32_popcnt);
-        },
-        64 => {
-            try cg.emitWValue(operand);
-            if (op_ty.isSignedInt(zcu) and bits != wasm_bits) {
-                _ = try cg.wrapOperand(.stack, try pt.intType(.unsigned, bits));
-            }
-            try cg.addTag(.i64_popcnt);
-            try cg.addTag(.i32_wrap_i64);
-            try cg.emitWValue(operand);
-        },
-        128 => {
-            _ = try cg.load(operand, Type.u64, 0);
-            try cg.addTag(.i64_popcnt);
-            _ = try cg.load(operand, Type.u64, 8);
-            if (op_ty.isSignedInt(zcu) and bits != wasm_bits) {
-                _ = try cg.wrapOperand(.stack, try pt.intType(.unsigned, bits - 64));
-            }
-            try cg.addTag(.i64_popcnt);
-            try cg.addTag(.i64_add);
-            try cg.addTag(.i32_wrap_i64);
-        },
-        else => unreachable,
-    }
-
-    return cg.finishAir(inst, .stack, &.{ty_op.operand});
-}
-
-fn airBitReverse(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const zcu = cg.pt.zcu;
-    const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-
-    const operand = try cg.resolveInst(ty_op.operand);
-    const ty = cg.typeOf(ty_op.operand);
-
-    if (ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: Implement @bitReverse for vectors", .{});
-    }
-
-    const int_info = ty.intInfo(zcu);
-    const bits = int_info.bits;
-    const wasm_bits = toWasmBits(bits) orelse {
-        return cg.fail("TODO: Implement @bitReverse for integers with bitsize '{d}'", .{bits});
-    };
-
-    switch (wasm_bits) {
-        32 => {
-            const intrin_ret = try cg.callIntrinsic(
-                .__bitreversesi2,
-                &.{.u32_type},
-                Type.u32,
-                &.{operand},
-            );
-            const result = if (bits == 32)
-                intrin_ret
-            else
-                try cg.binOp(intrin_ret, .{ .imm32 = 32 - bits }, ty, .shr);
-            return cg.finishAir(inst, result, &.{ty_op.operand});
-        },
-        64 => {
-            const intrin_ret = try cg.callIntrinsic(
-                .__bitreversedi2,
-                &.{.u64_type},
-                Type.u64,
-                &.{operand},
-            );
-            const result = if (bits == 64)
-                intrin_ret
-            else
-                try cg.binOp(intrin_ret, .{ .imm64 = 64 - bits }, ty, .shr);
-            return cg.finishAir(inst, result, &.{ty_op.operand});
-        },
-        128 => {
-            const result = try cg.allocStack(ty);
-
-            try cg.emitWValue(result);
-            const first_half = try cg.load(operand, Type.u64, 8);
-            const intrin_ret_first = try cg.callIntrinsic(
-                .__bitreversedi2,
-                &.{.u64_type},
-                Type.u64,
-                &.{first_half},
-            );
-            try cg.emitWValue(intrin_ret_first);
-            if (bits < 128) {
-                try cg.emitWValue(.{ .imm64 = 128 - bits });
-                try cg.addTag(.i64_shr_u);
-            }
-            try cg.emitWValue(result);
-            const second_half = try cg.load(operand, Type.u64, 0);
-            const intrin_ret_second = try cg.callIntrinsic(
-                .__bitreversedi2,
-                &.{.u64_type},
-                Type.u64,
-                &.{second_half},
-            );
-            try cg.emitWValue(intrin_ret_second);
-            if (bits == 128) {
-                try cg.store(.stack, .stack, Type.u64, result.offset() + 8);
-                try cg.store(.stack, .stack, Type.u64, result.offset());
-            } else {
-                var tmp = try cg.allocLocal(Type.u64);
-                defer tmp.free(cg);
-                try cg.addLocal(.local_tee, tmp.local.value);
-                try cg.emitWValue(.{ .imm64 = 128 - bits });
-                if (ty.isSignedInt(zcu)) {
-                    try cg.addTag(.i64_shr_s);
-                } else {
-                    try cg.addTag(.i64_shr_u);
-                }
-                try cg.store(.stack, .stack, Type.u64, result.offset() + 8);
-                try cg.addLocal(.local_get, tmp.local.value);
-                try cg.emitWValue(.{ .imm64 = bits - 64 });
-                try cg.addTag(.i64_shl);
-                try cg.addTag(.i64_or);
-                try cg.store(.stack, .stack, Type.u64, result.offset());
-            }
-            return cg.finishAir(inst, result, &.{ty_op.operand});
-        },
-        else => unreachable,
-    }
-}
-
 fn airErrorName(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try cg.resolveInst(un_op);
@@ -5951,459 +6532,6 @@ fn airPtrSliceFieldPtr(cg: *CodeGen, inst: Air.Inst.Index, offset: u32) InnerErr
     const slice_ptr = try cg.resolveInst(ty_op.operand);
     const result = try cg.buildPointerOffset(slice_ptr, offset, .new);
     return cg.finishAir(inst, result, &.{ty_op.operand});
-}
-
-/// NOTE: Allocates place for result on virtual stack, when integer size > 64 bits
-fn intZeroValue(cg: *CodeGen, ty: Type) InnerError!WValue {
-    const zcu = cg.pt.zcu;
-    const int_info = ty.intInfo(zcu);
-    const wasm_bits = toWasmBits(int_info.bits) orelse {
-        return cg.fail("TODO: Implement intZeroValue for integer bitsize: {d}", .{int_info.bits});
-    };
-    switch (wasm_bits) {
-        32 => return .{ .imm32 = 0 },
-        64 => return .{ .imm64 = 0 },
-        128 => {
-            const result = try cg.allocStack(ty);
-            try cg.store(result, .{ .imm64 = 0 }, Type.u64, 0);
-            try cg.store(result, .{ .imm64 = 0 }, Type.u64, 8);
-            return result;
-        },
-        else => unreachable,
-    }
-}
-
-fn airAddSubWithOverflow(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
-    assert(op == .add or op == .sub);
-    const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = cg.air.extraData(Air.Bin, ty_pl.payload).data;
-
-    const lhs = try cg.resolveInst(extra.lhs);
-    const rhs = try cg.resolveInst(extra.rhs);
-    const ty = cg.typeOf(extra.lhs);
-    const pt = cg.pt;
-    const zcu = pt.zcu;
-
-    if (ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: Implement overflow arithmetic for vectors", .{});
-    }
-
-    const int_info = ty.intInfo(zcu);
-    const is_signed = int_info.signedness == .signed;
-    if (int_info.bits > 128) {
-        return cg.fail("TODO: Implement {{add/sub}}_with_overflow for integer bitsize: {d}", .{int_info.bits});
-    }
-
-    const op_result = try cg.wrapBinOp(lhs, rhs, ty, op);
-    var op_tmp = try op_result.toLocal(cg, ty);
-    defer op_tmp.free(cg);
-
-    const cmp_op: std.math.CompareOperator = switch (op) {
-        .add => .lt,
-        .sub => .gt,
-        else => unreachable,
-    };
-    const overflow_bit = if (is_signed) blk: {
-        const zero = try intZeroValue(cg, ty);
-        const rhs_is_neg = try cg.cmp(rhs, zero, ty, .lt);
-        const overflow_cmp = try cg.cmp(op_tmp, lhs, ty, cmp_op);
-        break :blk try cg.cmp(rhs_is_neg, overflow_cmp, Type.u1, .neq);
-    } else try cg.cmp(op_tmp, lhs, ty, cmp_op);
-    var bit_tmp = try overflow_bit.toLocal(cg, Type.u1);
-    defer bit_tmp.free(cg);
-
-    const result = try cg.allocStack(cg.typeOfIndex(inst));
-    const offset: u32 = @intCast(ty.abiSize(zcu));
-    try cg.store(result, op_tmp, ty, 0);
-    try cg.store(result, bit_tmp, Type.u1, offset);
-
-    return cg.finishAir(inst, result, &.{ extra.lhs, extra.rhs });
-}
-
-fn airShlWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
-    const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = cg.air.extraData(Air.Bin, ty_pl.payload).data;
-
-    const lhs = try cg.resolveInst(extra.lhs);
-    const rhs = try cg.resolveInst(extra.rhs);
-    const ty = cg.typeOf(extra.lhs);
-    const rhs_ty = cg.typeOf(extra.rhs);
-
-    if (ty.isVector(zcu)) {
-        if (!rhs_ty.isVector(zcu)) {
-            return cg.fail("TODO: implement vector 'shl_with_overflow' with scalar rhs", .{});
-        } else {
-            return cg.fail("TODO: implement vector 'shl_with_overflow'", .{});
-        }
-    }
-
-    const int_info = ty.intInfo(zcu);
-    const wasm_bits = toWasmBits(int_info.bits) orelse {
-        return cg.fail("TODO: implement 'shl_with_overflow' for integer bitsize: {d}", .{int_info.bits});
-    };
-
-    // Ensure rhs is coerced to lhs as they must have the same WebAssembly types
-    // before we can perform any binary operation.
-    const rhs_wasm_bits = toWasmBits(rhs_ty.intInfo(zcu).bits).?;
-    // If wasm_bits == 128, compiler-rt expects i32 for shift
-    const rhs_final = if (wasm_bits != rhs_wasm_bits and wasm_bits == 64) blk: {
-        const rhs_casted = try cg.intcast(rhs, rhs_ty, ty);
-        break :blk try rhs_casted.toLocal(cg, ty);
-    } else rhs;
-
-    var shl = try (try cg.wrapBinOp(lhs, rhs_final, ty, .shl)).toLocal(cg, ty);
-    defer shl.free(cg);
-
-    const overflow_bit = blk: {
-        const shr = try cg.binOp(shl, rhs_final, ty, .shr);
-        break :blk try cg.cmp(shr, lhs, ty, .neq);
-    };
-    var overflow_local = try overflow_bit.toLocal(cg, Type.u1);
-    defer overflow_local.free(cg);
-
-    const result = try cg.allocStack(cg.typeOfIndex(inst));
-    const offset: u32 = @intCast(ty.abiSize(zcu));
-    try cg.store(result, shl, ty, 0);
-    try cg.store(result, overflow_local, Type.u1, offset);
-
-    return cg.finishAir(inst, result, &.{ extra.lhs, extra.rhs });
-}
-
-fn airMulWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = cg.air.extraData(Air.Bin, ty_pl.payload).data;
-
-    const lhs = try cg.resolveInst(extra.lhs);
-    const rhs = try cg.resolveInst(extra.rhs);
-    const ty = cg.typeOf(extra.lhs);
-    const pt = cg.pt;
-    const zcu = pt.zcu;
-
-    if (ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: Implement overflow arithmetic for vectors", .{});
-    }
-
-    // We store the bit if it's overflowed or not in this. As it's zero-initialized
-    // we only need to update it if an overflow (or underflow) occurred.
-    var overflow_bit = try cg.ensureAllocLocal(Type.u1);
-    defer overflow_bit.free(cg);
-
-    const int_info = ty.intInfo(zcu);
-    const wasm_bits = toWasmBits(int_info.bits) orelse {
-        return cg.fail("TODO: Implement `@mulWithOverflow` for integer bitsize: {d}", .{int_info.bits});
-    };
-
-    const zero: WValue = switch (wasm_bits) {
-        32 => .{ .imm32 = 0 },
-        64, 128 => .{ .imm64 = 0 },
-        else => unreachable,
-    };
-
-    // for 32 bit integers we upcast it to a 64bit integer
-    const mul = if (wasm_bits == 32) blk: {
-        const new_ty = if (int_info.signedness == .signed) Type.i64 else Type.u64;
-        const lhs_upcast = try cg.intcast(lhs, ty, new_ty);
-        const rhs_upcast = try cg.intcast(rhs, ty, new_ty);
-        const bin_op = try (try cg.binOp(lhs_upcast, rhs_upcast, new_ty, .mul)).toLocal(cg, new_ty);
-        const res = try (try cg.trunc(bin_op, ty, new_ty)).toLocal(cg, ty);
-        const res_upcast = try cg.intcast(res, ty, new_ty);
-        _ = try cg.cmp(res_upcast, bin_op, new_ty, .neq);
-        try cg.addLocal(.local_set, overflow_bit.local.value);
-        break :blk res;
-    } else if (wasm_bits == 64) blk: {
-        const new_ty = if (int_info.signedness == .signed) Type.i128 else Type.u128;
-        const lhs_upcast = try cg.intcast(lhs, ty, new_ty);
-        const rhs_upcast = try cg.intcast(rhs, ty, new_ty);
-        const bin_op = try (try cg.binOp(lhs_upcast, rhs_upcast, new_ty, .mul)).toLocal(cg, new_ty);
-        const res = try (try cg.trunc(bin_op, ty, new_ty)).toLocal(cg, ty);
-        const res_upcast = try cg.intcast(res, ty, new_ty);
-        _ = try cg.cmp(res_upcast, bin_op, new_ty, .neq);
-        try cg.addLocal(.local_set, overflow_bit.local.value);
-        break :blk res;
-    } else if (int_info.bits == 128 and int_info.signedness == .unsigned) blk: {
-        var lhs_lsb = try (try cg.load(lhs, Type.u64, 0)).toLocal(cg, Type.u64);
-        defer lhs_lsb.free(cg);
-        var lhs_msb = try (try cg.load(lhs, Type.u64, 8)).toLocal(cg, Type.u64);
-        defer lhs_msb.free(cg);
-        var rhs_lsb = try (try cg.load(rhs, Type.u64, 0)).toLocal(cg, Type.u64);
-        defer rhs_lsb.free(cg);
-        var rhs_msb = try (try cg.load(rhs, Type.u64, 8)).toLocal(cg, Type.u64);
-        defer rhs_msb.free(cg);
-
-        const cross_1 = try cg.callIntrinsic(
-            .__multi3,
-            &[_]InternPool.Index{.i64_type} ** 4,
-            Type.i128,
-            &.{ lhs_msb, zero, rhs_lsb, zero },
-        );
-        const cross_2 = try cg.callIntrinsic(
-            .__multi3,
-            &[_]InternPool.Index{.i64_type} ** 4,
-            Type.i128,
-            &.{ rhs_msb, zero, lhs_lsb, zero },
-        );
-        const mul_lsb = try cg.callIntrinsic(
-            .__multi3,
-            &[_]InternPool.Index{.i64_type} ** 4,
-            Type.i128,
-            &.{ rhs_lsb, zero, lhs_lsb, zero },
-        );
-
-        const rhs_msb_not_zero = try cg.cmp(rhs_msb, zero, Type.u64, .neq);
-        const lhs_msb_not_zero = try cg.cmp(lhs_msb, zero, Type.u64, .neq);
-        const both_msb_not_zero = try cg.binOp(rhs_msb_not_zero, lhs_msb_not_zero, Type.bool, .@"and");
-        const cross_1_msb = try cg.load(cross_1, Type.u64, 8);
-        const cross_1_msb_not_zero = try cg.cmp(cross_1_msb, zero, Type.u64, .neq);
-        const cond_1 = try cg.binOp(both_msb_not_zero, cross_1_msb_not_zero, Type.bool, .@"or");
-        const cross_2_msb = try cg.load(cross_2, Type.u64, 8);
-        const cross_2_msb_not_zero = try cg.cmp(cross_2_msb, zero, Type.u64, .neq);
-        const cond_2 = try cg.binOp(cond_1, cross_2_msb_not_zero, Type.bool, .@"or");
-
-        const cross_1_lsb = try cg.load(cross_1, Type.u64, 0);
-        const cross_2_lsb = try cg.load(cross_2, Type.u64, 0);
-        const cross_add = try cg.binOp(cross_1_lsb, cross_2_lsb, Type.u64, .add);
-
-        var mul_lsb_msb = try (try cg.load(mul_lsb, Type.u64, 8)).toLocal(cg, Type.u64);
-        defer mul_lsb_msb.free(cg);
-        var all_add = try (try cg.binOp(cross_add, mul_lsb_msb, Type.u64, .add)).toLocal(cg, Type.u64);
-        defer all_add.free(cg);
-        const add_overflow = try cg.cmp(all_add, mul_lsb_msb, Type.u64, .lt);
-
-        // result for overflow bit
-        _ = try cg.binOp(cond_2, add_overflow, Type.bool, .@"or");
-        try cg.addLocal(.local_set, overflow_bit.local.value);
-
-        const tmp_result = try cg.allocStack(Type.u128);
-        try cg.emitWValue(tmp_result);
-        const mul_lsb_lsb = try cg.load(mul_lsb, Type.u64, 0);
-        try cg.store(.stack, mul_lsb_lsb, Type.u64, tmp_result.offset());
-        try cg.store(tmp_result, all_add, Type.u64, 8);
-        break :blk tmp_result;
-    } else if (int_info.bits == 128 and int_info.signedness == .signed) blk: {
-        const overflow_ret = try cg.allocStack(Type.i32);
-        const res = try cg.callIntrinsic(
-            .__muloti4,
-            &[_]InternPool.Index{ .i128_type, .i128_type, .usize_type },
-            Type.i128,
-            &.{ lhs, rhs, overflow_ret },
-        );
-        _ = try cg.load(overflow_ret, Type.i32, 0);
-        try cg.addLocal(.local_set, overflow_bit.local.value);
-        break :blk res;
-    } else return cg.fail("TODO: @mulWithOverflow for {f}", .{ty.fmt(pt)});
-    var bin_op_local = try mul.toLocal(cg, ty);
-    defer bin_op_local.free(cg);
-
-    const result = try cg.allocStack(cg.typeOfIndex(inst));
-    const offset: u32 = @intCast(ty.abiSize(zcu));
-    try cg.store(result, bin_op_local, ty, 0);
-    try cg.store(result, overflow_bit, Type.u1, offset);
-
-    return cg.finishAir(inst, result, &.{ extra.lhs, extra.rhs });
-}
-
-fn airMaxMin(
-    cg: *CodeGen,
-    inst: Air.Inst.Index,
-    op: enum { fmax, fmin },
-    cmp_op: std.math.CompareOperator,
-) InnerError!void {
-    const zcu = cg.pt.zcu;
-    const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
-    const ty = cg.typeOfIndex(inst);
-    if (ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: `@maximum` and `@minimum` for vectors", .{});
-    }
-
-    if (ty.abiSize(zcu) > 16) {
-        return cg.fail("TODO: `@maximum` and `@minimum` for types larger than 16 bytes", .{});
-    }
-
-    const lhs = try cg.resolveInst(bin_op.lhs);
-    const rhs = try cg.resolveInst(bin_op.rhs);
-
-    if (ty.zigTypeTag(zcu) == .float) {
-        const intrinsic = switch (op) {
-            inline .fmin, .fmax => |ct_op| switch (ty.floatBits(cg.target)) {
-                inline 16, 32, 64, 80, 128 => |bits| @field(
-                    Mir.Intrinsic,
-                    libcFloatPrefix(bits) ++ @tagName(ct_op) ++ libcFloatSuffix(bits),
-                ),
-                else => unreachable,
-            },
-        };
-        const result = try cg.callIntrinsic(intrinsic, &.{ ty.ip_index, ty.ip_index }, ty, &.{ lhs, rhs });
-        try cg.lowerToStack(result);
-    } else {
-        // operands to select from
-        try cg.lowerToStack(lhs);
-        try cg.lowerToStack(rhs);
-        _ = try cg.cmp(lhs, rhs, ty, cmp_op);
-
-        // based on the result from comparison, return operand 0 or 1.
-        try cg.addTag(.select);
-    }
-
-    return cg.finishAir(inst, .stack, &.{ bin_op.lhs, bin_op.rhs });
-}
-
-fn airMulAdd(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const zcu = cg.pt.zcu;
-    const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const bin_op = cg.air.extraData(Air.Bin, pl_op.payload).data;
-
-    const ty = cg.typeOfIndex(inst);
-    if (ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: `@mulAdd` for vectors", .{});
-    }
-
-    const addend = try cg.resolveInst(pl_op.operand);
-    const lhs = try cg.resolveInst(bin_op.lhs);
-    const rhs = try cg.resolveInst(bin_op.rhs);
-
-    const result = if (ty.floatBits(cg.target) == 16) fl_result: {
-        const rhs_ext = try cg.fpext(rhs, ty, Type.f32);
-        const lhs_ext = try cg.fpext(lhs, ty, Type.f32);
-        const addend_ext = try cg.fpext(addend, ty, Type.f32);
-        // call to compiler-rt `fn fmaf(f32, f32, f32) f32`
-        const result = try cg.callIntrinsic(
-            .fmaf,
-            &.{ .f32_type, .f32_type, .f32_type },
-            Type.f32,
-            &.{ rhs_ext, lhs_ext, addend_ext },
-        );
-        break :fl_result try cg.fptrunc(result, Type.f32, ty);
-    } else result: {
-        const mul_result = try cg.binOp(lhs, rhs, ty, .mul);
-        break :result try cg.binOp(mul_result, addend, ty, .add);
-    };
-
-    return cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs, pl_op.operand });
-}
-
-fn airClz(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const zcu = cg.pt.zcu;
-    const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-
-    const ty = cg.typeOf(ty_op.operand);
-    if (ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: `@clz` for vectors", .{});
-    }
-
-    const operand = try cg.resolveInst(ty_op.operand);
-    const int_info = ty.intInfo(zcu);
-    const wasm_bits = toWasmBits(int_info.bits) orelse {
-        return cg.fail("TODO: `@clz` for integers with bitsize '{d}'", .{int_info.bits});
-    };
-
-    switch (wasm_bits) {
-        32 => {
-            if (int_info.signedness == .signed) {
-                const mask = ~@as(u32, 0) >> @intCast(32 - int_info.bits);
-                _ = try cg.binOp(operand, .{ .imm32 = mask }, ty, .@"and");
-            } else {
-                try cg.emitWValue(operand);
-            }
-            try cg.addTag(.i32_clz);
-        },
-        64 => {
-            if (int_info.signedness == .signed) {
-                const mask = ~@as(u64, 0) >> @intCast(64 - int_info.bits);
-                _ = try cg.binOp(operand, .{ .imm64 = mask }, ty, .@"and");
-            } else {
-                try cg.emitWValue(operand);
-            }
-            try cg.addTag(.i64_clz);
-            try cg.addTag(.i32_wrap_i64);
-        },
-        128 => {
-            var msb = try (try cg.load(operand, Type.u64, 8)).toLocal(cg, Type.u64);
-            defer msb.free(cg);
-
-            try cg.emitWValue(msb);
-            try cg.addTag(.i64_clz);
-            _ = try cg.load(operand, Type.u64, 0);
-            try cg.addTag(.i64_clz);
-            try cg.emitWValue(.{ .imm64 = 64 });
-            try cg.addTag(.i64_add);
-            _ = try cg.cmp(msb, .{ .imm64 = 0 }, Type.u64, .neq);
-            try cg.addTag(.select);
-            try cg.addTag(.i32_wrap_i64);
-        },
-        else => unreachable,
-    }
-
-    if (wasm_bits != int_info.bits) {
-        try cg.emitWValue(.{ .imm32 = wasm_bits - int_info.bits });
-        try cg.addTag(.i32_sub);
-    }
-
-    return cg.finishAir(inst, .stack, &.{ty_op.operand});
-}
-
-fn airCtz(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const zcu = cg.pt.zcu;
-    const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-
-    const ty = cg.typeOf(ty_op.operand);
-
-    if (ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: `@ctz` for vectors", .{});
-    }
-
-    const operand = try cg.resolveInst(ty_op.operand);
-    const int_info = ty.intInfo(zcu);
-    const wasm_bits = toWasmBits(int_info.bits) orelse {
-        return cg.fail("TODO: `@clz` for integers with bitsize '{d}'", .{int_info.bits});
-    };
-
-    switch (wasm_bits) {
-        32 => {
-            if (wasm_bits != int_info.bits) {
-                const val: u32 = @as(u32, 1) << @as(u5, @intCast(int_info.bits));
-                // leave value on the stack
-                _ = try cg.binOp(operand, .{ .imm32 = val }, ty, .@"or");
-            } else try cg.emitWValue(operand);
-            try cg.addTag(.i32_ctz);
-        },
-        64 => {
-            if (wasm_bits != int_info.bits) {
-                const val: u64 = @as(u64, 1) << @as(u6, @intCast(int_info.bits));
-                // leave value on the stack
-                _ = try cg.binOp(operand, .{ .imm64 = val }, ty, .@"or");
-            } else try cg.emitWValue(operand);
-            try cg.addTag(.i64_ctz);
-            try cg.addTag(.i32_wrap_i64);
-        },
-        128 => {
-            var lsb = try (try cg.load(operand, Type.u64, 0)).toLocal(cg, Type.u64);
-            defer lsb.free(cg);
-
-            try cg.emitWValue(lsb);
-            try cg.addTag(.i64_ctz);
-            _ = try cg.load(operand, Type.u64, 8);
-            if (wasm_bits != int_info.bits) {
-                try cg.addImm64(@as(u64, 1) << @as(u6, @intCast(int_info.bits - 64)));
-                try cg.addTag(.i64_or);
-            }
-            try cg.addTag(.i64_ctz);
-            try cg.addImm64(64);
-            if (wasm_bits != int_info.bits) {
-                try cg.addTag(.i64_or);
-            } else {
-                try cg.addTag(.i64_add);
-            }
-            _ = try cg.cmp(lsb, .{ .imm64 = 0 }, Type.u64, .neq);
-            try cg.addTag(.select);
-            try cg.addTag(.i32_wrap_i64);
-        },
-        else => unreachable,
-    }
-
-    return cg.finishAir(inst, .stack, &.{ty_op.operand});
 }
 
 fn airDbgStmt(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -6464,7 +6592,7 @@ fn lowerTry(
     const zcu = cg.pt.zcu;
 
     const pl_ty = err_union_ty.errorUnionPayload(zcu);
-    const pl_has_bits = pl_ty.hasRuntimeBitsIgnoreComptime(zcu);
+    const pl_has_bits = pl_ty.hasRuntimeBits(zcu);
 
     if (!err_union_ty.errorUnionSet(zcu).errorSetIsEmpty(zcu)) {
         // Block we can jump out of when error is not set
@@ -6506,572 +6634,6 @@ fn lowerTry(
     return payload.toLocal(cg, pl_ty);
 }
 
-fn airByteSwap(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const zcu = cg.pt.zcu;
-    const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-
-    const ty = cg.typeOfIndex(inst);
-    const operand = try cg.resolveInst(ty_op.operand);
-
-    if (ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: @byteSwap for vectors", .{});
-    }
-    const int_info = ty.intInfo(zcu);
-    const wasm_bits = toWasmBits(int_info.bits) orelse {
-        return cg.fail("TODO: @byteSwap for integers with bitsize {d}", .{int_info.bits});
-    };
-
-    // bytes are no-op
-    if (int_info.bits == 8) {
-        return cg.finishAir(inst, cg.reuseOperand(ty_op.operand, operand), &.{ty_op.operand});
-    }
-
-    const result = result: {
-        switch (wasm_bits) {
-            32 => {
-                const intrin_ret = try cg.callIntrinsic(
-                    .__bswapsi2,
-                    &.{.u32_type},
-                    Type.u32,
-                    &.{operand},
-                );
-                break :result if (int_info.bits == 32)
-                    intrin_ret
-                else
-                    try cg.binOp(intrin_ret, .{ .imm32 = 32 - int_info.bits }, ty, .shr);
-            },
-            64 => {
-                const intrin_ret = try cg.callIntrinsic(
-                    .__bswapdi2,
-                    &.{.u64_type},
-                    Type.u64,
-                    &.{operand},
-                );
-                break :result if (int_info.bits == 64)
-                    intrin_ret
-                else
-                    try cg.binOp(intrin_ret, .{ .imm64 = 64 - int_info.bits }, ty, .shr);
-            },
-            else => return cg.fail("TODO: @byteSwap for integers with bitsize {d}", .{int_info.bits}),
-        }
-    };
-    return cg.finishAir(inst, result, &.{ty_op.operand});
-}
-
-fn airDiv(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
-    const ty = cg.typeOfIndex(inst);
-    const lhs = try cg.resolveInst(bin_op.lhs);
-    const rhs = try cg.resolveInst(bin_op.rhs);
-
-    const result = try cg.binOp(lhs, rhs, ty, .div);
-    return cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
-}
-
-fn airDivTrunc(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
-    const ty = cg.typeOfIndex(inst);
-    const lhs = try cg.resolveInst(bin_op.lhs);
-    const rhs = try cg.resolveInst(bin_op.rhs);
-
-    const div_result = try cg.binOp(lhs, rhs, ty, .div);
-
-    if (ty.isAnyFloat()) {
-        const trunc_result = try cg.floatOp(.trunc, ty, &.{div_result});
-        return cg.finishAir(inst, trunc_result, &.{ bin_op.lhs, bin_op.rhs });
-    }
-
-    return cg.finishAir(inst, div_result, &.{ bin_op.lhs, bin_op.rhs });
-}
-
-fn airDivFloor(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
-    const zcu = cg.pt.zcu;
-    const ty = cg.typeOfIndex(inst);
-    const lhs = try cg.resolveInst(bin_op.lhs);
-    const rhs = try cg.resolveInst(bin_op.rhs);
-
-    if (ty.isUnsignedInt(zcu)) {
-        _ = try cg.binOp(lhs, rhs, ty, .div);
-    } else if (ty.isSignedInt(zcu)) {
-        const int_bits = ty.intInfo(zcu).bits;
-        const wasm_bits = toWasmBits(int_bits) orelse {
-            return cg.fail("TODO: `@divFloor` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
-        };
-
-        if (wasm_bits > 64) {
-            return cg.fail("TODO: `@divFloor` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
-        }
-
-        const zero: WValue = switch (wasm_bits) {
-            32 => .{ .imm32 = 0 },
-            64 => .{ .imm64 = 0 },
-            else => unreachable,
-        };
-
-        // tee leaves the value on the stack and stores it in a local.
-        const quotient = try cg.allocLocal(ty);
-        _ = try cg.binOp(lhs, rhs, ty, .div);
-        try cg.addLocal(.local_tee, quotient.local.value);
-
-        // select takes a 32 bit value as the condition, so in the 64 bit case we use eqz to narrow
-        // the 64 bit value we want to use as the condition to 32 bits.
-        // This also inverts the condition (non 0 => 0, 0 => 1), so we put the adjusted and
-        // non-adjusted quotients on the stack in the opposite order for 32 vs 64 bits.
-        if (wasm_bits == 64) {
-            try cg.emitWValue(quotient);
-        }
-
-        // 0 if the signs of rhs_wasm and lhs_wasm are the same, 1 otherwise.
-        _ = try cg.binOp(lhs, rhs, ty, .xor);
-        _ = try cg.cmp(.stack, zero, ty, .lt);
-
-        switch (wasm_bits) {
-            32 => {
-                try cg.addTag(.i32_sub);
-                try cg.emitWValue(quotient);
-            },
-            64 => {
-                try cg.addTag(.i64_extend_i32_u);
-                try cg.addTag(.i64_sub);
-            },
-            else => unreachable,
-        }
-
-        _ = try cg.binOp(lhs, rhs, ty, .rem);
-
-        if (wasm_bits == 64) {
-            try cg.addTag(.i64_eqz);
-        }
-
-        try cg.addTag(.select);
-
-        // We need to zero the high bits because N bit comparisons consider all 32 or 64 bits, and
-        // expect all but the lowest N bits to be 0.
-        // TODO: Should we be zeroing the high bits here or should we be ignoring the high bits
-        // when performing comparisons?
-        if (int_bits != wasm_bits) {
-            _ = try cg.wrapOperand(.stack, ty);
-        }
-    } else {
-        const float_bits = ty.floatBits(cg.target);
-        if (float_bits > 64) {
-            return cg.fail("TODO: `@divFloor` for floats with bitsize: {d}", .{float_bits});
-        }
-        const is_f16 = float_bits == 16;
-
-        const lhs_wasm = if (is_f16) try cg.fpext(lhs, Type.f16, Type.f32) else lhs;
-        const rhs_wasm = if (is_f16) try cg.fpext(rhs, Type.f16, Type.f32) else rhs;
-
-        try cg.emitWValue(lhs_wasm);
-        try cg.emitWValue(rhs_wasm);
-
-        switch (float_bits) {
-            16, 32 => {
-                try cg.addTag(.f32_div);
-                try cg.addTag(.f32_floor);
-            },
-            64 => {
-                try cg.addTag(.f64_div);
-                try cg.addTag(.f64_floor);
-            },
-            else => unreachable,
-        }
-
-        if (is_f16) {
-            _ = try cg.fptrunc(.stack, Type.f32, Type.f16);
-        }
-    }
-
-    return cg.finishAir(inst, .stack, &.{ bin_op.lhs, bin_op.rhs });
-}
-
-fn airRem(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
-    const ty = cg.typeOfIndex(inst);
-    const lhs = try cg.resolveInst(bin_op.lhs);
-    const rhs = try cg.resolveInst(bin_op.rhs);
-
-    const result = try cg.binOp(lhs, rhs, ty, .rem);
-
-    return cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
-}
-
-/// Remainder after floor division, defined by:
-/// @divFloor(a, b) * b + @mod(a, b) = a
-fn airMod(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
-    const pt = cg.pt;
-    const zcu = pt.zcu;
-    const ty = cg.typeOfIndex(inst);
-    const lhs = try cg.resolveInst(bin_op.lhs);
-    const rhs = try cg.resolveInst(bin_op.rhs);
-
-    const result = result: {
-        if (ty.isUnsignedInt(zcu)) {
-            break :result try cg.binOp(lhs, rhs, ty, .rem);
-        }
-        if (ty.isSignedInt(zcu)) {
-            // The wasm rem instruction gives the remainder after truncating division (rounding towards
-            // 0), equivalent to @rem.
-            // We make use of the fact that:
-            // @mod(a, b) = @rem(@rem(a, b) + b, b)
-            const int_bits = ty.intInfo(zcu).bits;
-            const wasm_bits = toWasmBits(int_bits) orelse {
-                return cg.fail("TODO: `@mod` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
-            };
-
-            if (wasm_bits > 64) {
-                return cg.fail("TODO: `@mod` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
-            }
-
-            _ = try cg.binOp(lhs, rhs, ty, .rem);
-            _ = try cg.binOp(.stack, rhs, ty, .add);
-            break :result try cg.binOp(.stack, rhs, ty, .rem);
-        }
-        if (ty.isAnyFloat()) {
-            const rem = try cg.binOp(lhs, rhs, ty, .rem);
-            const add = try cg.binOp(rem, rhs, ty, .add);
-            break :result try cg.binOp(add, rhs, ty, .rem);
-        }
-        return cg.fail("TODO: @mod for {f}", .{ty.fmt(pt)});
-    };
-
-    return cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
-}
-
-fn airSatMul(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
-    const pt = cg.pt;
-    const zcu = pt.zcu;
-    const ty = cg.typeOfIndex(inst);
-    const int_info = ty.intInfo(zcu);
-    const is_signed = int_info.signedness == .signed;
-
-    const lhs = try cg.resolveInst(bin_op.lhs);
-    const rhs = try cg.resolveInst(bin_op.rhs);
-    const wasm_bits = toWasmBits(int_info.bits) orelse {
-        return cg.fail("TODO: mul_sat for {f}", .{ty.fmt(pt)});
-    };
-
-    switch (wasm_bits) {
-        32 => {
-            const upcast_ty: Type = if (is_signed) Type.i64 else Type.u64;
-            const lhs_up = try cg.intcast(lhs, ty, upcast_ty);
-            const rhs_up = try cg.intcast(rhs, ty, upcast_ty);
-            var mul_res = try (try cg.binOp(lhs_up, rhs_up, upcast_ty, .mul)).toLocal(cg, upcast_ty);
-            defer mul_res.free(cg);
-            if (is_signed) {
-                const imm_max: WValue = .{ .imm64 = ~@as(u64, 0) >> @intCast(64 - (int_info.bits - 1)) };
-                try cg.emitWValue(mul_res);
-                try cg.emitWValue(imm_max);
-                _ = try cg.cmp(mul_res, imm_max, upcast_ty, .lt);
-                try cg.addTag(.select);
-
-                var tmp = try cg.allocLocal(upcast_ty);
-                defer tmp.free(cg);
-                try cg.addLocal(.local_set, tmp.local.value);
-
-                const imm_min: WValue = .{ .imm64 = ~@as(u64, 0) << @intCast(int_info.bits - 1) };
-                try cg.emitWValue(tmp);
-                try cg.emitWValue(imm_min);
-                _ = try cg.cmp(tmp, imm_min, upcast_ty, .gt);
-                try cg.addTag(.select);
-            } else {
-                const imm_max: WValue = .{ .imm64 = ~@as(u64, 0) >> @intCast(64 - int_info.bits) };
-                try cg.emitWValue(mul_res);
-                try cg.emitWValue(imm_max);
-                _ = try cg.cmp(mul_res, imm_max, upcast_ty, .lt);
-                try cg.addTag(.select);
-            }
-            try cg.addTag(.i32_wrap_i64);
-        },
-        64 => {
-            if (!(int_info.bits == 64 and int_info.signedness == .signed)) {
-                return cg.fail("TODO: mul_sat for {f}", .{ty.fmt(pt)});
-            }
-            const overflow_ret = try cg.allocStack(Type.i32);
-            _ = try cg.callIntrinsic(
-                .__mulodi4,
-                &[_]InternPool.Index{ .i64_type, .i64_type, .usize_type },
-                Type.i64,
-                &.{ lhs, rhs, overflow_ret },
-            );
-            const xor = try cg.binOp(lhs, rhs, Type.i64, .xor);
-            const sign_v = try cg.binOp(xor, .{ .imm64 = 63 }, Type.i64, .shr);
-            _ = try cg.binOp(sign_v, .{ .imm64 = ~@as(u63, 0) }, Type.i64, .xor);
-            _ = try cg.load(overflow_ret, Type.i32, 0);
-            try cg.addTag(.i32_eqz);
-            try cg.addTag(.select);
-        },
-        128 => {
-            if (!(int_info.bits == 128 and int_info.signedness == .signed)) {
-                return cg.fail("TODO: mul_sat for {f}", .{ty.fmt(pt)});
-            }
-            const overflow_ret = try cg.allocStack(Type.i32);
-            const ret = try cg.callIntrinsic(
-                .__muloti4,
-                &[_]InternPool.Index{ .i128_type, .i128_type, .usize_type },
-                Type.i128,
-                &.{ lhs, rhs, overflow_ret },
-            );
-            try cg.lowerToStack(ret);
-            const xor = try cg.binOp(lhs, rhs, Type.i128, .xor);
-            const sign_v = try cg.binOp(xor, .{ .imm32 = 127 }, Type.i128, .shr);
-
-            // xor ~@as(u127, 0)
-            try cg.emitWValue(sign_v);
-            const lsb = try cg.load(sign_v, Type.u64, 0);
-            _ = try cg.binOp(lsb, .{ .imm64 = ~@as(u64, 0) }, Type.u64, .xor);
-            try cg.store(.stack, .stack, Type.u64, sign_v.offset());
-            try cg.emitWValue(sign_v);
-            const msb = try cg.load(sign_v, Type.u64, 8);
-            _ = try cg.binOp(msb, .{ .imm64 = ~@as(u63, 0) }, Type.u64, .xor);
-            try cg.store(.stack, .stack, Type.u64, sign_v.offset() + 8);
-
-            try cg.lowerToStack(sign_v);
-            _ = try cg.load(overflow_ret, Type.i32, 0);
-            try cg.addTag(.i32_eqz);
-            try cg.addTag(.select);
-        },
-        else => unreachable,
-    }
-    return cg.finishAir(inst, .stack, &.{ bin_op.lhs, bin_op.rhs });
-}
-
-fn airSatBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
-    assert(op == .add or op == .sub);
-    const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
-    const zcu = cg.pt.zcu;
-    const ty = cg.typeOfIndex(inst);
-    const lhs = try cg.resolveInst(bin_op.lhs);
-    const rhs = try cg.resolveInst(bin_op.rhs);
-
-    const int_info = ty.intInfo(zcu);
-    const is_signed = int_info.signedness == .signed;
-
-    if (int_info.bits > 64) {
-        return cg.fail("TODO: saturating arithmetic for integers with bitsize '{d}'", .{int_info.bits});
-    }
-
-    if (is_signed) {
-        const result = try signedSat(cg, lhs, rhs, ty, op);
-        return cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
-    }
-
-    const wasm_bits = toWasmBits(int_info.bits).?;
-    var bin_result = try (try cg.binOp(lhs, rhs, ty, op)).toLocal(cg, ty);
-    defer bin_result.free(cg);
-    if (wasm_bits != int_info.bits and op == .add) {
-        const val: u64 = @as(u64, @intCast((@as(u65, 1) << @as(u7, @intCast(int_info.bits))) - 1));
-        const imm_val: WValue = switch (wasm_bits) {
-            32 => .{ .imm32 = @intCast(val) },
-            64 => .{ .imm64 = val },
-            else => unreachable,
-        };
-
-        try cg.emitWValue(bin_result);
-        try cg.emitWValue(imm_val);
-        _ = try cg.cmp(bin_result, imm_val, ty, .lt);
-    } else {
-        switch (wasm_bits) {
-            32 => try cg.addImm32(if (op == .add) std.math.maxInt(u32) else 0),
-            64 => try cg.addImm64(if (op == .add) std.math.maxInt(u64) else 0),
-            else => unreachable,
-        }
-        try cg.emitWValue(bin_result);
-        _ = try cg.cmp(bin_result, lhs, ty, if (op == .add) .lt else .gt);
-    }
-
-    try cg.addTag(.select);
-    return cg.finishAir(inst, .stack, &.{ bin_op.lhs, bin_op.rhs });
-}
-
-fn signedSat(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
-    const int_info = ty.intInfo(zcu);
-    const wasm_bits = toWasmBits(int_info.bits).?;
-    const is_wasm_bits = wasm_bits == int_info.bits;
-    const ext_ty = if (!is_wasm_bits) try pt.intType(int_info.signedness, wasm_bits) else ty;
-
-    const max_val: u64 = @as(u64, @intCast((@as(u65, 1) << @as(u7, @intCast(int_info.bits - 1))) - 1));
-    const min_val: i64 = (-@as(i64, @intCast(@as(u63, @intCast(max_val))))) - 1;
-    const max_wvalue: WValue = switch (wasm_bits) {
-        32 => .{ .imm32 = @truncate(max_val) },
-        64 => .{ .imm64 = max_val },
-        else => unreachable,
-    };
-    const min_wvalue: WValue = switch (wasm_bits) {
-        32 => .{ .imm32 = @bitCast(@as(i32, @truncate(min_val))) },
-        64 => .{ .imm64 = @bitCast(min_val) },
-        else => unreachable,
-    };
-
-    var bin_result = try (try cg.binOp(lhs, rhs, ext_ty, op)).toLocal(cg, ext_ty);
-    if (!is_wasm_bits) {
-        defer bin_result.free(cg); // not returned in this branch
-        try cg.emitWValue(bin_result);
-        try cg.emitWValue(max_wvalue);
-        _ = try cg.cmp(bin_result, max_wvalue, ext_ty, .lt);
-        try cg.addTag(.select);
-        try cg.addLocal(.local_set, bin_result.local.value); // re-use local
-
-        try cg.emitWValue(bin_result);
-        try cg.emitWValue(min_wvalue);
-        _ = try cg.cmp(bin_result, min_wvalue, ext_ty, .gt);
-        try cg.addTag(.select);
-        try cg.addLocal(.local_set, bin_result.local.value); // re-use local
-        return (try cg.wrapOperand(bin_result, ty)).toLocal(cg, ty);
-    } else {
-        const zero: WValue = switch (wasm_bits) {
-            32 => .{ .imm32 = 0 },
-            64 => .{ .imm64 = 0 },
-            else => unreachable,
-        };
-        try cg.emitWValue(max_wvalue);
-        try cg.emitWValue(min_wvalue);
-        _ = try cg.cmp(bin_result, zero, ty, .lt);
-        try cg.addTag(.select);
-        try cg.emitWValue(bin_result);
-        // leave on stack
-        const cmp_zero_result = try cg.cmp(rhs, zero, ty, if (op == .add) .lt else .gt);
-        const cmp_bin_result = try cg.cmp(bin_result, lhs, ty, .lt);
-        _ = try cg.binOp(cmp_zero_result, cmp_bin_result, Type.u32, .xor); // comparisons always return i32, so provide u32 as type to xor.
-        try cg.addTag(.select);
-        try cg.addLocal(.local_set, bin_result.local.value); // re-use local
-        return bin_result;
-    }
-}
-
-fn airShlSat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
-    const pt = cg.pt;
-    const zcu = pt.zcu;
-
-    if (cg.typeOf(bin_op.lhs).isVector(zcu) and !cg.typeOf(bin_op.rhs).isVector(zcu)) {
-        return cg.fail("TODO: implement vector 'shl_sat' with scalar rhs", .{});
-    }
-
-    const ty = cg.typeOfIndex(inst);
-    const int_info = ty.intInfo(zcu);
-    const is_signed = int_info.signedness == .signed;
-    if (int_info.bits > 64) {
-        return cg.fail("TODO: Saturating shifting left for integers with bitsize '{d}'", .{int_info.bits});
-    }
-
-    const wasm_bits = toWasmBits(int_info.bits).?;
-
-    const lhs = try cg.resolveInst(bin_op.lhs);
-    const rhs = rhs: {
-        const rhs = try cg.resolveInst(bin_op.rhs);
-        const rhs_ty = cg.typeOf(bin_op.rhs);
-        // The type of `rhs` is the log2 int of the type of `lhs`, but WASM wants the lhs and rhs types to match.
-        if (toWasmBits(@intCast(rhs_ty.bitSize(zcu))).? == wasm_bits) {
-            break :rhs rhs; // the WASM types match, so no cast necessary
-        }
-        const casted = try cg.intcast(rhs, rhs_ty, ty);
-        break :rhs try casted.toLocal(cg, ty);
-    };
-
-    const result = try cg.allocLocal(ty);
-
-    if (wasm_bits == int_info.bits) {
-        var shl = try (try cg.binOp(lhs, rhs, ty, .shl)).toLocal(cg, ty);
-        defer shl.free(cg);
-        var shr = try (try cg.binOp(shl, rhs, ty, .shr)).toLocal(cg, ty);
-        defer shr.free(cg);
-
-        switch (wasm_bits) {
-            32 => blk: {
-                if (!is_signed) {
-                    try cg.addImm32(std.math.maxInt(u32));
-                    break :blk;
-                }
-                try cg.addImm32(@bitCast(@as(i32, std.math.minInt(i32))));
-                try cg.addImm32(@bitCast(@as(i32, std.math.maxInt(i32))));
-                _ = try cg.cmp(lhs, .{ .imm32 = 0 }, ty, .lt);
-                try cg.addTag(.select);
-            },
-            64 => blk: {
-                if (!is_signed) {
-                    try cg.addImm64(std.math.maxInt(u64));
-                    break :blk;
-                }
-                try cg.addImm64(@bitCast(@as(i64, std.math.minInt(i64))));
-                try cg.addImm64(@bitCast(@as(i64, std.math.maxInt(i64))));
-                _ = try cg.cmp(lhs, .{ .imm64 = 0 }, ty, .lt);
-                try cg.addTag(.select);
-            },
-            else => unreachable,
-        }
-        try cg.emitWValue(shl);
-        _ = try cg.cmp(lhs, shr, ty, .neq);
-        try cg.addTag(.select);
-        try cg.addLocal(.local_set, result.local.value);
-    } else {
-        const shift_size = wasm_bits - int_info.bits;
-        const shift_value: WValue = switch (wasm_bits) {
-            32 => .{ .imm32 = shift_size },
-            64 => .{ .imm64 = shift_size },
-            else => unreachable,
-        };
-        const ext_ty = try pt.intType(int_info.signedness, wasm_bits);
-
-        var shl_res = try (try cg.binOp(lhs, shift_value, ext_ty, .shl)).toLocal(cg, ext_ty);
-        defer shl_res.free(cg);
-        var shl = try (try cg.binOp(shl_res, rhs, ext_ty, .shl)).toLocal(cg, ext_ty);
-        defer shl.free(cg);
-        var shr = try (try cg.binOp(shl, rhs, ext_ty, .shr)).toLocal(cg, ext_ty);
-        defer shr.free(cg);
-
-        switch (wasm_bits) {
-            32 => blk: {
-                if (!is_signed) {
-                    try cg.addImm32(std.math.maxInt(u32));
-                    break :blk;
-                }
-
-                try cg.addImm32(@bitCast(@as(i32, std.math.minInt(i32))));
-                try cg.addImm32(@bitCast(@as(i32, std.math.maxInt(i32))));
-                _ = try cg.cmp(shl_res, .{ .imm32 = 0 }, ext_ty, .lt);
-                try cg.addTag(.select);
-            },
-            64 => blk: {
-                if (!is_signed) {
-                    try cg.addImm64(std.math.maxInt(u64));
-                    break :blk;
-                }
-
-                try cg.addImm64(@bitCast(@as(i64, std.math.minInt(i64))));
-                try cg.addImm64(@bitCast(@as(i64, std.math.maxInt(i64))));
-                _ = try cg.cmp(shl_res, .{ .imm64 = 0 }, ext_ty, .lt);
-                try cg.addTag(.select);
-            },
-            else => unreachable,
-        }
-        try cg.emitWValue(shl);
-        _ = try cg.cmp(shl_res, shr, ext_ty, .neq);
-        try cg.addTag(.select);
-        try cg.addLocal(.local_set, result.local.value);
-        var shift_result = try cg.binOp(result, shift_value, ext_ty, .shr);
-        if (is_signed) {
-            shift_result = try cg.wrapOperand(shift_result, ty);
-        }
-        try cg.addLocal(.local_set, result.local.value);
-    }
-
-    return cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
-}
-
 /// Calls a compiler-rt intrinsic by creating an undefined symbol,
 /// then lowering the arguments and calling the symbol as a function call.
 /// This function call assumes the C-ABI.
@@ -7102,16 +6664,13 @@ fn callIntrinsic(
     // Lower all arguments to the stack before we call our function
     for (args, 0..) |arg, arg_i| {
         assert(!(want_sret_param and arg == .stack));
-        assert(Type.fromInterned(param_types[arg_i]).hasRuntimeBitsIgnoreComptime(zcu));
+        assert(Type.fromInterned(param_types[arg_i]).hasRuntimeBits(zcu));
         try cg.lowerArg(.{ .wasm_mvp = .{} }, Type.fromInterned(param_types[arg_i]), arg);
     }
 
     try cg.addInst(.{ .tag = .call_intrinsic, .data = .{ .intrinsic = intrinsic } });
 
-    if (!return_type.hasRuntimeBitsIgnoreComptime(zcu)) {
-        return .none;
-    } else if (return_type.isNoReturn(zcu)) {
-        try cg.addTag(.@"unreachable");
+    if (!return_type.hasRuntimeBits(zcu)) {
         return .none;
     } else if (want_sret_param) {
         return sret;
@@ -7228,6 +6787,8 @@ fn airCmpxchg(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty = ptr_ty.childType(zcu);
     const result_ty = cg.typeOfIndex(inst);
 
+    const int_ty: IntType = .fromType(cg, ty);
+
     const ptr_operand = try cg.resolveInst(extra.ptr);
     const expected_val = try cg.resolveInst(extra.expected_value);
     const new_val = try cg.resolveInst(extra.new_value);
@@ -7250,7 +6811,7 @@ fn airCmpxchg(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             .alignment = @intCast(ty.abiAlignment(zcu).toByteUnits().?),
         });
         try cg.addLocal(.local_tee, val_local.local.value);
-        _ = try cg.cmp(.stack, expected_val, ty, .eq);
+        _ = try cg.intCmp(int_ty, .eq, .stack, expected_val);
         try cg.addLocal(.local_set, cmp_result.local.value);
         break :val val_local;
     } else val: {
@@ -7262,7 +6823,7 @@ fn airCmpxchg(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try cg.lowerToStack(ptr_operand);
         try cg.lowerToStack(new_val);
         try cg.emitWValue(ptr_val);
-        _ = try cg.cmp(ptr_val, expected_val, ty, .eq);
+        _ = try cg.intCmp(int_ty, .eq, ptr_val, expected_val);
         try cg.addLocal(.local_tee, cmp_result.local.value);
         try cg.addTag(.select);
         try cg.store(.stack, .stack, ty, 0);
@@ -7328,6 +6889,8 @@ fn airAtomicRmw(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty = cg.typeOfIndex(inst);
     const op: std.builtin.AtomicRmwOp = extra.op();
 
+    const int_ty: IntType = .fromType(cg, ty);
+
     if (cg.useAtomicFeature()) {
         switch (op) {
             .Max,
@@ -7343,20 +6906,19 @@ fn airAtomicRmw(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 try cg.emitWValue(ptr);
                 try cg.emitWValue(value);
                 if (op == .Nand) {
-                    const wasm_bits = toWasmBits(@intCast(ty.bitSize(zcu))).?;
-
-                    const and_res = try cg.binOp(value, operand, ty, .@"and");
-                    if (wasm_bits == 32)
-                        try cg.addImm32(~@as(u32, 0))
-                    else if (wasm_bits == 64)
-                        try cg.addImm64(~@as(u64, 0))
-                    else
+                    const and_res = try cg.intAnd(int_ty, value, operand);
+                    if (int_ty.bits <= 32) {
+                        try cg.addImm32(~@as(u32, 0));
+                    } else if (int_ty.bits <= 64) {
+                        try cg.addImm64(~@as(u64, 0));
+                    } else {
                         return cg.fail("TODO: `@atomicRmw` with operator `Nand` for types larger than 64 bits", .{});
-                    _ = try cg.binOp(and_res, .stack, ty, .xor);
+                    }
+                    _ = try cg.intXor(int_ty, and_res, .stack);
                 } else {
                     try cg.emitWValue(value);
                     try cg.emitWValue(operand);
-                    _ = try cg.cmp(value, operand, ty, if (op == .Max) .gt else .lt);
+                    _ = try cg.intCmp(int_ty, if (op == .Max) .gt else .lt, value, operand);
                     try cg.addTag(.select);
                 }
                 try cg.addAtomicMemArg(
@@ -7374,7 +6936,7 @@ fn airAtomicRmw(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 );
                 const select_res = try cg.allocLocal(ty);
                 try cg.addLocal(.local_tee, select_res.local.value);
-                _ = try cg.cmp(.stack, value, ty, .neq); // leave on stack so we can use it for br_if
+                _ = try cg.intCmp(int_ty, .neq, .stack, value); // leave on stack so we can use it for br_if
 
                 try cg.emitWValue(select_res);
                 try cg.addLocal(.local_set, value.local.value);
@@ -7449,16 +7011,16 @@ fn airAtomicRmw(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             .Xor,
             => {
                 try cg.emitWValue(ptr);
-                _ = try cg.binOp(result, operand, ty, switch (op) {
-                    .Add => .add,
-                    .Sub => .sub,
-                    .And => .@"and",
-                    .Or => .@"or",
-                    .Xor => .xor,
+                _ = switch (op) {
+                    .Add => try cg.intAdd(int_ty, result, operand),
+                    .Sub => try cg.intSub(int_ty, result, operand),
+                    .And => try cg.intAnd(int_ty, result, operand),
+                    .Or => try cg.intOr(int_ty, result, operand),
+                    .Xor => try cg.intXor(int_ty, result, operand),
                     else => unreachable,
-                });
+                };
                 if (ty.isInt(zcu) and (op == .Add or op == .Sub)) {
-                    _ = try cg.wrapOperand(.stack, ty);
+                    _ = try cg.intWrap(int_ty, .stack);
                 }
                 try cg.store(.stack, .stack, ty, ptr.offset());
             },
@@ -7468,22 +7030,21 @@ fn airAtomicRmw(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 try cg.emitWValue(ptr);
                 try cg.emitWValue(result);
                 try cg.emitWValue(operand);
-                _ = try cg.cmp(result, operand, ty, if (op == .Max) .gt else .lt);
+                _ = try cg.intCmp(int_ty, if (op == .Max) .gt else .lt, result, operand);
                 try cg.addTag(.select);
                 try cg.store(.stack, .stack, ty, ptr.offset());
             },
             .Nand => {
-                const wasm_bits = toWasmBits(@intCast(ty.bitSize(zcu))).?;
-
                 try cg.emitWValue(ptr);
-                const and_res = try cg.binOp(result, operand, ty, .@"and");
-                if (wasm_bits == 32)
-                    try cg.addImm32(~@as(u32, 0))
-                else if (wasm_bits == 64)
-                    try cg.addImm64(~@as(u64, 0))
-                else
+                const and_res = try cg.intAnd(int_ty, result, operand);
+                if (int_ty.bits <= 32) {
+                    try cg.addImm32(~@as(u32, 0));
+                } else if (int_ty.bits <= 64) {
+                    try cg.addImm64(~@as(u64, 0));
+                } else {
                     return cg.fail("TODO: `@atomicRmw` with operator `Nand` for types larger than 64 bits", .{});
-                _ = try cg.binOp(and_res, .stack, ty, .xor);
+                }
+                _ = try cg.intXor(int_ty, and_res, .stack);
                 try cg.store(.stack, .stack, ty, ptr.offset());
             },
         }
@@ -7551,39 +7112,4 @@ fn typeOf(cg: *CodeGen, inst: Air.Inst.Ref) Type {
 fn typeOfIndex(cg: *CodeGen, inst: Air.Inst.Index) Type {
     const zcu = cg.pt.zcu;
     return cg.air.typeOfIndex(inst, &zcu.intern_pool);
-}
-
-fn floatCmpIntrinsic(op: std.math.CompareOperator, bits: u16) Mir.Intrinsic {
-    return switch (op) {
-        .lt => switch (bits) {
-            80 => .__ltxf2,
-            128 => .__lttf2,
-            else => unreachable,
-        },
-        .lte => switch (bits) {
-            80 => .__lexf2,
-            128 => .__letf2,
-            else => unreachable,
-        },
-        .eq => switch (bits) {
-            80 => .__eqxf2,
-            128 => .__eqtf2,
-            else => unreachable,
-        },
-        .neq => switch (bits) {
-            80 => .__nexf2,
-            128 => .__netf2,
-            else => unreachable,
-        },
-        .gte => switch (bits) {
-            80 => .__gexf2,
-            128 => .__getf2,
-            else => unreachable,
-        },
-        .gt => switch (bits) {
-            80 => .__gtxf2,
-            128 => .__gttf2,
-            else => unreachable,
-        },
-    };
 }

@@ -115,33 +115,26 @@ pub fn emitMir(emit: *Emit) Error!void {
                                 return error.EmitFail;
                             },
                         };
-                        break :target switch (ip.getNav(nav).status) {
-                            .unresolved => unreachable,
-                            .type_resolved => |type_resolved| .{
+                        const resolved_nav = ip.getNav(nav).resolved.?;
+                        if (resolved_nav.value != .none) switch (ip.indexToKey(resolved_nav.value)) {
+                            .@"extern" => |@"extern"| break :target .{
                                 .index = sym_index,
-                                .is_extern = false,
-                                .type = if (type_resolved.is_threadlocal and comp.config.any_non_single_threaded) .tlv else .symbol,
-                            },
-                            .fully_resolved => |fully_resolved| switch (ip.indexToKey(fully_resolved.val)) {
-                                .@"extern" => |@"extern"| .{
-                                    .index = sym_index,
-                                    .is_extern = switch (@"extern".visibility) {
-                                        .default => true,
-                                        .hidden, .protected => false,
-                                    },
-                                    .type = if (@"extern".is_threadlocal and comp.config.any_non_single_threaded) .tlv else .symbol,
-                                    .force_pcrel_direct = switch (@"extern".relocation) {
-                                        .any => false,
-                                        .pcrel => true,
-                                    },
+                                .is_extern = switch (@"extern".visibility) {
+                                    .default => true,
+                                    .hidden, .protected => false,
                                 },
-                                .variable => |variable| .{
-                                    .index = sym_index,
-                                    .is_extern = false,
-                                    .type = if (variable.is_threadlocal and comp.config.any_non_single_threaded) .tlv else .symbol,
+                                .type = if (resolved_nav.@"threadlocal" and comp.config.any_non_single_threaded) .tlv else .symbol,
+                                .force_pcrel_direct = switch (@"extern".relocation) {
+                                    .any => false,
+                                    .pcrel => true,
                                 },
-                                else => .{ .index = sym_index, .is_extern = false, .type = .symbol },
                             },
+                            else => {},
+                        };
+                        break :target .{
+                            .index = sym_index,
+                            .is_extern = false,
+                            .type = if (resolved_nav.@"threadlocal" and comp.config.any_non_single_threaded) .tlv else .symbol,
                         };
                     },
                     .uav => |uav| .{

@@ -53,6 +53,7 @@ pub const Cie = struct {
                     else => @panic("unexpected lsda encoding"), // TODO error
                 }
             },
+            'S' => {}, // skip
             else => @panic("unexpected augmentation string"), // TODO error
         };
     }

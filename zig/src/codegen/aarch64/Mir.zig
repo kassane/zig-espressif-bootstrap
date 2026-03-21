@@ -69,7 +69,7 @@ pub fn emit(
     const target = &mod.resolved_target.result;
     mir_log.debug("{f}:", .{nav.fqn.fmt(ip)});
 
-    const func_align = switch (nav.status.fully_resolved.alignment) {
+    const func_align = switch (nav.resolved.?.@"align") {
         .none => switch (mod.optimize_mode) {
             .Debug, .ReleaseSafe, .ReleaseFast => target_util.defaultFunctionAlignment(target),
             .ReleaseSmall => target_util.minFunctionAlignment(target),

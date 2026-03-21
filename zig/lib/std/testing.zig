@@ -19,11 +19,11 @@ var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 
 /// This should only be used in temporary test programs.
 pub const allocator = allocator_instance.allocator();
-pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{
+pub var allocator_instance: std.heap.DebugAllocator(.{
     .stack_trace_frames = if (std.debug.sys_can_stack_trace) 10 else 0,
     .resize_stack_traces = true,
     // A unique value so that when a default-constructed
-    // GeneralPurposeAllocator is incorrectly passed to testing allocator, or
+    // DebugAllocator is incorrectly passed to testing allocator, or
     // vice versa, panic occurs.
     .canary = @truncate(0x2731e675c3a701ba),
 }) = b: {
@@ -950,9 +950,8 @@ test "expectEqualDeep primitive type" {
 }
 
 test "expectEqualDeep pointer" {
-    const a = 1;
-    const b = 1;
-    try expectEqualDeep(&a, &b);
+    try comptime expectEqualDeep(&1, &1);
+    try expectEqualDeep(&@as(u32, 1), &@as(u32, 1));
 }
 
 test "expectEqualDeep composite type" {
@@ -1113,48 +1112,16 @@ test {
 ///     defer allocator.free(bar);
 /// }
 /// ```
-pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime test_fn: anytype, extra_args: anytype) !void {
-    switch (@typeInfo(@typeInfo(@TypeOf(test_fn)).@"fn".return_type.?)) {
-        .error_union => |info| {
-            if (info.payload != void) {
-                @compileError("Return type must be !void");
-            }
-        },
-        else => @compileError("Return type must be !void"),
-    }
-    if (@typeInfo(@TypeOf(extra_args)) != .@"struct") {
-        @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(extra_args)));
-    }
-
-    const ArgsTuple = std.meta.ArgsTuple(@TypeOf(test_fn));
-    const fn_args_fields = @typeInfo(ArgsTuple).@"struct".fields;
-    if (fn_args_fields.len == 0 or fn_args_fields[0].type != std.mem.Allocator) {
-        @compileError("The provided function must have an " ++ @typeName(std.mem.Allocator) ++ " as its first argument");
-    }
-    const expected_args_tuple_len = fn_args_fields.len - 1;
-    if (extra_args.len != expected_args_tuple_len) {
-        @compileError("The provided function expects " ++ std.fmt.comptimePrint("{d}", .{expected_args_tuple_len}) ++ " extra arguments, but the provided tuple contains " ++ std.fmt.comptimePrint("{d}", .{extra_args.len}));
-    }
-
-    // Setup the tuple that will actually be used with @call (we'll need to insert
-    // the failing allocator in field @"0" before each @call)
-    var args: ArgsTuple = undefined;
-    inline for (@typeInfo(@TypeOf(extra_args)).@"struct".fields, 0..) |field, i| {
-        const arg_i_str = comptime str: {
-            var str_buf: [100]u8 = undefined;
-            const args_i = i + 1;
-            const str_len = std.fmt.printInt(&str_buf, args_i, 10, .lower, .{});
-            break :str str_buf[0..str_len];
-        };
-        @field(args, arg_i_str) = @field(extra_args, field.name);
-    }
-
+pub fn checkAllAllocationFailures(
+    backing_allocator: std.mem.Allocator,
+    comptime test_fn: anytype,
+    extra_args: CheckAllAllocationFailuresExtraArgs(@TypeOf(test_fn)),
+) !void {
     // Try it once with unlimited memory, make sure it works
     const needed_alloc_count = x: {
         var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, .{});
-        args.@"0" = failing_allocator_inst.allocator();
 
-        try @call(.auto, test_fn, args);
+        try @call(.auto, test_fn, .{failing_allocator_inst.allocator()} ++ extra_args);
         break :x failing_allocator_inst.alloc_index;
     };
 
@@ -1162,9 +1129,8 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
         var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, .{
             .fail_index = fail_index,
         });
-        args.@"0" = failing_allocator_inst.allocator();
 
-        if (@call(.auto, test_fn, args)) |_| {
+        if (@call(.auto, test_fn, .{failing_allocator_inst.allocator()} ++ extra_args)) |_| {
             if (failing_allocator_inst.has_induced_failure) {
                 return error.SwallowedOutOfMemoryError;
             } else {
@@ -1193,6 +1159,54 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
             else => |e| return e,
         }
     }
+}
+
+fn CheckAllAllocationFailuresExtraArgs(comptime TestFn: type) type {
+    switch (@typeInfo(@typeInfo(TestFn).@"fn".return_type.?)) {
+        .error_union => |info| {
+            if (info.payload != void) {
+                @compileError("Return type must be !void");
+            }
+        },
+        else => @compileError("Return type must be !void"),
+    }
+
+    const ArgsTuple = std.meta.ArgsTuple(TestFn);
+
+    const fields = @typeInfo(ArgsTuple).@"struct".fields;
+    if (fields.len == 0 or fields[0].type != std.mem.Allocator) {
+        @compileError("The provided function must have an " ++ @typeName(std.mem.Allocator) ++ " as its first argument");
+    }
+
+    var extra_args: [fields.len - 1]type = undefined;
+    for (&extra_args, fields[1..]) |*arg, field| {
+        arg.* = field.type;
+    }
+
+    return @Tuple(&extra_args);
+}
+
+test "checkAllAllocationFailures provide result type to 'extra_args' argument" {
+    try checkAllAllocationFailures(
+        std.testing.allocator,
+        struct {
+            fn f(ally: std.mem.Allocator, params: struct {
+                foo_len: u32,
+                bar_len: u32,
+            }) !void {
+                const foo = try ally.alloc(u8, params.foo_len);
+                defer ally.free(foo);
+                const bar = try ally.alloc(u8, params.bar_len);
+                defer ally.free(bar);
+            }
+        }.f,
+        .{
+            .{
+                .foo_len = 3,
+                .bar_len = 5,
+            },
+        },
+    );
 }
 
 /// Given a type, references all the declarations inside, so that the semantic analyzer sees them.

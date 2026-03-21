@@ -13,6 +13,7 @@ const IpAddress = std.Io.net.IpAddress;
 const errnoBug = std.Io.Threaded.errnoBug;
 const closeFd = std.Io.Threaded.closeFd;
 const posix = std.posix;
+const posixSocketModeProtocol = Io.Threaded.posixSocketModeProtocol;
 
 /// Must be a thread-safe allocator.
 gpa: Allocator,
@@ -766,7 +767,7 @@ fn groupAsync(
     type_erased: *Io.Group,
     context: []const u8,
     context_alignment: Alignment,
-    start: *const fn (context: *const anyopaque) Io.Cancelable!void,
+    start: *const fn (context: *const anyopaque) void,
 ) void {
     const k: *Kqueue = @ptrCast(@alignCast(userdata));
     _ = k;
@@ -782,7 +783,7 @@ fn groupConcurrent(
     type_erased: *Io.Group,
     context: []const u8,
     context_alignment: Alignment,
-    start: *const fn (context: *const anyopaque) Io.Cancelable!void,
+    start: *const fn (context: *const anyopaque) void,
 ) Io.ConcurrentError!void {
     const k: *Kqueue = @ptrCast(@alignCast(userdata));
     _ = k;
@@ -1000,19 +1001,20 @@ fn sleep(userdata: ?*anyopaque, timeout: Io.Timeout) Io.SleepError!void {
 
 fn netListenIp(
     userdata: ?*anyopaque,
-    address: net.IpAddress,
+    address: *const net.IpAddress,
     options: net.IpAddress.ListenOptions,
-) net.IpAddress.ListenError!net.Server {
+) net.IpAddress.ListenError!net.Socket {
     const k: *Kqueue = @ptrCast(@alignCast(userdata));
     _ = k;
     _ = address;
     _ = options;
     @panic("TODO");
 }
-fn netAccept(userdata: ?*anyopaque, server: net.Socket.Handle) net.Server.AcceptError!net.Stream {
+fn netAccept(userdata: ?*anyopaque, server: net.Socket.Handle, options: net.Server.AcceptOptions) net.Server.AcceptError!net.Socket {
     const k: *Kqueue = @ptrCast(@alignCast(userdata));
     _ = k;
     _ = server;
+    _ = options;
     @panic("TODO");
 }
 fn netBindIp(
@@ -1028,12 +1030,9 @@ fn netBindIp(
     var addr_len = Io.Threaded.addressToPosix(address, &storage);
     try posixBind(k, socket_fd, &storage.any, addr_len);
     try posixGetSockName(k, socket_fd, &storage.any, &addr_len);
-    return .{
-        .handle = socket_fd,
-        .address = Io.Threaded.addressFromPosix(&storage),
-    };
+    return .{ .handle = socket_fd, .address = Io.Threaded.addressFromPosix(&storage) };
 }
-fn netConnectIp(userdata: ?*anyopaque, address: *const net.IpAddress, options: net.IpAddress.ConnectOptions) net.IpAddress.ConnectError!net.Stream {
+fn netConnectIp(userdata: ?*anyopaque, address: *const net.IpAddress, options: net.IpAddress.ConnectOptions) net.IpAddress.ConnectError!net.Socket {
     if (options.timeout != .none) @panic("TODO");
     const k: *Kqueue = @ptrCast(@alignCast(userdata));
     const family = Io.Threaded.posixAddressFamily(address);
@@ -1046,10 +1045,7 @@ fn netConnectIp(userdata: ?*anyopaque, address: *const net.IpAddress, options: n
     var addr_len = Io.Threaded.addressToPosix(address, &storage);
     try posixConnect(k, socket_fd, &storage.any, addr_len);
     try posixGetSockName(k, socket_fd, &storage.any, &addr_len);
-    return .{ .socket = .{
-        .handle = socket_fd,
-        .address = Io.Threaded.addressFromPosix(&storage),
-    } };
+    return .{ .handle = socket_fd, .address = Io.Threaded.addressFromPosix(&storage) };
 }
 
 fn posixConnect(k: *Kqueue, socket_fd: posix.socket_t, addr: *const posix.sockaddr, addr_len: posix.socklen_t) !void {
@@ -1345,8 +1341,7 @@ fn openSocketPosix(
     Unexpected,
     Canceled,
 }!posix.socket_t {
-    const mode = Io.Threaded.posixSocketMode(options.mode);
-    const protocol = Io.Threaded.posixProtocol(options.protocol);
+    const mode, const protocol = try posixSocketModeProtocol(family, options.mode, options.protocol);
     const socket_fd = while (true) {
         try k.checkCancel();
         const flags: u32 = mode | if (Io.Threaded.socket_flags_unsupported) 0 else posix.SOCK.CLOEXEC;

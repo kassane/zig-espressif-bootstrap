@@ -29,6 +29,7 @@ const codegen = @import("codegen.zig");
 pub const aarch64 = @import("link/aarch64.zig");
 pub const LdScript = @import("link/LdScript.zig");
 pub const Queue = @import("link/Queue.zig");
+pub const ConstPool = @import("link/ConstPool.zig");
 
 pub const Diags = struct {
     /// Stored here so that function definitions can distinguish between
@@ -780,7 +781,7 @@ pub const File = struct {
     fn updateNav(base: *File, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) UpdateNavError!void {
         assert(base.comp.zcu.?.llvm_object == null);
         const nav = pt.zcu.intern_pool.getNav(nav_index);
-        assert(nav.status == .fully_resolved);
+        assert(nav.resolved.?.value != .none);
         switch (base.tag) {
             .lld => unreachable,
             .plan9 => unreachable,
@@ -798,14 +799,27 @@ pub const File = struct {
     };
 
     /// Never called when LLVM is codegenning the ZCU.
-    fn updateContainerType(base: *File, pt: Zcu.PerThread, ty: InternPool.Index) UpdateContainerTypeError!void {
+    fn updateContainerType(base: *File, pt: Zcu.PerThread, ty: InternPool.Index, success: bool) UpdateContainerTypeError!void {
+        assert(base.comp.zcu.?.llvm_object == null);
+        switch (base.tag) {
+            .lld => unreachable,
+            else => {},
+            inline .elf, .c => |tag| {
+                dev.check(tag.devFeature());
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateContainerType(pt, ty, success);
+            },
+        }
+    }
+
+    /// Never called when LLVM is codegenning the ZCU.
+    fn clearContainerType(base: *File, pt: Zcu.PerThread, ty: InternPool.Index) UpdateContainerTypeError!void {
         assert(base.comp.zcu.?.llvm_object == null);
         switch (base.tag) {
             .lld => unreachable,
             else => {},
             inline .elf => |tag| {
                 dev.check(tag.devFeature());
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateContainerType(pt, ty);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).clearContainerType(pt, ty);
             },
         }
     }
@@ -1375,8 +1389,14 @@ pub const ZcuTask = union(enum) {
     link_nav: InternPool.Nav.Index,
     /// Write the machine code for a function to the output file.
     link_func: Zcu.CodegenTaskPool.Index,
-    link_type: InternPool.Index,
-    update_line_number: InternPool.TrackedInst.Index,
+    /// This struct/union/enum type has finished type resolution (successfully or otherwise), so the
+    /// linker can now lower debug information for this type (and any structural types which depend
+    /// on it, such as `?T`, `struct { T }`, `[2]T`, etc).
+    debug_update_container_type: struct {
+        ty: InternPool.Index,
+        success: bool,
+    },
+    debug_update_line_number: InternPool.TrackedInst.Index,
 };
 
 pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
@@ -1537,7 +1557,10 @@ pub fn doZcuTask(comp: *Compilation, tid: Zcu.PerThread.Id, task: ZcuTask) void 
         .link_func => |codegen_task| nav: {
             timer.pause(io);
             const func, var mir = codegen_task.wait(&zcu.codegen_task_pool, io) catch |err| switch (err) {
-                error.Canceled, error.AlreadyReported => return,
+                error.Canceled, error.AlreadyReported => {
+                    comp.link_prog_node.completeOne();
+                    return;
+                },
             };
             defer mir.deinit(zcu);
             timer.@"resume"(io);
@@ -1563,21 +1586,25 @@ pub fn doZcuTask(comp: *Compilation, tid: Zcu.PerThread.Id, task: ZcuTask) void 
             }
             break :nav ip.indexToKey(func).func.owner_nav;
         },
-        .link_type => |ty| nav: {
-            const name = Type.fromInterned(ty).containerTypeName(ip).toSlice(ip);
-            const nav_prog_node = comp.link_prog_node.start(name, 0);
-            defer nav_prog_node.end();
-            if (zcu.llvm_object == null) {
+        .debug_update_container_type => |container_update| nav: {
+            const name = Type.fromInterned(container_update.ty).containerTypeName(ip).toSlice(ip);
+            const ty_prog_node = comp.link_prog_node.start(name, 0);
+            defer ty_prog_node.end();
+            if (zcu.llvm_object) |llvm_object| {
+                llvm_object.updateContainerType(pt, container_update.ty, container_update.success) catch |err| switch (err) {
+                    error.OutOfMemory => diags.setAllocFailure(),
+                };
+            } else {
                 if (comp.bin_file) |lf| {
-                    lf.updateContainerType(pt, ty) catch |err| switch (err) {
+                    lf.updateContainerType(pt, container_update.ty, container_update.success) catch |err| switch (err) {
                         error.OutOfMemory => diags.setAllocFailure(),
-                        error.TypeFailureReported => assert(zcu.failed_types.contains(ty)),
+                        error.TypeFailureReported => assert(zcu.failed_types.contains(container_update.ty)),
                     };
                 }
             }
             break :nav null;
         },
-        .update_line_number => |ti| nav: {
+        .debug_update_line_number => |ti| nav: {
             const nav_prog_node = comp.link_prog_node.start("Update line number", 0);
             defer nav_prog_node.end();
             if (pt.zcu.llvm_object == null) {
@@ -2070,7 +2097,8 @@ fn resolveLibInput(
         const test_path: Path = .{
             .root_dir = lib_directory,
             .sub_path = try std.fmt.allocPrint(arena, "{s}{s}{s}", .{
-                target.libPrefix(), lib_name, switch (link_mode) {
+                target.libPrefix(), lib_name,
+                switch (link_mode) {
                     .static => target.staticLibSuffix(),
                     .dynamic => target.dynamicLibSuffix(),
                 },

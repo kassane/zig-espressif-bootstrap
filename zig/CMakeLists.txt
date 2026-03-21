@@ -331,7 +331,6 @@ set(ZIG_STAGE2_SOURCES
     src/Air/Liveness.zig
     src/Air/Liveness/Verify.zig
     src/Air/print.zig
-    src/Air/types_resolved.zig
     src/Builtin.zig
     src/Compilation.zig
     src/Compilation/Config.zig
@@ -345,12 +344,11 @@ set(ZIG_STAGE2_SOURCES
     src/Sema.zig
     src/Sema/bitcast.zig
     src/Sema/comptime_ptr_access.zig
+    src/Sema/type_resolution.zig
     src/Type.zig
     src/Value.zig
     src/Zcu.zig
     src/Zcu/PerThread.zig
-    src/clang_options.zig
-    src/clang_options_data.zig
     src/codegen.zig
     src/codegen/aarch64.zig
     src/codegen/aarch64/abi.zig
@@ -361,7 +359,8 @@ set(ZIG_STAGE2_SOURCES
     src/codegen/aarch64/Mir.zig
     src/codegen/aarch64/Select.zig
     src/codegen/c.zig
-    src/codegen/c/Type.zig
+    src/codegen/c/type.zig
+    src/codegen/c/type/render_defs.zig
     src/codegen/llvm.zig
     src/codegen/llvm/bindings.zig
     src/crash_report.zig
@@ -376,6 +375,7 @@ set(ZIG_STAGE2_SOURCES
     src/libs/libunwind.zig
     src/link.zig
     src/link/C.zig
+    src/link/ConstPool.zig
     src/link/Coff.zig
     src/link/Dwarf.zig
     src/link/Elf.zig
@@ -607,8 +607,8 @@ if(MSVC)
   set(ZIG2_LINK_FLAGS "/STACK:16777216 /FORCE:MULTIPLE")
 else()
   set(ZIG_WASM2C_COMPILE_FLAGS "-std=c99 -O2")
-  set(ZIG1_COMPILE_FLAGS "-std=c99 -Os")
-  set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-sanitize=undefined -fno-stack-protector")
+  set(ZIG1_COMPILE_FLAGS "-std=c99 -Os -fno-strict-aliasing")
+  set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-sanitize=undefined -fno-stack-protector -fno-strict-aliasing")
   # Must match the condition in build.zig.
   if(ZIG_HOST_TARGET_ARCH MATCHES "^(arm|thumb)(eb)?$" OR ZIG_HOST_TARGET_ARCH MATCHES "^powerpc(64)?(le)?$")
     set(ZIG1_COMPILE_FLAGS "${ZIG1_COMPILE_FLAGS} -ffunction-sections -fdata-sections")
@@ -623,6 +623,23 @@ else()
     unset(ZIG2_LINK_FLAGS)
   else()
     set(ZIG2_LINK_FLAGS "-Wl,-z,stack-size=0x10000000")
+  endif()
+  if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    # Prevent GCC from miscompiling 'zig2.c'. See also 'GCC_BUG_119085_PRESENT' workaround details in 'bootstrap.c'.
+    if (
+      (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL "10.0" AND
+       CMAKE_C_COMPILER_VERSION VERSION_LESS_EQUAL "13.4") OR
+      (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL "14.0" AND
+       CMAKE_C_COMPILER_VERSION VERSION_LESS_EQUAL "14.3") OR
+      (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL "15.0" AND
+       CMAKE_C_COMPILER_VERSION VERSION_LESS "15.2")
+    )
+      set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} -fno-tree-sra")
+    endif()
+
+    # Prevent GCC from spamming false positive `-Waddress-of-packed-member` warnings in 'zig2.c'.
+    # See also 'GCC_BUG_94081_PRESENT' workaround details in 'bootstrap.c'.
+    set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} -Wno-address-of-packed-member")
   endif()
 endif()
 

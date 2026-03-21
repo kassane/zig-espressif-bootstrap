@@ -268,7 +268,7 @@ pub const LOG = struct {
     pub const DEBUG = 7;
 };
 
-pub const socket_t = if (native_os == .windows) windows.ws2_32.SOCKET else fd_t;
+pub const socket_t = fd_t;
 
 /// Obtains errno from the return value of a system function call.
 ///
@@ -500,18 +500,7 @@ pub const GetSockNameError = error{
 
 pub fn getpeername(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSockNameError!void {
     if (native_os == .windows) {
-        const rc = windows.getpeername(sock, addr, addrlen);
-        if (rc == windows.ws2_32.SOCKET_ERROR) {
-            switch (windows.ws2_32.WSAGetLastError()) {
-                .NOTINITIALISED => unreachable,
-                .ENETDOWN => return error.NetworkDown,
-                .EFAULT => unreachable, // addr or addrlen have invalid pointers or addrlen points to an incorrect value
-                .ENOTSOCK => return error.FileDescriptorNotASocket,
-                .EINVAL => return error.SocketNotBound,
-                else => |err| return windows.unexpectedWSAError(err),
-            }
-        }
-        return;
+        @compileError("use std.Io instead");
     } else {
         const rc = system.getpeername(sock, addr, addrlen);
         switch (errno(rc)) {
@@ -992,16 +981,7 @@ pub const PollError = error{
 
 pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
     if (native_os == .windows) {
-        switch (windows.poll(fds.ptr, @intCast(fds.len), timeout)) {
-            windows.ws2_32.SOCKET_ERROR => switch (windows.ws2_32.WSAGetLastError()) {
-                .NOTINITIALISED => unreachable,
-                .ENETDOWN => return error.NetworkDown,
-                .ENOBUFS => return error.SystemResources,
-                // TODO: handle more errors
-                else => |err| return windows.unexpectedWSAError(err),
-            },
-            else => |rc| return @intCast(rc),
-        }
+        @compileError("use std.Io instead");
     }
     while (true) {
         const fds_count = cast(nfds_t, fds.len) orelse return error.SystemResources;
@@ -1071,18 +1051,7 @@ pub const SetSockOptError = error{
 /// Set a socket's options.
 pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSockOptError!void {
     if (native_os == .windows) {
-        const rc = windows.ws2_32.setsockopt(fd, level, @intCast(optname), opt.ptr, @intCast(opt.len));
-        if (rc == windows.ws2_32.SOCKET_ERROR) {
-            switch (windows.ws2_32.WSAGetLastError()) {
-                .NOTINITIALISED => unreachable,
-                .ENETDOWN => return error.NetworkDown,
-                .EFAULT => unreachable,
-                .ENOTSOCK => return error.FileDescriptorNotASocket,
-                .EINVAL => return error.SocketNotBound,
-                else => |err| return windows.unexpectedWSAError(err),
-            }
-        }
-        return;
+        @compileError("use std.Io instead");
     } else {
         switch (errno(system.setsockopt(fd, level, optname, opt.ptr, @intCast(opt.len)))) {
             .SUCCESS => {},

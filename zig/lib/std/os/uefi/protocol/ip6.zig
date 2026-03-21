@@ -7,7 +7,6 @@ const MacAddress = uefi.MacAddress;
 const ManagedNetworkConfigData = uefi.protocol.ManagedNetwork.Config;
 const SimpleNetwork = uefi.protocol.SimpleNetwork;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 pub const Ip6 = extern struct {
     _get_mode_data: *const fn (*const Ip6, ?*Mode, ?*ManagedNetworkConfigData, ?*SimpleNetwork) callconv(cc) Status,
@@ -102,8 +101,8 @@ pub const Ip6 = extern struct {
         var data: ModeData = undefined;
         switch (self._get_mode_data(self, &data.ip6_mode, &data.mnp_config, &data.snp_mode)) {
             .success => return data,
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -114,12 +113,12 @@ pub const Ip6 = extern struct {
     pub fn configure(self: *Ip6, ip6_config_data: *const Config) ConfigureError!void {
         switch (self._configure(self, ip6_config_data)) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
-            .no_mapping => return Error.NoMapping,
-            .already_started => return Error.AlreadyStarted,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
+            .no_mapping => return error.NoMapping,
+            .already_started => return error.AlreadyStarted,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -127,12 +126,12 @@ pub const Ip6 = extern struct {
     pub fn disable(self: *Ip6) ConfigureError!void {
         switch (self._configure(self, null)) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
-            .no_mapping => return Error.NoMapping,
-            .already_started => return Error.AlreadyStarted,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
+            .no_mapping => return error.NoMapping,
+            .already_started => return error.AlreadyStarted,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -140,13 +139,13 @@ pub const Ip6 = extern struct {
     pub fn leaveAllGroups(self: *Ip6) GroupsError!void {
         switch (self._groups(self, false, null)) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .not_started => return Error.NotStarted,
-            .out_of_resources => return Error.OutOfResources,
-            .unsupported => return Error.Unsupported,
-            .already_started => return Error.AlreadyStarted,
-            .not_found => return Error.NotFound,
-            .device_error => return Error.DeviceError,
+            .invalid_parameter => return error.InvalidParameter,
+            .not_started => return error.NotStarted,
+            .out_of_resources => return error.OutOfResources,
+            .unsupported => return error.Unsupported,
+            .already_started => return error.AlreadyStarted,
+            .not_found => return error.NotFound,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -166,13 +165,13 @@ pub const Ip6 = extern struct {
             group_address,
         )) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .not_started => return Error.NotStarted,
-            .out_of_resources => return Error.OutOfResources,
-            .unsupported => return Error.Unsupported,
-            .already_started => return Error.AlreadyStarted,
-            .not_found => return Error.NotFound,
-            .device_error => return Error.DeviceError,
+            .invalid_parameter => return error.InvalidParameter,
+            .not_started => return error.NotStarted,
+            .out_of_resources => return error.OutOfResources,
+            .unsupported => return error.Unsupported,
+            .already_started => return error.AlreadyStarted,
+            .not_found => return error.NotFound,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -193,11 +192,11 @@ pub const Ip6 = extern struct {
             gateway_address,
         )) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
-            .not_found => return Error.NotFound,
-            .access_denied => return Error.AccessDenied,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
+            .not_found => return error.NotFound,
+            .access_denied => return error.AccessDenied,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -222,11 +221,11 @@ pub const Ip6 = extern struct {
             override,
         )) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
-            .not_found => return Error.NotFound,
-            .access_denied => return Error.AccessDenied,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
+            .not_found => return error.NotFound,
+            .access_denied => return error.AccessDenied,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -235,17 +234,17 @@ pub const Ip6 = extern struct {
     pub fn transmit(self: *Ip6, token: *CompletionToken) TransmitError!void {
         switch (self._transmit(self, token)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .no_mapping => return Error.NoMapping,
-            .invalid_parameter => return Error.InvalidParameter,
-            .access_denied => return Error.AccessDenied,
-            .not_ready => return Error.NotReady,
-            .not_found => return Error.NotFound,
-            .out_of_resources => return Error.OutOfResources,
-            .buffer_too_small => return Error.BufferTooSmall,
-            .bad_buffer_size => return Error.BadBufferSize,
-            .device_error => return Error.DeviceError,
-            .no_media => return Error.NoMedia,
+            .not_started => return error.NotStarted,
+            .no_mapping => return error.NoMapping,
+            .invalid_parameter => return error.InvalidParameter,
+            .access_denied => return error.AccessDenied,
+            .not_ready => return error.NotReady,
+            .not_found => return error.NotFound,
+            .out_of_resources => return error.OutOfResources,
+            .buffer_too_small => return error.BufferTooSmall,
+            .bad_buffer_size => return error.BadBufferSize,
+            .device_error => return error.DeviceError,
+            .no_media => return error.NoMedia,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -254,14 +253,14 @@ pub const Ip6 = extern struct {
     pub fn receive(self: *Ip6, token: *CompletionToken) ReceiveError!void {
         switch (self._receive(self, token)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .no_mapping => return Error.NoMapping,
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
-            .device_error => return Error.DeviceError,
-            .access_denied => return Error.AccessDenied,
-            .not_ready => return Error.NotReady,
-            .no_media => return Error.NoMedia,
+            .not_started => return error.NotStarted,
+            .no_mapping => return error.NoMapping,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
+            .device_error => return error.DeviceError,
+            .access_denied => return error.AccessDenied,
+            .not_ready => return error.NotReady,
+            .no_media => return error.NoMedia,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -270,10 +269,10 @@ pub const Ip6 = extern struct {
     pub fn cancel(self: *Ip6, token: ?*CompletionToken) CancelError!void {
         switch (self._cancel(self, token)) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .not_started => return Error.NotStarted,
-            .not_found => return Error.NotFound,
-            .device_error => return Error.DeviceError,
+            .invalid_parameter => return error.InvalidParameter,
+            .not_started => return error.NotStarted,
+            .not_found => return error.NotFound,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -285,10 +284,10 @@ pub const Ip6 = extern struct {
         switch (self._poll(self)) {
             .success => return true,
             .not_ready => return false,
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .timeout => return Error.Timeout,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .timeout => return error.Timeout,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

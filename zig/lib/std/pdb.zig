@@ -332,7 +332,7 @@ pub const ProcSym = extern struct {
     name: [1]u8, // null-terminated
 };
 
-pub const ProcSymFlags = packed struct {
+pub const ProcSymFlags = packed struct(u8) {
     has_fp: bool,
     has_iret: bool,
     has_fret: bool,
@@ -373,7 +373,7 @@ pub const LineFragmentHeader = extern struct {
     code_size: u32,
 };
 
-pub const LineFlags = packed struct {
+pub const LineFlags = packed struct(u16) {
     /// CV_LINES_HAVE_COLUMNS
     have_columns: bool,
     unused: u15,

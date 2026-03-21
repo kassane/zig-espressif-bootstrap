@@ -1226,34 +1226,26 @@ pub fn globalSymbol(coff: *Coff, name: []const u8, lib_name: ?[]const u8) !Symbo
 fn navSection(
     coff: *Coff,
     zcu: *Zcu,
-    nav_fr: @FieldType(@FieldType(InternPool.Nav, "status"), "fully_resolved"),
+    nav_resolved: @typeInfo(@FieldType(InternPool.Nav, "resolved")).optional.child,
 ) !Symbol.Index {
     const ip = &zcu.intern_pool;
     const default: String, const attributes: ObjectSectionAttributes =
-        switch (ip.indexToKey(nav_fr.val)) {
-            else => .{ .@".rdata", .{ .read = true } },
-            .variable => |variable| if (variable.is_threadlocal and
-                coff.base.comp.config.any_non_single_threaded)
-                .{ .@".tls$", .{ .read = true, .write = true } }
-            else
-                .{ .@".data", .{ .read = true, .write = true } },
-            .@"extern" => |@"extern"| if (@"extern".is_threadlocal and
-                coff.base.comp.config.any_non_single_threaded)
-                .{ .@".tls$", .{ .read = true, .write = true } }
-            else if (ip.isFunctionType(@"extern".ty))
-                .{ .@".text", .{ .read = true, .execute = true } }
-            else if (@"extern".is_const)
-                .{ .@".rdata", .{ .read = true } }
-            else
-                .{ .@".data", .{ .read = true, .write = true } },
-            .func => .{ .@".text", .{ .read = true, .execute = true } },
+        if (nav_resolved.@"threadlocal" and coff.base.comp.config.any_non_single_threaded) .{
+            .@".tls$", .{ .read = true, .write = true },
+        } else if (ip.isFunctionType(nav_resolved.type)) .{
+            .@".text", .{ .read = true, .execute = true },
+        } else if (nav_resolved.@"const") .{
+            .@".rdata", .{ .read = true },
+        } else .{
+            .@".data", .{ .read = true, .write = true },
         };
+
     return (try coff.objectSectionMapIndex(
-        (try coff.getOrPutOptionalString(nav_fr.@"linksection".toSlice(ip))).unwrap() orelse default,
-        switch (nav_fr.@"linksection") {
+        (try coff.getOrPutOptionalString(nav_resolved.@"linksection".toSlice(ip))).unwrap() orelse default,
+        switch (nav_resolved.@"linksection") {
             .none => coff.mf.flags.block_size,
-            else => switch (nav_fr.alignment) {
-                .none => Type.fromInterned(ip.typeOf(nav_fr.val)).abiAlignment(zcu),
+            else => switch (nav_resolved.@"align") {
+                .none => Type.fromInterned(ip.typeOf(nav_resolved.value)).abiAlignment(zcu),
                 else => |alignment| alignment,
             }.toStdMem(),
         },
@@ -1536,23 +1528,18 @@ fn updateNavInner(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
     const ip = &zcu.intern_pool;
 
     const nav = ip.getNav(nav_index);
-    const nav_val = nav.status.fully_resolved.val;
-    const nav_init = switch (ip.indexToKey(nav_val)) {
-        else => nav_val,
-        .variable => |variable| variable.init,
-        .@"extern", .func => .none,
-    };
-    if (nav_init == .none or !Type.fromInterned(ip.typeOf(nav_init)).hasRuntimeBits(zcu)) return;
+    if (ip.indexToKey(nav.resolved.?.value) == .@"extern") return;
+    if (!Type.fromInterned(nav.resolved.?.type).hasRuntimeBits(zcu)) return;
 
     const nmi = try coff.navMapIndex(zcu, nav_index);
     const si = nmi.symbol(coff);
     const ni = ni: {
         switch (si.get(coff).ni) {
             .none => {
-                const sec_si = try coff.navSection(zcu, nav.status.fully_resolved);
+                const sec_si = try coff.navSection(zcu, nav.resolved.?);
                 try coff.nodes.ensureUnusedCapacity(gpa, 1);
                 const ni = try coff.mf.addLastChildNode(gpa, sec_si.node(coff), .{
-                    .alignment = pt.navAlignment(nav_index).toStdMem(),
+                    .alignment = zcu.navAlignment(nav_index).toStdMem(),
                     .moved = true,
                 });
                 coff.nodes.appendAssumeCapacity(.{ .nav = nmi });
@@ -1576,7 +1563,7 @@ fn updateNavInner(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
             &coff.base,
             pt,
             zcu.navSrcLoc(nav_index),
-            .fromInterned(nav_init),
+            .fromInterned(nav.resolved.?.value),
             &nw.interface,
             .{ .atom_index = @intFromEnum(si) },
         ) catch |err| switch (err) {
@@ -1587,7 +1574,7 @@ fn updateNavInner(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         si.applyLocationRelocs(coff);
     }
 
-    if (nav.status.fully_resolved.@"linksection".unwrap()) |_| {
+    if (nav.resolved.?.@"linksection".unwrap()) |_| {
         try ni.resize(&coff.mf, gpa, si.get(coff).size);
         var parent_ni = ni;
         while (true) {
@@ -1674,12 +1661,12 @@ fn updateFuncInner(
     const ni = ni: {
         switch (si.get(coff).ni) {
             .none => {
-                const sec_si = try coff.navSection(zcu, nav.status.fully_resolved);
+                const sec_si = try coff.navSection(zcu, nav.resolved.?);
                 try coff.nodes.ensureUnusedCapacity(gpa, 1);
                 const mod = zcu.navFileScope(func.owner_nav).mod.?;
                 const target = &mod.resolved_target.result;
                 const ni = try coff.mf.addLastChildNode(gpa, sec_si.node(coff), .{
-                    .alignment = switch (nav.status.fully_resolved.alignment) {
+                    .alignment = switch (nav.resolved.?.@"align") {
                         .none => switch (mod.optimize_mode) {
                             .Debug,
                             .ReleaseSafe,

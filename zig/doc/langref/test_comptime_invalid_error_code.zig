@@ -1,8 +1,5 @@
 comptime {
-    const err = error.AnError;
-    const number = @intFromError(err) + 10;
-    const invalid_err = @errorFromInt(number);
-    _ = invalid_err;
+    _ = @errorFromInt(12345);
 }
 
-// test_error=integer value '11' represents no error
+// test_error=integer value '12345' represents no error

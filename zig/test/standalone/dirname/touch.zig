@@ -21,7 +21,7 @@ pub fn main(init: std.process.Init) !void {
     const dir_path = std.Io.Dir.path.dirname(path) orelse unreachable;
     const basename = std.Io.Dir.path.basename(path);
 
-    const io = std.Io.Threaded.global_single_threaded.ioBasic();
+    const io = std.Io.Threaded.global_single_threaded.io();
 
     var dir = try std.Io.Dir.cwd().openDir(io, dir_path, .{});
     defer dir.close(io);

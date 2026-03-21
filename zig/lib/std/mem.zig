@@ -38,6 +38,10 @@ pub const Alignment = enum(math.Log2Int(usize)) {
         return @enumFromInt(@ctz(n));
     }
 
+    pub fn fromByteUnitsOptional(maybe_n: ?usize) ?Alignment {
+        return if (maybe_n) |n| .fromByteUnits(n) else null;
+    }
+
     pub inline fn of(comptime T: type) Alignment {
         return comptime fromByteUnits(@alignOf(T));
     }
@@ -2287,8 +2291,8 @@ pub fn byteSwapAllFieldsAligned(comptime S: type, comptime a: Alignment, ptr: *a
                 ptr.* = @bitCast(@byteSwap(@as(Int, @bitCast(ptr.*))));
             } else inline for (std.meta.fields(S)) |f| {
                 switch (@typeInfo(f.type)) {
-                    .@"struct" => byteSwapAllFieldsAligned(f.type, .fromByteUnits(f.alignment), &@field(ptr, f.name)),
-                    .@"union", .array => byteSwapAllFieldsAligned(f.type, .fromByteUnits(f.alignment), &@field(ptr, f.name)),
+                    .@"struct" => byteSwapAllFieldsAligned(f.type, .fromByteUnits(f.alignment orelse @alignOf(f.type)), &@field(ptr, f.name)),
+                    .@"union", .array => byteSwapAllFieldsAligned(f.type, .fromByteUnits(f.alignment orelse @alignOf(f.type)), &@field(ptr, f.name)),
                     .@"enum" => {
                         @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
                     },
@@ -3458,7 +3462,7 @@ pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
 
         /// Returns a slice of the next field, or null if splitting is complete.
         /// This method does not alter self.index.
-        pub fn peek(self: *Self) ?[]const T {
+        pub fn peek(self: *const Self) ?[]const T {
             const start = self.index orelse return null;
             const end = if (switch (delimiter_type) {
                 .sequence => findPos(T, self.buffer, start, self.delimiter),
@@ -4002,7 +4006,9 @@ test reverse {
         try testing.expectEqualSlices(MyType, &arr, &([_]MyType{ .c, .{ .b = 0 }, .{ .a = .{ 0, 0, 0 } } }));
     }
 }
-fn ReverseIterator(comptime T: type) type {
+
+/// Returned by `reverseIterator`.
+pub fn ReverseIterator(comptime T: type) type {
     const ptr = switch (@typeInfo(T)) {
         .pointer => |ptr| ptr,
         else => @compileError("expected slice or pointer to array, found '" ++ @typeName(T) ++ "'"),
@@ -4328,7 +4334,7 @@ pub fn alignPointerOffset(ptr: anytype, align_to: usize) ?usize {
         @compileError("expected many item pointer, got " ++ @typeName(T));
 
     // Do nothing if the pointer is already well-aligned.
-    if (align_to <= info.pointer.alignment)
+    if (align_to <= info.pointer.alignment orelse @alignOf(info.pointer.child))
         return 0;
 
     // Calculate the aligned base address with an eye out for overflow.
@@ -4386,7 +4392,11 @@ fn CopyPtrAttrs(
         .@"const" = ptr.is_const,
         .@"volatile" = ptr.is_volatile,
         .@"allowzero" = ptr.is_allowzero,
-        .@"align" = ptr.alignment,
+        .@"align" = ptr.alignment orelse a: {
+            // If the new child is aligned differently than the old one, explicitly align the type.
+            const want = @alignOf(ptr.child);
+            break :a if (@alignOf(child) == want) null else want;
+        },
         .@"addrspace" = ptr.address_space,
     }, child, null);
 }

@@ -1071,7 +1071,7 @@ pub const Elf32 = struct {
     pub const Shdr = extern struct {
         name: Word,
         type: SHT,
-        flags: packed struct { shf: SHF },
+        flags: packed struct(Word) { shf: SHF },
         addr: Elf32.Addr,
         offset: Elf32.Off,
         size: Word,
@@ -1161,7 +1161,7 @@ pub const Elf64 = struct {
     pub const Shdr = extern struct {
         name: Word,
         type: SHT,
-        flags: packed struct { shf: SHF, unused: Word = 0 },
+        flags: packed struct(Xword) { shf: SHF, unused: Word = 0 },
         addr: Elf64.Addr,
         offset: Elf64.Off,
         size: Xword,

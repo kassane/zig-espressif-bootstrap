@@ -49,8 +49,11 @@ typedef	__size_t	size_t;
 #define	_SIZE_T_DECLARED
 #endif
 
+// zig patch: ssp/string.h header was added in FreeBSD 15
+#if __FreeBSD_version >= 1500500
 #if !defined(_STANDALONE) && defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
 #include <ssp/string.h>
+#endif
 #endif
 
 __BEGIN_DECLS

@@ -2334,6 +2334,7 @@ pub const ModuleTestOptions = struct {
     skip_libc: bool,
     max_rss: usize = 0,
     no_builtin: bool = false,
+    sanitize_thread: ?bool = null,
     build_options: ?*Step.Options = null,
 
     pub const TestOnly = union(enum) {
@@ -2462,6 +2463,7 @@ fn addOneModuleTest(
             .link_libc = test_target.link_libc,
             .pic = test_target.pic,
             .strip = test_target.strip,
+            .sanitize_thread = options.sanitize_thread,
             .single_threaded = test_target.single_threaded,
         }),
         .max_rss = max_rss,
@@ -2585,7 +2587,6 @@ fn addOneModuleTest(
                     compile_c.linkSystemLibrary("advapi32", .{});
                 }
                 compile_c.linkSystemLibrary("crypt32", .{});
-                compile_c.linkSystemLibrary("ws2_32", .{});
                 compile_c.linkSystemLibrary("ole32", .{});
             }
         }

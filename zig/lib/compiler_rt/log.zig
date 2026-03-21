@@ -420,8 +420,7 @@ pub fn log(x: f64) callconv(.c) f64 {
     // maybe use fma as musl does
     const r = (z - tab2[i].chi - tab2[i].clo) * invc;
 
-    // https://github.com/ziglang/zig/issues/18614
-    const kd: f64 = @floatFromInt(k);
+    const kd: f64 = k;
     const w = kd * 0x1.62e42fefa3800p-1 + logc;
     const hi = w + r;
     const lo = w - hi + r + kd * 0x1.ef35793c76730p-45;

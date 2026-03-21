@@ -16,7 +16,7 @@ pub const AccumBuffer = struct {
 
     pub fn init(memlimit: usize) AccumBuffer {
         return .{
-            .buf = .{},
+            .buf = .empty,
             .memlimit = memlimit,
             .len = 0,
         };

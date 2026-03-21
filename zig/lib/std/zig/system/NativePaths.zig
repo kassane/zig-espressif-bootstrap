@@ -18,7 +18,7 @@ pub fn detect(
     arena: Allocator,
     io: Io,
     native_target: *const std.Target,
-    environ_map: *process.Environ.Map,
+    environ_map: *const process.Environ.Map,
 ) !NativePaths {
     var self: NativePaths = .{ .arena = arena };
     var is_nix = false;

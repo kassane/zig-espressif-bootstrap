@@ -49,8 +49,6 @@ test "switch arbitrary int size" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
-    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
-
     try expect(testSwitchArbInt(u64, 0) == 0);
     try expect(testSwitchArbInt(u64, 12) == 1);
     try expect(testSwitchArbInt(u64, maxInt(u64)) == 2);
@@ -645,7 +643,7 @@ test "switch prong pointer capture alignment" {
             }
 
             switch (u) {
-                .a, .c => |*p| comptime assert(@TypeOf(p) == *const u8),
+                .a, .c => |*p| comptime assert(@TypeOf(p) == *align(1) const u8),
                 .b => |*p| {
                     _ = p;
                     return error.TestFailed;
@@ -1141,24 +1139,23 @@ test "decl literals as switch cases" {
     try comptime E.doTheTest(.foo);
 }
 
-// TODO audit after #15909 and/or #19855 are decided/implemented
+// TODO audit after #15909 and/or #19855 are decided/implemented.
+// When we do that, consider adding an 'error{}' case if possible.
 test "switch with uninstantiable union fields" {
     const U = union(enum) {
         ok: void,
         a: noreturn,
         b: noreturn,
-        c: error{},
 
         fn doTheTest(u: @This()) void {
             switch (u) {
                 .ok => {},
                 .a => comptime unreachable,
                 .b => comptime unreachable,
-                .c => comptime unreachable,
             }
             switch (u) {
                 .ok => {},
-                .a, .b, .c => comptime unreachable,
+                .a, .b => comptime unreachable,
             }
             switch (u) {
                 .ok => {},
@@ -1166,7 +1163,7 @@ test "switch with uninstantiable union fields" {
             }
             switch (u) {
                 .a => comptime unreachable,
-                .ok, .b, .c => {},
+                .ok, .b => {},
             }
         }
     };
@@ -1327,4 +1324,166 @@ test "single range switch prong capture" {
     };
     try S.doTheTest(2);
     try comptime S.doTheTest(2);
+}
+
+test "switch on packed struct" {
+    const P = packed struct {
+        a: u1,
+        b: u1,
+
+        fn doTheTest(p: @This()) !void {
+            switch (p) {
+                .{ .a = 0, .b = 1 } => {},
+                else => return error.TestFailed,
+            }
+
+            switch (p) {
+                .{ .a = 0, .b = 1 } => {},
+                .{ .a = 0, .b = 0 },
+                .{ .a = 1, .b = 0 },
+                .{ .a = 1, .b = 1 },
+                => return error.TestFailed,
+            }
+
+            switch (p) {
+                inline else => |val| {
+                    if (val != @This(){ .a = 0, .b = 1 }) return error.TestFailed;
+                },
+            }
+        }
+    };
+    try P.doTheTest(.{ .a = 0, .b = 1 });
+    try comptime P.doTheTest(.{ .a = 0, .b = 1 });
+}
+
+test "switch on packed union" {
+    const P = packed union(u2) {
+        a: u2,
+        b: i2,
+        c: packed struct(u2) { x: u1, y: i1 },
+
+        fn doTheTest(p: @This()) !void {
+            switch (p) {
+                .{ .a = 1 } => {},
+                else => return error.TestFailed,
+            }
+
+            switch (p) {
+                .{ .a = 1 } => {},
+                .{ .a = 0 },
+                .{ .a = 2 },
+                .{ .a = 3 },
+                => return error.TestFailed,
+            }
+
+            switch (p) {
+                .{ .a = 1 } => {},
+                .{ .a = 0 },
+                .{ .b = -2 },
+                .{ .b = -1 },
+                => return error.TestFailed,
+            }
+
+            switch (p) {
+                .{ .c = .{ .x = 1, .y = 0 } } => {},
+                .{ .b = 0 },
+                .{ .a = 2 },
+                .{ .c = .{ .x = 1, .y = -1 } },
+                => return error.TestFailed,
+            }
+
+            switch (p) {
+                inline else => |val| {
+                    if (val != @This(){ .c = .{ .x = 1, .y = 0 } }) return error.TestFailed;
+                },
+            }
+        }
+    };
+    try P.doTheTest(.{ .a = 1 });
+    try comptime P.doTheTest(.{ .a = 1 });
+}
+
+test "switch on nested packed containers" {
+    const P = packed struct {
+        iu: u17,
+        is: i31,
+        b: bool,
+        e: enum(u5) { a = 5, b = 3, c = 12 },
+        un: packed union {
+            a: i9,
+            b: u9,
+            c: packed struct(u9) { a: i5, b: u4 },
+        },
+        p: packed struct(u9) { a: u3, b: u6 },
+
+        fn doTheTest(p: @This()) !void {
+            switch (p) {
+                .{
+                    .iu = 72,
+                    .is = 124,
+                    .b = false,
+                    .e = .c,
+                    .un = .{ .b = 13 },
+                    .p = .{ .a = 0, .b = 12 },
+                } => return error.TestFailed,
+                .{
+                    .iu = 129,
+                    .is = -162784612,
+                    .b = true,
+                    .e = .a,
+                    .un = .{ .c = .{ .a = -3, .b = 9 } },
+                    .p = .{ .a = 2, .b = 17 },
+                } => {},
+                else => return error.TestFailed,
+            }
+        }
+    };
+    try P.doTheTest(.{
+        .iu = 129,
+        .is = -162784612,
+        .b = true,
+        .e = .a,
+        .un = .{ .c = .{ .a = -3, .b = 9 } },
+        .p = .{ .a = 2, .b = 17 },
+    });
+    try comptime P.doTheTest(.{
+        .iu = 129,
+        .is = -162784612,
+        .b = true,
+        .e = .a,
+        .un = .{ .c = .{ .a = -3, .b = 9 } },
+        .p = .{ .a = 2, .b = 17 },
+    });
+}
+
+test "switch on large types" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest(a: u128, b: i500) !void {
+            switch (a) {
+                0x0,
+                0x3...0xFFFF_FFFF_FFFF_FFFF_FFFF_ABCD,
+                0xFFFF_FFFF_FFFF_FFFF_FFFF_EF00,
+                => return error.TestFailed,
+                0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_0000...0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFF0,
+                => |val| {
+                    try expect(val == 0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_1234);
+                },
+                else => return error.TestFailed,
+            }
+            switch (b) {
+                0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_0000...0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_1234,
+                => return error.TestFailed,
+                0xFFFF_1234,
+                0xFFFF_FFFF_FFFF_FFFF_FFFF_0123...0xFFFF_FFFF_FFFF_FFFF_FFFF_4567,
+                => |val| {
+                    try expect(val == 0xFFFF_1234);
+                },
+                else => return error.TestFailed,
+            }
+        }
+    };
+    try S.doTheTest(0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_1234, 0xFFFF_1234);
+    try comptime S.doTheTest(0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_1234, 0xFFFF_1234);
 }

@@ -15,6 +15,5 @@ export fn entry() usize {
 
 // error
 //
-// :7:11: error: enum field(s) missing in union
-// :4:5: note: field 'c' missing, declared here
-// :1:11: note: enum declared here
+// :7:11: error: enum field 'c' missing from union
+// :4:5: note: enum field here

@@ -154,7 +154,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                         .type_index = try wasm.internFunctionType(.auto, &.{int_tag_ty.ip_index}, .slice_const_u8_sentinel_0, target),
                         .table_index = @intCast(wasm.tag_name_offs.items.len),
                     } };
-                    const tag_names = ip.loadEnumType(data.ip_index).names;
+                    const tag_names = ip.loadEnumType(data.ip_index).field_names;
                     for (tag_names.get(ip)) |tag_name| {
                         const slice = tag_name.toSlice(ip);
                         try wasm.tag_name_offs.append(gpa, @intCast(wasm.tag_name_bytes.items.len));
@@ -211,7 +211,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         }
 
         for (wasm.nav_exports.keys(), wasm.nav_exports.values()) |*nav_export, export_index| {
-            if (ip.isFunctionType(ip.getNav(nav_export.nav_index).typeOf(ip))) {
+            if (ip.isFunctionType(ip.getNav(nav_export.nav_index).resolved.?.type)) {
                 log.debug("flush export '{s}' nav={d}", .{ nav_export.name.slice(wasm), nav_export.nav_index });
                 const function_index = Wasm.FunctionIndex.fromIpNav(wasm, nav_export.nav_index).?;
                 const explicit = f.missing_exports.swapRemove(nav_export.name);
@@ -1869,7 +1869,7 @@ fn emitTagNameFunction(
     const zcu = comp.zcu.?;
     const ip = &zcu.intern_pool;
     const enum_type = ip.loadEnumType(enum_type_ip);
-    const tag_values = enum_type.values.get(ip);
+    const tag_values = enum_type.field_values.get(ip);
 
     const slice_abi_size = 8;
     const encoded_alignment = @ctz(@as(u32, 4));
@@ -1908,7 +1908,7 @@ fn emitTagNameFunction(
         return;
     }
 
-    const int_info = Zcu.Type.intInfo(.fromInterned(enum_type.tag_ty), zcu);
+    const int_info = Zcu.Type.intInfo(.fromInterned(enum_type.int_tag_type), zcu);
     const outer_block_type: std.wasm.BlockType = switch (int_info.bits) {
         0...32 => .i32,
         33...64 => .i64,

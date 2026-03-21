@@ -11,6 +11,6 @@ export fn entry() void {
 
 // error
 //
-// :7:10: error: values of type '[2]tmp.Foo' must be comptime-known, but index value is runtime-known
+// :7:10: error: values of type 'tmp.Foo' must be comptime-known, but index value is runtime-known
 // :3:8: note: struct requires comptime because of this field
 // :3:8: note: types are not available at runtime

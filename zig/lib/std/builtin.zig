@@ -592,8 +592,8 @@ pub const Type = union(enum) {
         size: Size,
         is_const: bool,
         is_volatile: bool,
-        /// TODO make this u16 instead of comptime_int
-        alignment: comptime_int,
+        /// `null` means implicit alignment, which is equivalent to `@alignOf(child)`.
+        alignment: ?usize,
         address_space: AddressSpace,
         child: type,
         is_allowzero: bool,
@@ -670,7 +670,9 @@ pub const Type = union(enum) {
         /// See also: `defaultValue`.
         default_value_ptr: ?*const anyopaque,
         is_comptime: bool,
-        alignment: comptime_int,
+        /// `null` means the field alignment was not explicitly specified. The
+        /// field will still be aligned to at least `@alignOf` its `type`.
+        alignment: ?usize,
 
         /// Loads the field's default value from `default_value_ptr`.
         /// Returns `null` if the field has no default value.
@@ -747,7 +749,9 @@ pub const Type = union(enum) {
     pub const UnionField = struct {
         name: [:0]const u8,
         type: type,
-        alignment: comptime_int,
+        /// `null` means the field alignment was not explicitly specified. The
+        /// field will still be aligned to at least `@alignOf` its `type`.
+        alignment: ?usize,
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.

@@ -278,13 +278,13 @@ test "Type.Union from regular enum" {
 test "Type.Union from empty regular enum" {
     const E = enum {};
     const U = @Union(.auto, E, &.{}, &.{}, &.{});
-    try testing.expectEqual(@sizeOf(U), 0);
+    try testing.expectEqual(@typeInfo(U).@"union".fields.len, 0);
 }
 
 test "Type.Union from empty Type.Enum" {
     const E = @Enum(u0, .exhaustive, &.{}, &.{});
     const U = @Union(.auto, E, &.{}, &.{}, &.{});
-    try testing.expectEqual(@sizeOf(U), 0);
+    try testing.expectEqual(@typeInfo(U).@"union".fields.len, 0);
 }
 
 test "Type.Fn" {

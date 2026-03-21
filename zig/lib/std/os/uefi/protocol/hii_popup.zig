@@ -4,7 +4,6 @@ const Guid = uefi.Guid;
 const Status = uefi.Status;
 const hii = uefi.hii;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 /// Display a popup window
 pub const HiiPopup = extern struct {
@@ -27,8 +26,8 @@ pub const HiiPopup = extern struct {
         var res: PopupSelection = undefined;
         switch (self._create_popup(self, style, popup_type, handle, msg, &res)) {
             .success => return res,
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

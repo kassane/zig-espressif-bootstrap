@@ -3,7 +3,6 @@ const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 /// Random Number Generator protocol
 pub const Rng = extern struct {
@@ -27,9 +26,9 @@ pub const Rng = extern struct {
         var len: usize = list.len;
         switch (self._get_info(self, &len, list.ptr)) {
             .success => return list[0..len],
-            .unsupported => return Error.Unsupported,
-            .device_error => return Error.DeviceError,
-            .buffer_too_small => return Error.BufferTooSmall,
+            .unsupported => return error.Unsupported,
+            .device_error => return error.DeviceError,
+            .buffer_too_small => return error.BufferTooSmall,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -38,10 +37,10 @@ pub const Rng = extern struct {
     pub fn getRNG(self: *const Rng, algo: ?*align(8) const Guid, value: []u8) GetRNGError!void {
         switch (self._get_rng(self, algo, value.len, value.ptr)) {
             .success => {},
-            .unsupported => return Error.Unsupported,
-            .device_error => return Error.DeviceError,
-            .not_ready => return Error.NotReady,
-            .invalid_parameter => return Error.InvalidParameter,
+            .unsupported => return error.Unsupported,
+            .device_error => return error.DeviceError,
+            .not_ready => return error.NotReady,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

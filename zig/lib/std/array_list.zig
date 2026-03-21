@@ -582,10 +582,10 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// functions of this ArrayList in accordance with the respective
         /// documentation. In all cases, "invalidated" means that the memory
         /// has been passed to an allocator's resize or free function.
-        items: Slice = &[_]T{},
+        items: Slice,
         /// How many T values this list can hold without allocating
         /// additional memory.
-        capacity: usize = 0,
+        capacity: usize,
 
         /// An ArrayList containing no elements.
         pub const empty: Self = .{
@@ -671,6 +671,26 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             self.appendAssumeCapacity(sentinel);
             errdefer self.items.len -= 1;
             const result = try self.toOwnedSlice(gpa);
+            return result[0 .. result.len - 1 :sentinel];
+        }
+
+        /// The caller owns the returned memory. Empties this ArrayList.
+        /// Its capacity is cleared, making deinit() safe but unnecessary to call.
+        ///
+        /// Asserts what the capacity is equal to the length.
+        pub fn toOwnedSliceAssert(self: *Self) Slice {
+            assert(self.items.len == self.capacity);
+            const items = self.items;
+            self.* = .empty;
+            return items;
+        }
+
+        /// The caller owns the returned memory. ArrayList becomes empty.
+        /// Asserts what the capacity is equal to the length + 1.
+        pub fn toOwnedSliceSentinelAssert(self: *Self, comptime sentinel: T) SentinelSlice(sentinel) {
+            std.debug.assert(self.items.len + 1 == self.capacity);
+            self.appendAssumeCapacity(sentinel);
+            const result = self.toOwnedSliceAssert();
             return result[0 .. result.len - 1 :sentinel];
         }
 
@@ -1106,6 +1126,20 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// May invalidate element pointers.
         /// Asserts that the new length is less than or equal to the previous length.
         pub fn shrinkAndFree(self: *Self, gpa: Allocator, new_len: usize) void {
+            self.shrinkAndFreePrecise(gpa, new_len) catch |e| switch (e) {
+                error.OutOfMemory => {
+                    // No problem, capacity is still correct then.
+                    self.items.len = new_len;
+                    return;
+                },
+            };
+        }
+
+        /// Reduce allocated capacity to `new_len`.
+        /// May invalidate element pointers.
+        /// Asserts that the new length is less than or equal to the previous length.
+        /// If succeds capacity is guaranteed to be equal to the length.
+        pub fn shrinkAndFreePrecise(self: *Self, gpa: Allocator, new_len: usize) Allocator.Error!void {
             assert(new_len <= self.items.len);
 
             if (@sizeOf(T) == 0) {
@@ -1120,18 +1154,38 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
                 return;
             }
 
-            const new_memory = gpa.alignedAlloc(T, alignment, new_len) catch |e| switch (e) {
-                error.OutOfMemory => {
-                    // No problem, capacity is still correct then.
-                    self.items.len = new_len;
-                    return;
-                },
-            };
+            const new_memory = try gpa.alignedAlloc(T, alignment, new_len);
 
             @memcpy(new_memory, self.items[0..new_len]);
             gpa.free(old_memory);
             self.items = new_memory;
             self.capacity = new_memory.len;
+        }
+
+        /// Shrinks capacity to match length.
+        /// May invalidate element pointers.
+        /// If succeds it is safe to call toOwnedSliceAssert().
+        pub fn shrinkToLen(self: *Self, gpa: Allocator) Allocator.Error!void {
+            try self.shrinkAndFreePrecise(gpa, self.items.len);
+        }
+
+        /// Shrinks or expands capacity to match length + 1.
+        /// May invalidate element pointers.
+        /// If succeds it is safe to call toOwnedSliceSentinelAssert().
+        pub fn shrinkToLenSentinel(self: *Self, gpa: Allocator) Allocator.Error!void {
+            std.debug.assert(self.items.len <= self.capacity);
+            const required_len = self.items.len + 1;
+            switch (std.math.order(required_len, self.capacity)) {
+                .eq => return,
+                .gt => {
+                    try self.ensureTotalCapacityPrecise(gpa, required_len);
+                },
+                .lt => {
+                    self.items.len += 1;
+                    defer self.items.len -= 1;
+                    try self.shrinkToLen(gpa);
+                },
+            }
         }
 
         /// Reduce length to `new_len`.
@@ -2089,6 +2143,30 @@ test "shrinkAndFree with a copy" {
     try testing.expect(mem.eql(i32, list.items, &.{ 3, 3, 3, 3 }));
 }
 
+test "shrinkAndFreePrecise without resize succeeds" {
+    var failing_allocator = testing.FailingAllocator.init(testing.allocator, .{ .resize_fail_index = 0 });
+    const a = failing_allocator.allocator();
+
+    var list: Aligned(i32, null) = .empty;
+    defer list.deinit(a);
+
+    try list.appendNTimes(a, 3, 16);
+    try list.shrinkAndFreePrecise(a, 4);
+    try testing.expectEqualSlices(i32, &.{ 3, 3, 3, 3 }, list.items);
+    try testing.expectEqual(list.items.len, list.capacity);
+}
+
+test "shrinkAndFreePrecise without resize and no copy failes" {
+    var failing_allocator = testing.FailingAllocator.init(testing.allocator, .{ .resize_fail_index = 0, .fail_index = 1 });
+    const a = failing_allocator.allocator();
+
+    var list: Aligned(i32, null) = .empty;
+    defer list.deinit(a);
+
+    try list.appendNTimes(a, 3, 16);
+    try std.testing.expectError(error.OutOfMemory, list.shrinkAndFreePrecise(a, 4));
+}
+
 test "addManyAsArray" {
     const a = std.testing.allocator;
     {
@@ -2217,6 +2295,45 @@ test "toOwnedSliceSentinel" {
         defer a.free(result);
         try testing.expectEqualStrings(result, mem.sliceTo(result.ptr, 0));
     }
+}
+
+test "toOwnedSliceAssert" {
+    var failing_allocator: testing.FailingAllocator = .init(testing.allocator, .{
+        .fail_index = 2,
+    });
+    const a = failing_allocator.allocator();
+
+    var list: Aligned(u8, null) = try .initCapacity(a, 6); // first alloc
+    list.appendSliceAssumeCapacity(&.{ 1, 2, 3 });
+
+    try list.shrinkToLen(a); // first resize
+    try std.testing.expectEqual(list.items.len, list.capacity);
+    try list.shrinkToLen(a); // no alloc or resize
+
+    const slice = list.toOwnedSliceAssert();
+    defer a.free(slice);
+
+    try std.testing.expectEqual(Aligned(u8, null).empty, list);
+    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3 }, slice);
+}
+
+test "toOwnedSliceSentinelAssert" {
+    const a = testing.allocator;
+
+    var list: Aligned(u8, null) = try .initCapacity(a, 6);
+    list.appendSliceAssumeCapacity(&.{ 1, 2, 3 });
+
+    // shrinkToLenSentinel shrinks array
+    try list.shrinkToLenSentinel(a);
+
+    // shrinkToLenSentinel expands array
+    try list.shrinkToLen(a);
+    try list.shrinkToLenSentinel(a);
+
+    const slice = list.toOwnedSliceSentinelAssert(10);
+    defer a.free(slice);
+
+    try std.testing.expectEqualSentinel(u8, 10, &.{ 1, 2, 3 }, slice);
 }
 
 test "accepts unaligned slices" {

@@ -125,6 +125,104 @@ const std = @import("std");
 // :53:17: error: use of undefined value here causes illegal behavior
 // :53:17: error: use of undefined value here causes illegal behavior
 // :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
+// :53:17: note: when computing vector element at index '0'
+// :53:17: error: use of undefined value here causes illegal behavior
 // :53:17: note: when computing vector element at index '0'
 // :53:17: error: use of undefined value here causes illegal behavior
 // :53:17: note: when computing vector element at index '0'
@@ -137,123 +235,25 @@ const std = @import("std");
 // :53:17: error: use of undefined value here causes illegal behavior
 // :53:17: note: when computing vector element at index '1'
 // :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
+// :53:17: note: when computing vector element at index '1'
 // :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
+// :53:17: note: when computing vector element at index '1'
 // :53:17: error: use of undefined value here causes illegal behavior
 // :53:17: note: when computing vector element at index '1'
 // :53:17: error: use of undefined value here causes illegal behavior
 // :53:17: note: when computing vector element at index '1'
 // :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
+// :53:17: note: when computing vector element at index '1'
 // :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
+// :53:17: note: when computing vector element at index '1'
 // :53:17: error: use of undefined value here causes illegal behavior
 // :53:17: note: when computing vector element at index '1'
 // :53:17: error: use of undefined value here causes illegal behavior
 // :53:17: note: when computing vector element at index '1'
 // :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
 // :53:17: note: when computing vector element at index '1'
 // :53:17: error: use of undefined value here causes illegal behavior
 // :53:17: note: when computing vector element at index '1'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '1'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '1'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '1'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '1'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
-// :53:17: error: use of undefined value here causes illegal behavior
-// :53:17: note: when computing vector element at index '0'
 // :53:22: error: use of undefined value here causes illegal behavior
 // :53:22: note: when computing vector element at index '0'
 // :53:22: error: use of undefined value here causes illegal behavior
@@ -281,6 +281,104 @@ const std = @import("std");
 // :56:27: error: use of undefined value here causes illegal behavior
 // :56:27: error: use of undefined value here causes illegal behavior
 // :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
+// :56:27: note: when computing vector element at index '0'
+// :56:27: error: use of undefined value here causes illegal behavior
 // :56:27: note: when computing vector element at index '0'
 // :56:27: error: use of undefined value here causes illegal behavior
 // :56:27: note: when computing vector element at index '0'
@@ -293,123 +391,25 @@ const std = @import("std");
 // :56:27: error: use of undefined value here causes illegal behavior
 // :56:27: note: when computing vector element at index '1'
 // :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
+// :56:27: note: when computing vector element at index '1'
 // :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
+// :56:27: note: when computing vector element at index '1'
 // :56:27: error: use of undefined value here causes illegal behavior
 // :56:27: note: when computing vector element at index '1'
 // :56:27: error: use of undefined value here causes illegal behavior
 // :56:27: note: when computing vector element at index '1'
 // :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
+// :56:27: note: when computing vector element at index '1'
 // :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
+// :56:27: note: when computing vector element at index '1'
 // :56:27: error: use of undefined value here causes illegal behavior
 // :56:27: note: when computing vector element at index '1'
 // :56:27: error: use of undefined value here causes illegal behavior
 // :56:27: note: when computing vector element at index '1'
 // :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
 // :56:27: note: when computing vector element at index '1'
 // :56:27: error: use of undefined value here causes illegal behavior
 // :56:27: note: when computing vector element at index '1'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '1'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '1'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '1'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '1'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
-// :56:27: error: use of undefined value here causes illegal behavior
-// :56:27: note: when computing vector element at index '0'
 // :56:30: error: use of undefined value here causes illegal behavior
 // :56:30: note: when computing vector element at index '0'
 // :56:30: error: use of undefined value here causes illegal behavior
@@ -437,6 +437,104 @@ const std = @import("std");
 // :59:34: error: use of undefined value here causes illegal behavior
 // :59:34: error: use of undefined value here causes illegal behavior
 // :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
+// :59:34: note: when computing vector element at index '0'
+// :59:34: error: use of undefined value here causes illegal behavior
 // :59:34: note: when computing vector element at index '0'
 // :59:34: error: use of undefined value here causes illegal behavior
 // :59:34: note: when computing vector element at index '0'
@@ -449,123 +547,25 @@ const std = @import("std");
 // :59:34: error: use of undefined value here causes illegal behavior
 // :59:34: note: when computing vector element at index '1'
 // :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
+// :59:34: note: when computing vector element at index '1'
 // :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
+// :59:34: note: when computing vector element at index '1'
 // :59:34: error: use of undefined value here causes illegal behavior
 // :59:34: note: when computing vector element at index '1'
 // :59:34: error: use of undefined value here causes illegal behavior
 // :59:34: note: when computing vector element at index '1'
 // :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
+// :59:34: note: when computing vector element at index '1'
 // :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
+// :59:34: note: when computing vector element at index '1'
 // :59:34: error: use of undefined value here causes illegal behavior
 // :59:34: note: when computing vector element at index '1'
 // :59:34: error: use of undefined value here causes illegal behavior
 // :59:34: note: when computing vector element at index '1'
 // :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
 // :59:34: note: when computing vector element at index '1'
 // :59:34: error: use of undefined value here causes illegal behavior
 // :59:34: note: when computing vector element at index '1'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '1'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '1'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '1'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '1'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
-// :59:34: error: use of undefined value here causes illegal behavior
-// :59:34: note: when computing vector element at index '0'
 // :59:37: error: use of undefined value here causes illegal behavior
 // :59:37: note: when computing vector element at index '0'
 // :59:37: error: use of undefined value here causes illegal behavior
@@ -593,6 +593,104 @@ const std = @import("std");
 // :62:17: error: use of undefined value here causes illegal behavior
 // :62:17: error: use of undefined value here causes illegal behavior
 // :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
+// :62:17: note: when computing vector element at index '0'
+// :62:17: error: use of undefined value here causes illegal behavior
 // :62:17: note: when computing vector element at index '0'
 // :62:17: error: use of undefined value here causes illegal behavior
 // :62:17: note: when computing vector element at index '0'
@@ -605,123 +703,25 @@ const std = @import("std");
 // :62:17: error: use of undefined value here causes illegal behavior
 // :62:17: note: when computing vector element at index '1'
 // :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
+// :62:17: note: when computing vector element at index '1'
 // :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
+// :62:17: note: when computing vector element at index '1'
 // :62:17: error: use of undefined value here causes illegal behavior
 // :62:17: note: when computing vector element at index '1'
 // :62:17: error: use of undefined value here causes illegal behavior
 // :62:17: note: when computing vector element at index '1'
 // :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
+// :62:17: note: when computing vector element at index '1'
 // :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
+// :62:17: note: when computing vector element at index '1'
 // :62:17: error: use of undefined value here causes illegal behavior
 // :62:17: note: when computing vector element at index '1'
 // :62:17: error: use of undefined value here causes illegal behavior
 // :62:17: note: when computing vector element at index '1'
 // :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
 // :62:17: note: when computing vector element at index '1'
 // :62:17: error: use of undefined value here causes illegal behavior
 // :62:17: note: when computing vector element at index '1'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '1'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '1'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '1'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '1'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
-// :62:17: error: use of undefined value here causes illegal behavior
-// :62:17: note: when computing vector element at index '0'
 // :62:22: error: use of undefined value here causes illegal behavior
 // :62:22: note: when computing vector element at index '0'
 // :62:22: error: use of undefined value here causes illegal behavior
@@ -749,6 +749,104 @@ const std = @import("std");
 // :65:27: error: use of undefined value here causes illegal behavior
 // :65:27: error: use of undefined value here causes illegal behavior
 // :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
+// :65:27: note: when computing vector element at index '0'
+// :65:27: error: use of undefined value here causes illegal behavior
 // :65:27: note: when computing vector element at index '0'
 // :65:27: error: use of undefined value here causes illegal behavior
 // :65:27: note: when computing vector element at index '0'
@@ -761,123 +859,25 @@ const std = @import("std");
 // :65:27: error: use of undefined value here causes illegal behavior
 // :65:27: note: when computing vector element at index '1'
 // :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
+// :65:27: note: when computing vector element at index '1'
 // :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
+// :65:27: note: when computing vector element at index '1'
 // :65:27: error: use of undefined value here causes illegal behavior
 // :65:27: note: when computing vector element at index '1'
 // :65:27: error: use of undefined value here causes illegal behavior
 // :65:27: note: when computing vector element at index '1'
 // :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
+// :65:27: note: when computing vector element at index '1'
 // :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
+// :65:27: note: when computing vector element at index '1'
 // :65:27: error: use of undefined value here causes illegal behavior
 // :65:27: note: when computing vector element at index '1'
 // :65:27: error: use of undefined value here causes illegal behavior
 // :65:27: note: when computing vector element at index '1'
 // :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
 // :65:27: note: when computing vector element at index '1'
 // :65:27: error: use of undefined value here causes illegal behavior
 // :65:27: note: when computing vector element at index '1'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '1'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '1'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '1'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '1'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
-// :65:27: error: use of undefined value here causes illegal behavior
-// :65:27: note: when computing vector element at index '0'
 // :65:30: error: use of undefined value here causes illegal behavior
 // :65:30: note: when computing vector element at index '0'
 // :65:30: error: use of undefined value here causes illegal behavior
@@ -909,13 +909,35 @@ const std = @import("std");
 // :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '1'
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
@@ -925,19 +947,13 @@ const std = @import("std");
 // :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '1'
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '1'
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '1'
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '1'
+// :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
@@ -947,19 +963,13 @@ const std = @import("std");
 // :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '1'
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '1'
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '1'
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '1'
+// :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
@@ -969,11 +979,13 @@ const std = @import("std");
 // :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: note: when computing vector element at index '0'
 // :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
@@ -983,19 +995,13 @@ const std = @import("std");
 // :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '0'
+// :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '0'
+// :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '0'
+// :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '0'
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
@@ -1005,19 +1011,13 @@ const std = @import("std");
 // :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '0'
+// :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '0'
+// :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '0'
+// :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '0'
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: error: use of undefined value here causes illegal behavior
+// :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
@@ -1027,13 +1027,13 @@ const std = @import("std");
 // :70:17: error: use of undefined value here causes illegal behavior
 // :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '0'
+// :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '0'
+// :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '0'
+// :70:17: note: when computing vector element at index '1'
 // :70:17: error: use of undefined value here causes illegal behavior
-// :70:17: note: when computing vector element at index '0'
+// :70:17: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: error: use of undefined value here causes illegal behavior
@@ -1041,13 +1041,35 @@ const std = @import("std");
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '1'
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
@@ -1057,19 +1079,13 @@ const std = @import("std");
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '1'
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '1'
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '1'
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '1'
+// :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
@@ -1079,19 +1095,13 @@ const std = @import("std");
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '1'
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '1'
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '1'
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '1'
+// :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
@@ -1101,11 +1111,13 @@ const std = @import("std");
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: note: when computing vector element at index '0'
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
@@ -1115,19 +1127,13 @@ const std = @import("std");
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '0'
+// :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '0'
+// :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '0'
+// :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '0'
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
@@ -1137,19 +1143,13 @@ const std = @import("std");
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '0'
+// :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '0'
+// :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '0'
+// :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '0'
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: error: use of undefined value here causes illegal behavior
+// :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
@@ -1159,13 +1159,13 @@ const std = @import("std");
 // :73:27: error: use of undefined value here causes illegal behavior
 // :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '0'
+// :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '0'
+// :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '0'
+// :73:27: note: when computing vector element at index '1'
 // :73:27: error: use of undefined value here causes illegal behavior
-// :73:27: note: when computing vector element at index '0'
+// :73:27: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: error: use of undefined value here causes illegal behavior
@@ -1173,13 +1173,35 @@ const std = @import("std");
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '1'
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
@@ -1189,19 +1211,13 @@ const std = @import("std");
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '1'
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '1'
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '1'
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '1'
+// :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
@@ -1211,19 +1227,13 @@ const std = @import("std");
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '1'
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '1'
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '1'
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '1'
+// :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
@@ -1233,11 +1243,13 @@ const std = @import("std");
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: note: when computing vector element at index '0'
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
@@ -1247,19 +1259,13 @@ const std = @import("std");
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '0'
+// :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '0'
+// :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '0'
+// :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '0'
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
@@ -1269,19 +1275,13 @@ const std = @import("std");
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '0'
+// :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '0'
+// :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '0'
+// :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '0'
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: error: use of undefined value here causes illegal behavior
+// :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
@@ -1291,13 +1291,13 @@ const std = @import("std");
 // :76:34: error: use of undefined value here causes illegal behavior
 // :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '0'
+// :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '0'
+// :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '0'
+// :76:34: note: when computing vector element at index '1'
 // :76:34: error: use of undefined value here causes illegal behavior
-// :76:34: note: when computing vector element at index '0'
+// :76:34: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: error: use of undefined value here causes illegal behavior
@@ -1305,13 +1305,35 @@ const std = @import("std");
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '1'
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
@@ -1321,19 +1343,13 @@ const std = @import("std");
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '1'
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '1'
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '1'
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '1'
+// :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
@@ -1343,19 +1359,13 @@ const std = @import("std");
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '1'
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '1'
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '1'
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '1'
+// :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
@@ -1365,11 +1375,13 @@ const std = @import("std");
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: note: when computing vector element at index '0'
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
@@ -1379,19 +1391,13 @@ const std = @import("std");
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '0'
+// :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '0'
+// :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '0'
+// :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '0'
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
@@ -1401,19 +1407,13 @@ const std = @import("std");
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '0'
+// :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '0'
+// :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '0'
+// :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '0'
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: error: use of undefined value here causes illegal behavior
+// :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
@@ -1423,13 +1423,13 @@ const std = @import("std");
 // :79:17: error: use of undefined value here causes illegal behavior
 // :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '0'
+// :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '0'
+// :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '0'
+// :79:17: note: when computing vector element at index '1'
 // :79:17: error: use of undefined value here causes illegal behavior
-// :79:17: note: when computing vector element at index '0'
+// :79:17: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: error: use of undefined value here causes illegal behavior
@@ -1437,13 +1437,35 @@ const std = @import("std");
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '1'
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
@@ -1453,19 +1475,13 @@ const std = @import("std");
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '1'
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '1'
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '1'
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '1'
+// :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
@@ -1475,19 +1491,13 @@ const std = @import("std");
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '1'
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '1'
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '1'
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '1'
+// :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
@@ -1497,11 +1507,13 @@ const std = @import("std");
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: note: when computing vector element at index '0'
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
@@ -1511,19 +1523,13 @@ const std = @import("std");
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '0'
+// :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '0'
+// :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '0'
+// :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '0'
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
@@ -1533,19 +1539,13 @@ const std = @import("std");
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '0'
+// :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '0'
+// :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '0'
+// :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '0'
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: error: use of undefined value here causes illegal behavior
+// :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
@@ -1555,14 +1555,85 @@ const std = @import("std");
 // :82:27: error: use of undefined value here causes illegal behavior
 // :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '0'
+// :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '0'
+// :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '0'
+// :82:27: note: when computing vector element at index '1'
 // :82:27: error: use of undefined value here causes illegal behavior
-// :82:27: note: when computing vector element at index '0'
+// :82:27: note: when computing vector element at index '1'
 // :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
+// :87:17: error: use of undefined value here causes illegal behavior
+// :87:17: note: when computing vector element at index '0'
 // :87:17: error: use of undefined value here causes illegal behavior
 // :87:17: note: when computing vector element at index '0'
 // :87:17: error: use of undefined value here causes illegal behavior
@@ -1572,87 +1643,65 @@ const std = @import("std");
 // :87:17: error: use of undefined value here causes illegal behavior
 // :87:17: note: when computing vector element at index '1'
 // :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
+// :87:17: note: when computing vector element at index '1'
 // :87:17: error: use of undefined value here causes illegal behavior
 // :87:17: note: when computing vector element at index '1'
 // :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
+// :87:17: note: when computing vector element at index '1'
 // :87:17: error: use of undefined value here causes illegal behavior
 // :87:17: note: when computing vector element at index '1'
 // :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
 // :87:17: note: when computing vector element at index '1'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '1'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '1'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
-// :87:17: error: use of undefined value here causes illegal behavior
-// :87:17: note: when computing vector element at index '0'
 // :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
+// :87:22: error: use of undefined value here causes illegal behavior
+// :87:22: note: when computing vector element at index '0'
 // :87:22: error: use of undefined value here causes illegal behavior
 // :87:22: note: when computing vector element at index '0'
 // :87:22: error: use of undefined value here causes illegal behavior
@@ -1660,65 +1709,87 @@ const std = @import("std");
 // :87:22: error: use of undefined value here causes illegal behavior
 // :87:22: note: when computing vector element at index '1'
 // :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
+// :87:22: note: when computing vector element at index '1'
 // :87:22: error: use of undefined value here causes illegal behavior
 // :87:22: note: when computing vector element at index '1'
 // :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
+// :87:22: note: when computing vector element at index '1'
 // :87:22: error: use of undefined value here causes illegal behavior
 // :87:22: note: when computing vector element at index '1'
 // :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
 // :87:22: note: when computing vector element at index '1'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '1'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '1'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
-// :87:22: error: use of undefined value here causes illegal behavior
-// :87:22: note: when computing vector element at index '0'
 // :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
+// :90:27: error: use of undefined value here causes illegal behavior
+// :90:27: note: when computing vector element at index '0'
 // :90:27: error: use of undefined value here causes illegal behavior
 // :90:27: note: when computing vector element at index '0'
 // :90:27: error: use of undefined value here causes illegal behavior
@@ -1728,87 +1799,65 @@ const std = @import("std");
 // :90:27: error: use of undefined value here causes illegal behavior
 // :90:27: note: when computing vector element at index '1'
 // :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
+// :90:27: note: when computing vector element at index '1'
 // :90:27: error: use of undefined value here causes illegal behavior
 // :90:27: note: when computing vector element at index '1'
 // :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
+// :90:27: note: when computing vector element at index '1'
 // :90:27: error: use of undefined value here causes illegal behavior
 // :90:27: note: when computing vector element at index '1'
 // :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
 // :90:27: note: when computing vector element at index '1'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '1'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '1'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
-// :90:27: error: use of undefined value here causes illegal behavior
-// :90:27: note: when computing vector element at index '0'
 // :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
+// :90:30: error: use of undefined value here causes illegal behavior
+// :90:30: note: when computing vector element at index '0'
 // :90:30: error: use of undefined value here causes illegal behavior
 // :90:30: note: when computing vector element at index '0'
 // :90:30: error: use of undefined value here causes illegal behavior
@@ -1816,65 +1865,87 @@ const std = @import("std");
 // :90:30: error: use of undefined value here causes illegal behavior
 // :90:30: note: when computing vector element at index '1'
 // :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
+// :90:30: note: when computing vector element at index '1'
 // :90:30: error: use of undefined value here causes illegal behavior
 // :90:30: note: when computing vector element at index '1'
 // :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
+// :90:30: note: when computing vector element at index '1'
 // :90:30: error: use of undefined value here causes illegal behavior
 // :90:30: note: when computing vector element at index '1'
 // :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
 // :90:30: note: when computing vector element at index '1'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '1'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '1'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
-// :90:30: error: use of undefined value here causes illegal behavior
-// :90:30: note: when computing vector element at index '0'
 // :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
+// :93:34: error: use of undefined value here causes illegal behavior
+// :93:34: note: when computing vector element at index '0'
 // :93:34: error: use of undefined value here causes illegal behavior
 // :93:34: note: when computing vector element at index '0'
 // :93:34: error: use of undefined value here causes illegal behavior
@@ -1884,87 +1955,65 @@ const std = @import("std");
 // :93:34: error: use of undefined value here causes illegal behavior
 // :93:34: note: when computing vector element at index '1'
 // :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
+// :93:34: note: when computing vector element at index '1'
 // :93:34: error: use of undefined value here causes illegal behavior
 // :93:34: note: when computing vector element at index '1'
 // :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
+// :93:34: note: when computing vector element at index '1'
 // :93:34: error: use of undefined value here causes illegal behavior
 // :93:34: note: when computing vector element at index '1'
 // :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
 // :93:34: note: when computing vector element at index '1'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '1'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '1'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
-// :93:34: error: use of undefined value here causes illegal behavior
-// :93:34: note: when computing vector element at index '0'
 // :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
+// :93:37: error: use of undefined value here causes illegal behavior
+// :93:37: note: when computing vector element at index '0'
 // :93:37: error: use of undefined value here causes illegal behavior
 // :93:37: note: when computing vector element at index '0'
 // :93:37: error: use of undefined value here causes illegal behavior
@@ -1972,65 +2021,87 @@ const std = @import("std");
 // :93:37: error: use of undefined value here causes illegal behavior
 // :93:37: note: when computing vector element at index '1'
 // :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
+// :93:37: note: when computing vector element at index '1'
 // :93:37: error: use of undefined value here causes illegal behavior
 // :93:37: note: when computing vector element at index '1'
 // :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
+// :93:37: note: when computing vector element at index '1'
 // :93:37: error: use of undefined value here causes illegal behavior
 // :93:37: note: when computing vector element at index '1'
 // :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
 // :93:37: note: when computing vector element at index '1'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '1'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '1'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
-// :93:37: error: use of undefined value here causes illegal behavior
-// :93:37: note: when computing vector element at index '0'
 // :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
+// :96:17: error: use of undefined value here causes illegal behavior
+// :96:17: note: when computing vector element at index '0'
 // :96:17: error: use of undefined value here causes illegal behavior
 // :96:17: note: when computing vector element at index '0'
 // :96:17: error: use of undefined value here causes illegal behavior
@@ -2040,87 +2111,65 @@ const std = @import("std");
 // :96:17: error: use of undefined value here causes illegal behavior
 // :96:17: note: when computing vector element at index '1'
 // :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
+// :96:17: note: when computing vector element at index '1'
 // :96:17: error: use of undefined value here causes illegal behavior
 // :96:17: note: when computing vector element at index '1'
 // :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
+// :96:17: note: when computing vector element at index '1'
 // :96:17: error: use of undefined value here causes illegal behavior
 // :96:17: note: when computing vector element at index '1'
 // :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
 // :96:17: note: when computing vector element at index '1'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '1'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '1'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
-// :96:17: error: use of undefined value here causes illegal behavior
-// :96:17: note: when computing vector element at index '0'
 // :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
+// :96:22: error: use of undefined value here causes illegal behavior
+// :96:22: note: when computing vector element at index '0'
 // :96:22: error: use of undefined value here causes illegal behavior
 // :96:22: note: when computing vector element at index '0'
 // :96:22: error: use of undefined value here causes illegal behavior
@@ -2128,65 +2177,87 @@ const std = @import("std");
 // :96:22: error: use of undefined value here causes illegal behavior
 // :96:22: note: when computing vector element at index '1'
 // :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
+// :96:22: note: when computing vector element at index '1'
 // :96:22: error: use of undefined value here causes illegal behavior
 // :96:22: note: when computing vector element at index '1'
 // :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
+// :96:22: note: when computing vector element at index '1'
 // :96:22: error: use of undefined value here causes illegal behavior
 // :96:22: note: when computing vector element at index '1'
 // :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
 // :96:22: note: when computing vector element at index '1'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '1'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '1'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
-// :96:22: error: use of undefined value here causes illegal behavior
-// :96:22: note: when computing vector element at index '0'
 // :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
+// :99:27: error: use of undefined value here causes illegal behavior
+// :99:27: note: when computing vector element at index '0'
 // :99:27: error: use of undefined value here causes illegal behavior
 // :99:27: note: when computing vector element at index '0'
 // :99:27: error: use of undefined value here causes illegal behavior
@@ -2196,87 +2267,65 @@ const std = @import("std");
 // :99:27: error: use of undefined value here causes illegal behavior
 // :99:27: note: when computing vector element at index '1'
 // :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
+// :99:27: note: when computing vector element at index '1'
 // :99:27: error: use of undefined value here causes illegal behavior
 // :99:27: note: when computing vector element at index '1'
 // :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
+// :99:27: note: when computing vector element at index '1'
 // :99:27: error: use of undefined value here causes illegal behavior
 // :99:27: note: when computing vector element at index '1'
 // :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
 // :99:27: note: when computing vector element at index '1'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '1'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '1'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
-// :99:27: error: use of undefined value here causes illegal behavior
-// :99:27: note: when computing vector element at index '0'
 // :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
+// :99:30: error: use of undefined value here causes illegal behavior
+// :99:30: note: when computing vector element at index '0'
 // :99:30: error: use of undefined value here causes illegal behavior
 // :99:30: note: when computing vector element at index '0'
 // :99:30: error: use of undefined value here causes illegal behavior
@@ -2284,64 +2333,15 @@ const std = @import("std");
 // :99:30: error: use of undefined value here causes illegal behavior
 // :99:30: note: when computing vector element at index '1'
 // :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
+// :99:30: note: when computing vector element at index '1'
 // :99:30: error: use of undefined value here causes illegal behavior
 // :99:30: note: when computing vector element at index '1'
 // :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
+// :99:30: note: when computing vector element at index '1'
 // :99:30: error: use of undefined value here causes illegal behavior
 // :99:30: note: when computing vector element at index '1'
 // :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
 // :99:30: note: when computing vector element at index '1'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '1'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '1'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
-// :99:30: error: use of undefined value here causes illegal behavior
-// :99:30: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: error: use of undefined value here causes illegal behavior
@@ -2349,13 +2349,35 @@ const std = @import("std");
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '1'
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
@@ -2365,19 +2387,13 @@ const std = @import("std");
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '1'
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '1'
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '1'
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '1'
+// :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
@@ -2387,19 +2403,13 @@ const std = @import("std");
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '1'
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '1'
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '1'
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '1'
+// :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
@@ -2409,11 +2419,13 @@ const std = @import("std");
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: note: when computing vector element at index '0'
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
@@ -2423,19 +2435,13 @@ const std = @import("std");
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '0'
+// :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '0'
+// :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '0'
+// :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '0'
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
@@ -2445,19 +2451,13 @@ const std = @import("std");
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '0'
+// :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '0'
+// :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '0'
+// :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '0'
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: error: use of undefined value here causes illegal behavior
+// :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
@@ -2467,13 +2467,13 @@ const std = @import("std");
 // :104:22: error: use of undefined value here causes illegal behavior
 // :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '0'
+// :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '0'
+// :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '0'
+// :104:22: note: when computing vector element at index '1'
 // :104:22: error: use of undefined value here causes illegal behavior
-// :104:22: note: when computing vector element at index '0'
+// :104:22: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: error: use of undefined value here causes illegal behavior
@@ -2481,13 +2481,35 @@ const std = @import("std");
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '1'
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
@@ -2497,19 +2519,13 @@ const std = @import("std");
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '1'
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '1'
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '1'
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '1'
+// :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
@@ -2519,19 +2535,13 @@ const std = @import("std");
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '1'
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '1'
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '1'
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '1'
+// :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
@@ -2541,11 +2551,13 @@ const std = @import("std");
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: note: when computing vector element at index '0'
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
@@ -2555,19 +2567,13 @@ const std = @import("std");
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '0'
+// :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '0'
+// :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '0'
+// :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '0'
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
@@ -2577,19 +2583,13 @@ const std = @import("std");
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '0'
+// :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '0'
+// :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '0'
+// :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '0'
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: error: use of undefined value here causes illegal behavior
+// :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
@@ -2599,13 +2599,13 @@ const std = @import("std");
 // :107:30: error: use of undefined value here causes illegal behavior
 // :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '0'
+// :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '0'
+// :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '0'
+// :107:30: note: when computing vector element at index '1'
 // :107:30: error: use of undefined value here causes illegal behavior
-// :107:30: note: when computing vector element at index '0'
+// :107:30: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: error: use of undefined value here causes illegal behavior
@@ -2613,13 +2613,35 @@ const std = @import("std");
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '1'
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
@@ -2629,19 +2651,13 @@ const std = @import("std");
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '1'
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '1'
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '1'
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '1'
+// :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
@@ -2651,19 +2667,13 @@ const std = @import("std");
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '1'
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '1'
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '1'
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '1'
+// :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
@@ -2673,11 +2683,13 @@ const std = @import("std");
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: note: when computing vector element at index '0'
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
@@ -2687,19 +2699,13 @@ const std = @import("std");
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '0'
+// :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '0'
+// :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '0'
+// :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '0'
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
@@ -2709,19 +2715,13 @@ const std = @import("std");
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '0'
+// :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '0'
+// :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '0'
+// :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '0'
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: error: use of undefined value here causes illegal behavior
+// :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
@@ -2731,13 +2731,13 @@ const std = @import("std");
 // :110:37: error: use of undefined value here causes illegal behavior
 // :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '0'
+// :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '0'
+// :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '0'
+// :110:37: note: when computing vector element at index '1'
 // :110:37: error: use of undefined value here causes illegal behavior
-// :110:37: note: when computing vector element at index '0'
+// :110:37: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: error: use of undefined value here causes illegal behavior
@@ -2745,13 +2745,35 @@ const std = @import("std");
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '1'
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
@@ -2761,19 +2783,13 @@ const std = @import("std");
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '1'
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '1'
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '1'
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '1'
+// :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
@@ -2783,19 +2799,13 @@ const std = @import("std");
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '1'
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '1'
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '1'
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '1'
+// :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
@@ -2805,11 +2815,13 @@ const std = @import("std");
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: note: when computing vector element at index '0'
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
@@ -2819,19 +2831,13 @@ const std = @import("std");
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '0'
+// :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '0'
+// :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '0'
+// :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '0'
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
@@ -2841,19 +2847,13 @@ const std = @import("std");
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '0'
+// :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '0'
+// :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '0'
+// :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '0'
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: error: use of undefined value here causes illegal behavior
+// :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
@@ -2863,13 +2863,13 @@ const std = @import("std");
 // :113:22: error: use of undefined value here causes illegal behavior
 // :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '0'
+// :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '0'
+// :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '0'
+// :113:22: note: when computing vector element at index '1'
 // :113:22: error: use of undefined value here causes illegal behavior
-// :113:22: note: when computing vector element at index '0'
+// :113:22: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: error: use of undefined value here causes illegal behavior
@@ -2877,13 +2877,35 @@ const std = @import("std");
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '1'
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
@@ -2893,19 +2915,13 @@ const std = @import("std");
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '1'
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '1'
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '1'
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '1'
+// :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
@@ -2915,19 +2931,13 @@ const std = @import("std");
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '1'
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '1'
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '1'
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '1'
+// :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
@@ -2937,11 +2947,13 @@ const std = @import("std");
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: note: when computing vector element at index '0'
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
@@ -2951,19 +2963,13 @@ const std = @import("std");
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '0'
+// :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '0'
+// :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '0'
+// :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '0'
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
@@ -2973,19 +2979,13 @@ const std = @import("std");
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '0'
+// :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '0'
+// :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '0'
+// :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '0'
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: error: use of undefined value here causes illegal behavior
+// :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
@@ -2995,10 +2995,10 @@ const std = @import("std");
 // :116:30: error: use of undefined value here causes illegal behavior
 // :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '0'
+// :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '0'
+// :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '0'
+// :116:30: note: when computing vector element at index '1'
 // :116:30: error: use of undefined value here causes illegal behavior
-// :116:30: note: when computing vector element at index '0'
+// :116:30: note: when computing vector element at index '1'

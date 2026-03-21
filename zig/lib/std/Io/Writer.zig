@@ -518,6 +518,17 @@ test "writeSplatAll works with a single buffer" {
     try testing.expectEqualStrings("hellohellohello", aw.writer.buffered());
 }
 
+/// Transfers `bytes` to the stream, calling `drain` at most once.
+///
+/// Returns the number of bytes transferred, which may be less than
+/// `bytes.len`, including zero.
+///
+/// A return value less than `bytes.len` does not indicate failure; a
+/// subsequent call may return nonzero, or fail with `error.WriteFailed`.
+///
+/// See also:
+/// * `writeAll`
+/// * `writeVec`
 pub fn write(w: *Writer, bytes: []const u8) Error!usize {
     if (w.end + bytes.len <= w.buffer.len) {
         @branchHint(.likely);
@@ -528,8 +539,13 @@ pub fn write(w: *Writer, bytes: []const u8) Error!usize {
     return w.vtable.drain(w, &.{bytes}, 1);
 }
 
-/// Calls `drain` as many times as necessary such that all of `bytes` are
-/// transferred.
+/// Transfers `bytes` to the stream, calling `drain` as many times as necessary
+/// such that all `bytes` are transferred.
+///
+/// See also:
+/// * `print`
+/// * `writeVecAll`
+/// * `write`
 pub fn writeAll(w: *Writer, bytes: []const u8) Error!void {
     var index: usize = 0;
     while (index < bytes.len) index += try w.write(bytes[index..]);
@@ -1153,11 +1169,6 @@ pub fn printValue(
             'B' => switch (@typeInfo(T)) {
                 .int, .comptime_int => return w.printByteSize(value, .decimal, options),
                 .@"struct" => return value.formatByteSize(w, .decimal),
-                else => invalidFmtError(fmt, value),
-            },
-            'D' => switch (@typeInfo(T)) {
-                .int, .comptime_int => return w.printDuration(value, options),
-                .@"struct" => return value.formatDuration(w),
                 else => invalidFmtError(fmt, value),
             },
             'e' => switch (@typeInfo(T)) {
@@ -1792,77 +1803,6 @@ pub fn invalidFmtError(comptime fmt: []const u8, value: anytype) noreturn {
     @compileError("invalid format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
 }
 
-pub fn printDurationSigned(w: *Writer, ns: i64) Error!void {
-    if (ns < 0) try w.writeByte('-');
-    return w.printDurationUnsigned(@abs(ns));
-}
-
-pub fn printDurationUnsigned(w: *Writer, ns: u64) Error!void {
-    var ns_remaining = ns;
-    inline for (.{
-        .{ .ns = 365 * std.time.ns_per_day, .sep = 'y' },
-        .{ .ns = std.time.ns_per_week, .sep = 'w' },
-        .{ .ns = std.time.ns_per_day, .sep = 'd' },
-        .{ .ns = std.time.ns_per_hour, .sep = 'h' },
-        .{ .ns = std.time.ns_per_min, .sep = 'm' },
-    }) |unit| {
-        if (ns_remaining >= unit.ns) {
-            const units = ns_remaining / unit.ns;
-            try w.printInt(units, 10, .lower, .{});
-            try w.writeByte(unit.sep);
-            ns_remaining -= units * unit.ns;
-            if (ns_remaining == 0) return;
-        }
-    }
-
-    inline for (.{
-        .{ .ns = std.time.ns_per_s, .sep = "s" },
-        .{ .ns = std.time.ns_per_ms, .sep = "ms" },
-        .{ .ns = std.time.ns_per_us, .sep = "us" },
-    }) |unit| {
-        const kunits = ns_remaining * 1000 / unit.ns;
-        if (kunits >= 1000) {
-            try w.printInt(kunits / 1000, 10, .lower, .{});
-            const frac = kunits % 1000;
-            if (frac > 0) {
-                // Write up to 3 decimal places
-                var decimal_buf = [_]u8{ '.', 0, 0, 0 };
-                var inner: Writer = .fixed(decimal_buf[1..]);
-                inner.printInt(frac, 10, .lower, .{ .fill = '0', .width = 3 }) catch unreachable;
-                var end: usize = 4;
-                while (end > 1) : (end -= 1) {
-                    if (decimal_buf[end - 1] != '0') break;
-                }
-                try w.writeAll(decimal_buf[0..end]);
-            }
-            return w.writeAll(unit.sep);
-        }
-    }
-
-    try w.printInt(ns_remaining, 10, .lower, .{});
-    try w.writeAll("ns");
-}
-
-/// Writes number of nanoseconds according to its signed magnitude:
-/// `[#y][#w][#d][#h][#m]#[.###][n|u|m]s`
-/// `nanoseconds` must be an integer that coerces into `u64` or `i64`.
-pub fn printDuration(w: *Writer, nanoseconds: anytype, options: std.fmt.Options) Error!void {
-    // worst case: "-XXXyXXwXXdXXhXXmXX.XXXs".len = 24
-    var buf: [24]u8 = undefined;
-    var sub_writer: Writer = .fixed(&buf);
-    if (@TypeOf(nanoseconds) == comptime_int) {
-        if (nanoseconds >= 0) {
-            sub_writer.printDurationUnsigned(nanoseconds) catch unreachable;
-        } else {
-            sub_writer.printDurationSigned(nanoseconds) catch unreachable;
-        }
-    } else switch (@typeInfo(@TypeOf(nanoseconds)).int.signedness) {
-        .signed => sub_writer.printDurationSigned(nanoseconds) catch unreachable,
-        .unsigned => sub_writer.printDurationUnsigned(nanoseconds) catch unreachable,
-    }
-    return w.alignBufferOptions(sub_writer.buffered(), options);
-}
-
 pub fn printHex(w: *Writer, bytes: []const u8, case: std.fmt.Case) Error!void {
     const charset = switch (case) {
         .upper => "0123456789ABCDEF",
@@ -2127,125 +2067,6 @@ test "printValue max_depth" {
     w = .fixed(&buf);
     try w.printValue("", .{}, vec, 1);
     try testing.expectEqualStrings("{ 1, 2, 3, 4 }", w.buffered());
-}
-
-test printDuration {
-    try testDurationCase("0ns", 0);
-    try testDurationCase("1ns", 1);
-    try testDurationCase("999ns", std.time.ns_per_us - 1);
-    try testDurationCase("1us", std.time.ns_per_us);
-    try testDurationCase("1.45us", 1450);
-    try testDurationCase("1.5us", 3 * std.time.ns_per_us / 2);
-    try testDurationCase("14.5us", 14500);
-    try testDurationCase("145us", 145000);
-    try testDurationCase("999.999us", std.time.ns_per_ms - 1);
-    try testDurationCase("1ms", std.time.ns_per_ms + 1);
-    try testDurationCase("1.5ms", 3 * std.time.ns_per_ms / 2);
-    try testDurationCase("1.11ms", 1110000);
-    try testDurationCase("1.111ms", 1111000);
-    try testDurationCase("1.111ms", 1111100);
-    try testDurationCase("999.999ms", std.time.ns_per_s - 1);
-    try testDurationCase("1s", std.time.ns_per_s);
-    try testDurationCase("59.999s", std.time.ns_per_min - 1);
-    try testDurationCase("1m", std.time.ns_per_min);
-    try testDurationCase("1h", std.time.ns_per_hour);
-    try testDurationCase("1d", std.time.ns_per_day);
-    try testDurationCase("1w", std.time.ns_per_week);
-    try testDurationCase("1y", 365 * std.time.ns_per_day);
-    try testDurationCase("1y52w23h59m59.999s", 730 * std.time.ns_per_day - 1); // 365d = 52w1
-    try testDurationCase("1y1h1.001s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms);
-    try testDurationCase("1y1h1s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us);
-    try testDurationCase("1y1h999.999us", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1);
-    try testDurationCase("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms);
-    try testDurationCase("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1);
-    try testDurationCase("1y1m999ns", 365 * std.time.ns_per_day + std.time.ns_per_min + 999);
-    try testDurationCase("584y49w23h34m33.709s", std.math.maxInt(u64));
-
-    try testing.expectFmt("=======0ns", "{D:=>10}", .{0});
-    try testing.expectFmt("1ns=======", "{D:=<10}", .{1});
-    try testing.expectFmt("  999ns   ", "{D:^10}", .{std.time.ns_per_us - 1});
-}
-
-test printDurationSigned {
-    try testDurationCaseSigned("0ns", 0);
-    try testDurationCaseSigned("1ns", 1);
-    try testDurationCaseSigned("-1ns", -(1));
-    try testDurationCaseSigned("999ns", std.time.ns_per_us - 1);
-    try testDurationCaseSigned("-999ns", -(std.time.ns_per_us - 1));
-    try testDurationCaseSigned("1us", std.time.ns_per_us);
-    try testDurationCaseSigned("-1us", -(std.time.ns_per_us));
-    try testDurationCaseSigned("1.45us", 1450);
-    try testDurationCaseSigned("-1.45us", -(1450));
-    try testDurationCaseSigned("1.5us", 3 * std.time.ns_per_us / 2);
-    try testDurationCaseSigned("-1.5us", -(3 * std.time.ns_per_us / 2));
-    try testDurationCaseSigned("14.5us", 14500);
-    try testDurationCaseSigned("-14.5us", -(14500));
-    try testDurationCaseSigned("145us", 145000);
-    try testDurationCaseSigned("-145us", -(145000));
-    try testDurationCaseSigned("999.999us", std.time.ns_per_ms - 1);
-    try testDurationCaseSigned("-999.999us", -(std.time.ns_per_ms - 1));
-    try testDurationCaseSigned("1ms", std.time.ns_per_ms + 1);
-    try testDurationCaseSigned("-1ms", -(std.time.ns_per_ms + 1));
-    try testDurationCaseSigned("1.5ms", 3 * std.time.ns_per_ms / 2);
-    try testDurationCaseSigned("-1.5ms", -(3 * std.time.ns_per_ms / 2));
-    try testDurationCaseSigned("1.11ms", 1110000);
-    try testDurationCaseSigned("-1.11ms", -(1110000));
-    try testDurationCaseSigned("1.111ms", 1111000);
-    try testDurationCaseSigned("-1.111ms", -(1111000));
-    try testDurationCaseSigned("1.111ms", 1111100);
-    try testDurationCaseSigned("-1.111ms", -(1111100));
-    try testDurationCaseSigned("999.999ms", std.time.ns_per_s - 1);
-    try testDurationCaseSigned("-999.999ms", -(std.time.ns_per_s - 1));
-    try testDurationCaseSigned("1s", std.time.ns_per_s);
-    try testDurationCaseSigned("-1s", -(std.time.ns_per_s));
-    try testDurationCaseSigned("59.999s", std.time.ns_per_min - 1);
-    try testDurationCaseSigned("-59.999s", -(std.time.ns_per_min - 1));
-    try testDurationCaseSigned("1m", std.time.ns_per_min);
-    try testDurationCaseSigned("-1m", -(std.time.ns_per_min));
-    try testDurationCaseSigned("1h", std.time.ns_per_hour);
-    try testDurationCaseSigned("-1h", -(std.time.ns_per_hour));
-    try testDurationCaseSigned("1d", std.time.ns_per_day);
-    try testDurationCaseSigned("-1d", -(std.time.ns_per_day));
-    try testDurationCaseSigned("1w", std.time.ns_per_week);
-    try testDurationCaseSigned("-1w", -(std.time.ns_per_week));
-    try testDurationCaseSigned("1y", 365 * std.time.ns_per_day);
-    try testDurationCaseSigned("-1y", -(365 * std.time.ns_per_day));
-    try testDurationCaseSigned("1y52w23h59m59.999s", 730 * std.time.ns_per_day - 1); // 365d = 52w1d
-    try testDurationCaseSigned("-1y52w23h59m59.999s", -(730 * std.time.ns_per_day - 1)); // 365d = 52w1d
-    try testDurationCaseSigned("1y1h1.001s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms);
-    try testDurationCaseSigned("-1y1h1.001s", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms));
-    try testDurationCaseSigned("1y1h1s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us);
-    try testDurationCaseSigned("-1y1h1s", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us));
-    try testDurationCaseSigned("1y1h999.999us", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1);
-    try testDurationCaseSigned("-1y1h999.999us", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1));
-    try testDurationCaseSigned("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms);
-    try testDurationCaseSigned("-1y1h1ms", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms));
-    try testDurationCaseSigned("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1);
-    try testDurationCaseSigned("-1y1h1ms", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1));
-    try testDurationCaseSigned("1y1m999ns", 365 * std.time.ns_per_day + std.time.ns_per_min + 999);
-    try testDurationCaseSigned("-1y1m999ns", -(365 * std.time.ns_per_day + std.time.ns_per_min + 999));
-    try testDurationCaseSigned("292y24w3d23h47m16.854s", std.math.maxInt(i64));
-    try testDurationCaseSigned("-292y24w3d23h47m16.854s", std.math.minInt(i64) + 1);
-    try testDurationCaseSigned("-292y24w3d23h47m16.854s", std.math.minInt(i64));
-
-    try testing.expectFmt("=======0ns", "{D:=>10}", .{0});
-    try testing.expectFmt("1ns=======", "{D:=<10}", .{1});
-    try testing.expectFmt("-1ns======", "{D:=<10}", .{-(1)});
-    try testing.expectFmt("  -999ns  ", "{D:^10}", .{-(std.time.ns_per_us - 1)});
-}
-
-fn testDurationCase(expected: []const u8, input: u64) !void {
-    var buf: [24]u8 = undefined;
-    var w: Writer = .fixed(&buf);
-    try w.printDurationUnsigned(input);
-    try testing.expectEqualStrings(expected, w.buffered());
-}
-
-fn testDurationCaseSigned(expected: []const u8, input: i64) !void {
-    var buf: [24]u8 = undefined;
-    var w: Writer = .fixed(&buf);
-    try w.printDurationSigned(input);
-    try testing.expectEqualStrings(expected, w.buffered());
 }
 
 test printInt {

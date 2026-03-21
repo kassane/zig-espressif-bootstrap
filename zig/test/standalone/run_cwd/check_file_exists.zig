@@ -5,7 +5,7 @@ pub fn main(init: std.process.Init) !void {
     if (args.len != 2) return error.BadUsage;
     const path = args[1];
 
-    const io = std.Io.Threaded.global_single_threaded.ioBasic();
+    const io = std.Io.Threaded.global_single_threaded.io();
 
     std.Io.Dir.cwd().access(io, path, .{}) catch return error.AccessFailed;
 }

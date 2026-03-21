@@ -2,6 +2,10 @@ buffer: []const u8,
 index: u32,
 
 pub const Bundle = @import("Certificate/Bundle.zig");
+pub const Chain = switch (builtin.os.tag) {
+    else => void, // not a shim to also avoid expensive caller logic
+    .windows => @import("Certificate/Chain.zig"),
+};
 
 pub const Version = enum { v1, v2, v3 };
 
@@ -844,6 +848,7 @@ fn verifyEd25519(
     };
 }
 
+const builtin = @import("builtin");
 const std = @import("../std.zig");
 const crypto = std.crypto;
 const mem = std.mem;

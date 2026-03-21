@@ -27,11 +27,6 @@ comptime {
 }
 
 comptime {
-    const x: [*]u0 = @ptrFromInt(1);
-    _ = x + 1;
-}
-
-comptime {
     const x: *u0 = @ptrFromInt(1);
     const y: *u0 = @ptrFromInt(2);
     _ = x - y;
@@ -46,5 +41,4 @@ comptime {
 // :12:11: error: invalid operands to binary expression: 'pointer' and 'pointer'
 // :20:11: error: incompatible pointer arithmetic operands '[*]u8' and '[*]u16'
 // :26:11: error: incompatible pointer arithmetic operands '*u8' and '*u16'
-// :31:11: error: pointer arithmetic requires element type 'u0' to have runtime bits
-// :37:11: error: pointer arithmetic requires element type 'u0' to have runtime bits
+// :32:11: error: pointer subtraction requires element type 'u0' to have runtime bits

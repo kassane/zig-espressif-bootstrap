@@ -793,8 +793,10 @@ test checkValueDepth {
     try expectValueDepthEquals(2, @as(?u32, 1));
     try expectValueDepthEquals(1, @as(?u32, null));
     try expectValueDepthEquals(1, null);
-    try expectValueDepthEquals(2, &1);
     try expectValueDepthEquals(3, &@as(?u32, 1));
+
+    // The pointer drops the implicit comptime-ness, so we need to specify 'comptime' here
+    try comptime expectValueDepthEquals(2, &1);
 
     const Union = union(enum) {
         x: u32,

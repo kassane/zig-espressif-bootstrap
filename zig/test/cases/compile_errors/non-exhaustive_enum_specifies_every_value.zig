@@ -4,7 +4,7 @@ const C = enum(u1) {
     _,
 };
 pub export fn entry() void {
-    _ = C;
+    _ = C.a;
 }
 
 // error

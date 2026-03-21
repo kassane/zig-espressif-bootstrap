@@ -11,7 +11,7 @@ pub const Class = enum { memory, byval, integer, double_integer, fields };
 
 pub fn classifyType(ty: Type, zcu: *Zcu) Class {
     const target = zcu.getTarget();
-    std.debug.assert(ty.hasRuntimeBitsIgnoreComptime(zcu));
+    std.debug.assert(ty.hasRuntimeBits(zcu));
 
     const max_byval_size = target.ptrBitWidth() * 2;
     switch (ty.zigTypeTag(zcu)) {
@@ -27,7 +27,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu) Class {
                 var field_count: usize = 0;
                 for (0..ty.structFieldCount(zcu)) |field_index| {
                     const field_ty = ty.fieldType(field_index, zcu);
-                    if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
+                    if (!field_ty.hasRuntimeBits(zcu)) continue;
                     if (field_ty.isRuntimeFloat())
                         any_fp = true
                     else if (!field_ty.isAbiInt(zcu))

@@ -871,6 +871,7 @@ fn buildOutputType(
     var emit_h: Emit = .no;
     var soname: SOName = undefined;
     var want_compiler_rt: ?bool = null;
+    var zig_cc_explicitly_link_compiler_rt = false;
     var want_ubsan_rt: ?bool = null;
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
@@ -979,7 +980,7 @@ fn buildOutputType(
         .dirs = undefined,
         .object_format = null,
         .dynamic_linker = null,
-        .modules = .{},
+        .modules = .empty,
         .opts = .{
             .is_test = switch (arg_mode) {
                 .zig_test, .zig_test_obj => true,
@@ -1006,18 +1007,18 @@ fn buildOutputType(
         .windows_libs = .empty,
         .link_inputs = .empty,
 
-        .c_source_files = .{},
-        .rc_source_files = .{},
+        .c_source_files = .empty,
+        .rc_source_files = .empty,
 
-        .llvm_m_args = .{},
+        .llvm_m_args = .empty,
         .sysroot = null,
-        .lib_directories = .{}, // populated by createModule()
-        .lib_dir_args = .{}, // populated from CLI arg parsing
+        .lib_directories = .empty, // populated by createModule()
+        .lib_dir_args = .empty, // populated from CLI arg parsing
         .libc_installation = null,
         .want_native_include_dirs = false,
-        .frameworks = .{},
-        .framework_dirs = .{},
-        .rpath_list = .{},
+        .frameworks = .empty,
+        .framework_dirs = .empty,
+        .rpath_list = .empty,
         .each_lib_rpath = null,
         .libc_paths_file = EnvVar.ZIG_LIBC.get(environ_map),
         .native_system_include_paths = &.{},
@@ -2001,17 +2002,31 @@ fn buildOutputType(
                                 .name = it.only_arg,
                             } });
                         } else {
-                            try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
-                                .name = it.only_arg,
-                                .query = .{
-                                    .must_link = must_link,
-                                    .needed = needed,
-                                    .weak = false,
-                                    .preferred_mode = lib_preferred_mode,
-                                    .search_strategy = lib_search_strategy,
-                                    .allow_so_scripts = allow_so_scripts,
+                            const compiler_rt_classification = target_util.classifyCompilerRtLibName(it.only_arg);
+                            switch (compiler_rt_classification) {
+                                .only_compiler_rt, .both => {
+                                    // We need this variable separately from `want_compiler_rt` because of
+                                    // invocations such as `zig cc -lcompiler_rt -nostdlib`. If we just set
+                                    // `want_compiler_rt = true` here, processing of the later `-nostdlib`
+                                    // would undo that.
+                                    zig_cc_explicitly_link_compiler_rt = true;
                                 },
-                            } });
+                                .none, .only_libunwind => {},
+                            }
+                            if (compiler_rt_classification != .only_compiler_rt) {
+                                // The case in which this arg wants to link libunwind is handled in createModule.
+                                try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
+                                    .name = it.only_arg,
+                                    .query = .{
+                                        .must_link = must_link,
+                                        .needed = needed,
+                                        .weak = false,
+                                        .preferred_mode = lib_preferred_mode,
+                                        .search_strategy = lib_search_strategy,
+                                        .allow_so_scripts = allow_so_scripts,
+                                    },
+                                } });
+                            }
                         }
                     },
                     .ignore => {},
@@ -2703,6 +2718,9 @@ fn buildOutputType(
                     entry = .{ .named = linker_args_it.nextOrFatal() };
                 } else if (mem.eql(u8, arg, "-u")) {
                     try force_undefined_symbols.put(arena, linker_args_it.nextOrFatal(), {});
+                } else if (mem.eql(u8, arg, "-w")) {
+                    // This ignores the -w flag of ld64 and ld64.lld to suppress all linker warnings
+                    // since Zig doesn't emit linker warnings.
                 } else if (mem.eql(u8, arg, "-x") or mem.eql(u8, arg, "--discard-all")) {
                     discard_local_symbols = true;
                 } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack_size")) {
@@ -3547,7 +3565,7 @@ fn buildOutputType(
         .framework_dirs = create_module.framework_dirs.items,
         .frameworks = resolved_frameworks.items,
         .windows_lib_names = create_module.windows_libs.keys(),
-        .want_compiler_rt = want_compiler_rt,
+        .want_compiler_rt = if (zig_cc_explicitly_link_compiler_rt) true else want_compiler_rt,
         .want_ubsan_rt = want_ubsan_rt,
         .hash_style = hash_style,
         .linker_script = linker_script,
@@ -4633,7 +4651,7 @@ fn runOrTestHotSwap(
         try argv.appendSlice(all_args[i..]);
     }
 
-    var child = try std.process.spawn(io, .{
+    const child = try std.process.spawn(io, .{
         .argv = argv.items,
         .stdin = .inherit,
         .stdout = .inherit,
@@ -4688,9 +4706,8 @@ fn cmdTranslateC(
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
     man.hash.add(comp.config.c_frontend);
-    Compilation.cache_helpers.hashCSource(&man, c_source_file) catch |err| {
-        fatal("unable to process '{s}': {s}", .{ c_source_file.src_path, @errorName(err) });
-    };
+    Compilation.cache_helpers.hashCSource(&man, c_source_file) catch |err|
+        fatal("unable to process '{s}': {t}", .{ c_source_file.src_path, err });
 
     const result: Compilation.CImportResult = if (try man.hit()) .{
         .digest = man.finalBin(),
@@ -4732,11 +4749,8 @@ fn cmdTranslateC(
         const out_zig_path = try fs.path.join(arena, &.{ "o", &hex_digest, translated_basename });
         const zig_file = comp.dirs.local_cache.handle.openFile(io, out_zig_path, .{}) catch |err| {
             const path = comp.dirs.local_cache.path orelse ".";
-            fatal("unable to open cached translated zig file '{s}{s}{s}': {s}", .{
-                path,
-                fs.path.sep_str,
-                out_zig_path,
-                @errorName(err),
+            fatal("unable to open cached translated zig file '{s}{s}{s}': {t}", .{
+                path, fs.path.sep_str, out_zig_path, err,
             });
         };
         defer zig_file.close(io);
@@ -6028,11 +6042,9 @@ fn initArgIteratorResponseFile(allocator: Allocator, io: Io, resp_file_path: []c
     return ArgIteratorResponseFile.initTakeOwnership(allocator, cmd_line);
 }
 
-const clang_args = @import("clang_options.zig").list;
-
 pub const ClangArgIterator = struct {
     has_next: bool,
-    zig_equivalent: ZigEquivalent,
+    zig_equivalent: std.zig.ClangCliParam.ZigEquivalent,
     only_arg: []const u8,
     second_arg: []const u8,
     other_args: []const []const u8,
@@ -6041,94 +6053,6 @@ pub const ClangArgIterator = struct {
     root_args: ?*Args,
     arg_iterator_response_file: ArgIteratorResponseFile,
     arena: Allocator,
-
-    pub const ZigEquivalent = enum {
-        target,
-        o,
-        c,
-        r,
-        m,
-        x,
-        other,
-        positional,
-        l,
-        ignore,
-        driver_punt,
-        pic,
-        no_pic,
-        pie,
-        no_pie,
-        lto,
-        no_lto,
-        unwind_tables,
-        no_unwind_tables,
-        asynchronous_unwind_tables,
-        no_asynchronous_unwind_tables,
-        nostdlib,
-        nostdlib_cpp,
-        shared,
-        rdynamic,
-        wl,
-        wp,
-        preprocess_only,
-        asm_only,
-        optimize,
-        debug,
-        gdwarf32,
-        gdwarf64,
-        sanitize,
-        no_sanitize,
-        sanitize_trap,
-        no_sanitize_trap,
-        linker_script,
-        dry_run,
-        verbose,
-        for_linker,
-        linker_input_z,
-        lib_dir,
-        mcpu,
-        dep_file,
-        dep_file_to_stdout,
-        framework_dir,
-        framework,
-        nostdlibinc,
-        red_zone,
-        no_red_zone,
-        omit_frame_pointer,
-        no_omit_frame_pointer,
-        function_sections,
-        no_function_sections,
-        data_sections,
-        no_data_sections,
-        builtin,
-        no_builtin,
-        color_diagnostics,
-        no_color_diagnostics,
-        stack_check,
-        no_stack_check,
-        stack_protector,
-        no_stack_protector,
-        strip,
-        exec_model,
-        emit_llvm,
-        sysroot,
-        entry,
-        force_undefined_symbol,
-        weak_library,
-        weak_framework,
-        headerpad_max_install_names,
-        compress_debug_sections,
-        install_name,
-        undefined,
-        force_load_objc,
-        mingw_unicode_entry_point,
-        san_cov_trace_pc_guard,
-        san_cov,
-        no_san_cov,
-        rtlib,
-        static,
-        dynamic,
-    };
 
     const Args = struct {
         next_index: usize,
@@ -6209,11 +6133,13 @@ pub const ClangArgIterator = struct {
             return;
         }
 
+        const clang_args: []const std.zig.ClangCliParam = @import("clang_options.zon");
+
         find_clang_arg: for (clang_args) |clang_arg| switch (clang_arg.syntax) {
             .flag => {
                 const prefix_len = clang_arg.matchEql(arg);
                 if (prefix_len > 0) {
-                    self.zig_equivalent = clang_arg.zig_equivalent;
+                    self.zig_equivalent = clang_arg.ze;
                     self.only_arg = arg[prefix_len..];
 
                     break :find_clang_arg;
@@ -6224,7 +6150,7 @@ pub const ClangArgIterator = struct {
                 // comma_joined example: -Wl,-soname,libsoundio.so.2
                 const prefix_len = clang_arg.matchStartsWith(arg);
                 if (prefix_len != 0) {
-                    self.zig_equivalent = clang_arg.zig_equivalent;
+                    self.zig_equivalent = clang_arg.ze;
                     self.only_arg = arg[prefix_len..]; // This will skip over the "--target=" part.
 
                     break :find_clang_arg;
@@ -6240,11 +6166,11 @@ pub const ClangArgIterator = struct {
                     self.only_arg = self.argv[self.next_index];
                     self.incrementArgIndex();
                     self.other_args.len += 1;
-                    self.zig_equivalent = clang_arg.zig_equivalent;
+                    self.zig_equivalent = clang_arg.ze;
 
                     break :find_clang_arg;
                 } else if (prefix_len != 0) {
-                    self.zig_equivalent = clang_arg.zig_equivalent;
+                    self.zig_equivalent = clang_arg.ze;
                     self.only_arg = arg[prefix_len..];
 
                     break :find_clang_arg;
@@ -6261,7 +6187,7 @@ pub const ClangArgIterator = struct {
                     self.second_arg = self.argv[self.next_index];
                     self.incrementArgIndex();
                     self.other_args.len += 1;
-                    self.zig_equivalent = clang_arg.zig_equivalent;
+                    self.zig_equivalent = clang_arg.ze;
                     break :find_clang_arg;
                 }
             },
@@ -6272,7 +6198,7 @@ pub const ClangArgIterator = struct {
                 self.only_arg = self.argv[self.next_index];
                 self.incrementArgIndex();
                 self.other_args.len += 1;
-                self.zig_equivalent = clang_arg.zig_equivalent;
+                self.zig_equivalent = clang_arg.ze;
                 break :find_clang_arg;
             },
             .remaining_args_joined => {
@@ -6288,7 +6214,7 @@ pub const ClangArgIterator = struct {
                     self.incrementArgIndex();
                     self.other_args.len += 1;
                 }
-                self.zig_equivalent = clang_arg.zig_equivalent;
+                self.zig_equivalent = clang_arg.ze;
                 break :find_clang_arg;
             },
         } else {
@@ -7223,6 +7149,8 @@ fn cmdFetch(
         error.OutOfMemory, error.Canceled => |e| return e,
         error.FetchFailed => {}, // error bundle checked below
     };
+
+    try job_queue.group.await(io);
 
     if (fetch.error_bundle.root_list.items.len > 0) {
         var errors = try fetch.error_bundle.toOwnedBundle("");

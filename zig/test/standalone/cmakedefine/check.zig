@@ -1,3 +1,6 @@
+const std = @import("std");
+const builtin = @import("builtin");
+
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const io = init.io;
@@ -17,8 +20,7 @@ pub fn main(init: std.process.Init) !void {
     }
     const actual_without_comment = actual[comment_str.len..];
 
-    if (!std.mem.eql(u8, actual_without_comment, expected)) {
-        return error.DoesNotMatch;
-    }
+    if (builtin.os.tag == .windows) return; // https://codeberg.org/ziglang/zig/issues/30138
+
+    try std.testing.expectEqualStrings(expected, actual_without_comment);
 }
-const std = @import("std");

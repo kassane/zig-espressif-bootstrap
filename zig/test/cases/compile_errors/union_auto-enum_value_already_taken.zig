@@ -12,5 +12,5 @@ export fn entry() void {
 
 // error
 //
-// :6:9: error: enum tag value 60 already taken
-// :4:9: note: other occurrence here
+// :6:9: error: enum tag value '60' for field 'E' already taken
+// :4:9: note: previous occurrence in field 'C'

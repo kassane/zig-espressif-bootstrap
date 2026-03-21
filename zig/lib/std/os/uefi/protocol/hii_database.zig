@@ -4,7 +4,6 @@ const Guid = uefi.Guid;
 const Status = uefi.Status;
 const hii = uefi.hii;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 /// Database manager for HII-related data structures.
 pub const HiiDatabase = extern struct {
@@ -38,10 +37,10 @@ pub const HiiDatabase = extern struct {
     };
 
     /// Removes a package list from the HII database.
-    pub fn removePackageList(self: *HiiDatabase, handle: hii.Handle) !void {
+    pub fn removePackageList(self: *HiiDatabase, handle: hii.Handle) RemovePackageListError!void {
         switch (self._remove_package_list(self, handle)) {
             .success => {},
-            .not_found => return Error.NotFound,
+            .not_found => return error.NotFound,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -54,9 +53,9 @@ pub const HiiDatabase = extern struct {
     ) UpdatePackageListError!void {
         switch (self._update_package_list(self, handle, buffer)) {
             .success => {},
-            .out_of_resources => return Error.OutOfResources,
-            .invalid_parameter => return Error.InvalidParameter,
-            .not_found => return Error.NotFound,
+            .out_of_resources => return error.OutOfResources,
+            .invalid_parameter => return error.InvalidParameter,
+            .not_found => return error.NotFound,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -77,9 +76,9 @@ pub const HiiDatabase = extern struct {
             handles.ptr,
         )) {
             .success => return handles[0..len],
-            .buffer_too_small => return Error.BufferTooSmall,
-            .invalid_parameter => return Error.InvalidParameter,
-            .not_found => return Error.NotFound,
+            .buffer_too_small => return error.BufferTooSmall,
+            .invalid_parameter => return error.InvalidParameter,
+            .not_found => return error.NotFound,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -93,9 +92,9 @@ pub const HiiDatabase = extern struct {
         var len = buffer.len;
         switch (self._export_package_lists(self, handle, &len, buffer.ptr)) {
             .success => return buffer[0..len],
-            .buffer_too_small => return Error.BufferTooSmall,
-            .invalid_parameter => return Error.InvalidParameter,
-            .not_found => return Error.NotFound,
+            .buffer_too_small => return error.BufferTooSmall,
+            .invalid_parameter => return error.InvalidParameter,
+            .not_found => return error.NotFound,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

@@ -79,8 +79,8 @@ fn bitCastInner(
 
     const val_ty = val.typeOf(zcu);
 
-    try val_ty.resolveLayout(pt);
-    try dest_ty.resolveLayout(pt);
+    val_ty.assertHasLayout(zcu);
+    dest_ty.assertHasLayout(zcu);
 
     assert(val_ty.hasWellDefinedLayout(zcu));
 
@@ -138,8 +138,8 @@ fn bitCastSpliceInner(
     const val_ty = val.typeOf(zcu);
     const splice_val_ty = splice_val.typeOf(zcu);
 
-    try val_ty.resolveLayout(pt);
-    try splice_val_ty.resolveLayout(pt);
+    val_ty.assertHasLayout(zcu);
+    splice_val_ty.assertHasLayout(zcu);
 
     const splice_bits = splice_val_ty.bitSize(zcu);
 
@@ -253,7 +253,6 @@ const UnpackValueBits = struct {
             .func_type,
             .error_set_type,
             .inferred_error_set_type,
-            .variable,
             .@"extern",
             .func,
             .err,
@@ -267,11 +266,12 @@ const UnpackValueBits = struct {
             .int,
             .enum_tag,
             .simple_value,
-            .empty_enum_value,
             .float,
             .ptr,
             .opt,
             => try unpack.primitive(val),
+
+            .bitpack => |bitpack| try unpack.primitive(.fromInterned(bitpack.backing_int_val)),
 
             .aggregate => switch (ty.zigTypeTag(zcu)) {
                 .vector => {
@@ -443,7 +443,7 @@ const UnpackValueBits = struct {
                 // This @intCast is okay because no primitive can exceed the size of a u16.
                 const int_ty = try unpack.pt.intType(.unsigned, @intCast(bit_count));
                 const buf = try unpack.arena.alloc(u8, @intCast((val_bits + 7) / 8));
-                try val.writeToPackedMemory(ty, unpack.pt, buf, 0);
+                try val.writeToPackedMemory(unpack.pt, buf, 0);
                 const sub_val = try Value.readFromPackedMemory(int_ty, unpack.pt, buf, @intCast(bit_offset), unpack.arena);
                 try unpack.primitive(sub_val);
             },
@@ -451,7 +451,6 @@ const UnpackValueBits = struct {
             // The only values here with runtime bits are `true` and `false.
             // These are both 1 bit, so will never need truncating.
             .simple_value => unreachable,
-            .empty_enum_value => unreachable, // zero-bit
             else => unreachable, // zero-bit or not primitives
         }
     }
@@ -565,102 +564,103 @@ const PackValueBits = struct {
                     return pt.aggregateValue(ty, elems);
                 },
                 .@"packed" => {
-                    // All fields are in order with no padding.
-                    // This is identical between LE and BE targets.
-                    const elems = try arena.alloc(InternPool.Index, ty.structFieldCount(zcu));
-                    for (elems, 0..) |*elem, i| {
-                        const field_ty = ty.fieldType(i, zcu);
-                        elem.* = (try pack.get(field_ty)).toIntern();
-                    }
-                    return pt.aggregateValue(ty, elems);
+                    const backing_int_val = try pack.primitive(ty.bitpackBackingInt(zcu));
+                    return pt.bitpackValue(ty, backing_int_val);
                 },
             },
-            .@"union" => {
-                // We will attempt to read as the backing representation. If this emits
-                // `error.ReinterpretDeclRef`, we will try each union field, preferring larger ones.
-                // We will also attempt smaller fields when we get `undefined`, as if some bits are
-                // defined we want to include them.
-                // TODO: this is very very bad. We need a more sophisticated union representation.
+            .@"union" => switch (ty.containerLayout(zcu)) {
+                .auto => unreachable, // ill-defined layout
+                .@"extern" => {
+                    // We will attempt to read as the backing representation. If this emits
+                    // `error.ReinterpretDeclRef`, we will try each union field, preferring larger ones.
+                    // We will also attempt smaller fields when we get `undefined`, as if some bits are
+                    // defined we want to include them.
+                    // TODO: this is very very bad. We need a more sophisticated union representation.
 
-                const prev_unpacked = pack.unpacked;
-                const prev_bit_offset = pack.bit_offset;
+                    const prev_unpacked = pack.unpacked;
+                    const prev_bit_offset = pack.bit_offset;
 
-                const backing_ty = try ty.unionBackingType(pt);
+                    const backing_ty = try ty.externUnionBackingType(pt);
 
-                backing: {
-                    const backing_val = pack.get(backing_ty) catch |err| switch (err) {
-                        error.ReinterpretDeclRef => {
+                    backing: {
+                        const backing_val = pack.get(backing_ty) catch |err| switch (err) {
+                            error.ReinterpretDeclRef => {
+                                pack.unpacked = prev_unpacked;
+                                pack.bit_offset = prev_bit_offset;
+                                break :backing;
+                            },
+                            else => |e| return e,
+                        };
+                        if (backing_val.isUndef(zcu)) {
                             pack.unpacked = prev_unpacked;
                             pack.bit_offset = prev_bit_offset;
                             break :backing;
-                        },
-                        else => |e| return e,
-                    };
-                    if (backing_val.isUndef(zcu)) {
-                        pack.unpacked = prev_unpacked;
-                        pack.bit_offset = prev_bit_offset;
-                        break :backing;
+                        }
+                        return Value.fromInterned(try pt.internUnion(.{
+                            .ty = ty.toIntern(),
+                            .tag = .none,
+                            .val = backing_val.toIntern(),
+                        }));
                     }
+
+                    const field_order = try pack.arena.alloc(u32, ty.unionTagTypeHypothetical(zcu).enumFieldCount(zcu));
+                    for (field_order, 0..) |*f, i| f.* = @intCast(i);
+                    // Sort `field_order` to put the fields with the largest bit sizes first.
+                    const SizeSortCtx = struct {
+                        zcu: *Zcu,
+                        field_types: []const InternPool.Index,
+                        fn lessThan(ctx: @This(), a_idx: u32, b_idx: u32) bool {
+                            const a_ty = Type.fromInterned(ctx.field_types[a_idx]);
+                            const b_ty = Type.fromInterned(ctx.field_types[b_idx]);
+                            return a_ty.bitSize(ctx.zcu) > b_ty.bitSize(ctx.zcu);
+                        }
+                    };
+                    std.mem.sortUnstable(u32, field_order, SizeSortCtx{
+                        .zcu = zcu,
+                        .field_types = zcu.typeToUnion(ty).?.field_types.get(ip),
+                    }, SizeSortCtx.lessThan);
+
+                    const padding_after = endian == .little or ty.containerLayout(zcu) == .@"packed";
+
+                    for (field_order) |field_idx| {
+                        const field_ty = Type.fromInterned(zcu.typeToUnion(ty).?.field_types.get(ip)[field_idx]);
+                        const pad_bits = ty.bitSize(zcu) - field_ty.bitSize(zcu);
+                        if (!padding_after) try pack.padding(pad_bits);
+                        const field_val = pack.get(field_ty) catch |err| switch (err) {
+                            error.ReinterpretDeclRef => {
+                                pack.unpacked = prev_unpacked;
+                                pack.bit_offset = prev_bit_offset;
+                                continue;
+                            },
+                            else => |e| return e,
+                        };
+                        if (padding_after) try pack.padding(pad_bits);
+                        if (field_val.isUndef(zcu)) {
+                            pack.unpacked = prev_unpacked;
+                            pack.bit_offset = prev_bit_offset;
+                            continue;
+                        }
+                        const tag_val = try pt.enumValueFieldIndex(ty.unionTagTypeHypothetical(zcu), field_idx);
+                        return Value.fromInterned(try pt.internUnion(.{
+                            .ty = ty.toIntern(),
+                            .tag = tag_val.toIntern(),
+                            .val = field_val.toIntern(),
+                        }));
+                    }
+
+                    // No field could represent the value. Just do whatever happens when we try to read
+                    // the backing type - either `undefined` or `error.ReinterpretDeclRef`.
+                    const backing_val = try pack.get(backing_ty);
                     return Value.fromInterned(try pt.internUnion(.{
                         .ty = ty.toIntern(),
                         .tag = .none,
                         .val = backing_val.toIntern(),
                     }));
-                }
-
-                const field_order = try pack.arena.alloc(u32, ty.unionTagTypeHypothetical(zcu).enumFieldCount(zcu));
-                for (field_order, 0..) |*f, i| f.* = @intCast(i);
-                // Sort `field_order` to put the fields with the largest bit sizes first.
-                const SizeSortCtx = struct {
-                    zcu: *Zcu,
-                    field_types: []const InternPool.Index,
-                    fn lessThan(ctx: @This(), a_idx: u32, b_idx: u32) bool {
-                        const a_ty = Type.fromInterned(ctx.field_types[a_idx]);
-                        const b_ty = Type.fromInterned(ctx.field_types[b_idx]);
-                        return a_ty.bitSize(ctx.zcu) > b_ty.bitSize(ctx.zcu);
-                    }
-                };
-                std.mem.sortUnstable(u32, field_order, SizeSortCtx{
-                    .zcu = zcu,
-                    .field_types = zcu.typeToUnion(ty).?.field_types.get(ip),
-                }, SizeSortCtx.lessThan);
-
-                const padding_after = endian == .little or ty.containerLayout(zcu) == .@"packed";
-
-                for (field_order) |field_idx| {
-                    const field_ty = Type.fromInterned(zcu.typeToUnion(ty).?.field_types.get(ip)[field_idx]);
-                    const pad_bits = ty.bitSize(zcu) - field_ty.bitSize(zcu);
-                    if (!padding_after) try pack.padding(pad_bits);
-                    const field_val = pack.get(field_ty) catch |err| switch (err) {
-                        error.ReinterpretDeclRef => {
-                            pack.unpacked = prev_unpacked;
-                            pack.bit_offset = prev_bit_offset;
-                            continue;
-                        },
-                        else => |e| return e,
-                    };
-                    if (padding_after) try pack.padding(pad_bits);
-                    if (field_val.isUndef(zcu)) {
-                        pack.unpacked = prev_unpacked;
-                        pack.bit_offset = prev_bit_offset;
-                        continue;
-                    }
-                    const tag_val = try pt.enumValueFieldIndex(ty.unionTagTypeHypothetical(zcu), field_idx);
-                    return Value.fromInterned(try pt.internUnion(.{
-                        .ty = ty.toIntern(),
-                        .tag = tag_val.toIntern(),
-                        .val = field_val.toIntern(),
-                    }));
-                }
-
-                // No field could represent the value. Just do whatever happens when we try to read
-                // the backing type - either `undefined` or `error.ReinterpretDeclRef`.
-                const backing_val = try pack.get(backing_ty);
-                return Value.fromInterned(try pt.internUnion(.{
-                    .ty = ty.toIntern(),
-                    .tag = .none,
-                    .val = backing_val.toIntern(),
-                }));
+                },
+                .@"packed" => {
+                    const backing_int_val = try pack.primitive(ty.bitpackBackingInt(zcu));
+                    return pt.bitpackValue(ty, backing_int_val);
+                },
             },
             else => return pack.primitive(ty),
         }
@@ -673,6 +673,9 @@ const PackValueBits = struct {
     fn primitive(pack: *PackValueBits, want_ty: Type) BitCastError!Value {
         const pt = pack.pt;
         const zcu = pt.zcu;
+
+        if (try want_ty.onePossibleValue(pt)) |opv| return opv;
+
         const vals, const bit_offset = pack.prepareBits(want_ty.bitSize(zcu));
 
         for (vals) |val| {
@@ -719,7 +722,7 @@ const PackValueBits = struct {
             const val = Value.fromInterned(ip_val);
             const ty = val.typeOf(zcu);
             if (!val.isUndef(zcu)) {
-                try val.writeToPackedMemory(ty, pt, buf, cur_bit_off);
+                try val.writeToPackedMemory(pt, buf, cur_bit_off);
             }
             cur_bit_off += @intCast(ty.bitSize(zcu));
         }

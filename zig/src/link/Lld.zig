@@ -871,6 +871,11 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             try std.fmt.allocPrint(arena, "-float-abi={s}", .{if (target.abi.float() == .hard) "hard" else "soft"}),
         });
 
+        switch (target.cpu.arch) {
+            .armeb, .thumbeb => if (is_exe_or_dyn_lib and target.cpu.has(.arm, .has_v6)) try argv.append("--be8"),
+            else => {},
+        }
+
         if (comp.config.lto != .none) {
             switch (comp.root_mod.optimize_mode) {
                 .Debug => {},

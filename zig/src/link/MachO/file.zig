@@ -258,7 +258,7 @@ pub const File = union(enum) {
 
             const gop = try macho_file.dupes.getOrPut(gpa, file.getGlobals()[i]);
             if (!gop.found_existing) {
-                gop.value_ptr.* = .{};
+                gop.value_ptr.* = .empty;
             }
             try gop.value_ptr.append(gpa, file.getIndex());
         }

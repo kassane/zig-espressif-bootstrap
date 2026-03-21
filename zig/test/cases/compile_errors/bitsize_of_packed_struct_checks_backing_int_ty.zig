@@ -8,4 +8,6 @@ pub export fn entry() void {
 
 // error
 //
-// :1:27: error: backing integer type 'u32' has bit size 32 but the struct fields have a total bit size of 1
+// :1:20: error: backing integer bit width does not match total bit width of fields
+// :1:27: note: backing integer 'u32' has bit width '32'
+// :1:20: note: struct fields have total bit width '1'

@@ -10,4 +10,4 @@ const D = 1;
 
 // error
 //
-// :1:5: error: dependency loop detected
+// :2:12: error: type 'tmp.Foo' depends on itself for field usage here

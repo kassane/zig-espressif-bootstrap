@@ -37,7 +37,7 @@ fn test_chdir_self(io: Io) !void {
     const old_cwd = old_cwd_buf[0..try std.process.currentPath(io, &old_cwd_buf)];
 
     // Try changing to the current directory
-    try std.Io.Threaded.chdir(old_cwd);
+    try std.process.setCurrentPath(io, old_cwd);
     try expect_cwd(io, old_cwd);
 }
 
@@ -48,7 +48,7 @@ fn test_chdir_absolute(io: Io) !void {
     const parent = std.fs.path.dirname(old_cwd) orelse unreachable; // old_cwd should be absolute
 
     // Try changing to the parent via a full path
-    try std.Io.Threaded.chdir(parent);
+    try std.process.setCurrentPath(io, parent);
 
     try expect_cwd(io, parent);
 }
@@ -68,7 +68,7 @@ fn test_chdir_relative(gpa: Allocator, io: Io, tmp_dir: Io.Dir) !void {
     defer gpa.free(expected_path);
 
     // change current working directory to new test directory
-    try std.Io.Threaded.chdir(subdir_path);
+    try std.process.setCurrentPath(io, subdir_path);
 
     var new_cwd_buf: [path_max]u8 = undefined;
     const new_cwd = new_cwd_buf[0..try std.process.currentPath(io, &new_cwd_buf)];

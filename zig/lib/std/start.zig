@@ -84,7 +84,7 @@ fn _DllMainCRTStartup(
         return root.DllMain(hinstDLL, fdwReason, lpReserved);
     }
 
-    return std.os.windows.TRUE;
+    return .TRUE;
 }
 
 fn wasm_freestanding_start() callconv(.c) void {
@@ -276,7 +276,15 @@ fn _start() callconv(.naked) noreturn {
             \\ ;;
             \\ goto %[posixCallMainAndExit]
             ,
-            .loongarch32, .loongarch64 =>
+            .loongarch32 =>
+            \\ move $fp, $zero
+            \\ move $ra, $zero
+            \\ move $a0, $sp
+            \\ srli.w $sp, $sp, 4
+            \\ slli.w $sp, $sp, 4
+            \\ b %[posixCallMainAndExit]
+            ,
+            .loongarch64 =>
             \\ move $fp, $zero
             \\ move $ra, $zero
             \\ move $a0, $sp

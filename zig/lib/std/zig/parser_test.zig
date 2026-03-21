@@ -1,6 +1,7 @@
 const std = @import("std");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
+const Token = std.zig.Token;
 
 test "zig fmt: remove extra whitespace at start and end of file with comment between" {
     try testTransform(
@@ -1329,12 +1330,30 @@ test "zig fmt: comment to disable/enable zig fmt" {
         \\const  c  =  d;
         \\// zig fmt: on
         \\const  e  =  f;
+        \\const g = .{
+        \\    h, i,
+        \\    // zig fmt: off
+        \\    j,
+        \\    k,
+        \\    // zig fmt: on
+        \\    l, m, n, o,
+        \\};
+        \\
     ,
         \\const a = b;
         \\// zig fmt: off
         \\const  c  =  d;
         \\// zig fmt: on
         \\const e = f;
+        \\const g = .{
+        \\    h, i,
+        \\    // zig fmt: off
+        \\    j,
+        \\    k,
+        \\    // zig fmt: on
+        \\    l, m,
+        \\    n, o,
+        \\};
         \\
     );
 }
@@ -1986,6 +2005,38 @@ test "zig fmt: array literal vertical column alignment" {
         \\    31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
         \\const a = [12]u8{
         \\    31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, };
+        \\const a = .{
+        \\    1, \\
+        \\    , 2,
+        \\    3,
+        \\};
+        \\const a = .{
+        \\    \\
+        \\    , 1, 2,
+        \\    3,
+        \\};
+        \\const a = .{
+        \\    {{}}, 1,
+        \\    2, 3,
+        \\};
+        \\const a = .{
+        \\    a, bb //
+        \\    , ccc, dddd,
+        \\};
+        \\const a = .{
+        \\    "a", "b", "ä", "a", "123",
+        \\};
+        \\const a = .{
+        \\    a, a, .{
+        \\        // zig fmt: off
+        \\    },
+        \\    a*a,  a,
+        \\    .{
+        \\        // zig fmt: on
+        \\    }, aa,
+        \\    // zig fmt: off
+        \\    a*a,
+        \\};
         \\
     ,
         \\const a = []u8{
@@ -2013,6 +2064,53 @@ test "zig fmt: array literal vertical column alignment" {
         \\    31,
         \\    30,
         \\    31,
+        \\};
+        \\const a = .{
+        \\    1,
+        \\    \\
+        \\    ,
+        \\    2,
+        \\    3,
+        \\};
+        \\const a = .{
+        \\    \\
+        \\    ,
+        \\    1,
+        \\    2,
+        \\    3,
+        \\};
+        \\const a = .{
+        \\    {
+        \\        {}
+        \\    },
+        \\    1,
+        \\    2,
+        \\    3,
+        \\};
+        \\const a = .{
+        \\    a,
+        \\    bb //
+        \\    ,
+        \\    ccc,
+        \\    dddd,
+        \\};
+        \\const a = .{
+        \\    "a", "b",
+        \\    "ä",
+        \\    "a", "123",
+        \\};
+        \\const a = .{
+        \\    a,  a,
+        \\    .{
+        \\        // zig fmt: off
+        \\    },
+        \\    a*a,  a,
+        \\    .{
+        \\        // zig fmt: on
+        \\    },
+        \\    aa,
+        \\    // zig fmt: off
+        \\    a*a,
         \\};
         \\
     );
@@ -2542,6 +2640,19 @@ test "zig fmt: first line comment in struct initializer" {
     );
 }
 
+test "zig fmt: multiline string literals in struct initializer" {
+    try testTransform(
+        \\const a = .{ .a = \\
+        \\+ 1};
+        \\
+    ,
+        \\const a = .{ .a =
+        \\    \\
+        \\+ 1 };
+        \\
+    );
+}
+
 test "zig fmt: doc comments before struct field" {
     try testCanonical(
         \\pub const Allocator = struct {
@@ -2872,6 +2983,7 @@ test "zig fmt: destructure" {
         \\    comptime w, var y = .{ 3, 4 };
         \\    comptime var z, x = .{ 5, 6 };
         \\    comptime y, z = .{ 7, 8 };
+        \\    if (false) unreachable else comptime a, b = .{ 9, 10 };
         \\}
         \\
     );
@@ -4004,6 +4116,18 @@ test "zig fmt: multiline string in array" {
         \\}
         \\
     );
+
+    try testTransform(
+        \\const a = .{ k, \\
+        \\};
+        \\
+    ,
+        \\const a = .{
+        \\    k,
+        \\    \\
+        \\};
+        \\
+    );
 }
 
 test "zig fmt: if type expr" {
@@ -4786,8 +4910,8 @@ test "zig fmt: multiline string literals should play nice with array initializer
         \\        0,
         \\    }}}}}}}};
         \\    myFunc(.{
-        \\        "aaaaaaa",                           "bbbbbb", "ccccc",
-        \\        "dddd",                              ("eee"),  ("fff"),
+        \\        "aaaaaaa",                           "bbbbbb",                            "ccccc",
+        \\        "dddd",                              ("eee"),                             ("fff"),
         \\        ("gggg"),
         \\        // Line comment
         \\        \\Multiline String Literals can be quite long
@@ -4816,11 +4940,9 @@ test "zig fmt: multiline string literals should play nice with array initializer
         \\            (
         \\                \\ xxx
         \\            ),
-        \\            "xxx",
-        \\            "xxx",
+        \\            "xxx",     "xxx",
         \\        },
-        \\        .{ "xxxxxxx", "xxx", "xxx", "xxx" },
-        \\        .{ "xxxxxxx", "xxx", "xxx", "xxx" },
+        \\        .{ "xxxxxxx", "xxx", "xxx", "xxx" }, .{ "xxxxxxx", "xxx", "xxx", "xxx" },
         \\        "aaaaaaa", "bbbbbb", "ccccc", // -
         \\        "dddd",    ("eee"),  ("fff"),
         \\        .{
@@ -4828,8 +4950,7 @@ test "zig fmt: multiline string literals should play nice with array initializer
         \\            (
         \\                \\ xxx
         \\            ),
-        \\            "xxxxxxxxxxxxxx",
-        \\            "xxx",
+        \\            "xxxxxxxxxxxxxx", "xxx",
         \\        },
         \\        .{
         \\            (
@@ -6028,6 +6149,695 @@ test "zig fmt: extern addrspace in struct" {
     );
 }
 
+test "zig fmt: seperate errors in error sets with comments" {
+    try testTransform(
+        \\error{
+        \\    /// This error is very bad!
+        \\    A, B}
+        \\
+    ,
+        \\error{
+        \\    /// This error is very bad!
+        \\    A,
+        \\    B,
+        \\}
+        \\
+    );
+
+    try testTransform(
+        \\error{
+        \\    A, B
+        \\    // something important
+        \\}
+        \\
+    ,
+        \\error{
+        \\    A,
+        \\    B,
+        \\    // something important
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: proper escape checks" {
+    try testTransform(
+        \\@"\x41\x42\!"
+        \\
+    ,
+        \\@"AB\\!"
+        \\
+    );
+}
+
+test "zig fmt: field accesses on number literals" {
+    try testCanonical(
+        \\const a = 0xF .A;
+        \\const a = 0xF
+        \\    .A;
+        \\
+    );
+}
+
+test "zig fmt: array indent when inner becomes multi-line" {
+    try testTransform(
+        \\const access_block = x[{{}}];
+        \\
+        \\const block = [{{}}]T;
+        \\const sentinel_block = [15:{{}}]T;
+        \\const container = [enum { A, }]T;
+        \\const container_arg = [union({{}}) {}]T;
+        \\const error_set = [error{ A, }]T;
+        \\const @"switch" = [switch (m) { 0 => {}, }]T;
+        \\const switch_op = [switch ({{}}) {}]T;
+        \\const for_capture = [for (a) |_,| {}]T;
+        \\const for_expr = [for ({{}}) |_| {}]T;
+        \\const for_range = [for ({{}}..15) |_| {}]T;
+        \\const for_input_comma = [for (0..15,) |_| {}]T;
+        \\const call_param = [a({{}})]T;
+        \\const call_fn = [({{}})()]T;
+        \\const builtin_call = [@log2({{}})]T;
+        \\const array_init = [.{{{}}}]T;
+        \\const struct_init = [.{.x = {{}}}]T;
+        \\const @"asm" = [asm ("" : [x] "" (-> T))]T;
+        \\const asm_template = [asm ({{}})]T;
+        \\const asm_clobbers = [asm ("" ::: {{}})]T;
+        \\const @"fn" = [fn (({{}})) void]T;
+        \\const array_type_len = [[{{}}]T]T;
+        \\const array_type_type = [[1]({{}})]T;
+        \\const array_access_array = [({{}})[1]]T;
+        \\const array_access_index = [x[{{}}]]T;
+        \\const binop = [1 + {{}}]T;
+        \\const unaryop = [!{{}}]T;
+        \\const destructure = [while (true) : (x, {{}} = z) {}]T;
+        \\
+    ,
+        \\const access_block = x[
+        \\    {
+        \\        {}
+        \\    }
+        \\];
+        \\
+        \\const block = [
+        \\    {
+        \\        {}
+        \\    }
+        \\]T;
+        \\const sentinel_block = [
+        \\    15
+        \\    :
+        \\    {
+        \\        {}
+        \\    }
+        \\]T;
+        \\const container = [
+        \\    enum {
+        \\        A,
+        \\    }
+        \\]T;
+        \\const container_arg = [
+        \\    union({
+        \\        {}
+        \\    }) {}
+        \\]T;
+        \\const error_set = [
+        \\    error{
+        \\        A,
+        \\    }
+        \\]T;
+        \\const @"switch" = [
+        \\    switch (m) {
+        \\        0 => {},
+        \\    }
+        \\]T;
+        \\const switch_op = [
+        \\    switch ({
+        \\        {}
+        \\    }) {}
+        \\]T;
+        \\const for_capture = [
+        \\    for (a) |
+        \\        _,
+        \\    | {}
+        \\]T;
+        \\const for_expr = [
+        \\    for ({
+        \\        {}
+        \\    }) |_| {}
+        \\]T;
+        \\const for_range = [
+        \\    for ({
+        \\        {}
+        \\    }..15) |_| {}
+        \\]T;
+        \\const for_input_comma = [
+        \\    for (
+        \\        0..15,
+        \\    ) |_| {}
+        \\]T;
+        \\const call_param = [
+        \\    a({
+        \\        {}
+        \\    })
+        \\]T;
+        \\const call_fn = [
+        \\    ({
+        \\        {}
+        \\    })()
+        \\]T;
+        \\const builtin_call = [
+        \\    @log2({
+        \\        {}
+        \\    })
+        \\]T;
+        \\const array_init = [
+        \\    .{{
+        \\        {}
+        \\    }}
+        \\]T;
+        \\const struct_init = [
+        \\    .{ .x = {
+        \\        {}
+        \\    } }
+        \\]T;
+        \\const @"asm" = [
+        \\    asm (""
+        \\        : [x] "" (-> T),
+        \\    )
+        \\]T;
+        \\const asm_template = [
+        \\    asm ({
+        \\            {}
+        \\        })
+        \\]T;
+        \\const asm_clobbers = [
+        \\    asm ("" ::: {
+        \\            {}
+        \\        })
+        \\]T;
+        \\const @"fn" = [
+        \\    fn (({
+        \\        {}
+        \\    })) void
+        \\]T;
+        \\const array_type_len = [
+        \\    [
+        \\        {
+        \\            {}
+        \\        }
+        \\    ]T
+        \\]T;
+        \\const array_type_type = [
+        \\    [1]({
+        \\        {}
+        \\    })
+        \\]T;
+        \\const array_access_array = [
+        \\    ({
+        \\        {}
+        \\    })[1]
+        \\]T;
+        \\const array_access_index = [
+        \\    x[
+        \\        {
+        \\            {}
+        \\        }
+        \\    ]
+        \\]T;
+        \\const binop = [
+        \\    1 + {
+        \\        {}
+        \\    }
+        \\]T;
+        \\const unaryop = [
+        \\    !{
+        \\        {}
+        \\    }
+        \\]T;
+        \\const destructure = [
+        \\    while (true) : (x, {
+        \\        {}
+        \\    } = z) {}
+        \\]T;
+        \\
+    );
+
+    try testCanonical(
+        \\const oneline_access_block = x[{}];
+        \\const oneline_block = [{}]T;
+        \\const oneline_sentinel_block = [15:{}]T;
+        \\const oneline_container = [enum { A }]T;
+        \\const oneline_error_set = [error{A}]T;
+        \\const oneline_switch = [switch (m) {}]T;
+        \\const oneline_for = [for (a, 0..15) |_, _| {}]T;
+        \\const oneline_call = [a(a)]T;
+        \\const oneline_builtin_call = [@log2(a)]T;
+        \\const oneline_array_init = [.{a}]T;
+        \\const oneline_struct_init = [.{ .x = a }]T;
+        \\const oneline_asm = [asm ("" ::: .{})]T;
+        \\const onlinee_fn = [fn (usize) void]T;
+        \\const oneline_array_type = [[{}]T]T;
+        \\const oneline_array_access = [x[{}]]T;
+        \\const online_binop = [1 + 1]T;
+        \\const online_unaryop = [!false]T;
+        \\const oneline_destructure = [while (true) : (x, y = z) {}]T;
+        \\
+    );
+
+    try testTransform(
+        \\const a = [{
+        \\}]T;
+        \\
+        \\const b = x[{
+        \\}];
+        \\
+        \\const c = [
+        \\    {
+        \\    }
+        \\]T;
+        \\
+        \\const d = x[
+        \\    {
+        \\    }
+        \\];
+        \\
+    ,
+        \\const a = [
+        \\    {}
+        \\]T;
+        \\
+        \\const b = x[
+        \\    {}
+        \\];
+        \\
+        \\const c = [
+        \\    {}
+        \\]T;
+        \\
+        \\const d = x[
+        \\    {}
+        \\];
+        \\
+    );
+}
+
+test "zig fmt: whitespace with multiline strings" {
+    try testCanonical(
+        \\const a = .{
+        \\    .b =
+        \\    \\
+        \\    ++ "",
+        \\};
+        \\const b = switch (a) {
+        \\    a =>
+        \\    \\
+        \\    ++ "",
+        \\};
+        \\
+    );
+
+    try testTransform(
+        \\test {
+        \\    a = \\
+        \\    ;
+        \\    b = \\
+        \\    ();
+        \\    c = x ++ \\
+        \\    ;
+        \\    d = x catch \\
+        \\    ;
+        \\    comptime \\
+        \\    , \\
+        \\    , \\
+        \\    = \\
+        \\    ;
+        \\    e = if (x) \\
+        \\    else y;
+        \\    f = if (x) y else
+        \\        \\
+        \\    ;
+        \\    comptime \\
+        \\    ;
+        \\    errdefer \\
+        \\    ;
+        \\    try \\
+        \\    ;
+        \\    return \\
+        \\    ;
+        \\    const a = asm (\\
+        \\    ++ "": [a] "" (-> \\
+        \\    ) :: \\
+        \\    );
+        \\    const a2 = asm ("" ::: \\
+        \\    );
+        \\    const b = x[1 + 1 .. \\
+        \\    ];
+        \\}
+        \\/// tuple type
+        \\comptime \\
+        \\,
+        \\a: \\
+        \\align(\\
+        \\)
+        \\= \\
+        \\,
+        \\const A = .{
+        \\    *volatile \\
+        \\    ,
+        \\    *const \\
+        \\    ,
+        \\    *addrspace( \\
+        \\    ) \\
+        \\    ,
+        \\    *align( \\
+        \\    : \\
+        \\    : \\
+        \\    ) \\
+        \\    ,
+        \\    *allowzero \\
+        \\    ,
+        \\    *\\
+        \\    ,
+        \\    **\\
+        \\    ,
+        \\    [*]\\
+        \\    ,
+        \\    [*: \\
+        \\    ]\\
+        \\    ,
+        \\    [*c]\\
+        \\    ,
+        \\    []\\
+        \\    ,
+        \\    [: \\
+        \\    ]\\
+        \\    ,
+        \\    *addrspace(a) align(a) \\
+        \\    ,
+        \\};
+        \\const a = blk: {
+        \\    break \\
+        \\    ;
+        \\    break :blk \\
+        \\    ;
+        \\    continue \\
+        \\    ;
+        \\    continue :blk \\
+        \\    ;
+        \\};
+        \\const b = a(a, \\
+        \\++ "");
+        \\const c = @a(a, \\
+        \\++ "");
+        \\extern fn a(T,\\
+        \\) \\
+        \\;
+        \\extern fn b(a: \\
+        \\) align(a) callconv(a) \\
+        \\;
+        \\const d = switch (a) { \\
+        \\    , 1,
+        \\    \\
+        \\     => {},
+        \\    inline \\
+        \\    => {},
+        \\};
+        \\
+    ,
+        \\test {
+        \\    a =
+        \\        \\
+        \\    ;
+        \\    b =
+        \\        \\
+        \\    ();
+        \\    c = x ++
+        \\        \\
+        \\    ;
+        \\    d = x catch
+        \\        \\
+        \\    ;
+        \\    comptime
+        \\    \\
+        \\    ,
+        \\    \\
+        \\    ,
+        \\    \\
+        \\    =
+        \\        \\
+        \\    ;
+        \\    e = if (x)
+        \\        \\
+        \\    else
+        \\        y;
+        \\    f = if (x) y else
+        \\        \\
+        \\    ;
+        \\    comptime
+        \\    \\
+        \\    ;
+        \\    errdefer
+        \\    \\
+        \\    ;
+        \\    try
+        \\    \\
+        \\    ;
+        \\    return
+        \\    \\
+        \\    ;
+        \\    const a = asm (
+        \\        \\
+        \\    ++ ""
+        \\        : [a] "" (->
+        \\          \\
+        \\          ),
+        \\        :
+        \\        :
+        \\        \\
+        \\    );
+        \\    const a2 = asm ("" :::
+        \\        \\
+        \\    );
+        \\    const b = x[1 + 1 ..
+        \\        \\
+        \\    ];
+        \\}
+        \\/// tuple type
+        \\comptime
+        \\\\
+        \\,
+        \\a:
+        \\\\
+        \\align(
+        \\\\
+        \\) =
+        \\    \\
+        \\,
+        \\const A = .{
+        \\    *volatile
+        \\    \\
+        \\    ,
+        \\    *const
+        \\    \\
+        \\    ,
+        \\    *addrspace(
+        \\    \\
+        \\    )
+        \\    \\
+        \\    ,
+        \\    *align(
+        \\    \\
+        \\    :
+        \\    \\
+        \\    :
+        \\    \\
+        \\    )
+        \\    \\
+        \\    ,
+        \\    *allowzero
+        \\    \\
+        \\    ,
+        \\    *
+        \\    \\
+        \\    ,
+        \\    **
+        \\    \\
+        \\    ,
+        \\    [*]
+        \\    \\
+        \\    ,
+        \\    [*:
+        \\    \\
+        \\    ]
+        \\    \\
+        \\    ,
+        \\    [*c]
+        \\    \\
+        \\    ,
+        \\    []
+        \\    \\
+        \\    ,
+        \\    [:
+        \\    \\
+        \\    ]
+        \\    \\
+        \\    ,
+        \\    *align(a) addrspace(a)
+        \\    \\
+        \\    ,
+        \\};
+        \\const a = blk: {
+        \\    break
+        \\    \\
+        \\    ;
+        \\    break :blk
+        \\    \\
+        \\    ;
+        \\    continue
+        \\    \\
+        \\    ;
+        \\    continue :blk
+        \\    \\
+        \\    ;
+        \\};
+        \\const b = a(a,
+        \\    \\
+        \\++ "");
+        \\const c = @a(a,
+        \\    \\
+        \\++ "");
+        \\extern fn a(T,
+        \\\\
+        \\)
+        \\\\
+        \\;
+        \\extern fn b(a:
+        \\\\
+        \\) align(a) callconv(a)
+        \\\\
+        \\;
+        \\const d = switch (a) {
+        \\    \\
+        \\    , 1,
+        \\    \\
+        \\    => {},
+        \\    inline
+        \\    \\
+        \\    => {},
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: doc comments on fn parameters" {
+    try testTransform(
+        \\extern fn foo(
+        \\    /// Bitmap
+        \\    active: u64
+        \\) void;
+        \\extern fn bar(
+        \\    bits: u6,
+        \\    /// Bitmap
+        \\    active: u64
+        \\) void;
+        \\extern fn baz(
+        \\    /// Bitmap
+        \\    active: anytype
+        \\) void;
+        \\
+    ,
+        \\extern fn foo(
+        \\    /// Bitmap
+        \\    active: u64,
+        \\) void;
+        \\extern fn bar(
+        \\    bits: u6,
+        \\    /// Bitmap
+        \\    active: u64,
+        \\) void;
+        \\extern fn baz(
+        \\    /// Bitmap
+        \\    active: anytype,
+        \\) void;
+        \\
+    );
+    try testCanonical(
+        \\extern fn foo(x: struct {
+        \\    /// Bitmap
+        \\    active: u64,
+        \\}) void;
+        \\
+    );
+}
+
+test "zig fmt: array literal formatting when element becomes multiline" {
+    try testTransform(
+        \\const a = .{a,{{}},
+        \\            b,c,};
+    ,
+        \\const a = .{
+        \\    a,
+        \\    {
+        \\        {}
+        \\    },
+        \\    b,
+        \\    c,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: proper tracking of indentation" {
+    try testCanonical(
+        \\const a = {
+        \\    {}
+        \\};
+        \\const b = if (x) {};
+        \\const c = .{
+        \\    {
+        \\        {}
+        \\    } //
+        \\    ,
+        \\    if (x) {},
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: canonicalize stray backslashes in identifiers" {
+    try testTransform(
+        \\const @"\x" = undefined;
+        \\const @"\x3" = undefined;
+        \\const @"\x3\x39" = undefined;
+        \\const @"\u{" = undefined;
+        \\const @"\?" = undefined;
+        \\
+    ,
+        \\const @"\\x" = undefined;
+        \\const @"\\x3" = undefined;
+        \\const @"\\x39" = undefined;
+        \\const @"\\u{" = undefined;
+        \\const @"\\?" = undefined;
+        \\
+    );
+}
+
+test "zig fmt: error set with extra newline before comma" {
+    try testTransform(
+        \\const E = error{
+        \\    A
+        \\
+        \\    ,
+        \\};
+        \\
+    ,
+        \\const E = error{
+        \\    A,
+        \\};
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
@@ -6336,6 +7146,23 @@ test "ampersand" {
     , &.{});
 }
 
+test "Ast: pointer types with subexprs containing qualifiers" {
+    var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+    const allocator = fixed_allocator.allocator();
+    var tree = try std.zig.Ast.parse(allocator, "**addrspace(*align(1)T)T", .zon);
+    defer tree.deinit(allocator);
+
+    const regular_ptr_node = tree.nodeData(.root).node;
+    const full_regular_ptr = tree.fullPtrType(regular_ptr_node) orelse return error.TestFailed;
+    try std.testing.expect(full_regular_ptr.ast.addrspace_node == .none);
+    try std.testing.expect(full_regular_ptr.ast.align_node == .none);
+
+    const special_ptr_node = full_regular_ptr.ast.child_type;
+    const full_special_ptr = tree.fullPtrType(special_ptr_node) orelse return error.TestFailed;
+    try std.testing.expect(full_special_ptr.ast.addrspace_node != .none);
+    try std.testing.expect(full_special_ptr.ast.align_node == .none);
+}
+
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(io: Io, source: [:0]const u8, allocator: Allocator, anything_changed: *bool) ![]u8 {
@@ -6425,4 +7252,264 @@ fn fuzzTestOneParse(_: void, smith: *std.testing.Smith) !void {
     var tokens: std.zig.TokenSmith = .gen(smith);
     var fba: std.heap.FixedBufferAllocator = .init(&fixed_buffer_mem);
     _ = std.zig.Ast.parseTokens(fba.allocator(), tokens.source(), tokens.list(), mode) catch return;
+}
+
+test "zig fmt: fuzz" {
+    try std.testing.fuzz({}, fuzzRender, .{});
+}
+
+fn parseTokens(
+    fba: Allocator,
+    source: [:0]const u8,
+) error{ SkipZigTest, OutOfMemory }!struct {
+    toks: std.zig.Ast.TokenList,
+    maybe_rewritable: bool,
+    skip_idempotency: bool,
+} {
+    @disableInstrumentation();
+    // Byte-order marker is stripped
+    var maybe_rewritable = std.mem.startsWith(u8, source, "\xEF\xBB\xBF");
+    var skip_idempotency = false; // This should be able to be removed once all the bugs are fixed
+
+    var tokens: std.zig.Ast.TokenList = .{};
+    try tokens.ensureTotalCapacity(fba, source.len / 2);
+    var tokenizer: std.zig.Tokenizer = .init(source);
+    while (true) {
+        const tok = tokenizer.next();
+        switch (tok.tag) {
+            .invalid,
+            .invalid_periodasterisks,
+            => return error.SkipZigTest,
+            // Extra colons can be removed
+            .keyword_asm,
+            // Qualifiers can be reordered
+            // keyword_const is intentionally excluded since it is used in other contexts and
+            // having only one qualifier will never lead to reordering.
+            .keyword_addrspace,
+            .keyword_align,
+            .keyword_allowzero,
+            .keyword_callconv,
+            .keyword_linksection,
+            .keyword_volatile,
+            => maybe_rewritable = true,
+            .builtin,
+            // Pointer casts can be reordered
+            => for ([_][]const u8{
+                "ptrCast",
+                "alignCast",
+                "addrSpaceCast",
+                "constCast",
+                "volatileCast",
+            }) |id| {
+                if (std.mem.eql(u8, source[tok.loc.start + 1 .. tok.loc.end], id)) {
+                    maybe_rewritable = false;
+                }
+            },
+            // Quoted identifiers can be unquoted
+            .identifier => maybe_rewritable = maybe_rewritable or source[tok.loc.start] == '@',
+            else => {},
+            // #23754
+            .container_doc_comment,
+            => if (std.mem.endsWith(Token.Tag, tokens.items(.tag), &.{.l_brace})) {
+                return error.SkipZigTest;
+            },
+            // #24507
+            .keyword_inline,
+            .keyword_for,
+            .keyword_while,
+            .l_brace,
+            => if (std.mem.endsWith(Token.Tag, tokens.items(.tag), &.{ .identifier, .colon })) {
+                maybe_rewritable = true;
+                skip_idempotency = true;
+            },
+        }
+        try tokens.append(fba, .{
+            .tag = tok.tag,
+            .start = @intCast(tok.loc.start),
+        });
+        if (tok.tag == .eof)
+            break;
+    }
+    return .{
+        .toks = tokens,
+        .maybe_rewritable = maybe_rewritable,
+        .skip_idempotency = skip_idempotency,
+    };
+}
+
+/// Checks equivelence of non-whitespace characters.
+/// If there are commas in `source`, then it is checked they are also present
+/// in `rendered`. Extra commas in `rendered` are ignored.
+fn isRewritten(source: [:0]const u8, rendered: [:0]const u8) bool {
+    @disableInstrumentation();
+    var i: usize = 0;
+    for (source[0 .. source.len + 1]) |c| switch (c) {
+        ' ', '\r', '\t', '\n' => {},
+        else => while (true) {
+            defer i += 1;
+            switch (rendered[i]) {
+                ' ', '\n' => {},
+                ',' => if (c == ',') break,
+                else => |r| if (c != r) return false else break,
+            }
+        },
+    };
+    std.debug.assert(i >= rendered.len);
+    return false;
+}
+
+/// Checks that no line ends in whitespace
+fn checkBetweenTokens(src: []const u8, fmt_on: *bool) error{
+    TrailingLineWhitespace,
+    DoubleEmptyLine,
+}!void {
+    @disableInstrumentation();
+    var pos: usize = 0;
+    while (true) {
+        const nl_pos = std.mem.indexOfScalarPos(u8, src, pos, '\n');
+        var check_trailing = fmt_on.*;
+
+        const line = src[pos .. nl_pos orelse src.len];
+        if (std.mem.indexOfScalar(u8, line, '/')) |comment_start| {
+            const comment_content = line[comment_start..][2..];
+            const trimmed_comment = std.mem.trim(u8, comment_content, &std.ascii.whitespace);
+            if (std.mem.eql(u8, trimmed_comment, "zig fmt: off")) {
+                fmt_on.* = false;
+            } else if (std.mem.eql(u8, trimmed_comment, "zig fmt: on")) {
+                fmt_on.* = true;
+                check_trailing = true;
+            }
+        }
+
+        pos = nl_pos orelse break;
+        if (check_trailing and pos != 0) switch (src[pos - 1]) {
+            ' ', '\t', '\r' => return error.TrailingLineWhitespace,
+            '\n' => if (pos != 1 and src[pos - 2] == '\n') return error.DoubleEmptyLine,
+            else => {},
+        };
+        pos += 1;
+    }
+}
+
+/// Ignores extre `.comma` tokens in `rendered`
+fn reparseTokens(
+    fba: Allocator,
+    rendered: [:0]const u8,
+    expected_tags: [:.eof]const Token.Tag,
+) error{
+    OutOfMemory,
+    SameLineMultilineStringLiteral,
+    TrailingLineWhitespace,
+    DoubleEmptyLine,
+}!struct {
+    toks: std.zig.Ast.TokenList,
+    rewritten: bool,
+} {
+    @disableInstrumentation();
+    var rewritten = false;
+    var tokens: std.zig.Ast.TokenList = .{};
+    var last_token_end: usize = 0;
+    var fmt_on = true;
+
+    try tokens.ensureTotalCapacity(fba, expected_tags.len + 2); // 1 for EOF and 1 for maybe a comma
+    var tokenizer: std.zig.Tokenizer = .init(rendered);
+    var i: usize = 0;
+    while (true) {
+        const tok = tokenizer.next();
+        try tokens.append(fba, .{
+            .tag = tok.tag,
+            .start = @intCast(tok.loc.start),
+        });
+
+        const between = rendered[last_token_end..tok.loc.start];
+        last_token_end = tok.loc.end;
+        try checkBetweenTokens(between, &fmt_on);
+        if (tok.tag == .multiline_string_literal_line and fmt_on) blk: {
+            if (tokens.len == 1)
+                break :blk; // first token
+            if (std.mem.indexOfScalar(u8, between, '\n') == null)
+                return error.SameLineMultilineStringLiteral;
+        }
+        if (tok.tag == expected_tags[i]) {
+            if (tok.tag == .eof)
+                break;
+            i += 1;
+        } else if (tok.tag != .comma or !fmt_on) {
+            rewritten = true;
+        }
+    }
+    std.debug.assert(i == expected_tags.len);
+    try checkBetweenTokens(rendered[last_token_end..], &fmt_on);
+
+    return .{ .toks = tokens, .rewritten = rewritten };
+}
+
+fn fuzzRender(_: void, smith: *std.testing.Smith) !void {
+    @disableInstrumentation();
+
+    var src_buf: [512]u8 = undefined;
+    const src_len = smith.sliceWeighted(&src_buf, &.{
+        .rangeLessThan(u32, 0, 32, 256),
+        .rangeLessThan(u32, 32, 64, 64),
+        .rangeLessThan(u32, 64, src_buf.len, 1),
+    }, &.{
+        .rangeAtMost(u8, 0x20, 0x7e, 8),
+        .value(u8, '\n', 32),
+        .value(u8, '\t', 8),
+        .value(u8, '\r', 4),
+        .rangeAtMost(u8, 0x7f, 0xff, 1),
+    });
+    src_buf[src_len] = 0;
+
+    var fba_ctx = std.heap.FixedBufferAllocator.init(&fixed_buffer_mem);
+    fuzzRenderInner(src_buf[0..src_len :0], fba_ctx.allocator()) catch |e| return switch (e) {
+        error.OutOfMemory => {},
+        else => e,
+    };
+}
+
+fn fuzzRenderInner(source: [:0]const u8, fba: Allocator) !void {
+    @disableInstrumentation();
+
+    const src_toks = try parseTokens(fba, source);
+    const src_tree = try std.zig.Ast.parseTokens(fba, source, src_toks.toks.slice(), .zig);
+    if (src_tree.errors.len != 0)
+        return;
+    for (src_tree.nodes.items(.tag)) |tag| switch (tag) {
+        // #24507 (`switch(x) { inline for (a) |a| a => {} }` to
+        //         `switch(x) { { inline for (a) |a| a => {} }` since
+        //         AST determines inline case token as one before the case expression's first)
+        .switch_case_inline, .switch_case_inline_one => return error.SkipZigTest,
+        else => {},
+    };
+
+    var rendered_w: std.Io.Writer.Allocating = .init(fba);
+    try rendered_w.ensureUnusedCapacity(source.len + source.len / 2);
+    try src_tree.render(fba, &rendered_w.writer, .{});
+    // `toOwnedSliceSentinel` is not used since it reallocates the entire
+    // list to save space which is useless for fixed buffer allocators.
+    try rendered_w.writer.writeByte(0);
+    const rendered = rendered_w.written()[0 .. rendered_w.written().len - 1 :0];
+
+    // First check that the non-whitespace characters match. This ensures that
+    // identifier names, numbers, comments, et cetera are preserved.
+    if (!src_toks.maybe_rewritable and isRewritten(source, rendered))
+        return error.Rewritten;
+    // Next check that the tokens are the same since whitespace removal can change the tokens
+    const src_tags = src_toks.toks.items(.tag);
+    const rendered_toks = try reparseTokens(fba, rendered, src_tags[0 .. src_tags.len - 1 :.eof]);
+    if (!src_toks.maybe_rewritable and rendered_toks.rewritten)
+        return error.Rewritten;
+
+    // Rerender the tree to check idempotency and that new commas
+    // and whitespace changes did not create an AST error.
+    const rendered_tree = try std.zig.Ast.parseTokens(fba, rendered, rendered_toks.toks.slice(), .zig);
+    if (rendered_tree.errors.len != 0)
+        return error.Rewritten;
+    if (!src_toks.skip_idempotency) {
+        var rerendered_w: std.Io.Writer.Allocating = .init(fba);
+        try rerendered_w.ensureUnusedCapacity(source.len);
+        try rendered_tree.render(fba, &rerendered_w.writer, .{});
+        try std.testing.expectEqualStrings(rendered, rerendered_w.written());
+    }
 }

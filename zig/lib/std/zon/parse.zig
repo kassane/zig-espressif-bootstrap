@@ -591,7 +591,7 @@ const Parser = struct {
                     if (pointer.child == u8 and
                         pointer.is_const and
                         (pointer.sentinel() == null or pointer.sentinel() == 0) and
-                        pointer.alignment == 1)
+                        (pointer.alignment == null or pointer.alignment == 1))
                     {
                         if (opt) {
                             return self.failNode(node, "expected optional string");
@@ -717,7 +717,7 @@ const Parser = struct {
             pointer.size != .slice or
             !pointer.is_const or
             (pointer.sentinel() != null and pointer.sentinel() != 0) or
-            pointer.alignment != 1)
+            (pointer.alignment != null and pointer.alignment != 1))
         {
             return error.WrongType;
         }
@@ -742,7 +742,7 @@ const Parser = struct {
         const slice = try self.gpa.allocWithOptions(
             pointer.child,
             nodes.len,
-            .fromByteUnits(pointer.alignment),
+            .fromByteUnitsOptional(pointer.alignment),
             pointer.sentinel(),
         );
         errdefer self.gpa.free(slice);
@@ -2795,7 +2795,7 @@ test "std.zon negative char" {
 }
 
 test "std.zon parse float" {
-    if (builtin.cpu.arch == .x86 and builtin.abi == .musl and builtin.link_mode == .dynamic) return error.SkipZigTest;
+    if (builtin.cpu.arch == .x86) return error.SkipZigTest;
 
     const gpa = std.testing.allocator;
 

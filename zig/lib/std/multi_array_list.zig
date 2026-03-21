@@ -19,7 +19,11 @@ const testing = std.testing;
 /// For unions you can call `.items(.tags)` or `.items(.data)`.
 pub fn MultiArrayList(comptime T: type) type {
     return struct {
-        bytes: [*]align(@alignOf(T)) u8 = undefined,
+        /// This pointer is always aligned to the boundary `sizes.big_align`; this is not specified
+        /// in the type to avoid `MultiArrayList(T)` depending on the alignment of `T` because this
+        /// can lead to dependency loops. See `allocatedBytes` which `@alignCast`s this pointer to
+        /// the correct type.
+        bytes: [*]u8 = undefined,
         len: usize = 0,
         capacity: usize = 0,
 
@@ -133,10 +137,8 @@ pub fn MultiArrayList(comptime T: type) type {
                 if (self.ptrs.len == 0 or self.capacity == 0) {
                     return .{};
                 }
-                const unaligned_ptr = self.ptrs[sizes.fields[0]];
-                const aligned_ptr: [*]align(@alignOf(Elem)) u8 = @alignCast(unaligned_ptr);
                 return .{
-                    .bytes = aligned_ptr,
+                    .bytes = self.ptrs[sizes.fields[0]],
                     .len = self.len,
                     .capacity = self.capacity,
                 };
@@ -179,6 +181,7 @@ pub fn MultiArrayList(comptime T: type) type {
         const fields = meta.fields(Elem);
         /// `sizes.bytes` is an array of @sizeOf each T field. Sorted by alignment, descending.
         /// `sizes.fields` is an array mapping from `sizes.bytes` array index to field index.
+        /// `sizes.big_align` is the overall alignment of the allocation, which equals the maximum field alignment.
         const sizes = blk: {
             const Data = struct {
                 size: usize,
@@ -186,12 +189,14 @@ pub fn MultiArrayList(comptime T: type) type {
                 alignment: usize,
             };
             var data: [fields.len]Data = undefined;
+            var big_align: usize = 1;
             for (fields, 0..) |field_info, i| {
                 data[i] = .{
                     .size = @sizeOf(field_info.type),
                     .size_index = i,
-                    .alignment = if (@sizeOf(field_info.type) == 0) 1 else field_info.alignment,
+                    .alignment = field_info.alignment orelse @alignOf(field_info.type),
                 };
+                big_align = @max(big_align, data[i].alignment);
             }
             const Sort = struct {
                 fn lessThan(context: void, lhs: Data, rhs: Data) bool {
@@ -210,6 +215,7 @@ pub fn MultiArrayList(comptime T: type) type {
             break :blk .{
                 .bytes = sizes_bytes,
                 .fields = field_indexes,
+                .big_align = mem.Alignment.fromByteUnits(big_align),
             };
         };
 
@@ -452,7 +458,7 @@ pub fn MultiArrayList(comptime T: type) type {
             assert(new_len <= self.capacity);
             assert(new_len <= self.len);
 
-            const other_bytes = gpa.alignedAlloc(u8, .of(Elem), capacityInBytes(new_len)) catch {
+            const other_bytes = gpa.alignedAlloc(u8, sizes.big_align, capacityInBytes(new_len)) catch {
                 const self_slice = self.slice();
                 inline for (fields, 0..) |field_info, i| {
                     if (@sizeOf(field_info.type) != 0) {
@@ -533,7 +539,7 @@ pub fn MultiArrayList(comptime T: type) type {
         /// `new_capacity` must be greater or equal to `len`.
         pub fn setCapacity(self: *Self, gpa: Allocator, new_capacity: usize) Allocator.Error!void {
             assert(new_capacity >= self.len);
-            const new_bytes = try gpa.alignedAlloc(u8, .of(Elem), capacityInBytes(new_capacity));
+            const new_bytes = try gpa.alignedAlloc(u8, sizes.big_align, capacityInBytes(new_capacity));
             if (self.len == 0) {
                 gpa.free(self.allocatedBytes());
                 self.bytes = new_bytes.ptr;
@@ -650,8 +656,8 @@ pub fn MultiArrayList(comptime T: type) type {
             return elem_bytes * capacity;
         }
 
-        fn allocatedBytes(self: Self) []align(@alignOf(Elem)) u8 {
-            return self.bytes[0..capacityInBytes(self.capacity)];
+        fn allocatedBytes(self: Self) []align(sizes.big_align.toByteUnits()) u8 {
+            return @alignCast(self.bytes[0..capacityInBytes(self.capacity)]);
         }
 
         fn FieldType(comptime field: Field) type {

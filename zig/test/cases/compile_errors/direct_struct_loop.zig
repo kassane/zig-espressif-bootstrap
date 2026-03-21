@@ -7,4 +7,4 @@ export fn entry() usize {
 
 // error
 //
-// :1:11: error: struct 'tmp.A' depends on itself
+// :2:8: error: type 'tmp.A' depends on itself for field declared here

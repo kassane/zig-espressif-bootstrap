@@ -12,4 +12,7 @@ export fn entry() void {
 
 // error
 //
-// :1:17: error: struct 'tmp.LhsExpr' depends on itself
+// error: dependency loop with length 2
+// :2:14: note: type 'tmp.LhsExpr' depends on type 'tmp.AstObject' for field declared here
+// :5:14: note: type 'tmp.AstObject' depends on type 'tmp.LhsExpr' for field declared here
+// note: eliminate any one of these dependencies to break the loop

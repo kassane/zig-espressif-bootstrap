@@ -3,7 +3,7 @@ const Io = std.Io;
 
 pub fn main(init: std.process.Init.Minimal) !void {
     // make sure safety checks are enabled even in release modes
-    var gpa_state: std.heap.GeneralPurposeAllocator(.{ .safety = true }) = .{};
+    var gpa_state: std.heap.DebugAllocator(.{ .safety = true }) = .{};
     defer if (gpa_state.deinit() != .ok) {
         @panic("found memory leaks");
     };

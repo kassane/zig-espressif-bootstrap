@@ -16,6 +16,7 @@
 //! pax reference: https://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html#tag_20_92_13
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Io = std.Io;
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -885,10 +886,10 @@ test "create file and symlink" {
     file = try createDirAndFile(io, root.dir, "a/b/c/file2", .default_file);
     file.close(io);
 
-    createDirAndSymlink(io, root.dir, "a/b/c/file2", "symlink1") catch |err| {
-        // On Windows when developer mode is not enabled
-        if (err == error.AccessDenied) return error.SkipZigTest;
-        return err;
+    createDirAndSymlink(io, root.dir, "a/b/c/file2", "symlink1") catch |err| switch (err) {
+        // On Windows, symlinks require developer mode/admin privileges and the underlying filesystem must support symlinks
+        error.AccessDenied, error.PermissionDenied, error.FileSystem => if (builtin.os.tag == .windows) return error.SkipZigTest else return err,
+        else => return err,
     };
     try createDirAndSymlink(io, root.dir, "../../../file1", "d/e/f/symlink2");
 

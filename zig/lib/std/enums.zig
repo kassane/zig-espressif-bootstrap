@@ -42,6 +42,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
 /// The result array is in the same order as the input.
 pub inline fn valuesFromFields(comptime E: type, comptime fields: []const EnumField) []const E {
     comptime {
+        @setEvalBranchQuota(@typeInfo(E).@"enum".fields.len + eval_branch_quota_cushion);
         var result: [fields.len]E = undefined;
         for (&result, fields) |*r, f| {
             r.* = @enumFromInt(f.value);
@@ -53,7 +54,7 @@ pub inline fn valuesFromFields(comptime E: type, comptime fields: []const EnumFi
 
 /// Returns the set of all named values in the given enum, in
 /// declaration order.
-pub fn values(comptime E: type) []const E {
+pub inline fn values(comptime E: type) []const E {
     return comptime valuesFromFields(E, @typeInfo(E).@"enum".fields);
 }
 

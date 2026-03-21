@@ -17,7 +17,7 @@ var fba: std.heap.FixedBufferAllocator = .init(&fba_buffer);
 var fba_buffer: [8192]u8 = undefined;
 var stdin_buffer: [4096]u8 = undefined;
 var stdout_buffer: [4096]u8 = undefined;
-const runner_threaded_io: Io = Io.Threaded.global_single_threaded.ioBasic();
+const runner_threaded_io: Io = Io.Threaded.global_single_threaded.io();
 
 /// Keep in sync with logic in `std.Build.addRunArtifact` which decides whether
 /// the test runner will communicate with the build runner via `std.zig.Server`.
@@ -38,10 +38,10 @@ pub fn main(init: std.process.Init.Minimal) void {
     }
 
     if (need_simple) {
-        return mainSimple() catch @panic("test failure");
+        return mainSimple() catch |err| std.debug.panic("test failure: {t}", .{err});
     }
 
-    const args = init.args.toSlice(fba.allocator()) catch @panic("unable to parse command line args");
+    const args = init.args.toSlice(fba.allocator()) catch |err| std.debug.panic("unable to parse command line args: {t}", .{err});
 
     var listen = false;
     var opt_cache_dir: ?[]const u8 = null;
@@ -55,7 +55,7 @@ pub fn main(init: std.process.Init.Minimal) void {
         } else if (std.mem.startsWith(u8, arg, "--cache-dir")) {
             opt_cache_dir = arg["--cache-dir=".len..];
         } else {
-            @panic("unrecognized command line argument");
+            std.debug.panic("unrecognized command line argument: {s}", .{arg});
         }
     }
 
@@ -65,7 +65,7 @@ pub fn main(init: std.process.Init.Minimal) void {
     }
 
     if (listen) {
-        return mainServer(init) catch @panic("internal test runner failure");
+        return mainServer(init) catch |err| std.debug.panic("internal test runner failure: {t}", .{err});
     } else {
         return mainTerminal(init);
     }
@@ -180,7 +180,23 @@ fn mainServer(init: std.process.Init.Minimal) !void {
                 // since they are not present.
                 if (!builtin.fuzz) unreachable;
 
-                const index = try server.receiveBody_u32();
+                const index: u32 = @intCast(index: {
+                    testing.allocator_instance = .{};
+                    defer if (testing.allocator_instance.deinit() == .leak) {
+                        @panic("internal test runner memory leak");
+                    };
+
+                    const name_len = try server.receiveBody_u32();
+                    const name = try server.in.readAlloc(testing.allocator, @intCast(name_len));
+                    defer testing.allocator.free(name);
+                    for (0.., builtin.test_functions) |i, test_fn| {
+                        if (std.mem.eql(u8, name, test_fn.name)) {
+                            break :index i;
+                        }
+                    } else {
+                        std.debug.panic("fuzz test {s} no longer exists", .{name});
+                    }
+                });
                 const mode: fuzz_abi.LimitKind = @enumFromInt(try server.receiveBody_u8());
                 const amount_or_instance = try server.receiveBody_u64();
 
@@ -406,13 +422,13 @@ pub fn fuzz(
     const global = struct {
         var ctx: @TypeOf(context) = undefined;
 
-        fn test_one() callconv(.c) void {
+        fn test_one() callconv(.c) bool {
             @disableInstrumentation();
             testing.allocator_instance = .{};
             defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
             log_err_count = 0;
             testOne(ctx, @constCast(&testing.Smith{ .in = null })) catch |err| switch (err) {
-                error.SkipZigTest => return,
+                error.SkipZigTest => return true,
                 else => {
                     const stderr = std.debug.lockStderr(&.{}).terminal();
                     p: {
@@ -429,6 +445,7 @@ pub fn fuzz(
                 stderr.writer.print("error logs detected\n", .{}) catch {};
                 std.process.exit(1);
             }
+            return false;
         }
     };
     if (builtin.fuzz) {

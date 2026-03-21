@@ -334,7 +334,7 @@ pub fn walkSelectively(dir: Dir, allocator: Allocator) !SelectiveWalker {
 
     return .{
         .stack = stack,
-        .name_buffer = .{},
+        .name_buffer = .empty,
         .allocator = allocator,
     };
 }

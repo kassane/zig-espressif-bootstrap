@@ -298,6 +298,28 @@ test "File.stat on a File that is a symlink returns Kind.sym_link" {
     }.impl);
 }
 
+test "Dir.statFile on a symlink" {
+    const io = testing.io;
+
+    try testWithAllSupportedPathTypes(struct {
+        fn impl(ctx: *TestContext) !void {
+            const dir_target_path = try ctx.transformPath("test_file");
+            try ctx.dir.writeFile(io, .{
+                .sub_path = dir_target_path,
+                .data = "Some test content",
+            });
+
+            try setupSymlink(io, ctx.dir, dir_target_path, "symlink", .{});
+
+            const file_stat = try ctx.dir.statFile(io, "test_file", .{ .follow_symlinks = false });
+            try testing.expectEqual(File.Kind.file, file_stat.kind);
+
+            const link_stat = try ctx.dir.statFile(io, "symlink", .{ .follow_symlinks = false });
+            try testing.expectEqual(File.Kind.sym_link, link_stat.kind);
+        }
+    }.impl);
+}
+
 test "openDir" {
     const io = testing.io;
 
@@ -1841,6 +1863,33 @@ test "read from locked file" {
             }
         }
     }.impl);
+}
+
+test "use Lock.none to unlock files" {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    const io = testing.io;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Create a locked file.
+    const test_file = try tmp.dir.createFile(io, "test_file", .{ .lock = .exclusive, .lock_nonblocking = true });
+    defer test_file.close(io);
+
+    // Attempt to unlock the file via fs.lock with Lock.none.
+    try test_file.lock(io, .none);
+
+    // Attempt to open the file now that it should be unlocked.
+    const test_file2 = try tmp.dir.openFile(io, "test_file", .{ .lock = .exclusive, .lock_nonblocking = true });
+    defer test_file2.close(io);
+
+    // Make sure Lock.none works with tryLock as well.
+    try testing.expect(try test_file2.tryLock(io, .none));
+
+    // Attempt to open the file since it should be unlocked again.
+    const test_file3 = try tmp.dir.openFile(io, "test_file", .{ .lock = .exclusive, .lock_nonblocking = true });
+    test_file3.close(io);
 }
 
 test "walker" {

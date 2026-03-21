@@ -309,8 +309,15 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
             break :blk symbol.address(.{ .plt = false }, elf_file) - elf_file.tlsAddress();
         break :blk symbol.address(.{ .plt = false, .trampoline = false }, elf_file);
     };
+    const st_other = blk: {
+        const vis = @as(elf.STV, @enumFromInt(@as(u3, @truncate(esym.st_other))));
+        if (file_ptr != .shared_object or vis != elf.STV.PROTECTED) break :blk esym.st_other;
+        // Reset protected visibility to default for symbols originating in shared objects
+        break :blk esym.st_other & 0b11111000;
+    };
+
     out.st_info = (st_bind << 4) | st_type;
-    out.st_other = esym.st_other;
+    out.st_other = st_other;
     out.st_shndx = st_shndx;
     out.st_value = @intCast(st_value);
     out.st_size = esym.st_size;

@@ -5,4 +5,4 @@ export fn entry() void {
 
 // error
 //
-// :1:19: error: tag type must be an integer type
+// :1:19: error: expected integer tag type, found 'bool'

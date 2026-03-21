@@ -63,7 +63,7 @@ pub fn alignment(comptime T: type) comptime_int {
             .pointer, .@"fn" => alignment(info.child),
             else => @alignOf(T),
         },
-        .pointer => |info| info.alignment,
+        .pointer => |info| info.alignment orelse @alignOf(info.child),
         else => @alignOf(T),
     };
 }
@@ -315,7 +315,7 @@ test declarationInfo {
         try testing.expect(comptime mem.eql(u8, info.name, "a"));
     }
 }
-pub fn fields(comptime T: type) switch (@typeInfo(T)) {
+pub inline fn fields(comptime T: type) switch (@typeInfo(T)) {
     .@"struct" => []const Type.StructField,
     .@"union" => []const Type.UnionField,
     .@"enum" => []const Type.EnumField,
@@ -482,8 +482,7 @@ pub fn FieldEnum(comptime T: type) type {
 }
 
 fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
-    // TODO: https://github.com/ziglang/zig/issues/7419
-    // testing.expectEqual(@typeInfo(expected).@"enum", @typeInfo(actual).@"enum");
+    try testing.expectEqual(@typeInfo(expected).@"enum", @typeInfo(actual).@"enum");
     try testing.expectEqual(
         @typeInfo(expected).@"enum".tag_type,
         @typeInfo(actual).@"enum".tag_type,
@@ -636,22 +635,22 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
             }
         },
         .@"union" => |info| {
-            if (info.tag_type) |UnionTag| {
-                const tag_a: UnionTag = a;
-                const tag_b: UnionTag = b;
-                if (tag_a != tag_b) return false;
+            if (info.layout == .@"packed") return a == b;
+            const UnionTag = info.tag_type orelse
+                @compileError("cannot compare untagged union type " ++ @typeName(T));
 
-                return switch (a) {
-                    inline else => |val, tag| return eql(val, @field(b, @tagName(tag))),
-                };
-            }
+            const tag_a: UnionTag = a;
+            const tag_b: UnionTag = b;
+            if (tag_a != tag_b) return false;
 
-            @compileError("cannot compare untagged union type " ++ @typeName(T));
+            return switch (a) {
+                inline else => |val, tag| return eql(val, @field(b, @tagName(tag))),
+            };
         },
         .array => {
-            if (a.len != b.len) return false;
-            for (a, 0..) |e, i|
-                if (!eql(e, b[i])) return false;
+            for (a, b) |x, y| {
+                if (!eql(x, y)) return false;
+            }
             return true;
         },
         .vector => return @reduce(.And, a == b),
@@ -662,9 +661,9 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
             };
         },
         .optional => {
-            if (a == null and b == null) return true;
-            if (a == null or b == null) return false;
-            return eql(a.?, b.?);
+            const some_a = a orelse return b == null;
+            const some_b = b orelse return false;
+            return eql(some_a, some_b);
         },
         else => return a == b,
     }

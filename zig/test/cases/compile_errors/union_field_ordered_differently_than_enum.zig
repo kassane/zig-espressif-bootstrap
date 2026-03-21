@@ -21,7 +21,6 @@ export fn entry() usize {
 
 // error
 //
-// :4:5: error: union field 'b' ordered differently than corresponding enum field
-// :1:23: note: enum field here
-// :14:5: error: union field 'b' ordered differently than corresponding enum field
-// :10:5: note: enum field here
+// :3:15: error: union field order does not match tag enum field order
+// :5:5: note: union field 'a' is index 1
+// :1:20: note: enum field 'a' is index 0

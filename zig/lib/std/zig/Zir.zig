@@ -2443,7 +2443,7 @@ pub const Inst = struct {
                 has_align: bool,
                 has_addrspace: bool,
                 has_bit_range: bool,
-                _: u1 = undefined,
+                _: u1 = 0,
             },
             size: std.builtin.Type.Pointer.Size,
             /// Index into extra. See `PtrType`.
@@ -2668,7 +2668,7 @@ pub const Inst = struct {
             has_ret_ty_body: bool,
             has_any_noalias: bool,
             ret_ty_is_generic: bool,
-            _: u23 = undefined,
+            _: u23 = 0,
         };
     };
 
@@ -3134,7 +3134,7 @@ pub const Inst = struct {
         pub const Flags = packed struct {
             is_nosuspend: bool,
             ensure_result_used: bool,
-            _: u30 = undefined,
+            _: u30 = 0,
 
             comptime {
                 if (@sizeOf(Flags) != 4 or @bitSizeOf(Flags) != 32)
@@ -3462,33 +3462,21 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. captures_len: u32 // if has_captures_len
-    /// 1. fields_len: u32, // if has_fields_len
-    /// 2. decls_len: u32, // if has_decls_len
-    /// 3. capture: Capture // for every captures_len
-    /// 4. capture_name: NullTerminatedString // for every captures_len
-    /// 5. backing_int_body_len: u32, // if has_backing_int
-    /// 6. backing_int_ref: Ref, // if has_backing_int and backing_int_body_len is 0
-    /// 7. backing_int_body_inst: Inst, // if has_backing_int and backing_int_body_len is > 0
-    /// 8. decl: Index, // for every decls_len; points to a `declaration` instruction
-    /// 9. flags: u32 // for every 8 fields
-    ///    - sets of 4 bits:
-    ///      0b000X: whether corresponding field has an align expression
-    ///      0b00X0: whether corresponding field has a default expression
-    ///      0b0X00: whether corresponding field is comptime
-    ///      0bX000: whether corresponding field has a type expression
-    /// 10. fields: { // for every fields_len
-    ///        field_name: u32,
-    ///        field_type: Ref, // if corresponding bit is not set. none means anytype.
-    ///        field_type_body_len: u32, // if corresponding bit is set
-    ///        align_body_len: u32, // if corresponding bit is set
-    ///        init_body_len: u32, // if corresponding bit is set
-    ///    }
-    /// 11. bodies: { // for every fields_len
-    ///        field_type_body_inst: Inst, // for each field_type_body_len
-    ///        align_body_inst: Inst, // for each align_body_len
-    ///        init_body_inst: Inst, // for each init_body_len
-    ///    }
+    /// 0.  captures_len: u32 // if `has_captures_len`
+    /// 1.  decls_len: u32, // if `has_decls_len`
+    /// 2.  fields_len: u32, // if `has_fields_len`
+    /// 3.  backing_int_body_len: u32 // if `has_backing_int`
+    /// 4.  capture: Capture // for every `captures_len`
+    /// 5.  capture_name: NullTerminatedString // for every `captures_len`
+    /// 6.  decl: Index, // for every `decls_len`; points to a `declaration` instruction
+    /// 7.  field_name: NullTerminatedString // for every `fields_len`
+    /// 8.  field_type_body_len: u32 // for every `fields_len`
+    /// 9.  field_align_body_len: u32 // for every `fields_len` if `any_field_aligns`
+    /// 10. field_default_body_len: u32 // for every `fields_len` if `any_field_defaults`
+    /// 11. field_comptime_bits: u32 // one bit per `fields_len` if `any_comptime_fields`
+    ///                              // LSB is first field, minimum number of `u32` needed
+    /// 12. backing_int_body_inst: Inst.Index // for each `backing_int_body_len`
+    /// 13. body_inst: Inst.Index // type body, then align body, then default body, for each field
     pub const StructDecl = struct {
         // These fields should be concatenated and reinterpreted as a `std.zig.SrcHash`.
         // This hash contains the source of all fields, and any specified attributes (`extern`, backing type, etc).
@@ -3500,19 +3488,18 @@ pub const Inst = struct {
         /// This node provides a new absolute baseline node for all instructions within this struct.
         src_node: Ast.Node.Index,
 
-        pub const Small = packed struct {
+        pub const Small = packed struct(u16) {
             has_captures_len: bool,
-            has_fields_len: bool,
             has_decls_len: bool,
-            has_backing_int: bool,
-            known_non_opv: bool,
-            known_comptime_only: bool,
+            has_fields_len: bool,
             name_strategy: NameStrategy,
             layout: std.builtin.Type.ContainerLayout,
-            any_default_inits: bool,
+            /// Always `false` if `layout != .@"packed"`.
+            has_backing_int_type: bool,
+            any_field_aligns: bool,
+            any_field_defaults: bool,
             any_comptime_fields: bool,
-            any_aligned_fields: bool,
-            _: u3 = undefined,
+            _: u5 = 0,
         };
     };
 
@@ -3633,21 +3620,17 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. tag_type: Ref, // if has_tag_type
-    /// 1. captures_len: u32, // if has_captures_len
-    /// 2. body_len: u32, // if has_body_len
-    /// 3. fields_len: u32, // if has_fields_len
-    /// 4. decls_len: u32, // if has_decls_len
-    /// 5. capture: Capture // for every captures_len
-    /// 6. capture_name: NullTerminatedString // for every captures_len
-    /// 7. decl: Index, // for every decls_len; points to a `declaration` instruction
-    /// 8. inst: Index // for every body_len
-    /// 9. has_bits: u32 // for every 32 fields
-    ///    - the bit is whether corresponding field has an value expression
-    /// 10. fields: { // for every fields_len
-    ///        field_name: u32,
-    ///        value: Ref, // if corresponding bit is set
-    ///    }
+    /// 0. captures_len: u32, // if has_captures_len
+    /// 1. decls_len: u32, // if has_decls_len
+    /// 2. fields_len: u32, // if has_fields_len
+    /// 3. tag_type_body_len: u32, // if has_tag_type
+    /// 4. capture: Capture // for every `captures_len`
+    /// 5. capture_name: NullTerminatedString // for every `captures_len`
+    /// 6. decl: Index, // for every `decls_len`; points to a `declaration` instruction
+    /// 7. field_name: NullTerminatedString // for every `fields_len`
+    /// 8. field_value_body_len: u32 // for every `fields_len` if `any_field_values`
+    /// 9. tag_type_body_inst: Inst.Index // for each `tag_type_body_len`
+    /// 10. body_inst: Inst.Index // value body for each field
     pub const EnumDecl = struct {
         // These fields should be concatenated and reinterpreted as a `std.zig.SrcHash`.
         // This hash contains the source of all fields, and the backing type if specified.
@@ -3659,40 +3642,32 @@ pub const Inst = struct {
         /// This node provides a new absolute baseline node for all instructions within this struct.
         src_node: Ast.Node.Index,
 
-        pub const Small = packed struct {
-            has_tag_type: bool,
+        pub const Small = packed struct(u16) {
             has_captures_len: bool,
-            has_body_len: bool,
-            has_fields_len: bool,
             has_decls_len: bool,
+            has_fields_len: bool,
             name_strategy: NameStrategy,
+            has_tag_type: bool,
             nonexhaustive: bool,
-            _: u8 = undefined,
+            any_field_values: bool,
+            _: u8 = 0,
         };
     };
 
     /// Trailing:
-    /// 0. tag_type: Ref, // if has_tag_type
-    /// 1. captures_len: u32 // if has_captures_len
-    /// 2. body_len: u32, // if has_body_len
-    /// 3. fields_len: u32, // if has_fields_len
-    /// 4. decls_len: u32, // if has_decls_len
-    /// 5. capture: Capture // for every captures_len
-    /// 6. capture_name: NullTerminatedString // for every captures_len
-    /// 7. decl: Index, // for every decls_len; points to a `declaration` instruction
-    /// 8. inst: Index // for every body_len
-    /// 9. has_bits: u32 // for every 8 fields
-    ///    - sets of 4 bits:
-    ///      0b000X: whether corresponding field has a type expression
-    ///      0b00X0: whether corresponding field has a align expression
-    ///      0b0X00: whether corresponding field has a tag value expression
-    ///      0bX000: unused
-    /// 10. fields: { // for every fields_len
-    ///        field_name: NullTerminatedString, // null terminated string index
-    ///        field_type: Ref, // if corresponding bit is set
-    ///        align: Ref, // if corresponding bit is set
-    ///        tag_value: Ref, // if corresponding bit is set
-    ///    }
+    /// 0.  captures_len: u32 // if `has_captures_len`
+    /// 1.  decls_len: u32, // if `has_decls_len`
+    /// 2.  fields_len: u32, // if `has_fields_len`
+    /// 3.  arg_type_body_len: u32, // if `kind.hasArgType()`
+    /// 4.  capture: Capture // for every `captures_len`
+    /// 5.  capture_name: NullTerminatedString // for every `captures_len`
+    /// 6.  decl: Index, // for every `decls_len`; points to a `declaration` instruction
+    /// 7.  field_name: NullTerminatedString // for every `fields_len`
+    /// 8.  field_type_body_len: u32 // for every `fields_len`
+    /// 9 . field_align_body_len: u32 // for every `fields_len` if `any_field_aligns`
+    /// 10. field_value_body_len: u32 // for every `fields_len` if `any_field_values`
+    /// 11. arg_type_body_inst: Inst.Index // for each `arg_type_body_len`
+    /// 12. body_inst: Inst.Index // type body, then align body, then value body, for each field
     pub const UnionDecl = struct {
         // These fields should be concatenated and reinterpreted as a `std.zig.SrcHash`.
         // This hash contains the source of all fields, and any specified attributes (`extern` etc).
@@ -3704,23 +3679,47 @@ pub const Inst = struct {
         /// This node provides a new absolute baseline node for all instructions within this struct.
         src_node: Ast.Node.Index,
 
-        pub const Small = packed struct {
-            has_tag_type: bool,
+        pub const Small = packed struct(u16) {
             has_captures_len: bool,
-            has_body_len: bool,
-            has_fields_len: bool,
             has_decls_len: bool,
+            has_fields_len: bool,
             name_strategy: NameStrategy,
-            layout: std.builtin.Type.ContainerLayout,
-            /// has_tag_type | auto_enum_tag | result
-            /// -------------------------------------
-            ///    false     | false         |  union { }
-            ///    false     | true          |  union(enum) { }
-            ///    true      | true          |  union(enum(T)) { }
-            ///    true      | false         |  union(T) { }
-            auto_enum_tag: bool,
-            any_aligned_fields: bool,
-            _: u5 = undefined,
+            kind: Kind,
+            any_field_aligns: bool,
+            any_field_values: bool,
+            _: u6 = 0,
+        };
+
+        pub const Kind = enum(u3) {
+            /// `union`
+            auto,
+            /// `union(T)`
+            tagged_explicit,
+            /// `union(enum)`
+            tagged_enum,
+            /// `union(enum(T))`
+            tagged_enum_explicit,
+            /// `extern union`
+            @"extern",
+            /// `packed union`
+            @"packed",
+            /// `packed union(T)`
+            packed_explicit,
+
+            pub fn hasArgType(k: Kind) bool {
+                return switch (k) {
+                    .auto, .tagged_enum, .@"extern", .@"packed" => false,
+                    .tagged_explicit, .tagged_enum_explicit, .packed_explicit => true,
+                };
+            }
+
+            pub fn layout(k: Kind) std.builtin.Type.ContainerLayout {
+                return switch (k) {
+                    .auto, .tagged_explicit, .tagged_enum, .tagged_enum_explicit => .auto,
+                    .@"extern" => .@"extern",
+                    .@"packed", .packed_explicit => .@"packed",
+                };
+            }
         };
     };
 
@@ -3735,11 +3734,11 @@ pub const Inst = struct {
         /// This node provides a new absolute baseline node for all instructions within this struct.
         src_node: Ast.Node.Index,
 
-        pub const Small = packed struct {
+        pub const Small = packed struct(u16) {
             has_captures_len: bool,
             has_decls_len: bool,
             name_strategy: NameStrategy,
-            _: u12 = undefined,
+            _: u12 = 0,
         };
     };
 
@@ -3904,12 +3903,12 @@ pub const Inst = struct {
     pub const AllocExtended = struct {
         src_node: Ast.Node.Offset,
 
-        pub const Small = packed struct {
+        pub const Small = packed struct(u16) {
             has_type: bool,
             has_align: bool,
             is_const: bool,
             is_comptime: bool,
-            _: u12 = undefined,
+            _: u12 = 0,
         };
     };
 
@@ -4011,135 +4010,6 @@ pub const Inst = struct {
         path: NullTerminatedString,
     };
 };
-
-pub const DeclIterator = struct {
-    extra_index: u32,
-    decls_remaining: u32,
-    zir: Zir,
-
-    pub fn next(it: *DeclIterator) ?Inst.Index {
-        if (it.decls_remaining == 0) return null;
-        const decl_inst: Zir.Inst.Index = @enumFromInt(it.zir.extra[it.extra_index]);
-        it.extra_index += 1;
-        it.decls_remaining -= 1;
-        assert(it.zir.instructions.items(.tag)[@intFromEnum(decl_inst)] == .declaration);
-        return decl_inst;
-    }
-};
-
-pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
-    const inst = zir.instructions.get(@intFromEnum(decl_inst));
-    assert(inst.tag == .extended);
-    const extended = inst.data.extended;
-    switch (extended.opcode) {
-        .struct_decl => {
-            const small: Inst.StructDecl.Small = @bitCast(extended.small);
-            var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.StructDecl).@"struct".fields.len);
-            const captures_len = if (small.has_captures_len) captures_len: {
-                const captures_len = zir.extra[extra_index];
-                extra_index += 1;
-                break :captures_len captures_len;
-            } else 0;
-            extra_index += @intFromBool(small.has_fields_len);
-            const decls_len = if (small.has_decls_len) decls_len: {
-                const decls_len = zir.extra[extra_index];
-                extra_index += 1;
-                break :decls_len decls_len;
-            } else 0;
-
-            extra_index += captures_len * 2;
-
-            if (small.has_backing_int) {
-                const backing_int_body_len = zir.extra[extra_index];
-                extra_index += 1; // backing_int_body_len
-                if (backing_int_body_len == 0) {
-                    extra_index += 1; // backing_int_ref
-                } else {
-                    extra_index += backing_int_body_len; // backing_int_body_inst
-                }
-            }
-
-            return .{
-                .extra_index = extra_index,
-                .decls_remaining = decls_len,
-                .zir = zir,
-            };
-        },
-        .enum_decl => {
-            const small: Inst.EnumDecl.Small = @bitCast(extended.small);
-            var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.EnumDecl).@"struct".fields.len);
-            extra_index += @intFromBool(small.has_tag_type);
-            const captures_len = if (small.has_captures_len) captures_len: {
-                const captures_len = zir.extra[extra_index];
-                extra_index += 1;
-                break :captures_len captures_len;
-            } else 0;
-            extra_index += @intFromBool(small.has_body_len);
-            extra_index += @intFromBool(small.has_fields_len);
-            const decls_len = if (small.has_decls_len) decls_len: {
-                const decls_len = zir.extra[extra_index];
-                extra_index += 1;
-                break :decls_len decls_len;
-            } else 0;
-
-            extra_index += captures_len * 2;
-
-            return .{
-                .extra_index = extra_index,
-                .decls_remaining = decls_len,
-                .zir = zir,
-            };
-        },
-        .union_decl => {
-            const small: Inst.UnionDecl.Small = @bitCast(extended.small);
-            var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.UnionDecl).@"struct".fields.len);
-            extra_index += @intFromBool(small.has_tag_type);
-            const captures_len = if (small.has_captures_len) captures_len: {
-                const captures_len = zir.extra[extra_index];
-                extra_index += 1;
-                break :captures_len captures_len;
-            } else 0;
-            extra_index += @intFromBool(small.has_body_len);
-            extra_index += @intFromBool(small.has_fields_len);
-            const decls_len = if (small.has_decls_len) decls_len: {
-                const decls_len = zir.extra[extra_index];
-                extra_index += 1;
-                break :decls_len decls_len;
-            } else 0;
-
-            extra_index += captures_len * 2;
-
-            return .{
-                .extra_index = extra_index,
-                .decls_remaining = decls_len,
-                .zir = zir,
-            };
-        },
-        .opaque_decl => {
-            const small: Inst.OpaqueDecl.Small = @bitCast(extended.small);
-            var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.OpaqueDecl).@"struct".fields.len);
-            const decls_len = if (small.has_decls_len) decls_len: {
-                const decls_len = zir.extra[extra_index];
-                extra_index += 1;
-                break :decls_len decls_len;
-            } else 0;
-            const captures_len = if (small.has_captures_len) captures_len: {
-                const captures_len = zir.extra[extra_index];
-                extra_index += 1;
-                break :captures_len captures_len;
-            } else 0;
-
-            extra_index += captures_len * 2;
-
-            return .{
-                .extra_index = extra_index,
-                .decls_remaining = decls_len,
-                .zir = zir,
-            };
-        },
-        else => unreachable,
-    }
-}
 
 /// `DeclContents` contains all "interesting" instructions found within a declaration by `findTrackable`.
 /// These instructions are partitioned into a few different sets, since this makes ZIR instruction mapping
@@ -4524,7 +4394,7 @@ fn findTrackableInner(
                     try zir.findTrackableBody(gpa, contents, defers, body);
                 },
 
-                // Reifications and opaque declarations need tracking, but have no body.
+                // Reifications and opaque declarations need tracking, but have no bodies.
                 .reify_enum,
                 .reify_struct,
                 .reify_union,
@@ -4535,150 +4405,37 @@ fn findTrackableInner(
                 .struct_decl => {
                     try contents.explicit_types.append(gpa, inst);
 
-                    const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
-                    const extra = zir.extraData(Zir.Inst.StructDecl, extended.operand);
-                    var extra_index = extra.end;
-                    const captures_len = if (small.has_captures_len) blk: {
-                        const captures_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :blk captures_len;
-                    } else 0;
-                    const fields_len = if (small.has_fields_len) blk: {
-                        const fields_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :blk fields_len;
-                    } else 0;
-                    const decls_len = if (small.has_decls_len) blk: {
-                        const decls_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :blk decls_len;
-                    } else 0;
-                    extra_index += captures_len * 2;
-                    if (small.has_backing_int) {
-                        const backing_int_body_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        if (backing_int_body_len == 0) {
-                            extra_index += 1; // backing_int_ref
-                        } else {
-                            const body = zir.bodySlice(extra_index, backing_int_body_len);
-                            extra_index += backing_int_body_len;
-                            try zir.findTrackableBody(gpa, contents, defers, body);
-                        }
+                    const struct_decl = zir.getStructDecl(inst);
+                    var it = struct_decl.iterateFields();
+                    while (it.next()) |field| {
+                        try zir.findTrackableBody(gpa, contents, defers, field.type_body);
+                        if (field.align_body) |b| try zir.findTrackableBody(gpa, contents, defers, b);
+                        if (field.default_body) |b| try zir.findTrackableBody(gpa, contents, defers, b);
                     }
-                    extra_index += decls_len;
-
-                    // This ZIR is structured in a slightly awkward way, so we have to split up the iteration.
-                    // `extra_index` iterates `flags` (bags of bits).
-                    // `fields_extra_index` iterates `fields`.
-                    // We accumulate the total length of bodies into `total_bodies_len`. This is sufficient because
-                    // the bodies are packed together in `extra` and we only need to traverse their instructions (we
-                    // don't really care about the structure).
-
-                    const bits_per_field = 4;
-                    const fields_per_u32 = 32 / bits_per_field;
-                    const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
-                    var cur_bit_bag: u32 = undefined;
-
-                    var fields_extra_index = extra_index + bit_bags_count;
-                    var total_bodies_len: u32 = 0;
-
-                    for (0..fields_len) |field_i| {
-                        if (field_i % fields_per_u32 == 0) {
-                            cur_bit_bag = zir.extra[extra_index];
-                            extra_index += 1;
-                        }
-
-                        const has_align = @as(u1, @truncate(cur_bit_bag)) != 0;
-                        cur_bit_bag >>= 1;
-                        const has_init = @as(u1, @truncate(cur_bit_bag)) != 0;
-                        cur_bit_bag >>= 2; // also skip `is_comptime`; we don't care
-                        const has_type_body = @as(u1, @truncate(cur_bit_bag)) != 0;
-                        cur_bit_bag >>= 1;
-
-                        fields_extra_index += 1; // field_name
-
-                        if (has_type_body) {
-                            const field_type_body_len = zir.extra[fields_extra_index];
-                            total_bodies_len += field_type_body_len;
-                        }
-                        fields_extra_index += 1; // field_type or field_type_body_len
-
-                        if (has_align) {
-                            const align_body_len = zir.extra[fields_extra_index];
-                            fields_extra_index += 1;
-                            total_bodies_len += align_body_len;
-                        }
-
-                        if (has_init) {
-                            const init_body_len = zir.extra[fields_extra_index];
-                            fields_extra_index += 1;
-                            total_bodies_len += init_body_len;
-                        }
-                    }
-
-                    // Now, `fields_extra_index` points to `bodies`. Let's treat this as one big body.
-                    const merged_bodies = zir.bodySlice(fields_extra_index, total_bodies_len);
-                    try zir.findTrackableBody(gpa, contents, defers, merged_bodies);
                 },
 
-                // Union declarations need tracking and have a body.
+                // Union declarations need tracking and have bodies.
                 .union_decl => {
                     try contents.explicit_types.append(gpa, inst);
 
-                    const small: Zir.Inst.UnionDecl.Small = @bitCast(extended.small);
-                    const extra = zir.extraData(Zir.Inst.UnionDecl, extended.operand);
-                    var extra_index = extra.end;
-                    extra_index += @intFromBool(small.has_tag_type);
-                    const captures_len = if (small.has_captures_len) blk: {
-                        const captures_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :blk captures_len;
-                    } else 0;
-                    const body_len = if (small.has_body_len) blk: {
-                        const body_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :blk body_len;
-                    } else 0;
-                    extra_index += @intFromBool(small.has_fields_len);
-                    const decls_len = if (small.has_decls_len) blk: {
-                        const decls_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :blk decls_len;
-                    } else 0;
-                    extra_index += captures_len * 2;
-                    extra_index += decls_len;
-                    const body = zir.bodySlice(extra_index, body_len);
-                    try zir.findTrackableBody(gpa, contents, defers, body);
+                    const union_decl = zir.getUnionDecl(inst);
+                    var it = union_decl.iterateFields();
+                    while (it.next()) |field| {
+                        if (field.type_body) |b| try zir.findTrackableBody(gpa, contents, defers, b);
+                        if (field.align_body) |b| try zir.findTrackableBody(gpa, contents, defers, b);
+                        if (field.value_body) |b| try zir.findTrackableBody(gpa, contents, defers, b);
+                    }
                 },
 
-                // Enum declarations need tracking and have a body.
+                // Enum declarations need tracking and have bodies.
                 .enum_decl => {
                     try contents.explicit_types.append(gpa, inst);
 
-                    const small: Zir.Inst.EnumDecl.Small = @bitCast(extended.small);
-                    const extra = zir.extraData(Zir.Inst.EnumDecl, extended.operand);
-                    var extra_index = extra.end;
-                    extra_index += @intFromBool(small.has_tag_type);
-                    const captures_len = if (small.has_captures_len) blk: {
-                        const captures_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :blk captures_len;
-                    } else 0;
-                    const body_len = if (small.has_body_len) blk: {
-                        const body_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :blk body_len;
-                    } else 0;
-                    extra_index += @intFromBool(small.has_fields_len);
-                    const decls_len = if (small.has_decls_len) blk: {
-                        const decls_len = zir.extra[extra_index];
-                        extra_index += 1;
-                        break :blk decls_len;
-                    } else 0;
-                    extra_index += captures_len * 2;
-                    extra_index += decls_len;
-                    const body = zir.bodySlice(extra_index, body_len);
-                    try zir.findTrackableBody(gpa, contents, defers, body);
+                    const enum_decl = zir.getEnumDecl(inst);
+                    var it = enum_decl.iterateFields();
+                    while (it.next()) |field| {
+                        if (field.value_body) |b| try zir.findTrackableBody(gpa, contents, defers, b);
+                    }
                 },
             }
         },
@@ -5481,34 +5238,455 @@ pub fn assertTrackable(zir: Zir, inst_idx: Zir.Inst.Index) void {
     }
 }
 
-pub fn typeCapturesLen(zir: Zir, type_decl: Inst.Index) u32 {
+pub fn typeDecls(zir: Zir, type_decl: Inst.Index) []const Zir.Inst.Index {
     const inst = zir.instructions.get(@intFromEnum(type_decl));
     assert(inst.tag == .extended);
-    switch (inst.data.extended.opcode) {
-        .struct_decl => {
-            const small: Inst.StructDecl.Small = @bitCast(inst.data.extended.small);
-            if (!small.has_captures_len) return 0;
-            const extra = zir.extraData(Inst.StructDecl, inst.data.extended.operand);
-            return zir.extra[extra.end];
-        },
-        .union_decl => {
-            const small: Inst.UnionDecl.Small = @bitCast(inst.data.extended.small);
-            if (!small.has_captures_len) return 0;
-            const extra = zir.extraData(Inst.UnionDecl, inst.data.extended.operand);
-            return zir.extra[extra.end + @intFromBool(small.has_tag_type)];
-        },
-        .enum_decl => {
-            const small: Inst.EnumDecl.Small = @bitCast(inst.data.extended.small);
-            if (!small.has_captures_len) return 0;
-            const extra = zir.extraData(Inst.EnumDecl, inst.data.extended.operand);
-            return zir.extra[extra.end + @intFromBool(small.has_tag_type)];
-        },
-        .opaque_decl => {
-            const small: Inst.OpaqueDecl.Small = @bitCast(inst.data.extended.small);
-            if (!small.has_captures_len) return 0;
-            const extra = zir.extraData(Inst.OpaqueDecl, inst.data.extended.operand);
-            return zir.extra[extra.end];
-        },
+    return switch (inst.data.extended.opcode) {
+        .struct_decl => zir.getStructDecl(type_decl).decls,
+        .union_decl => zir.getUnionDecl(type_decl).decls,
+        .enum_decl => zir.getEnumDecl(type_decl).decls,
+        .opaque_decl => zir.getOpaqueDecl(type_decl).decls,
         else => unreachable,
-    }
+    };
 }
+
+pub fn getStructDecl(zir: *const Zir, struct_decl: Inst.Index) UnwrappedStructDecl {
+    const inst_data = zir.instructions.get(@intFromEnum(struct_decl));
+    assert(inst_data.tag == .extended);
+    assert(inst_data.data.extended.opcode == .struct_decl);
+    const small: Inst.StructDecl.Small = @bitCast(inst_data.data.extended.small);
+    const extra = zir.extraData(Inst.StructDecl, inst_data.data.extended.operand);
+    var extra_index = extra.end;
+    const captures_len: u32 = if (small.has_captures_len) blk: {
+        const captures_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk captures_len;
+    } else 0;
+    const decls_len: u32 = if (small.has_decls_len) blk: {
+        const decls_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk decls_len;
+    } else 0;
+    const fields_len: u32 = if (small.has_fields_len) blk: {
+        const fields_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk fields_len;
+    } else 0;
+    const backing_int_type_body_len: u32 = if (small.has_backing_int_type) len: {
+        const body_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :len body_len;
+    } else 0;
+    const captures: []const Inst.Capture = @ptrCast(zir.extra[extra_index..][0..captures_len]);
+    extra_index += captures_len;
+    const capture_names: []const NullTerminatedString = @ptrCast(zir.extra[extra_index..][0..captures_len]);
+    extra_index += captures_len;
+    const decls: []const Inst.Index = @ptrCast(zir.extra[extra_index..][0..decls_len]);
+    extra_index += decls_len;
+    const field_names: []const NullTerminatedString = @ptrCast(zir.extra[extra_index..][0..fields_len]);
+    extra_index += fields_len;
+    const field_type_body_lens: []const u32 = @ptrCast(zir.extra[extra_index..][0..fields_len]);
+    extra_index += fields_len;
+    const field_align_body_lens: ?[]const u32 = if (small.any_field_aligns) lens: {
+        const lens = zir.extra[extra_index..][0..fields_len];
+        extra_index += fields_len;
+        break :lens @ptrCast(lens);
+    } else null;
+    const field_default_body_lens: ?[]const u32 = if (small.any_field_defaults) lens: {
+        const lens = zir.extra[extra_index..][0..fields_len];
+        extra_index += fields_len;
+        break :lens @ptrCast(lens);
+    } else null;
+    const field_comptime_bits: ?[]const u32 = if (small.any_comptime_fields) bits: {
+        const bits_len = std.math.divCeil(u32, fields_len, 32) catch unreachable;
+        const bits = zir.extra[extra_index..][0..bits_len];
+        extra_index += bits_len;
+        break :bits bits;
+    } else null;
+    const backing_int_type_body: ?[]const Zir.Inst.Index = switch (backing_int_type_body_len) {
+        0 => null,
+        else => |n| zir.bodySlice(extra_index, n),
+    };
+    extra_index += backing_int_type_body_len;
+    const field_bodies_overlong: []const Inst.Index = @ptrCast(zir.extra[extra_index..]);
+    return .{
+        .src_line = extra.data.src_line,
+        .src_node = extra.data.src_node,
+        .name_strategy = small.name_strategy,
+        .captures = captures,
+        .capture_names = capture_names,
+        .decls = decls,
+        .layout = small.layout,
+        .backing_int_type_body = backing_int_type_body,
+        .field_names = field_names,
+        .field_type_body_lens = field_type_body_lens,
+        .field_align_body_lens = field_align_body_lens,
+        .field_default_body_lens = field_default_body_lens,
+        .field_comptime_bits = field_comptime_bits,
+        .field_bodies_overlong = field_bodies_overlong,
+    };
+}
+pub const UnwrappedStructDecl = struct {
+    src_line: u32,
+    src_node: Ast.Node.Index,
+    name_strategy: Inst.NameStrategy,
+
+    captures: []const Inst.Capture,
+    capture_names: []const NullTerminatedString,
+
+    decls: []const Inst.Index,
+
+    layout: std.builtin.Type.ContainerLayout,
+    backing_int_type_body: ?[]const Inst.Index,
+
+    field_names: []const NullTerminatedString,
+    field_type_body_lens: []const u32,
+    field_align_body_lens: ?[]const u32,
+    field_default_body_lens: ?[]const u32,
+    field_comptime_bits: ?[]const u32,
+    field_bodies_overlong: []const Inst.Index,
+
+    pub fn iterateFields(struct_decl: UnwrappedStructDecl) FieldIterator {
+        return .{
+            .next_idx = 0,
+            .names = struct_decl.field_names,
+            .type_body_lens = struct_decl.field_type_body_lens,
+            .align_body_lens = struct_decl.field_align_body_lens,
+            .default_body_lens = struct_decl.field_default_body_lens,
+            .comptime_bits = struct_decl.field_comptime_bits,
+            .bodies_overlong = struct_decl.field_bodies_overlong,
+        };
+    }
+
+    pub const FieldIterator = struct {
+        next_idx: u32,
+        names: []const NullTerminatedString,
+        type_body_lens: []const u32,
+        align_body_lens: ?[]const u32,
+        default_body_lens: ?[]const u32,
+        comptime_bits: ?[]const u32,
+        bodies_overlong: []const Inst.Index,
+        pub const Field = struct {
+            idx: u32,
+            name: NullTerminatedString,
+            type_body: []const Inst.Index,
+            align_body: ?[]const Inst.Index,
+            default_body: ?[]const Inst.Index,
+            is_comptime: bool,
+        };
+        pub fn next(it: *FieldIterator) ?Field {
+            const idx = it.next_idx;
+            if (idx == it.names.len) return null;
+            it.next_idx += 1;
+            return .{
+                .idx = idx,
+                .name = it.names[idx],
+                .type_body = it.body(it.type_body_lens[idx]).?,
+                .align_body = it.body(if (it.align_body_lens) |l| l[idx] else 0),
+                .default_body = it.body(if (it.default_body_lens) |l| l[idx] else 0),
+                .is_comptime = ct: {
+                    const bits = it.comptime_bits orelse break :ct false;
+                    const big = bits[idx / 32];
+                    const shifted = big >> @intCast(idx % 32);
+                    break :ct @as(u1, @truncate(shifted)) == 1;
+                },
+            };
+        }
+        fn body(it: *FieldIterator, len: u32) ?[]const Inst.Index {
+            if (len == 0) return null;
+            const b = it.bodies_overlong[0..len];
+            it.bodies_overlong = it.bodies_overlong[len..];
+            return b;
+        }
+    };
+};
+
+pub fn getUnionDecl(zir: *const Zir, union_decl: Inst.Index) UnwrappedUnionDecl {
+    const inst_data = zir.instructions.get(@intFromEnum(union_decl));
+    assert(inst_data.tag == .extended);
+    assert(inst_data.data.extended.opcode == .union_decl);
+    const small: Inst.UnionDecl.Small = @bitCast(inst_data.data.extended.small);
+    const extra = zir.extraData(Inst.UnionDecl, inst_data.data.extended.operand);
+    var extra_index = extra.end;
+    const captures_len: u32 = if (small.has_captures_len) blk: {
+        const captures_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk captures_len;
+    } else 0;
+    const decls_len: u32 = if (small.has_decls_len) blk: {
+        const decls_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk decls_len;
+    } else 0;
+    const fields_len: u32 = if (small.has_fields_len) blk: {
+        const fields_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk fields_len;
+    } else 0;
+    const arg_type_body_len: u32 = if (small.kind.hasArgType()) len: {
+        const body_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :len body_len;
+    } else 0;
+    const captures: []const Inst.Capture = @ptrCast(zir.extra[extra_index..][0..captures_len]);
+    extra_index += captures_len;
+    const capture_names: []const NullTerminatedString = @ptrCast(zir.extra[extra_index..][0..captures_len]);
+    extra_index += captures_len;
+    const decls: []const Inst.Index = @ptrCast(zir.extra[extra_index..][0..decls_len]);
+    extra_index += decls_len;
+    const field_names: []const NullTerminatedString = @ptrCast(zir.extra[extra_index..][0..fields_len]);
+    extra_index += fields_len;
+    const field_type_body_lens: []const u32 = @ptrCast(zir.extra[extra_index..][0..fields_len]);
+    extra_index += fields_len;
+    const field_align_body_lens: ?[]const u32 = if (small.any_field_aligns) lens: {
+        const lens = zir.extra[extra_index..][0..fields_len];
+        extra_index += fields_len;
+        break :lens @ptrCast(lens);
+    } else null;
+    const field_value_body_lens: ?[]const u32 = if (small.any_field_values) lens: {
+        const lens = zir.extra[extra_index..][0..fields_len];
+        extra_index += fields_len;
+        break :lens @ptrCast(lens);
+    } else null;
+    const arg_type_body: ?[]const Zir.Inst.Index = switch (arg_type_body_len) {
+        0 => null,
+        else => |n| zir.bodySlice(extra_index, n),
+    };
+    extra_index += arg_type_body_len;
+    const field_bodies_overlong: []const Inst.Index = @ptrCast(zir.extra[extra_index..]);
+    return .{
+        .src_line = extra.data.src_line,
+        .src_node = extra.data.src_node,
+        .name_strategy = small.name_strategy,
+        .captures = captures,
+        .capture_names = capture_names,
+        .decls = decls,
+        .kind = small.kind,
+        .arg_type_body = arg_type_body,
+        .field_names = field_names,
+        .field_type_body_lens = field_type_body_lens,
+        .field_align_body_lens = field_align_body_lens,
+        .field_value_body_lens = field_value_body_lens,
+        .field_bodies_overlong = field_bodies_overlong,
+    };
+}
+pub const UnwrappedUnionDecl = struct {
+    src_line: u32,
+    src_node: Ast.Node.Index,
+    name_strategy: Inst.NameStrategy,
+
+    captures: []const Inst.Capture,
+    capture_names: []const NullTerminatedString,
+
+    decls: []const Inst.Index,
+
+    kind: Inst.UnionDecl.Kind,
+    arg_type_body: ?[]const Inst.Index,
+
+    field_names: []const NullTerminatedString,
+    field_type_body_lens: []const u32,
+    field_align_body_lens: ?[]const u32,
+    field_value_body_lens: ?[]const u32,
+    field_bodies_overlong: []const Inst.Index,
+
+    pub fn iterateFields(union_decl: UnwrappedUnionDecl) FieldIterator {
+        return .{
+            .next_idx = 0,
+            .names = union_decl.field_names,
+            .type_body_lens = union_decl.field_type_body_lens,
+            .align_body_lens = union_decl.field_align_body_lens,
+            .value_body_lens = union_decl.field_value_body_lens,
+            .bodies_overlong = union_decl.field_bodies_overlong,
+        };
+    }
+
+    pub const FieldIterator = struct {
+        next_idx: u32,
+        names: []const NullTerminatedString,
+        type_body_lens: []const u32,
+        align_body_lens: ?[]const u32,
+        value_body_lens: ?[]const u32,
+        bodies_overlong: []const Inst.Index,
+        pub const Field = struct {
+            idx: u32,
+            name: NullTerminatedString,
+            type_body: ?[]const Inst.Index,
+            align_body: ?[]const Inst.Index,
+            value_body: ?[]const Inst.Index,
+        };
+        pub fn next(it: *FieldIterator) ?Field {
+            const idx = it.next_idx;
+            if (idx == it.names.len) return null;
+            it.next_idx += 1;
+            return .{
+                .idx = idx,
+                .name = it.names[idx],
+                .type_body = it.body(it.type_body_lens[idx]),
+                .align_body = it.body(if (it.align_body_lens) |l| l[idx] else 0),
+                .value_body = it.body(if (it.value_body_lens) |l| l[idx] else 0),
+            };
+        }
+        fn body(it: *FieldIterator, len: u32) ?[]const Inst.Index {
+            if (len == 0) return null;
+            const b = it.bodies_overlong[0..len];
+            it.bodies_overlong = it.bodies_overlong[len..];
+            return b;
+        }
+    };
+};
+
+pub fn getEnumDecl(zir: *const Zir, enum_decl: Inst.Index) UnwrappedEnumDecl {
+    const inst_data = zir.instructions.get(@intFromEnum(enum_decl));
+    assert(inst_data.tag == .extended);
+    assert(inst_data.data.extended.opcode == .enum_decl);
+    const small: Inst.EnumDecl.Small = @bitCast(inst_data.data.extended.small);
+    const extra = zir.extraData(Inst.EnumDecl, inst_data.data.extended.operand);
+    var extra_index = extra.end;
+    const captures_len: u32 = if (small.has_captures_len) blk: {
+        const captures_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk captures_len;
+    } else 0;
+    const decls_len: u32 = if (small.has_decls_len) blk: {
+        const decls_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk decls_len;
+    } else 0;
+    const fields_len: u32 = if (small.has_fields_len) blk: {
+        const fields_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk fields_len;
+    } else 0;
+    const tag_type_body_len: u32 = if (small.has_tag_type) len: {
+        const body_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :len body_len;
+    } else 0;
+    const captures: []const Inst.Capture = @ptrCast(zir.extra[extra_index..][0..captures_len]);
+    extra_index += captures_len;
+    const capture_names: []const NullTerminatedString = @ptrCast(zir.extra[extra_index..][0..captures_len]);
+    extra_index += captures_len;
+    const decls: []const Inst.Index = @ptrCast(zir.extra[extra_index..][0..decls_len]);
+    extra_index += decls_len;
+    const field_names: []const NullTerminatedString = @ptrCast(zir.extra[extra_index..][0..fields_len]);
+    extra_index += fields_len;
+    const field_value_body_lens: ?[]const u32 = if (small.any_field_values) lens: {
+        const lens = zir.extra[extra_index..][0..fields_len];
+        extra_index += fields_len;
+        break :lens @ptrCast(lens);
+    } else null;
+    const tag_type_body: ?[]const Zir.Inst.Index = switch (tag_type_body_len) {
+        0 => null,
+        else => |n| zir.bodySlice(extra_index, n),
+    };
+    extra_index += tag_type_body_len;
+    const field_bodies_overlong: []const Inst.Index = @ptrCast(zir.extra[extra_index..]);
+    return .{
+        .src_line = extra.data.src_line,
+        .src_node = extra.data.src_node,
+        .name_strategy = small.name_strategy,
+        .captures = captures,
+        .capture_names = capture_names,
+        .decls = decls,
+        .tag_type_body = tag_type_body,
+        .nonexhaustive = small.nonexhaustive,
+        .field_names = field_names,
+        .field_value_body_lens = field_value_body_lens,
+        .field_bodies_overlong = field_bodies_overlong,
+    };
+}
+pub const UnwrappedEnumDecl = struct {
+    src_line: u32,
+    src_node: Ast.Node.Index,
+    name_strategy: Inst.NameStrategy,
+
+    captures: []const Inst.Capture,
+    capture_names: []const NullTerminatedString,
+
+    decls: []const Inst.Index,
+
+    tag_type_body: ?[]const Inst.Index,
+    nonexhaustive: bool,
+
+    field_names: []const NullTerminatedString,
+    field_value_body_lens: ?[]const u32,
+    field_bodies_overlong: []const Inst.Index,
+
+    pub fn iterateFields(enum_decl: UnwrappedEnumDecl) FieldIterator {
+        return .{
+            .next_idx = 0,
+            .names = enum_decl.field_names,
+            .value_body_lens = enum_decl.field_value_body_lens,
+            .bodies_overlong = enum_decl.field_bodies_overlong,
+        };
+    }
+
+    pub const FieldIterator = struct {
+        next_idx: u32,
+        names: []const NullTerminatedString,
+        value_body_lens: ?[]const u32,
+        bodies_overlong: []const Inst.Index,
+        pub const Field = struct {
+            idx: u32,
+            name: NullTerminatedString,
+            value_body: ?[]const Inst.Index,
+        };
+        pub fn next(it: *FieldIterator) ?Field {
+            const idx = it.next_idx;
+            if (idx == it.names.len) return null;
+            it.next_idx += 1;
+            return .{
+                .idx = idx,
+                .name = it.names[idx],
+                .value_body = it.body(if (it.value_body_lens) |l| l[idx] else 0),
+            };
+        }
+        fn body(it: *FieldIterator, len: u32) ?[]const Inst.Index {
+            if (len == 0) return null;
+            const b = it.bodies_overlong[0..len];
+            it.bodies_overlong = it.bodies_overlong[len..];
+            return b;
+        }
+    };
+};
+
+pub fn getOpaqueDecl(zir: *const Zir, opaque_decl: Inst.Index) UnwrappedOpaqueDecl {
+    const inst_data = zir.instructions.get(@intFromEnum(opaque_decl));
+    assert(inst_data.tag == .extended);
+    assert(inst_data.data.extended.opcode == .opaque_decl);
+    const small: Inst.OpaqueDecl.Small = @bitCast(inst_data.data.extended.small);
+    const extra = zir.extraData(Inst.OpaqueDecl, inst_data.data.extended.operand);
+    var extra_index = extra.end;
+    const captures_len: u32 = if (small.has_captures_len) blk: {
+        const captures_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk captures_len;
+    } else 0;
+    const decls_len: u32 = if (small.has_decls_len) blk: {
+        const decls_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk decls_len;
+    } else 0;
+    const captures: []const Inst.Capture = @ptrCast(zir.extra[extra_index..][0..captures_len]);
+    extra_index += captures_len;
+    const capture_names: []const NullTerminatedString = @ptrCast(zir.extra[extra_index..][0..captures_len]);
+    extra_index += captures_len;
+    const decls: []const Inst.Index = @ptrCast(zir.extra[extra_index..][0..decls_len]);
+    extra_index += decls_len;
+    return .{
+        .src_line = extra.data.src_line,
+        .src_node = extra.data.src_node,
+        .name_strategy = small.name_strategy,
+        .captures = captures,
+        .capture_names = capture_names,
+        .decls = decls,
+    };
+}
+pub const UnwrappedOpaqueDecl = struct {
+    src_line: u32,
+    src_node: Ast.Node.Index,
+    name_strategy: Inst.NameStrategy,
+    captures: []const Inst.Capture,
+    capture_names: []const NullTerminatedString,
+    decls: []const Inst.Index,
+};

@@ -2,9 +2,6 @@ pub const CallModifier = enum {
     /// Equivalent to function call syntax.
     auto,
 
-    /// Equivalent to async keyword used with function call syntax.
-    async_kw,
-
     /// Prevents tail call optimization. This guarantees that the return
     /// address will point to the callsite, as opposed to the callsite's
     /// callsite. If the call is otherwise required to be tail-called
@@ -17,7 +14,7 @@ pub const CallModifier = enum {
 
     /// Asserts that the function call will not suspend. This allows a
     /// non-async function to call an async function.
-    no_async,
+    no_suspend,
 
     /// Guarantees that the call will be generated with tail call optimization.
     /// If this is not possible, a compile error is emitted instead.

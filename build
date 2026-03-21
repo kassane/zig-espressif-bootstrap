@@ -7,7 +7,7 @@ TARGET="$1" # Example: riscv64-linux-gnu
 MCPU="$2"   # Examples: `baseline`, `native`, `generic+v7a`, or `arm1176jzf_s`
 
 ROOTDIR="$(pwd)"
-ZIG_VERSION="0.16.0-xtensa-dev.3025+1e7b12ac1"
+ZIG_VERSION="0.16.0-xtensa-dev.3189+b1880ae28"
 
 TARGET_OS_AND_ABI=${TARGET#*-} # Example: linux-gnu
 
@@ -29,6 +29,7 @@ cd "$ROOTDIR/out/build-llvm-host"
 cmake "$ROOTDIR/llvm" \
   -DCMAKE_INSTALL_PREFIX="$ROOTDIR/out/host" \
   -DCMAKE_PREFIX_PATH="$ROOTDIR/out/host" \
+  -DLLVM_APPEND_VC_REV=OFF \
   -DCMAKE_BUILD_TYPE=Release \
   -DLLVM_ENABLE_BINDINGS=OFF \
   -DLLVM_ENABLE_LIBEDIT=OFF \
@@ -99,6 +100,7 @@ $ZIG build-lib \
   --name zstd \
   -target $TARGET \
   -mcpu=$MCPU \
+  -fno-sanitize-c \
   -fstrip -OReleaseFast \
   -lc \
   "$ROOTDIR/zstd/lib/decompress/zstd_ddict.c" \
@@ -141,6 +143,7 @@ cd "$ROOTDIR/out/build-llvm-$TARGET-$MCPU"
 cmake "$ROOTDIR/llvm" \
   -DCMAKE_INSTALL_PREFIX="$ROOTDIR/out/$TARGET-$MCPU" \
   -DCMAKE_PREFIX_PATH="$ROOTDIR/out/$TARGET-$MCPU" \
+  -DLLVM_APPEND_VC_REV=OFF \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CROSSCOMPILING=True \
   -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \

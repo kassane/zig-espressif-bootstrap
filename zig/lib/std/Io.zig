@@ -124,7 +124,7 @@ pub const VTable = struct {
         /// Copied and then passed to `start`.
         context: []const u8,
         context_alignment: std.mem.Alignment,
-        start: *const fn (context: *const anyopaque) Cancelable!void,
+        start: *const fn (context: *const anyopaque) void,
     ) void,
     /// Thread-safe.
     groupConcurrent: *const fn (
@@ -135,7 +135,7 @@ pub const VTable = struct {
         /// Copied and then passed to `start`.
         context: []const u8,
         context_alignment: std.mem.Alignment,
-        start: *const fn (context: *const anyopaque) Cancelable!void,
+        start: *const fn (context: *const anyopaque) void,
     ) ConcurrentError!void,
     groupAwait: *const fn (?*anyopaque, *Group, token: *anyopaque) Cancelable!void,
     groupCancel: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
@@ -218,6 +218,7 @@ pub const VTable = struct {
     unlockStderr: *const fn (?*anyopaque) void,
     processCurrentPath: *const fn (?*anyopaque, buffer: []u8) std.process.CurrentPathError!usize,
     processSetCurrentDir: *const fn (?*anyopaque, Dir) std.process.SetCurrentDirError!void,
+    processSetCurrentPath: *const fn (?*anyopaque, []const u8) std.process.SetCurrentPathError!void,
     processReplace: *const fn (?*anyopaque, std.process.ReplaceOptions) std.process.ReplaceError,
     processReplacePath: *const fn (?*anyopaque, Dir, std.process.ReplaceOptions) std.process.ReplaceError,
     processSpawn: *const fn (?*anyopaque, std.process.SpawnOptions) std.process.SpawnError!std.process.Child,
@@ -234,15 +235,14 @@ pub const VTable = struct {
     random: *const fn (?*anyopaque, buffer: []u8) void,
     randomSecure: *const fn (?*anyopaque, buffer: []u8) RandomSecureError!void,
 
-    netListenIp: *const fn (?*anyopaque, address: net.IpAddress, net.IpAddress.ListenOptions) net.IpAddress.ListenError!net.Server,
-    netAccept: *const fn (?*anyopaque, server: net.Socket.Handle) net.Server.AcceptError!net.Stream,
+    netListenIp: *const fn (?*anyopaque, address: *const net.IpAddress, net.IpAddress.ListenOptions) net.IpAddress.ListenError!net.Socket,
+    netAccept: *const fn (?*anyopaque, server: net.Socket.Handle, options: net.Server.AcceptOptions) net.Server.AcceptError!net.Socket,
     netBindIp: *const fn (?*anyopaque, address: *const net.IpAddress, options: net.IpAddress.BindOptions) net.IpAddress.BindError!net.Socket,
-    netConnectIp: *const fn (?*anyopaque, address: *const net.IpAddress, options: net.IpAddress.ConnectOptions) net.IpAddress.ConnectError!net.Stream,
+    netConnectIp: *const fn (?*anyopaque, address: *const net.IpAddress, options: net.IpAddress.ConnectOptions) net.IpAddress.ConnectError!net.Socket,
     netListenUnix: *const fn (?*anyopaque, *const net.UnixAddress, net.UnixAddress.ListenOptions) net.UnixAddress.ListenError!net.Socket.Handle,
     netConnectUnix: *const fn (?*anyopaque, *const net.UnixAddress) net.UnixAddress.ConnectError!net.Socket.Handle,
     netSocketCreatePair: *const fn (?*anyopaque, net.Socket.CreatePairOptions) net.Socket.CreatePairError![2]net.Socket,
     netSend: *const fn (?*anyopaque, net.Socket.Handle, []net.OutgoingMessage, net.SendFlags) struct { ?net.Socket.SendError, usize },
-    netReceive: *const fn (?*anyopaque, net.Socket.Handle, message_buffer: []net.IncomingMessage, data_buffer: []u8, net.ReceiveFlags, Timeout) struct { ?net.Socket.ReceiveTimeoutError, usize },
     /// Returns 0 on end of stream.
     netRead: *const fn (?*anyopaque, src: net.Socket.Handle, data: [][]u8) net.Stream.Reader.Error!usize,
     netWrite: *const fn (?*anyopaque, dest: net.Socket.Handle, header: []const u8, data: []const []const u8, splat: usize) net.Stream.Writer.Error!usize,
@@ -260,6 +260,7 @@ pub const Operation = union(enum) {
     /// On Windows this is NtDeviceIoControlFile. On POSIX this is ioctl. On
     /// other systems this tag is unreachable.
     device_io_control: DeviceIoControl,
+    net_receive: NetReceive,
 
     pub const Tag = @typeInfo(Operation).@"union".tag_type.?;
 
@@ -349,6 +350,35 @@ pub const Operation = union(enum) {
         },
     };
 
+    pub const NetReceive = struct {
+        socket_handle: net.Socket.Handle,
+        message_buffer: []net.IncomingMessage,
+        data_buffer: []u8,
+        flags: net.ReceiveFlags,
+
+        pub const Error = error{
+            /// Insufficient memory or other resource internal to the operating system.
+            SystemResources,
+            /// Per-process limit on the number of open file descriptors has been reached.
+            ProcessFdQuotaExceeded,
+            /// System-wide limit on the total number of open files has been reached.
+            SystemFdQuotaExceeded,
+            /// Local end has been shut down on a connection-oriented socket, or
+            /// the socket was never connected.
+            SocketUnconnected,
+            /// The socket type requires that message be sent atomically, and the
+            /// size of the message to be sent made this impossible. The message
+            /// was not transmitted, or was partially transmitted.
+            MessageOversize,
+            /// Network connection was unexpectedly closed by sender.
+            ConnectionResetByPeer,
+            /// The local network interface used to reach the destination is offline.
+            NetworkDown,
+        } || Io.UnexpectedError;
+
+        pub const Result = struct { ?net.Socket.ReceiveError, usize };
+    };
+
     pub const Result = Result: {
         const operation_fields = @typeInfo(Operation).@"union".fields;
         var field_names: [operation_fields.len][]const u8 = undefined;
@@ -414,6 +444,19 @@ pub const Operation = union(enum) {
 /// Performs one `Operation`.
 pub fn operate(io: Io, operation: Operation) Cancelable!Operation.Result {
     return io.vtable.operate(io.userdata, operation);
+}
+
+pub const OperateTimeoutError = Cancelable || Timeout.Error || ConcurrentError;
+
+/// Performs one `Operation` with provided `timeout`.
+pub fn operateTimeout(io: Io, operation: Operation, timeout: Timeout) OperateTimeoutError!Operation.Result {
+    var storage: [1]Operation.Storage = undefined;
+    var batch: Batch = .init(&storage);
+    batch.addAt(0, operation);
+    try batch.awaitConcurrent(io, timeout);
+    const completion = batch.next().?;
+    assert(completion.index == 0);
+    return completion.result;
 }
 
 /// Submits many operations together without waiting for all of them to
@@ -882,6 +925,10 @@ pub const Timestamp = struct {
         return .{ .nanoseconds = x };
     }
 
+    pub fn toMicroseconds(t: Timestamp) i64 {
+        return @intCast(@divTrunc(t.nanoseconds, std.time.ns_per_us));
+    }
+
     pub fn toMilliseconds(t: Timestamp) i64 {
         return @intCast(@divTrunc(t.nanoseconds, std.time.ns_per_ms));
     }
@@ -921,12 +968,20 @@ pub const Duration = struct {
         return .{ .nanoseconds = x };
     }
 
+    pub fn fromMicroseconds(x: i64) Duration {
+        return .{ .nanoseconds = @as(i96, x) * std.time.ns_per_us };
+    }
+
     pub fn fromMilliseconds(x: i64) Duration {
         return .{ .nanoseconds = @as(i96, x) * std.time.ns_per_ms };
     }
 
     pub fn fromSeconds(x: i64) Duration {
         return .{ .nanoseconds = @as(i96, x) * std.time.ns_per_s };
+    }
+
+    pub fn toMicroseconds(d: Duration) i64 {
+        return @intCast(@divTrunc(d.nanoseconds, std.time.ns_per_us));
     }
 
     pub fn toMilliseconds(d: Duration) i64 {
@@ -939,6 +994,130 @@ pub const Duration = struct {
 
     pub fn toNanoseconds(d: Duration) i96 {
         return d.nanoseconds;
+    }
+
+    /// Write number of nanoseconds according to its signed magnitude:
+    /// `[#y][#w][#d][#h][#m]#[.###][n|u|m]s`
+    pub fn format(duration: Duration, w: *Writer) Writer.Error!void {
+        if (duration.nanoseconds < 0) try w.writeByte('-');
+        return formatUnsigned(w, @abs(duration.nanoseconds));
+    }
+
+    fn formatUnsigned(w: *Writer, ns: u96) Writer.Error!void {
+        var ns_remaining = ns;
+        inline for (.{
+            .{ .ns = 365 * std.time.ns_per_day, .sep = 'y' },
+            .{ .ns = std.time.ns_per_week, .sep = 'w' },
+            .{ .ns = std.time.ns_per_day, .sep = 'd' },
+            .{ .ns = std.time.ns_per_hour, .sep = 'h' },
+            .{ .ns = std.time.ns_per_min, .sep = 'm' },
+        }) |unit| {
+            if (ns_remaining >= unit.ns) {
+                const units = ns_remaining / unit.ns;
+                try w.printInt(units, 10, .lower, .{});
+                try w.writeByte(unit.sep);
+                ns_remaining -= units * unit.ns;
+                if (ns_remaining == 0) return;
+            }
+        }
+
+        inline for (.{
+            .{ .ns = std.time.ns_per_s, .sep = "s" },
+            .{ .ns = std.time.ns_per_ms, .sep = "ms" },
+            .{ .ns = std.time.ns_per_us, .sep = "us" },
+        }) |unit| {
+            const kunits = ns_remaining * 1000 / unit.ns;
+            if (kunits >= 1000) {
+                try w.printInt(kunits / 1000, 10, .lower, .{});
+                const frac = kunits % 1000;
+                if (frac > 0) {
+                    // Write up to 3 decimal places
+                    var decimal_buf = [_]u8{ '.', 0, 0, 0 };
+                    var inner: Writer = .fixed(decimal_buf[1..]);
+                    inner.printInt(frac, 10, .lower, .{ .fill = '0', .width = 3 }) catch unreachable;
+                    var end: usize = 4;
+                    while (end > 1) : (end -= 1) {
+                        if (decimal_buf[end - 1] != '0') break;
+                    }
+                    try w.writeAll(decimal_buf[0..end]);
+                }
+                return w.writeAll(unit.sep);
+            }
+        }
+
+        try w.printInt(ns_remaining, 10, .lower, .{});
+        try w.writeAll("ns");
+    }
+
+    test format {
+        try testFormat("0ns", 0);
+        try testFormat("1ns", 1);
+        try testFormat("-1ns", -(1));
+        try testFormat("999ns", std.time.ns_per_us - 1);
+        try testFormat("-999ns", -(std.time.ns_per_us - 1));
+        try testFormat("1us", std.time.ns_per_us);
+        try testFormat("-1us", -(std.time.ns_per_us));
+        try testFormat("1.45us", 1450);
+        try testFormat("-1.45us", -(1450));
+        try testFormat("1.5us", 3 * std.time.ns_per_us / 2);
+        try testFormat("-1.5us", -(3 * std.time.ns_per_us / 2));
+        try testFormat("14.5us", 14500);
+        try testFormat("-14.5us", -(14500));
+        try testFormat("145us", 145000);
+        try testFormat("-145us", -(145000));
+        try testFormat("999.999us", std.time.ns_per_ms - 1);
+        try testFormat("-999.999us", -(std.time.ns_per_ms - 1));
+        try testFormat("1ms", std.time.ns_per_ms + 1);
+        try testFormat("-1ms", -(std.time.ns_per_ms + 1));
+        try testFormat("1.5ms", 3 * std.time.ns_per_ms / 2);
+        try testFormat("-1.5ms", -(3 * std.time.ns_per_ms / 2));
+        try testFormat("1.11ms", 1110000);
+        try testFormat("-1.11ms", -(1110000));
+        try testFormat("1.111ms", 1111000);
+        try testFormat("-1.111ms", -(1111000));
+        try testFormat("1.111ms", 1111100);
+        try testFormat("-1.111ms", -(1111100));
+        try testFormat("999.999ms", std.time.ns_per_s - 1);
+        try testFormat("-999.999ms", -(std.time.ns_per_s - 1));
+        try testFormat("1s", std.time.ns_per_s);
+        try testFormat("-1s", -(std.time.ns_per_s));
+        try testFormat("59.999s", std.time.ns_per_min - 1);
+        try testFormat("-59.999s", -(std.time.ns_per_min - 1));
+        try testFormat("1m", std.time.ns_per_min);
+        try testFormat("-1m", -(std.time.ns_per_min));
+        try testFormat("1h", std.time.ns_per_hour);
+        try testFormat("-1h", -(std.time.ns_per_hour));
+        try testFormat("1d", std.time.ns_per_day);
+        try testFormat("-1d", -(std.time.ns_per_day));
+        try testFormat("1w", std.time.ns_per_week);
+        try testFormat("-1w", -(std.time.ns_per_week));
+        try testFormat("1y", 365 * std.time.ns_per_day);
+        try testFormat("-1y", -(365 * std.time.ns_per_day));
+        try testFormat("1y52w23h59m59.999s", 730 * std.time.ns_per_day - 1); // 365d = 52w1d
+        try testFormat("-1y52w23h59m59.999s", -(730 * std.time.ns_per_day - 1)); // 365d = 52w1d
+        try testFormat("1y1h1.001s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms);
+        try testFormat("-1y1h1.001s", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms));
+        try testFormat("1y1h1s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us);
+        try testFormat("-1y1h1s", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us));
+        try testFormat("1y1h999.999us", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1);
+        try testFormat("-1y1h999.999us", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1));
+        try testFormat("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms);
+        try testFormat("-1y1h1ms", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms));
+        try testFormat("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1);
+        try testFormat("-1y1h1ms", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1));
+        try testFormat("1y1m999ns", 365 * std.time.ns_per_day + std.time.ns_per_min + 999);
+        try testFormat("-1y1m999ns", -(365 * std.time.ns_per_day + std.time.ns_per_min + 999));
+        try testFormat("292y24w3d23h47m16.854s", std.math.maxInt(i64));
+        try testFormat("-292y24w3d23h47m16.854s", std.math.minInt(i64) + 1);
+        try testFormat("-292y24w3d23h47m16.854s", std.math.minInt(i64));
+    }
+
+    fn testFormat(expected: []const u8, input: i96) !void {
+        // worst case: "-XXXXXXXXXXXXXyXXwXXdXXhXXmXX.XXXs".len = 34
+        var buf: [34]u8 = undefined;
+        var w: Writer = .fixed(&buf);
+        try w.print("{f}", .{Duration{ .nanoseconds = input }});
+        try std.testing.expectEqualStrings(expected, w.buffered());
     }
 };
 
@@ -1045,19 +1224,18 @@ pub const Group = struct {
     /// instead of becoming associated with a `Future`.
     ///
     /// The return type of `function` must be coercible to `Cancelable!void`.
+    /// `function` returning `error.Canceled` does nothing because it is an
+    /// cancelation propagation boundary.
     ///
     /// Once this function is called, there are resources associated with the
     /// group. To release those resources, `Group.await` or `Group.cancel` must
     /// eventually be called.
-    ///
-    /// If `error.Canceled` is returned from any operation this task performs,
-    /// it is asserted that `function` returns `error.Canceled`.
     pub fn async(g: *Group, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
         const Args = @TypeOf(args);
         const TypeErased = struct {
-            fn start(context: *const anyopaque) Cancelable!void {
+            fn start(context: *const anyopaque) void {
                 const args_casted: *const Args = @ptrCast(@alignCast(context));
-                return @call(.auto, function, args_casted.*);
+                _ = @as(Cancelable!void, @call(.auto, function, args_casted.*)) catch {};
             }
         };
         io.vtable.groupAsync(io.userdata, g, @ptrCast(&args), .of(Args), TypeErased.start);
@@ -1067,19 +1245,18 @@ pub const Group = struct {
     /// `Group` instead of becoming associated with a `Future`.
     ///
     /// The return type of `function` must be coercible to `Cancelable!void`.
+    /// `function` returning `error.Canceled` does nothing because it is an
+    /// cancelation propagation boundary.
     ///
     /// Once this function is called, there are resources associated with the
     /// group. To release those resources, `Group.await` or `Group.cancel` must
     /// eventually be called.
-    ///
-    /// If `error.Canceled` is returned from any operation this task performs,
-    /// it is asserted that `function` returns `error.Canceled`.
     pub fn concurrent(g: *Group, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) ConcurrentError!void {
         const Args = @TypeOf(args);
         const TypeErased = struct {
-            fn start(context: *const anyopaque) Cancelable!void {
+            fn start(context: *const anyopaque) void {
                 const args_casted: *const Args = @ptrCast(@alignCast(context));
-                return @call(.auto, function, args_casted.*);
+                _ = @as(Cancelable!void, @call(.auto, function, args_casted.*)) catch {};
             }
         };
         return io.vtable.groupConcurrent(io.userdata, g, @ptrCast(&args), .of(Args), TypeErased.start);
@@ -1184,8 +1361,6 @@ pub fn Select(comptime U: type) type {
     return struct {
         io: Io,
         group: Group,
-        /// The queue is never closed because there may be live resources
-        /// inserted into it which would otherwise leak.
         queue: Queue(U),
 
         const S = @This();
@@ -1230,15 +1405,13 @@ pub fn Select(comptime U: type) type {
             const Context = struct {
                 select: *S,
                 args: @TypeOf(args),
-                fn start(type_erased_context: *const anyopaque) Cancelable!void {
+                fn start(type_erased_context: *const anyopaque) void {
                     const context: *const @This() = @ptrCast(@alignCast(type_erased_context));
-                    const raw_result = @call(.auto, function, context.args);
-                    const elem = @unionInit(U, @tagName(field), raw_result);
+                    const result = @call(.auto, function, context.args);
+                    const elem = @unionInit(U, @tagName(field), result);
                     context.select.queue.putOneUncancelable(context.select.io, elem) catch |err| switch (err) {
-                        error.Closed => unreachable,
+                        error.Closed => {},
                     };
-                    if (@typeInfo(@TypeOf(raw_result)) == .error_union)
-                        _ = raw_result catch |err| if (err == error.Canceled) return error.Canceled;
                 }
             };
             const context: Context = .{ .select = s, .args = args };
@@ -1269,15 +1442,13 @@ pub fn Select(comptime U: type) type {
             const Context = struct {
                 select: *S,
                 args: @TypeOf(args),
-                fn start(type_erased_context: *const anyopaque) Cancelable!void {
+                fn start(type_erased_context: *const anyopaque) void {
                     const context: *const @This() = @ptrCast(@alignCast(type_erased_context));
-                    const raw_result = @call(.auto, function, context.args);
-                    const elem = @unionInit(U, @tagName(field), raw_result);
+                    const result = @call(.auto, function, context.args);
+                    const elem = @unionInit(U, @tagName(field), result);
                     context.select.queue.putOneUncancelable(context.select.io, elem) catch |err| switch (err) {
-                        error.Closed => unreachable,
+                        error.Closed => {},
                     };
-                    if (@typeInfo(@TypeOf(raw_result)) == .error_union)
-                        _ = raw_result catch |err| if (err == error.Canceled) return error.Canceled;
                 }
             };
             const context: Context = .{ .select = s, .args = args };
@@ -1285,6 +1456,8 @@ pub fn Select(comptime U: type) type {
         }
 
         /// Blocks until another task of the select finishes.
+        ///
+        /// It is legal to call `async` and `concurrent` after this.
         ///
         /// Threadsafe.
         pub fn await(s: *S) Cancelable!U {
@@ -1299,6 +1472,8 @@ pub fn Select(comptime U: type) type {
         ///
         /// Asserts that `buffer.len >= min`.
         ///
+        /// It is legal to call `async` and `concurrent` after this.
+        ///
         /// Threadsafe.
         pub fn awaitMany(s: *S, buffer: []U, min: usize) Cancelable!usize {
             return s.queue.get(s.io, buffer, min) catch |err| switch (err) {
@@ -1307,16 +1482,50 @@ pub fn Select(comptime U: type) type {
             };
         }
 
-        /// Equivalent to `await` but requests cancelation on all remaining
-        /// tasks owned by the select.
+        /// Requests cancelation on all remaining tasks owned by the select,
+        /// then blocks until they all finish. If the select was initialized
+        /// with insufficient buffer space for all remaining tasks to finish, a
+        /// deadlock occurs.
         ///
-        /// For a description of cancelation and cancelation points, see `Future.cancel`.
+        /// If any of the select tasks allocate resources, those tasks may have
+        /// completed, meaning that this function must be called in a loop
+        /// until `null` is returned in order to deallocate those resources. If
+        /// there is no possibility of resource leaks, `cancelDiscard` is
+        /// preferable.
         ///
-        /// It is illegal to call `await` after this.
+        /// It is illegal to call `await` or `awaitMany` after this.
         ///
-        /// Idempotent. Threadsafe.
-        pub fn cancel(s: *S) void {
-            s.group.cancel(s.io);
+        /// It is safe to call this multiple times, even after `null` is
+        /// returned.
+        ///
+        /// Threadsafe.
+        pub fn cancel(s: *S) ?U {
+            const io = s.io;
+            s.group.cancel(io);
+            s.queue.close(io);
+            return s.queue.getOneUncancelable(io) catch |err| switch (err) {
+                error.Closed => return null,
+            };
+        }
+
+        /// Requests cancelation on all remaining tasks owned by the select,
+        /// then blocks until they all finish.
+        ///
+        /// All return values from outstanding tasks are discarded. This
+        /// function is therefore inappropriate to call when a task can return
+        /// an allocated resource. For that use case, see `cancel`.
+        ///
+        /// It is illegal to call `await` or `awaitMany` after this.
+        ///
+        /// It is safe to call this multiple times.
+        ///
+        /// Threadsafe.
+        pub fn cancelDiscard(s: *S) void {
+            const io = s.io;
+            const token = s.group.token.load(.acquire) orelse return;
+            s.queue.close(io);
+            io.vtable.groupCancel(io.userdata, &s.group, token);
+            assert(s.group.token.raw == null);
         }
     };
 }
@@ -1380,11 +1589,11 @@ pub const Mutex = extern struct {
     };
 
     pub fn tryLock(m: *Mutex) bool {
-        return m.state.cmpxchgWeak(.unlocked, .locked_once, .acquire, .monotonic) == null;
+        return m.state.cmpxchgStrong(.unlocked, .locked_once, .acquire, .monotonic) == null;
     }
 
     pub fn lock(m: *Mutex, io: Io) Cancelable!void {
-        const initial_state = m.state.cmpxchgWeak(
+        const initial_state = m.state.cmpxchgStrong(
             .unlocked,
             .locked_once,
             .acquire,
@@ -1405,7 +1614,7 @@ pub const Mutex = extern struct {
     ///
     /// For a description of cancelation and cancelation points, see `Future.cancel`.
     pub fn lockUncancelable(m: *Mutex, io: Io) void {
-        const initial_state = m.state.cmpxchgWeak(
+        const initial_state = m.state.cmpxchgStrong(
             .unlocked,
             .locked_once,
             .acquire,
@@ -1561,7 +1770,7 @@ pub const Event = enum(u32) {
     }
 
     /// Blocks until the logical boolean is `true`.
-    pub fn wait(event: *Event, io: Io) Io.Cancelable!void {
+    pub fn wait(event: *Event, io: Io) Cancelable!void {
         if (@cmpxchgStrong(Event, event, .unset, .waiting, .acquire, .acquire)) |prev| switch (prev) {
             .unset => unreachable,
             .waiting => {},
@@ -1693,6 +1902,12 @@ pub const TypeErasedQueue = struct {
         };
     }
 
+    /// After this is called, the queue enters a "closed" state. A closed
+    /// queue always returns `error.Closed` for put attempts even when
+    /// there is space in the buffer. However, existing elements of the
+    /// queue are retrieved before `error.Closed` is returned.
+    ///
+    /// Idempotent. Threadsafe.
     pub fn close(q: *TypeErasedQueue, io: Io) void {
         q.mutex.lockUncancelable(io);
         defer q.mutex.unlock(io);
@@ -1967,6 +2182,12 @@ pub fn Queue(Elem: type) type {
             return .{ .type_erased = .init(@ptrCast(buffer)) };
         }
 
+        /// After this is called, the queue enters a "closed" state. A closed
+        /// queue always returns `error.Closed` for put attempts even when
+        /// there is space in the buffer. However, existing elements of the
+        /// queue are retrieved before `error.Closed` is returned.
+        ///
+        /// Threadsafe.
         pub fn close(q: *@This(), io: Io) void {
             q.type_erased.close(io);
         }

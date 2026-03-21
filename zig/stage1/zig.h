@@ -151,6 +151,14 @@
 #define zig_has_attribute(attribute) 0
 #endif
 
+#if __STDC_VERSION__ >= 201112L
+#define zig_static_assert(cond, msg) _Static_assert(cond, msg)
+#elif zig_has_attribute(unused)
+#define zig_static_assert(cond, _) typedef char zig_expand_concat(zig_static_assert_fail_, __LINE__)[!!(cond)] __attribute__((unused))
+#else
+#define zig_static_assert(cond, _) typedef char zig_expand_concat(zig_static_assert_fail_, __LINE__)[!!(cond)]
+#endif
+
 #if __STDC_VERSION__ >= 202311L
 #define zig_threadlocal thread_local
 #elif __STDC_VERSION__ >= 201112L
@@ -259,7 +267,7 @@
 #endif
 
 #if zig_has_attribute(packed) || defined(zig_tinyc)
-#define zig_packed(definition) __attribute__((packed)) definition
+#define zig_packed(definition) definition __attribute__((packed))
 #elif defined(zig_msvc)
 #define zig_packed(definition) __pragma(pack(1)) definition __pragma(pack())
 #else

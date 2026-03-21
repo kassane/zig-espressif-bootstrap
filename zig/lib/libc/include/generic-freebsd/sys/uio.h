@@ -101,8 +101,11 @@ int	uiomove_object(struct vm_object *obj, off_t obj_size, struct uio *uio);
 
 #else /* !_KERNEL */
 
+// zig patch: ssp/uio.h header was added in FreeBSD 15
+#if __FreeBSD_version >= 1500500
 #if defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
 #include <ssp/uio.h>
+#endif
 #endif
 
 __BEGIN_DECLS

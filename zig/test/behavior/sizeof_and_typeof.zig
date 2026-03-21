@@ -11,13 +11,6 @@ test "@sizeOf and @TypeOf" {
 const x: u16 = 13;
 const z: @TypeOf(x) = 19;
 
-test "@sizeOf on compile-time types" {
-    try expect(@sizeOf(comptime_int) == 0);
-    try expect(@sizeOf(comptime_float) == 0);
-    try expect(@sizeOf(@TypeOf(.hi)) == 0);
-    try expect(@sizeOf(@TypeOf(type)) == 0);
-}
-
 test "@TypeOf() with multiple arguments" {
     {
         var var_1: u32 = undefined;
@@ -125,21 +118,6 @@ test "@bitOffsetOf" {
     try expect(@offsetOf(A, "e") * 8 == @bitOffsetOf(A, "e"));
     try expect(@offsetOf(A, "f") * 8 == @bitOffsetOf(A, "f"));
     try expect(@offsetOf(A, "g") * 8 == @bitOffsetOf(A, "g"));
-}
-
-test "@sizeOf(T) == 0 doesn't force resolving struct size" {
-    const S = struct {
-        const Foo = struct {
-            y: if (@sizeOf(Foo) == 0) u64 else u32,
-        };
-        const Bar = struct {
-            x: i32,
-            y: if (0 == @sizeOf(Bar)) u64 else u32,
-        };
-    };
-
-    try expect(@sizeOf(S.Foo) == 4);
-    try expect(@sizeOf(S.Bar) == 8);
 }
 
 test "@TypeOf() has no runtime side effects" {
@@ -265,10 +243,6 @@ test "lazy size cast to float" {
     }
 }
 
-test "bitSizeOf comptime_int" {
-    try expect(@bitSizeOf(comptime_int) == 0);
-}
-
 test "runtime instructions inside typeof in comptime only scope" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -336,20 +310,6 @@ test "peer type resolution with @TypeOf doesn't trigger dependency loop check" {
     try std.testing.expect(t.next == null);
 }
 
-test "@sizeOf reified union zero-size payload fields" {
-    comptime {
-        try std.testing.expect(0 == @sizeOf(@Union(.auto, null, &.{}, &.{}, &.{})));
-        try std.testing.expect(0 == @sizeOf(@Union(.auto, null, &.{"a"}, &.{void}, &.{.{}})));
-        if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
-            try std.testing.expect(1 == @sizeOf(@Union(.auto, null, &.{ "a", "b" }, &.{ void, void }, &.{ .{}, .{} })));
-            try std.testing.expect(1 == @sizeOf(@Union(.auto, null, &.{ "a", "b", "c" }, &.{ void, void, void }, &.{ .{}, .{}, .{} })));
-        } else {
-            try std.testing.expect(0 == @sizeOf(@Union(.auto, null, &.{ "a", "b" }, &.{ void, void }, &.{ .{}, .{} })));
-            try std.testing.expect(0 == @sizeOf(@Union(.auto, null, &.{ "a", "b", "c" }, &.{ void, void, void }, &.{ .{}, .{}, .{} })));
-        }
-    }
-}
-
 const FILE = extern struct {
     dummy_field: u8,
 };
@@ -391,7 +351,7 @@ test "Extern function calls in @TypeOf" {
 
         extern fn s_do_thing([*c]const @This(), b: c_int) c_short;
     };
-    const E = struct {
+    const E = extern struct {
         export fn s_do_thing(a: [*c]const @This(), b: c_int) c_short {
             _ = a;
             _ = b;

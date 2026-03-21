@@ -37,8 +37,11 @@
 #include <sys/_null.h>
 #include <sys/_types.h>
 
+// zig patch: ssp/unistd.h header was added in FreeBSD 15
+#if __FreeBSD_version >= 1500500
 #if !defined(_STANDALONE) && defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
 #include <ssp/unistd.h>
+#endif
 #endif
 
 #ifndef _GID_T_DECLARED

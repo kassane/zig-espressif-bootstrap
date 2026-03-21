@@ -129,20 +129,18 @@ fn spawnVerify(verify_path: [:0]const u16, cmd_line: [:0]const u16) !windows.DWO
         };
         var proc_info: windows.PROCESS.INFORMATION = undefined;
 
-        if (windows.kernel32.CreateProcessW(
+        if (!windows.kernel32.CreateProcessW(
             @constCast(verify_path.ptr),
             @constCast(cmd_line.ptr),
             null,
             null,
-            windows.TRUE,
+            .TRUE,
             .{},
             null,
             null,
             &startup_info,
             &proc_info,
-        ) == 0) {
-            std.process.fatal("kernel32 CreateProcessW failed with {t}", .{windows.GetLastError()});
-        }
+        ).toBool()) std.process.fatal("kernel32 CreateProcessW failed with {t}", .{windows.GetLastError()});
 
         windows.CloseHandle(proc_info.hThread);
 
@@ -150,7 +148,7 @@ fn spawnVerify(verify_path: [:0]const u16, cmd_line: [:0]const u16) !windows.DWO
     };
     defer windows.CloseHandle(child_proc);
     const infinite_timeout: windows.LARGE_INTEGER = std.math.minInt(windows.LARGE_INTEGER);
-    switch (windows.ntdll.NtWaitForSingleObject(child_proc, windows.FALSE, &infinite_timeout)) {
+    switch (windows.ntdll.NtWaitForSingleObject(child_proc, .FALSE, &infinite_timeout)) {
         windows.NTSTATUS.WAIT_0 => {},
         .TIMEOUT => return error.WaitTimeOut,
         else => |status| return windows.unexpectedStatus(status),

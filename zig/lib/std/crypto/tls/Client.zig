@@ -103,15 +103,20 @@ pub const Options = struct {
         /// self-signed certificate.
         self_signed,
         /// Verify that the server certificate is authorized by a given ca bundle.
-        bundle: Certificate.Bundle,
+        bundle: struct {
+            gpa: std.mem.Allocator,
+            io: std.Io,
+            lock: *std.Io.RwLock,
+            bundle: *Certificate.Bundle,
+        },
     },
     write_buffer: []u8,
     read_buffer: []u8,
     /// Cryptographically secure random bytes. The pointer is not captured; data is only
     /// read during `init`.
     entropy: *const [entropy_len]u8,
-    /// Current time according to the wall clock / calendar, in seconds.
-    realtime_now_seconds: i64,
+    /// Current time according to the wall clock / calendar.
+    realtime_now: std.Io.Timestamp,
 
     /// If non-null, ssl secrets are logged to this stream. Creating such a log file allows
     /// other programs with access to that file to decrypt all traffic over this connection.
@@ -135,8 +140,6 @@ pub const Options = struct {
 };
 
 const InitError = error{
-    WriteFailed,
-    ReadFailed,
     InsufficientEntropy,
     DiskQuota,
     LockViolation,
@@ -182,7 +185,7 @@ const InitError = error{
     NotSquare,
     NonCanonical,
     WeakPublicKey,
-};
+} || std.Io.Writer.Error || std.Io.Reader.ShortError || std.Io.Cancelable;
 
 /// Initiates a TLS handshake and establishes a TLSv1.2 or TLSv1.3 session.
 ///
@@ -286,6 +289,8 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     }
 
     var tls_version: tls.ProtocolVersion = undefined;
+    var chain: Certificate.Chain = if (Certificate.Chain != void) .empty;
+    defer if (Certificate.Chain != void) chain.deinit();
     // These are used for two purposes:
     // * Detect whether a certificate is the first one presented, in which case
     //   we need to verify the host name.
@@ -327,7 +332,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     var handshake_cipher: tls.HandshakeCipher = undefined;
     var main_cert_pub_key: CertificatePublicKey = undefined;
     var tls12_negotiated_group: ?tls.NamedGroup = null;
-    const now_sec = options.realtime_now_seconds;
+    const now_sec = options.realtime_now.toSeconds();
 
     var cleartext_fragment_start: usize = 0;
     var cleartext_fragment_end: usize = 0;
@@ -615,7 +620,9 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                             else => unreachable,
                         }
                         const certs_size = hsd.decode(u24);
-                        var certs_decoder = try hsd.sub(certs_size);
+                        const certs = try hsd.sub(certs_size);
+
+                        var certs_decoder = certs;
                         while (!certs_decoder.eof()) {
                             try certs_decoder.ensure(3);
                             const cert_size = certs_decoder.decode(u24);
@@ -657,7 +664,11 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                                     handshake_state = .trust_chain_established;
                                     break :cert;
                                 },
-                                .bundle => |ca_bundle| if (ca_bundle.verify(subject, now_sec)) |_| {
+                                .bundle => |ca| if (verify: {
+                                    try ca.lock.lockShared(ca.io);
+                                    defer ca.lock.unlockShared(ca.io);
+                                    break :verify ca.bundle.verify(subject, now_sec);
+                                }) {
                                     handshake_state = .trust_chain_established;
                                     break :cert;
                                 } else |err| switch (err) {
@@ -669,6 +680,25 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                             prev_cert = subject;
                             cert_index += 1;
                         }
+
+                        if (Certificate.Chain != void) {
+                            certs_decoder = certs;
+                            while (!certs_decoder.eof()) {
+                                try certs_decoder.ensure(3);
+                                const cert_size = certs_decoder.decode(u24);
+                                const certd = try certs_decoder.sub(cert_size);
+                                chain.addCert(certd.rest()) catch |err| switch (err) {
+                                    error.Unexpected => return error.TlsCertificateNotVerified,
+                                };
+                                if (tls_version == .tls_1_3) {
+                                    try certs_decoder.ensure(2);
+                                    const total_ext_size = certs_decoder.decode(u16);
+                                    const all_extd = try certs_decoder.sub(total_ext_size);
+                                    _ = all_extd;
+                                }
+                            }
+                        }
+
                         cert_buf_index += 1;
                     },
                     .server_key_exchange => {
@@ -676,7 +706,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                         if (cipher_state != .cleartext) return error.TlsUnexpectedMessage;
                         switch (handshake_state) {
                             .trust_chain_established => {},
-                            .certificate => return error.TlsCertificateNotVerified,
+                            .certificate => try tryDownloadRootCert(&chain, &options),
                             else => return error.TlsUnexpectedMessage,
                         }
 
@@ -795,7 +825,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                         if (cipher_state != .handshake) return error.TlsUnexpectedMessage;
                         switch (handshake_state) {
                             .trust_chain_established => {},
-                            .certificate => return error.TlsCertificateNotVerified,
+                            .certificate => try tryDownloadRootCert(&chain, &options),
                             else => return error.TlsUnexpectedMessage,
                         }
                         switch (handshake_cipher) {
@@ -1570,6 +1600,30 @@ const CertificatePublicKey = struct {
         }
     }
 };
+
+fn tryDownloadRootCert(chain: *Certificate.Chain, options: *const Options) !void {
+    if (Certificate.Chain != void) switch (options.ca) {
+        else => {},
+        .bundle => |ca| {
+            chain.verify(options.realtime_now) catch |err| switch (err) {
+                error.Unexpected => return error.TlsCertificateNotVerified,
+                else => |e| return e,
+            };
+            var bundle: Certificate.Bundle = .empty;
+            defer bundle.deinit(ca.gpa);
+            if (bundle.rescan(ca.gpa, ca.io, options.realtime_now)) {
+                try ca.lock.lock(ca.io);
+                defer ca.lock.unlock(ca.io);
+                std.mem.swap(Certificate.Bundle, ca.bundle, &bundle);
+            } else |err| switch (err) {
+                error.Canceled => |e| return e,
+                else => {},
+            }
+            return; // the os has verified the certificate for us
+        },
+    };
+    return error.TlsCertificateNotVerified;
+}
 
 /// The priority order here is chosen based on what crypto algorithms Zig has
 /// available in the standard library as well as what is faster. Following are

@@ -21,7 +21,7 @@ pub fn main() !void {
     try stdout_writer.interface.print("{}\n", .{S.bar});
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="123\n"
 
 #update=add conflict
@@ -44,7 +44,7 @@ pub fn main() !void {
     try stdout_writer.interface.print("{} {}\n", .{ S.bar, S.other });
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_error=main.zig:6:5: error: exported symbol collision: foo
 #expect_error=main.zig:1:1: note: other symbol here
 
@@ -68,7 +68,7 @@ pub fn main() !void {
     try stdout_writer.interface.print("{} {}\n", .{ S.bar, S.other });
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="123 456\n"
 
 #update=put exports in decl
@@ -94,7 +94,7 @@ pub fn main() !void {
     try stdout_writer.interface.print("{} {}\n", .{ S.bar, S.other });
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="123 456\n"
 
 #update=remove reference to exporting decl
@@ -141,7 +141,7 @@ pub fn main() !void {
     try stdout_writer.interface.print("{} {}\n", .{ S.bar, S.other });
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="123 456\n"
 
 #update=reintroduce reference to exporting decl, introducing conflict
@@ -167,7 +167,7 @@ pub fn main() !void {
     try stdout_writer.interface.print("{} {}\n", .{ S.bar, S.other });
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_error=main.zig:5:5: error: exported symbol collision: bar
 #expect_error=main.zig:2:1: note: other symbol here
 #expect_error=main.zig:6:5: error: exported symbol collision: other

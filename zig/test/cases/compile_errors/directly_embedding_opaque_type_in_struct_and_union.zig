@@ -26,9 +26,11 @@ export fn d() void {
 
 // error
 //
-// :3:8: error: opaque types have unknown size and therefore cannot be directly embedded in structs
+// :3:8: error: cannot directly embed opaque type 'tmp.O' in struct
+// :3:8: note: opaque types have unknown size
 // :1:11: note: opaque declared here
-// :7:10: error: opaque types have unknown size and therefore cannot be directly embedded in unions
+// :7:10: error: cannot directly embed opaque type 'tmp.O' in union
+// :7:10: note: opaque types have unknown size
 // :1:11: note: opaque declared here
 // :18:24: error: cannot cast to opaque type 'tmp.O'
 // :1:11: note: opaque declared here

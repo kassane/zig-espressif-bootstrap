@@ -17,7 +17,7 @@ else
     null;
 
 pub const std_options_debug_io: std.Io = if (builtin.is_test)
-    std.Io.Threaded.global_single_threaded.ioBasic()
+    std.Io.Threaded.global_single_threaded.io()
 else
     unreachable;
 

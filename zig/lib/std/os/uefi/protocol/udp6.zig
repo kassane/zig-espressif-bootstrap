@@ -8,7 +8,6 @@ const Ip6 = uefi.protocol.Ip6;
 const ManagedNetworkConfigData = uefi.protocol.ManagedNetwork.Config;
 const SimpleNetwork = uefi.protocol.SimpleNetwork;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 pub const Udp6 = extern struct {
     _get_mode_data: *const fn (*const Udp6, ?*Config, ?*Ip6.Mode, ?*ManagedNetworkConfigData, ?*SimpleNetwork) callconv(cc) Status,
@@ -81,8 +80,8 @@ pub const Udp6 = extern struct {
             &data.snp_mode_data,
         )) {
             .success => return data,
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -90,12 +89,12 @@ pub const Udp6 = extern struct {
     pub fn configure(self: *Udp6, udp6_config_data: ?*const Config) ConfigureError!void {
         switch (self._configure(self, udp6_config_data)) {
             .success => {},
-            .no_mapping => return Error.NoMapping,
-            .invalid_parameter => return Error.InvalidParameter,
-            .already_started => return Error.AlreadyStarted,
-            .access_denied => return Error.AccessDenied,
-            .out_of_resources => return Error.OutOfResources,
-            .device_error => return Error.DeviceError,
+            .no_mapping => return error.NoMapping,
+            .invalid_parameter => return error.InvalidParameter,
+            .already_started => return error.AlreadyStarted,
+            .access_denied => return error.AccessDenied,
+            .out_of_resources => return error.OutOfResources,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -112,12 +111,12 @@ pub const Udp6 = extern struct {
             multicast_address,
         )) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .out_of_resources => return Error.OutOfResources,
-            .invalid_parameter => return Error.InvalidParameter,
-            .already_started => return Error.AlreadyStarted,
-            .not_found => return Error.NotFound,
-            .device_error => return Error.DeviceError,
+            .not_started => return error.NotStarted,
+            .out_of_resources => return error.OutOfResources,
+            .invalid_parameter => return error.InvalidParameter,
+            .already_started => return error.AlreadyStarted,
+            .not_found => return error.NotFound,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -125,15 +124,15 @@ pub const Udp6 = extern struct {
     pub fn transmit(self: *Udp6, token: *CompletionToken) TransmitError!void {
         switch (self._transmit(self, token)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .no_mapping => return Error.NoMapping,
-            .invalid_parameter => return Error.InvalidParameter,
-            .access_denied => return Error.AccessDenied,
-            .not_ready => return Error.NotReady,
-            .out_of_resources => return Error.OutOfResources,
-            .not_found => return Error.NotFound,
-            .bad_buffer_size => return Error.BadBufferSize,
-            .no_media => return Error.NoMedia,
+            .not_started => return error.NotStarted,
+            .no_mapping => return error.NoMapping,
+            .invalid_parameter => return error.InvalidParameter,
+            .access_denied => return error.AccessDenied,
+            .not_ready => return error.NotReady,
+            .out_of_resources => return error.OutOfResources,
+            .not_found => return error.NotFound,
+            .bad_buffer_size => return error.BadBufferSize,
+            .no_media => return error.NoMedia,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -141,14 +140,14 @@ pub const Udp6 = extern struct {
     pub fn receive(self: *Udp6, token: *CompletionToken) ReceiveError!void {
         switch (self._receive(self, token)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .no_mapping => return Error.NoMapping,
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
-            .device_error => return Error.DeviceError,
-            .access_denied => return Error.AccessDenied,
-            .not_ready => return Error.NotReady,
-            .no_media => return Error.NoMedia,
+            .not_started => return error.NotStarted,
+            .no_mapping => return error.NoMapping,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
+            .device_error => return error.DeviceError,
+            .access_denied => return error.AccessDenied,
+            .not_ready => return error.NotReady,
+            .no_media => return error.NoMedia,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -156,9 +155,9 @@ pub const Udp6 = extern struct {
     pub fn cancel(self: *Udp6, token: ?*CompletionToken) CancelError!void {
         switch (self._cancel(self, token)) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .not_started => return Error.NotStarted,
-            .not_found => return Error.NotFound,
+            .invalid_parameter => return error.InvalidParameter,
+            .not_started => return error.NotStarted,
+            .not_found => return error.NotFound,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -166,9 +165,9 @@ pub const Udp6 = extern struct {
     pub fn poll(self: *Udp6) PollError!void {
         switch (self._poll(self)) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .timeout => return Error.Timeout,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .timeout => return error.Timeout,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

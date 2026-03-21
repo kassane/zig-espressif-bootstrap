@@ -51,6 +51,16 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
         std.mem.reverse(native.r[0..]);
 
         return native;
+    } else if (native_arch == .loongarch32 and native_os == .linux) {
+        // The 32-bit kABI (added later) kept the 64-bit layout.
+        return .{
+            .r = s: {
+                var regs: [32]LoongArch.Gpr = undefined;
+                for (uc.mcontext.r, 0..) |r, i| regs[i] = @truncate(r);
+                break :s regs;
+            },
+            .pc = @truncate(uc.mcontext.pc),
+        };
     } else if (native_arch.isMIPS32() and native_os == .linux) {
         // The O32 kABI uses 64-bit fields for some reason.
         return .{
@@ -1754,6 +1764,7 @@ const signal_ucontext_t = switch (native_os) {
         .aarch64,
         .aarch64_be,
         // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/loongarch/include/uapi/asm/ucontext.h
+        .loongarch32,
         .loongarch64,
         // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/powerpc/include/uapi/asm/ucontext.h
         .powerpc64,
@@ -1777,7 +1788,7 @@ const signal_ucontext_t = switch (native_os) {
                     pc: u64,
                 },
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/loongarch/include/uapi/asm/sigcontext.h
-                .loongarch64 => extern struct {
+                .loongarch32, .loongarch64 => extern struct {
                     pc: u64 align(16),
                     r: [32]u64,
                 },

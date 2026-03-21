@@ -343,22 +343,18 @@ pub fn generateSymbol(
 
         .undef => unreachable, // handled above
         .simple_value => |simple_value| switch (simple_value) {
-            .undefined => unreachable, // non-runtime value
             .void => unreachable, // non-runtime value
             .null => unreachable, // non-runtime value
             .@"unreachable" => unreachable, // non-runtime value
-            .empty_tuple => return,
             .false, .true => try w.writeByte(switch (simple_value) {
                 .false => 0,
                 .true => 1,
                 else => unreachable,
             }),
         },
-        .variable,
         .@"extern",
         .func,
         .enum_literal,
-        .empty_enum_value,
         => unreachable, // non-runtime values
         .int => {
             const abi_size = math.cast(usize, ty.abiSize(zcu)) orelse return error.Overflow;
@@ -377,7 +373,7 @@ pub fn generateSymbol(
                 .payload => 0,
             };
 
-            if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+            if (!payload_ty.hasRuntimeBits(zcu)) {
                 try w.writeInt(u16, err_val, endian);
                 return;
             }
@@ -571,46 +567,11 @@ pub fn generateSymbol(
             .struct_type => {
                 const struct_type = ip.loadStructType(ty.toIntern());
                 switch (struct_type.layout) {
-                    .@"packed" => {
-                        const abi_size = math.cast(usize, ty.abiSize(zcu)) orelse return error.Overflow;
-                        const start = w.end;
-                        const buffer = try w.writableSlice(abi_size);
-                        @memset(buffer, 0);
-                        var bits: u16 = 0;
-
-                        for (struct_type.field_types.get(ip), 0..) |field_ty, index| {
-                            const field_val = switch (aggregate.storage) {
-                                .bytes => |bytes| try pt.intern(.{ .int = .{
-                                    .ty = field_ty,
-                                    .storage = .{ .u64 = bytes.at(index, ip) },
-                                } }),
-                                .elems => |elems| elems[index],
-                                .repeated_elem => |elem| elem,
-                            };
-
-                            // pointer may point to a decl which must be marked used
-                            // but can also result in a relocation. Therefore we handle those separately.
-                            if (Type.fromInterned(field_ty).zigTypeTag(zcu) == .pointer) {
-                                const field_offset = std.math.divExact(u16, bits, 8) catch |err| switch (err) {
-                                    error.DivisionByZero => unreachable,
-                                    error.UnexpectedRemainder => return error.RelocationNotByteAligned,
-                                };
-                                w.end = start + field_offset;
-                                defer {
-                                    assert(w.end == start + field_offset + @divExact(target.ptrBitWidth(), 8));
-                                    w.end = start + abi_size;
-                                }
-                                try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(field_val), w, reloc_parent);
-                            } else {
-                                Value.fromInterned(field_val).writeToPackedMemory(.fromInterned(field_ty), pt, buffer, bits) catch unreachable;
-                            }
-                            bits += @intCast(Type.fromInterned(field_ty).bitSize(zcu));
-                        }
-                    },
+                    .@"packed" => unreachable,
                     .auto, .@"extern" => {
                         const struct_begin = w.end;
                         const field_types = struct_type.field_types.get(ip);
-                        const offsets = struct_type.offsets.get(ip);
+                        const offsets = struct_type.field_offsets.get(ip);
 
                         var it = struct_type.iterateRuntimeOrder(ip);
                         while (it.next()) |field_index| {
@@ -635,13 +596,11 @@ pub fn generateSymbol(
                             try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(field_val), w, reloc_parent);
                         }
 
-                        const size = struct_type.sizeUnordered(ip);
-                        const alignment = struct_type.flagsUnordered(ip).alignment.toByteUnits().?;
+                        assert(struct_type.alignment.check(struct_type.size));
 
-                        const padding = math.cast(
-                            usize,
-                            std.mem.alignForward(u64, size, @max(alignment, 1)) - (w.end - struct_begin),
-                        ) orelse return error.Overflow;
+                        const padding = math.cast(usize, struct_type.size - (w.end - struct_begin)) orelse {
+                            return error.Overflow;
+                        };
                         if (padding > 0) try w.splatByteAll(0, padding);
                     },
                 }
@@ -686,6 +645,7 @@ pub fn generateSymbol(
                 }
             }
         },
+        .bitpack => |bitpack| try generateSymbol(bin_file, pt, src_loc, .fromInterned(bitpack.backing_int_val), w, reloc_parent),
         .memoized_call => unreachable,
     }
 }
@@ -739,7 +699,14 @@ fn lowerPtr(
             };
             return lowerPtr(bin_file, pt, src_loc, field.base, w, reloc_parent, offset + field_off);
         },
-        .arr_elem, .comptime_field, .comptime_alloc => unreachable,
+        .arr_elem => |arr_elem| {
+            const base_ptr_ty = Value.fromInterned(arr_elem.base).typeOf(zcu);
+            assert(base_ptr_ty.ptrSize(zcu) == .many);
+            const elem_size = base_ptr_ty.childType(zcu).abiSize(zcu);
+            return lowerPtr(bin_file, pt, src_loc, arr_elem.base, w, reloc_parent, offset + elem_size * arr_elem.index);
+        },
+        .comptime_alloc => unreachable,
+        .comptime_field => unreachable,
     };
 }
 
@@ -819,10 +786,9 @@ fn lowerNavRef(
     const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
     const is_obj = lf.comp.config.output_mode == .Obj;
-    const nav_ty = Type.fromInterned(ip.getNav(nav_index).typeOf(ip));
-    const is_fn_body = nav_ty.zigTypeTag(zcu) == .@"fn";
+    const nav_ty = Type.fromInterned(ip.getNav(nav_index).resolved.?.type);
 
-    if (!is_fn_body and !nav_ty.hasRuntimeBits(zcu)) {
+    if (!nav_ty.isRuntimeFnOrHasRuntimeBits(zcu) and ip.getNav(nav_index).getExtern(ip) == null) {
         try w.splatByteAll(0xaa, ptr_width_bytes);
         return;
     }
@@ -834,7 +800,7 @@ fn lowerNavRef(
             dev.check(link.File.Tag.wasm.devFeature());
             const wasm = lf.cast(.wasm).?;
             assert(reloc_parent == .none);
-            if (is_fn_body) {
+            if (nav_ty.zigTypeTag(zcu) == .@"fn") {
                 const gop = try wasm.zcu_indirect_function_set.getOrPut(gpa, nav_index);
                 if (!gop.found_existing) gop.value_ptr.* = {};
                 if (is_obj) {
@@ -909,10 +875,11 @@ pub fn genNavRef(
     const nav = ip.getNav(nav_index);
     log.debug("genNavRef({f})", .{nav.fqn.fmt(ip)});
 
-    const lib_name, const linkage, const is_threadlocal = if (nav.getExtern(ip)) |e|
-        .{ e.lib_name, e.linkage, e.is_threadlocal and zcu.comp.config.any_non_single_threaded }
+    const is_threadlocal = nav.resolved.?.@"threadlocal" and zcu.comp.config.any_non_single_threaded;
+    const lib_name, const linkage = if (nav.getExtern(ip)) |e|
+        .{ e.lib_name, e.linkage }
     else
-        .{ .none, .internal, false };
+        .{ .none, .internal };
     if (lf.cast(.elf)) |elf_file| {
         const zo = elf_file.zigObjectPtr().?;
         switch (linkage) {
@@ -1060,51 +1027,41 @@ pub fn lowerValue(pt: Zcu.PerThread, val: Value, target: *const std.Target) Allo
 
     switch (ty.zigTypeTag(zcu)) {
         .void => return .none,
+        .bool => return .{ .immediate = @intFromBool(val.toBool()) },
         .pointer => switch (ty.ptrSize(zcu)) {
             .slice => {},
-            else => switch (val.toIntern()) {
-                .null_value => {
-                    return .{ .immediate = 0 };
-                },
-                else => switch (ip.indexToKey(val.toIntern())) {
-                    .int => {
-                        return .{ .immediate = val.toUnsignedInt(zcu) };
-                    },
-                    .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
-                        .nav => |nav| {
-                            if (!ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) {
-                                const imm: u64 = switch (@divExact(target.ptrBitWidth(), 8)) {
-                                    1 => 0xaa,
-                                    2 => 0xaaaa,
-                                    4 => 0xaaaaaaaa,
-                                    8 => 0xaaaaaaaaaaaaaaaa,
-                                    else => unreachable,
-                                };
-                                return .{ .immediate = imm };
-                            }
+            .one, .many, .c => {
+                const ptr = ip.indexToKey(val.toIntern()).ptr;
+                if (ptr.base_addr == .int) return .{ .immediate = ptr.byte_offset };
+                if (ptr.byte_offset == 0) switch (ptr.base_addr) {
+                    .int => unreachable, // handled above
 
-                            if (ty.castPtrToFn(zcu)) |fn_ty| {
-                                if (zcu.typeToFunc(fn_ty).?.is_generic) {
-                                    return .{ .immediate = fn_ty.abiAlignment(zcu).toByteUnits().? };
-                                }
-                            } else if (ty.zigTypeTag(zcu) == .pointer) {
-                                const elem_ty = ty.elemType2(zcu);
-                                if (!elem_ty.hasRuntimeBits(zcu)) {
-                                    return .{ .immediate = elem_ty.abiAlignment(zcu).toByteUnits().? };
-                                }
-                            }
-
-                            return .{ .lea_nav = nav };
-                        },
-                        .uav => |uav| if (Value.fromInterned(uav.val).typeOf(zcu).hasRuntimeBits(zcu))
-                            return .{ .lea_uav = uav }
-                        else
-                            return .{ .immediate = Type.fromInterned(uav.orig_ty).ptrAlignment(zcu)
-                                .forward(@intCast((@as(u66, 1) << @intCast(target.ptrBitWidth() | 1)) / 3)) },
-                        else => {},
+                    .nav => |nav_index| {
+                        const nav = ip.getNav(nav_index);
+                        const nav_ty: Type = .fromInterned(nav.resolved.?.type);
+                        if (nav_ty.isRuntimeFnOrHasRuntimeBits(zcu) or nav.getExtern(ip) != null) {
+                            return .{ .lea_nav = nav_index };
+                        } else {
+                            // Create the 0xaa bit pattern...
+                            const undef_ptr_bits: u64 = @intCast((@as(u66, 1) << @intCast(target.ptrBitWidth() + 1)) / 3);
+                            // ...but align the pointer
+                            const alignment = zcu.navAlignment(nav_index);
+                            return .{ .immediate = alignment.forward(undef_ptr_bits) };
+                        }
                     },
+
+                    .uav => |uav| if (Value.fromInterned(uav.val).typeOf(zcu).isRuntimeFnOrHasRuntimeBits(zcu)) {
+                        return .{ .lea_uav = uav };
+                    } else {
+                        // Create the 0xaa bit pattern...
+                        const undef_ptr_bits: u64 = @intCast((@as(u66, 1) << @intCast(target.ptrBitWidth() + 1)) / 3);
+                        // ...but align the pointer
+                        const alignment = Type.fromInterned(uav.orig_ty).ptrAlignment(zcu);
+                        return .{ .immediate = alignment.forward(undef_ptr_bits) };
+                    },
+
                     else => {},
-                },
+                };
             },
         },
         .int => {
@@ -1116,9 +1073,6 @@ pub fn lowerValue(pt: Zcu.PerThread, val: Value, target: *const std.Target) Allo
                 };
                 return .{ .immediate = unsigned };
             }
-        },
-        .bool => {
-            return .{ .immediate = @intFromBool(val.toBool()) };
         },
         .optional => {
             if (ty.isPtrLikeOptional(zcu)) {
@@ -1139,6 +1093,10 @@ pub fn lowerValue(pt: Zcu.PerThread, val: Value, target: *const std.Target) Allo
                 target,
             );
         },
+        .@"struct", .@"union" => if (ty.containerLayout(zcu) == .@"packed") {
+            const bitpack = ip.indexToKey(val.toIntern()).bitpack;
+            return lowerValue(pt, .fromInterned(bitpack.backing_int_val), target);
+        },
         .error_set => {
             const err_name = ip.indexToKey(val.toIntern()).err.name;
             const error_index = ip.getErrorValueIfExists(err_name).?;
@@ -1147,7 +1105,7 @@ pub fn lowerValue(pt: Zcu.PerThread, val: Value, target: *const std.Target) Allo
         .error_union => {
             const err_type = ty.errorUnionSet(zcu);
             const payload_type = ty.errorUnionPayload(zcu);
-            if (!payload_type.hasRuntimeBitsIgnoreComptime(zcu)) {
+            if (!payload_type.hasRuntimeBits(zcu)) {
                 // We use the error type directly as the type.
                 const err_int_ty = try pt.errorIntType();
                 switch (ip.indexToKey(val.toIntern()).error_union.val) {
@@ -1187,10 +1145,10 @@ pub fn lowerValue(pt: Zcu.PerThread, val: Value, target: *const std.Target) Allo
 }
 
 pub fn errUnionPayloadOffset(payload_ty: Type, zcu: *Zcu) u64 {
-    if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) return 0;
+    if (!payload_ty.hasRuntimeBits(zcu)) return 0;
     const payload_align = payload_ty.abiAlignment(zcu);
     const error_align = Type.anyerror.abiAlignment(zcu);
-    if (payload_align.compare(.gte, error_align) or !payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+    if (payload_align.compare(.gte, error_align) or !payload_ty.hasRuntimeBits(zcu)) {
         return 0;
     } else {
         return payload_align.forward(Type.anyerror.abiSize(zcu));
@@ -1198,10 +1156,10 @@ pub fn errUnionPayloadOffset(payload_ty: Type, zcu: *Zcu) u64 {
 }
 
 pub fn errUnionErrorOffset(payload_ty: Type, zcu: *Zcu) u64 {
-    if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) return 0;
+    if (!payload_ty.hasRuntimeBits(zcu)) return 0;
     const payload_align = payload_ty.abiAlignment(zcu);
     const error_align = Type.anyerror.abiAlignment(zcu);
-    if (payload_align.compare(.gte, error_align) and payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+    if (payload_align.compare(.gte, error_align) and payload_ty.hasRuntimeBits(zcu)) {
         return error_align.forward(payload_ty.abiSize(zcu));
     } else {
         return 0;

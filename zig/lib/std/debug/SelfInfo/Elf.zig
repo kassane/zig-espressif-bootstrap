@@ -118,6 +118,7 @@ pub const can_unwind: bool = s: {
             .aarch64_be,
             .arc,
             .csky,
+            .loongarch32,
             .loongarch64,
             .m68k,
             .mips,

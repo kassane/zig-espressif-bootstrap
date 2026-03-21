@@ -4,7 +4,7 @@
 #update=initial version
 #file=main.zig
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 fn Printer(message: []const u8) type {
     return struct {
         fn print() !void {
@@ -20,7 +20,7 @@ pub fn main() !void {
 #update=change line number
 #file=main.zig
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 
 fn Printer(message: []const u8) type {
     return struct {

@@ -3,7 +3,6 @@ const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 pub const GraphicsOutput = extern struct {
     _query_mode: *const fn (*const GraphicsOutput, u32, *usize, **Mode.Info) callconv(cc) Status,
@@ -30,8 +29,8 @@ pub const GraphicsOutput = extern struct {
         var info: *Mode.Info = undefined;
         switch (self._query_mode(self, mode_id, &size_of_info, &info)) {
             .success => return info,
-            .device_error => return Error.DeviceError,
-            .invalid_parameter => return Error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -40,8 +39,8 @@ pub const GraphicsOutput = extern struct {
     pub fn setMode(self: *GraphicsOutput, mode_id: u32) SetModeError!void {
         switch (self._set_mode(self, mode_id)) {
             .success => {},
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -72,8 +71,8 @@ pub const GraphicsOutput = extern struct {
             delta,
         )) {
             .success => {},
-            .device_error => return Error.DeviceError,
-            .invalid_parameter => return Error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

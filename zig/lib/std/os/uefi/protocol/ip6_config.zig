@@ -4,7 +4,6 @@ const Guid = uefi.Guid;
 const Event = uefi.Event;
 const Status = uefi.Status;
 const cc = uefi.cc;
-const Error = Status.Error;
 const MacAddress = uefi.MacAddress;
 const Ip6 = uefi.protocol.Ip6;
 
@@ -49,14 +48,14 @@ pub const Ip6Config = extern struct {
         const data_size = @sizeOf(@TypeOf(payload));
         switch (self._set_data(self, data_type, data_size, @ptrCast(payload))) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .write_protected => return Error.WriteProtected,
-            .access_denied => return Error.AccessDenied,
-            .not_ready => return Error.NotReady,
-            .bad_buffer_size => return Error.BadBufferSize,
-            .unsupported => return Error.Unsupported,
-            .out_of_resources => return Error.OutOfResources,
-            .device_error => return Error.DeviceError,
+            .invalid_parameter => return error.InvalidParameter,
+            .write_protected => return error.WriteProtected,
+            .access_denied => return error.AccessDenied,
+            .not_ready => return error.NotReady,
+            .bad_buffer_size => return error.BadBufferSize,
+            .unsupported => return error.Unsupported,
+            .out_of_resources => return error.OutOfResources,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -72,10 +71,10 @@ pub const Ip6Config = extern struct {
 
         switch (self._get_data(self, data_type, &payload_size, @ptrCast(&payload))) {
             .success => return payload,
-            .invalid_parameter => return Error.InvalidParameter,
-            .buffer_too_small => return Error.BufferTooSmall,
-            .not_ready => return Error.NotReady,
-            .not_found => return Error.NotFound,
+            .invalid_parameter => return error.InvalidParameter,
+            .buffer_too_small => return error.BufferTooSmall,
+            .not_ready => return error.NotReady,
+            .not_found => return error.NotFound,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -87,10 +86,10 @@ pub const Ip6Config = extern struct {
     ) RegisterDataNotifyError!void {
         switch (self._register_data_notify(self, data_type, event)) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .unsupported => return Error.Unsupported,
-            .out_of_resources => return Error.OutOfResources,
-            .access_denied => return Error.AccessDenied,
+            .invalid_parameter => return error.InvalidParameter,
+            .unsupported => return error.Unsupported,
+            .out_of_resources => return error.OutOfResources,
+            .access_denied => return error.AccessDenied,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -102,8 +101,8 @@ pub const Ip6Config = extern struct {
     ) UnregisterDataNotifyError!void {
         switch (self._unregister_data_notify(self, data_type, event)) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .not_found => return Error.NotFound,
+            .invalid_parameter => return error.InvalidParameter,
+            .not_found => return error.NotFound,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

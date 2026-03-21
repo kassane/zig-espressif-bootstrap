@@ -30,11 +30,11 @@ export fn g() void {
 }
 
 export fn h() void {
-    _ = struct { field: i32 align(0) };
+    _ = @as(struct { field: i32 align(0) }, undefined);
 }
 
 export fn i() void {
-    _ = union { field: i32 align(0) };
+    _ = @as(union { field: i32 align(0) }, undefined);
 }
 
 export fn j() void {
@@ -54,7 +54,7 @@ export fn k() void {
 // :20:30: error: alignment must be >= 1
 // :25:16: error: alignment must be >= 1
 // :29:17: error: alignment must be >= 1
-// :33:35: error: alignment must be >= 1
-// :37:34: error: alignment must be >= 1
+// :33:39: error: alignment must be >= 1
+// :37:38: error: alignment must be >= 1
 // :41:51: error: alignment must be >= 1
 // :45:25: error: alignment must be >= 1

@@ -4,7 +4,6 @@ const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 /// Character input devices, e.g. Keyboard
 pub const SimpleTextInput = extern struct {
@@ -23,7 +22,7 @@ pub const SimpleTextInput = extern struct {
     pub fn reset(self: *SimpleTextInput, verify: bool) ResetError!void {
         switch (self._reset(self, verify)) {
             .success => {},
-            .device_error => return Error.DeviceError,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -33,9 +32,9 @@ pub const SimpleTextInput = extern struct {
         var key: Key.Input = undefined;
         switch (self._read_key_stroke(self, &key)) {
             .success => return key,
-            .not_ready => return Error.NotReady,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .not_ready => return error.NotReady,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

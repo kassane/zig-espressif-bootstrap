@@ -4186,18 +4186,45 @@ pub const msghdr = switch (native_os) {
     else => void,
 };
 
+/// There are several instances of struct fields that POSIX defines as either int or socklen_t, but
+/// on Linux are size_t. glibc ignores POSIX, and uses the Linux kernel's definitions. musl on the
+/// other hand aims to be POSIX-ly correct, and defines those fields in a manner aligning with
+/// POSIX.
+///
+/// musl works around this incompatibility between the 64-bit Linux ABI and the POSIX specification
+/// by adding padding fields on either side depending on host endianness:
+///
+///     #if __LONG_MAX > 0x7fffffff && __BYTE_ORDER == __BIG_ENDIAN
+///         int __pad2;
+///     #endif
+///         socklen_t msg_controllen;
+///     #if __LONG_MAX > 0x7fffffff && __BYTE_ORDER == __LITTLE_ENDIAN
+///         int __pad2;
+///     #endif
+///
+/// To emulate this quirk of musl, the MuslOnlyPadding field is used in these structs
+///
+///     pad0: MuslOnlyPadding(.big) = 0,
+///     msg_controllen: socklen_t,
+///     pad1: MuslOnlyPadding(.little) = 0,
+///
+/// On 32-bit and non-musl systems, these fields will be zero sized, and ignored.
+fn MuslOnlyPadding(endian: std.builtin.Endian) type {
+    return if (builtin.abi.isMusl() and @sizeOf(usize) == 8 and native_endian == endian) u32 else u0;
+}
+
 /// https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/sys_socket.h.html
 const posix_msghdr = extern struct {
     name: ?*sockaddr,
     namelen: socklen_t,
     iov: [*]iovec,
-    pad0: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
+    pad0: MuslOnlyPadding(.big) = 0,
     iovlen: u32,
-    pad1: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
+    pad1: MuslOnlyPadding(.little) = 0,
     control: ?*anyopaque,
-    pad2: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
+    pad2: MuslOnlyPadding(.big) = 0,
     controllen: socklen_t,
-    pad3: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
+    pad3: MuslOnlyPadding(.little) = 0,
     flags: u32,
 };
 
@@ -4226,13 +4253,13 @@ const posix_msghdr_const = extern struct {
     name: ?*const sockaddr,
     namelen: socklen_t,
     iov: [*]const iovec_const,
-    pad0: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
+    pad0: MuslOnlyPadding(.big) = 0,
     iovlen: u32,
-    pad1: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
+    pad1: MuslOnlyPadding(.little) = 0,
     control: ?*const anyopaque,
-    pad2: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
+    pad2: MuslOnlyPadding(.big) = 0,
     controllen: socklen_t,
-    pad3: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
+    pad3: MuslOnlyPadding(.little) = 0,
     flags: u32,
 };
 
@@ -4276,9 +4303,9 @@ pub const cmsghdr = switch (native_os) {
 };
 
 const posix_cmsghdr = extern struct {
-    pad0: if (@sizeOf(usize) == 8 and native_endian == .big) u32 else u0 = 0,
+    pad0: MuslOnlyPadding(.big) = 0,
     len: socklen_t,
-    pad1: if (@sizeOf(usize) == 8 and native_endian == .little) u32 else u0 = 0,
+    pad1: MuslOnlyPadding(.little) = 0,
     level: c_int,
     type: c_int,
 };
@@ -10780,9 +10807,6 @@ pub extern "c" fn recvfrom(
 ) if (native_os == .windows) c_int else isize;
 
 pub const recvmsg = switch (native_os) {
-    // Technically, a form of recvmsg() exists for Windows, but the user has to
-    // install some kind of callback for it.
-    // https://learn.microsoft.com/en-us/windows/win32/api/mswsock/nc-mswsock-lpfn_wsarecvmsg
     .windows => {},
     else => private.recvmsg,
 };

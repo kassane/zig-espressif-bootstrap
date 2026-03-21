@@ -530,7 +530,7 @@ const Parser = struct {
     fn leaf_value(self: *Parser) ParseError!*Node {
         const node = try self.allocator.create(Node.Value);
         errdefer self.allocator.destroy(node);
-        node.* = .{ .string_value = .{} };
+        node.* = .{ .string_value = .empty };
         node.base.tree = self.tree;
         node.base.start = self.token_it.pos;
         errdefer node.string_value.deinit(self.allocator);

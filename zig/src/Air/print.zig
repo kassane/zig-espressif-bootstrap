@@ -692,33 +692,23 @@ const Writer = struct {
 
         const zcu = w.pt.zcu;
         const ip = &zcu.intern_pool;
-        const aggregate = ip.indexToKey(unwrapped_asm.clobbers).aggregate;
-        const struct_type: Type = .fromInterned(aggregate.ty);
-        switch (aggregate.storage) {
-            .elems => |elems| for (elems, 0..) |elem, i| {
-                switch (elem) {
-                    .bool_true => {
-                        const clobber = struct_type.structFieldName(i, zcu).toSlice(ip).?;
-                        assert(clobber.len != 0);
-                        try s.writeAll(", ~{");
-                        try s.writeAll(clobber);
-                        try s.writeAll("}");
-                    },
-                    .bool_false => continue,
-                    else => unreachable,
-                }
-            },
-            .repeated_elem => |elem| {
-                try s.writeAll(", ");
-                try s.writeAll(switch (elem) {
-                    .bool_true => "<all clobbers>",
-                    .bool_false => "<no clobbers>",
-                    else => unreachable,
-                });
-            },
-            .bytes => |bytes| {
-                try s.print(", {x}", .{bytes});
-            },
+        const clobbers_val: Value = .fromInterned(unwrapped_asm.clobbers);
+        const clobbers_ty = clobbers_val.typeOf(zcu);
+        var clobbers_bigint_buf: Value.BigIntSpace = undefined;
+        const clobbers_bigint = clobbers_val.toBigInt(&clobbers_bigint_buf, zcu);
+        for (0..clobbers_ty.structFieldCount(zcu)) |field_index| {
+            assert(clobbers_ty.fieldType(field_index, zcu).toIntern() == .bool_type);
+            const limb_bits = @bitSizeOf(std.math.big.Limb);
+            if (field_index / limb_bits >= clobbers_bigint.limbs.len) continue; // field is false
+            switch (@as(u1, @truncate(clobbers_bigint.limbs[field_index / limb_bits] >> @intCast(field_index % limb_bits)))) {
+                0 => continue, // field is false
+                1 => {}, // field is true
+            }
+            const clobber = clobbers_ty.structFieldName(field_index, zcu).toSlice(ip).?;
+            assert(clobber.len != 0);
+            try s.writeAll(", ~{");
+            try s.writeAll(clobber);
+            try s.writeAll("}");
         }
         const asm_source = unwrapped_asm.source;
         try s.print(", \"{f}\"", .{std.zig.fmtString(asm_source)});

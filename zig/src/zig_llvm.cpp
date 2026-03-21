@@ -285,7 +285,7 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
     PipelineTuningOptions pipeline_opts;
     pipeline_opts.LoopUnrolling = !options->is_debug;
     pipeline_opts.SLPVectorization = !options->is_debug;
-    pipeline_opts.LoopVectorization = !options->is_debug;
+    pipeline_opts.LoopVectorization = false; // https://github.com/llvm/llvm-project/issues/186922
     pipeline_opts.LoopInterleaving = !options->is_debug;
     pipeline_opts.MergeFunctions = !options->is_debug;
 

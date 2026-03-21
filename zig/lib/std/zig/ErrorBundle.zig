@@ -243,12 +243,14 @@ fn renderErrorMessage(
         }
         try t.setColor(.reset);
         if (src.data.source_line != 0 and options.include_source_line) {
+            try w.splatByteAll(' ', indent);
             const line = eb.nullTerminatedString(src.data.source_line);
             for (line) |b| switch (b) {
                 '\t' => try w.writeByte(' '),
                 else => try w.writeByte(b),
             };
             try w.writeByte('\n');
+            try w.splatByteAll(' ', indent);
             // TODO basic unicode code point monospace width
             const before_caret = src.data.span_main - src.data.span_start;
             // -1 since span.main includes the caret
@@ -267,11 +269,13 @@ fn renderErrorMessage(
         if (src.data.reference_trace_len > 0 and options.include_reference_trace) {
             try t.setColor(.reset);
             try t.setColor(.dim);
+            try w.splatByteAll(' ', indent);
             try w.print("referenced by:\n", .{});
             var ref_index = src.end;
             for (0..src.data.reference_trace_len) |_| {
                 const ref_trace = eb.extraData(ReferenceTrace, ref_index);
                 ref_index = ref_trace.end;
+                try w.splatByteAll(' ', indent);
                 if (ref_trace.data.src_loc != .none) {
                     const ref_src = eb.getSourceLocation(ref_trace.data.src_loc);
                     try w.print("    {s}: {s}:{d}:{d}\n", .{
@@ -340,9 +344,9 @@ pub const Wip = struct {
     pub fn init(wip: *Wip, gpa: Allocator) !void {
         wip.* = .{
             .gpa = gpa,
-            .string_bytes = .{},
-            .extra = .{},
-            .root_list = .{},
+            .string_bytes = .empty,
+            .extra = .empty,
+            .root_list = .empty,
         };
 
         // So that 0 can be used to indicate a null string.
@@ -371,9 +375,9 @@ pub const Wip = struct {
             wip.deinit();
             wip.* = .{
                 .gpa = gpa,
-                .string_bytes = .{},
-                .extra = .{},
-                .root_list = .{},
+                .string_bytes = .empty,
+                .extra = .empty,
+                .root_list = .empty,
             };
             return empty;
         }

@@ -465,7 +465,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 for (block_liveness.deaths) |death| try self.verifyDeath(inst, death);
 
-                if (ip.isNoReturn(block_ty.toIntern())) {
+                if (block_ty.isNoReturn(self.zcu)) {
                     assert(!self.blocks.contains(inst));
                 } else {
                     var live = if (self.blocks.fetchRemove(inst)) |kv| kv.value else {

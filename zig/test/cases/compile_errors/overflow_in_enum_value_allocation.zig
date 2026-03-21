@@ -9,4 +9,4 @@ pub export fn entry() void {
 
 // error
 //
-// :3:5: error: enumeration value '256' too large for type 'u8'
+// :3:5: error: enum tag value '256' too large for type 'u8'

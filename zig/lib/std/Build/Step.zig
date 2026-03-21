@@ -250,7 +250,7 @@ pub fn init(options: StepOptions) Step {
             const first_ret_addr = options.first_ret_addr orelse @returnAddress();
             break :blk std.debug.captureCurrentStackTrace(.{ .first_address = first_ret_addr }, addr_buf);
         },
-        .result_error_msgs = .{},
+        .result_error_msgs = .empty,
         .result_error_bundle = std.zig.ErrorBundle.empty,
         .result_stderr = "",
         .result_cached = false,

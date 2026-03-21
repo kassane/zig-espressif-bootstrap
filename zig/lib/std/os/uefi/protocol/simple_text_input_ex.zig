@@ -4,7 +4,6 @@ const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 /// Character input devices, e.g. Keyboard
 pub const SimpleTextInputEx = extern struct {
@@ -32,7 +31,7 @@ pub const SimpleTextInputEx = extern struct {
     pub fn reset(self: *SimpleTextInputEx, verify: bool) ResetError!void {
         switch (self._reset(self, verify)) {
             .success => {},
-            .device_error => return Error.DeviceError,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -42,9 +41,9 @@ pub const SimpleTextInputEx = extern struct {
         var key: Key = undefined;
         switch (self._read_key_stroke_ex(self, &key)) {
             .success => return key,
-            .not_ready => return Error.NotReady,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .not_ready => return error.NotReady,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -53,8 +52,8 @@ pub const SimpleTextInputEx = extern struct {
     pub fn setState(self: *SimpleTextInputEx, state: *const Key.State.Toggle) SetStateError!void {
         switch (self._set_state(self, @ptrCast(state))) {
             .success => {},
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -68,7 +67,7 @@ pub const SimpleTextInputEx = extern struct {
         var handle: uefi.Handle = undefined;
         switch (self._register_key_notify(self, key_data, notify, &handle)) {
             .success => return handle,
-            .out_of_resources => return Error.OutOfResources,
+            .out_of_resources => return error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -80,7 +79,7 @@ pub const SimpleTextInputEx = extern struct {
     ) UnregisterKeyNotifyError!void {
         switch (self._unregister_key_notify(self, handle)) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

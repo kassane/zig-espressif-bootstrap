@@ -4,9 +4,9 @@ const A = struct {
 };
 
 comptime {
-    _ = A;
+    _ = @as(A, undefined);
 }
 
 // error
 //
-// :1:11: error: struct 'tmp.A' depends on itself
+// :3:21: error: type 'tmp.A' depends on itself for size query here

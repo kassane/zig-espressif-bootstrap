@@ -7,7 +7,6 @@ const SystemTable = uefi.tables.SystemTable;
 const MemoryType = uefi.tables.MemoryType;
 const DevicePath = uefi.protocol.DevicePath;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 pub const LoadedImage = extern struct {
     revision: u32,
@@ -30,7 +29,7 @@ pub const LoadedImage = extern struct {
     pub fn unload(self: *LoadedImage, handle: Handle) UnloadError!void {
         switch (self._unload(self, handle)) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

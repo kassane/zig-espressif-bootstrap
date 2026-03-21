@@ -255,7 +255,7 @@ fn unpackSourcesInner(tar_bytes: []u8) !void {
 }
 
 fn updateStats() error{OutOfMemory}!void {
-    @setFloatMode(.optimized);
+    // No @setFloatMode(.optimized) since some stats may be at zero and lead to divisions by zero
 
     if (recent_coverage_update.items.len == 0) return;
 

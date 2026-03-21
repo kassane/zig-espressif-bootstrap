@@ -576,6 +576,7 @@ fn loadNtdllProc(si: *SelfInfo, name: []const u8) Io.UnexpectedError!*anyopaque 
             &.{ 'n', 't', 'd', 'l', 'l', '.', 'd', 'l', 'l' },
         ), &ntdll_handle)) {
             .SUCCESS => {},
+            .DLL_NOT_FOUND => return error.Unexpected,
             else => |status| return windows.unexpectedStatus(status),
         }
         si.ntdll_handle = ntdll_handle;

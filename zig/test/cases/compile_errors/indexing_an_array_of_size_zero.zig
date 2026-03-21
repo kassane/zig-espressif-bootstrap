@@ -6,4 +6,4 @@ export fn foo() void {
 
 // error
 //
-// :3:27: error: indexing into empty array is not allowed
+// :3:27: error: cannot index into empty array

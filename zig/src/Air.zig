@@ -14,7 +14,6 @@ const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const Zcu = @import("Zcu.zig");
 const print = @import("Air/print.zig");
-const types_resolved = @import("Air/types_resolved.zig");
 
 pub const Legalize = @import("Air/Legalize.zig");
 pub const Liveness = @import("Air/Liveness.zig");
@@ -173,8 +172,8 @@ pub const Inst = struct {
         /// outside the provenance of the operand, the result is undefined.
         ///
         /// Uses the `ty_pl` field. Payload is `Bin`. The lhs is the pointer,
-        /// rhs is the offset. Result type is the same as lhs. The operand may
-        /// be a slice.
+        /// rhs is the offset. Result type is the same as lhs. The operand type's
+        /// pointer size may be `.slice`, `.many`, or `.c`.
         ptr_add,
         /// Subtract an offset, in element type units, from a pointer,
         /// returning a new pointer. Element type may not be zero bits.
@@ -183,8 +182,8 @@ pub const Inst = struct {
         /// outside the provenance of the operand, the result is undefined.
         ///
         /// Uses the `ty_pl` field. Payload is `Bin`. The lhs is the pointer,
-        /// rhs is the offset. Result type is the same as lhs. The operand may
-        /// be a slice.
+        /// rhs is the offset. Result type is the same as lhs. The operand type's
+        /// pointer size may be `.slice`, `.many`, or `.c`.
         ptr_sub,
         /// Given two operands which can be floats, integers, or vectors, returns the
         /// greater of the operands. For vectors it operates element-wise.
@@ -693,6 +692,7 @@ pub const Inst = struct {
         /// Uses the `ty_pl` field with payload `Bin`.
         slice_elem_ptr,
         /// Given a pointer value, and element index, return the element value at that index.
+        /// The pointer size is either `.c` or `.many`.
         /// Result type is the element type of the pointer operand.
         /// Uses the `bin_op` field.
         ptr_elem_val,
@@ -2440,9 +2440,6 @@ pub fn unwrapShuffleTwo(air: *const Air, zcu: *const Zcu, inst_index: Inst.Index
     };
 }
 
-pub const typesFullyResolved = types_resolved.typesFullyResolved;
-pub const typeFullyResolved = types_resolved.checkType;
-pub const valFullyResolved = types_resolved.checkVal;
 pub const legalize = Legalize.legalize;
 pub const write = print.write;
 pub const writeInst = print.writeInst;

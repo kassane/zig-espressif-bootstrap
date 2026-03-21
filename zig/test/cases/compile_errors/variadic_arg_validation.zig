@@ -25,4 +25,4 @@ pub export fn entry3() void {
 // :14:24: error: cannot pass 'u48' to variadic function
 // :14:24: note: only integers with 0 or power of two bits are extern compatible
 // :18:24: error: cannot pass 'void' to variadic function
-// :18:24: note: 'void' is a zero bit type; for C 'void' use 'anyopaque'
+// :18:24: note: 'void' is a zero bit type

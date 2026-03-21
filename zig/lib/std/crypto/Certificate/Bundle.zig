@@ -20,8 +20,10 @@ const der = Certificate.der;
 const base64 = std.base64.standard.decoderWithIgnore(" \t\r\n");
 
 /// The key is the contents slice of the subject.
-map: std.HashMapUnmanaged(der.Element.Slice, u32, MapContext, std.hash_map.default_max_load_percentage) = .empty,
-bytes: std.ArrayList(u8) = .empty,
+map: std.HashMapUnmanaged(der.Element.Slice, u32, MapContext, std.hash_map.default_max_load_percentage),
+bytes: std.ArrayList(u8),
+
+pub const empty: Bundle = .{ .map = .empty, .bytes = .empty };
 
 pub const VerifyError = Certificate.Parsed.VerifyError || error{
     CertificateIssuerNotFound,
@@ -153,11 +155,11 @@ fn rescanWindows(cb: *Bundle, gpa: Allocator, io: Io, now: Io.Timestamp) RescanW
     const w = std.os.windows;
     const GetLastError = w.GetLastError;
     const root = [4:0]u16{ 'R', 'O', 'O', 'T' };
-    const store = w.crypt32.CertOpenSystemStoreW(null, &root) orelse switch (GetLastError()) {
+    const store = w.crypt32.CertOpenSystemStoreW(.NULL, &root) orelse switch (GetLastError()) {
         .FILE_NOT_FOUND => return error.FileNotFound,
         else => |err| return w.unexpectedError(err),
     };
-    defer _ = w.crypt32.CertCloseStore(store, 0);
+    defer assert(w.crypt32.CertCloseStore(store, .{ .CHECK = std.debug.runtime_safety }).toBool());
 
     const now_sec = now.toSeconds();
 
@@ -335,7 +337,7 @@ test "scan for OS-provided certificates" {
     const io = std.testing.io;
     const gpa = std.testing.allocator;
 
-    var bundle: Bundle = .{};
+    var bundle: Bundle = .empty;
     defer bundle.deinit(gpa);
 
     const now = Io.Clock.real.now(io);

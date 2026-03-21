@@ -20,6 +20,7 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         }),
     });
+
     const verify_gnu = b.addExecutable(.{
         .name = "verify-gnu",
         .root_module = b.createModule(.{

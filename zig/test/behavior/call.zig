@@ -551,19 +551,18 @@ test "generic function pointer can be called" {
 
 test "value returned from comptime function is comptime known" {
     const S = struct {
-        fn fields(comptime T: type) switch (@typeInfo(T)) {
-            .@"struct" => []const std.builtin.Type.StructField,
+        fn fieldCount(comptime T: type) switch (@typeInfo(T)) {
+            .@"struct" => comptime_int,
             else => unreachable,
         } {
             return switch (@typeInfo(T)) {
-                .@"struct" => |info| info.fields,
+                .@"struct" => |info| info.fields.len,
                 else => unreachable,
             };
         }
     };
-    const fields_list = S.fields(@TypeOf(.{}));
-    if (fields_list.len != 0)
-        @compileError("Argument count mismatch");
+    const fields_len = S.fieldCount(@TypeOf(.{}));
+    comptime assert(fields_len == 0);
 }
 
 test "registers get overwritten when ignoring return" {

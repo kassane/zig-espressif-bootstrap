@@ -405,14 +405,19 @@ const Completion = std.atomic.Value(enum(if (builtin.zig_backend == .stage2_risc
 /// Performs implementation-agnostic thread setup (`maybeAttachSignalStack`), then calls the given
 /// thread entry point `f` with `args` and handles the result.
 fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
-    WindowsThreadImpl => windows.DWORD,
+    WindowsThreadImpl => windows.NTSTATUS,
     LinuxThreadImpl => u8,
     PosixThreadImpl => ?*anyopaque,
     else => unreachable,
 } {
     maybeAttachSignalStack();
 
-    const default_value = if (Impl == PosixThreadImpl) null else 0;
+    const default_value = switch (Impl) {
+        WindowsThreadImpl => .SUCCESS,
+        LinuxThreadImpl => 0,
+        PosixThreadImpl => null,
+        else => unreachable,
+    };
     const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', '!noreturn', 'void', or '!void'";
 
     switch (@typeInfo(@typeInfo(@TypeOf(f)).@"fn".return_type.?)) {
@@ -429,12 +434,13 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
             }
 
             const status = @call(.auto, f, args);
-            if (Impl != PosixThreadImpl) {
-                return status;
+            switch (Impl) {
+                WindowsThreadImpl => return @enumFromInt(status),
+                LinuxThreadImpl => return status,
+                // pthreads don't support exit status, ignore value
+                PosixThreadImpl => return default_value,
+                else => unreachable,
             }
-
-            // pthreads don't support exit status, ignore value
-            return default_value;
         },
         .error_union => |info| {
             switch (info.payload) {
@@ -526,7 +532,7 @@ const WindowsThreadImpl = struct {
             fn_args: Args,
             thread: ThreadCompletion,
 
-            fn entryFn(raw_ptr: windows.PVOID) callconv(.winapi) windows.DWORD {
+            fn entryFn(raw_ptr: windows.PVOID) callconv(.winapi) windows.NTSTATUS {
                 const self: *@This() = @ptrCast(@alignCast(raw_ptr));
                 defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},
@@ -554,21 +560,72 @@ const WindowsThreadImpl = struct {
             },
         };
 
-        // Windows appears to only support SYSTEM_INFO.dwAllocationGranularity minimum stack size.
-        // Going lower makes it default to that specified in the executable (~1mb).
-        // Its also fine if the limit here is incorrect as stack size is only a hint.
+        // Windows appears to only support SYSTEM.BASIC_INFORMATION.AllocationGranularity
+        // minimum stack size. Going lower makes it default to that specified in the executable
+        // (~1mb). Its also fine if the limit here is incorrect as stack size is only a hint.
         const stack_size = @max(64 * 1024, std.math.lossyCast(u32, config.stack_size));
 
-        instance.thread.thread_handle = windows.kernel32.CreateThread(
-            null,
-            stack_size,
-            Instance.entryFn,
-            instance,
-            0,
-            null,
-        ) orelse {
-            const errno = windows.GetLastError();
-            return windows.unexpectedError(errno);
+        // Intended to be equivalent to a kernel32.CreateThread call with no flags set.
+        // However, CreateThread is just a wrapper around CreateRemoteThreadEx,
+        // so that's the more relevant function in this context.
+        //
+        // https://github.com/wine-mirror/wine/blob/3d128be6400b3869119d293d0c8fa9e7702978f8/dlls/kernelbase/thread.c#L85
+        instance.thread.thread_handle = blk: {
+            var active_ctx: ?windows.HANDLE = undefined;
+            // Note: Can return null on SUCCESS
+            switch (windows.ntdll.RtlGetActiveActivationContext(&active_ctx)) {
+                .SUCCESS => {},
+                else => |status| return windows.unexpectedStatus(status),
+            }
+            defer if (active_ctx) |ctx| windows.ntdll.RtlReleaseActivationContext(ctx);
+
+            var teb: *windows.TEB = undefined;
+            var attr_list = windows.PS.ATTRIBUTE.LIST{
+                .TotalLength = @sizeOf(windows.PS.ATTRIBUTE.LIST),
+                .Attributes = .{
+                    .{
+                        .Attribute = .TEB_ADDRESS,
+                        .Size = @sizeOf(*windows.TEB),
+                        .u = .{
+                            .ValuePtr = @ptrCast(&teb),
+                        },
+                        .ReturnLength = null,
+                    },
+                },
+            };
+
+            var thread_handle: windows.HANDLE = undefined;
+            switch (windows.ntdll.NtCreateThreadEx(
+                &thread_handle,
+                .{ .MAXIMUM_ALLOWED = true },
+                &.{},
+                windows.GetCurrentProcess(),
+                Instance.entryFn,
+                instance,
+                .{ .CREATE_SUSPENDED = true },
+                0,
+                @enumFromInt(stack_size),
+                .default,
+                &attr_list,
+            )) {
+                .SUCCESS => {},
+                else => |status| return windows.unexpectedStatus(status),
+            }
+
+            if (active_ctx) |ctx| {
+                var cookie: windows.ULONG = 0;
+                switch (windows.ntdll.RtlActivateActivationContextEx(0, teb, ctx, &cookie)) {
+                    .SUCCESS => {},
+                    else => |status| return windows.unexpectedStatus(status),
+                }
+            }
+
+            switch (windows.ntdll.NtResumeThread(thread_handle, null)) {
+                .SUCCESS => {},
+                else => |status| return windows.unexpectedStatus(status),
+            }
+
+            break :blk thread_handle;
         };
 
         return Impl{ .thread = &instance.thread };
@@ -589,7 +646,7 @@ const WindowsThreadImpl = struct {
 
     fn join(self: Impl) void {
         const infinite_timeout: windows.LARGE_INTEGER = std.math.minInt(windows.LARGE_INTEGER);
-        switch (windows.ntdll.NtWaitForSingleObject(self.thread.thread_handle, windows.FALSE, &infinite_timeout)) {
+        switch (windows.ntdll.NtWaitForSingleObject(self.thread.thread_handle, .FALSE, &infinite_timeout)) {
             windows.NTSTATUS.WAIT_0 => {},
             else => |status| windows.unexpectedStatus(status) catch unreachable,
         }
@@ -1684,6 +1741,6 @@ pub fn maybeAttachSignalStack() void {
     }, null) catch |err| switch (err) {
         error.SizeTooSmall => unreachable, // `std.options.signal_stack_size` must be sufficient for the target
         error.PermissionDenied => unreachable, // called `maybeAttachSignalStack` from a signal handler
-        error.Unexpected => @panic("unexpected error attaching signal stack"),
+        error.Unexpected => unreachable,
     };
 }

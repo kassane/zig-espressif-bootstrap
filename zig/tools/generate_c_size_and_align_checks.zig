@@ -26,7 +26,7 @@ fn cName(ty: std.Target.CType) []const u8 {
     };
 }
 
-var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
+var general_purpose_allocator: std.heap.DebugAllocator(.{}) = .init;
 
 pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(init.arena.allocator());

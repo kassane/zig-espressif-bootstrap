@@ -702,10 +702,10 @@ const PkgConfigResult = struct {
 
 /// Run pkg-config for the given library name and parse the output, returning the arguments
 /// that should be passed to zig to link the given library.
-fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
+pub fn runPkgConfig(step: *Step, lib_name: []const u8) !PkgConfigResult {
     const wl_rpath_prefix = "-Wl,-rpath,";
 
-    const b = compile.step.owner;
+    const b = step.owner;
     const pkg_name = match: {
         // First we have to map the library name to pkg config name. Unfortunately,
         // there are several examples where this is not straightforward:
@@ -798,7 +798,7 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
         } else if (mem.startsWith(u8, arg, wl_rpath_prefix)) {
             try zig_cflags.appendSlice(&[_][]const u8{ "-rpath", arg[wl_rpath_prefix.len..] });
         } else if (b.debug_pkg_config) {
-            return compile.step.fail("unknown pkg-config flag '{s}'", .{arg});
+            return step.fail("unknown pkg-config flag '{s}'", .{arg});
         }
     }
 
@@ -1111,7 +1111,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             switch (system_lib.use_pkg_config) {
                                 .no => try zig_args.append(b.fmt("{s}{s}", .{ prefix, system_lib.name })),
                                 .yes, .force => {
-                                    if (compile.runPkgConfig(system_lib.name)) |result| {
+                                    if (runPkgConfig(&compile.step, system_lib.name)) |result| {
                                         try zig_args.appendSlice(result.cflags);
                                         try zig_args.appendSlice(result.libs);
                                         try seen_system_libs.put(arena, system_lib.name, result.cflags);

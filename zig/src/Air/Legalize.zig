@@ -1593,7 +1593,7 @@ fn scalarizeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?
         const index_val = loop.block.addTyOp(l, .load, .usize, index_ptr).toRef();
         const bit_offset = loop.block.addBinOp(l, .mul, index_val, .fromValue(try pt.intValue(.usize, elem_bits))).toRef();
         const casted_bit_offset = loop.block.addTyOp(l, .intcast, shift_ty, bit_offset).toRef();
-        const shifted_uint = loop.block.addBinOp(l, .shr, index_val, casted_bit_offset).toRef();
+        const shifted_uint = loop.block.addBinOp(l, .shr, uint_val, casted_bit_offset).toRef();
         const elem_uint = loop.block.addTyOp(l, .trunc, elem_uint_ty, shifted_uint).toRef();
         const elem_val = loop.block.addBitCast(l, elem_ty, elem_uint);
         switch (dest_ty.zigTypeTag(zcu)) {

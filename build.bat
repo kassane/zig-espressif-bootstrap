@@ -37,7 +37,7 @@ if "%VSCMD_ARG_HOST_ARCH%"=="x86" set OUTDIR=out-win-x86
 
 set ROOTDIR=%~dp0
 set "ROOTDIR_CMAKE=%ROOTDIR:\=/%"
-set ZIG_VERSION="0.16.0-xtensa-dev.3025+1e7b12ac1"
+set ZIG_VERSION="0.16.0-xtensa-dev.3189+b1880ae28"
 set JOBS_ARG=
 
 pushd %ROOTDIR%
@@ -63,6 +63,7 @@ cmake "%ROOTDIR%/llvm" ^
   -G "Ninja" ^
   -DCMAKE_INSTALL_PREFIX="%ROOTDIR%/%OUTDIR%/host" ^
   -DCMAKE_PREFIX_PATH="%ROOTDIR%/%OUTDIR%/host" ^
+  -DLLVM_APPEND_VC_REV=OFF ^
   -DCMAKE_BUILD_TYPE=Release ^
   -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
   -DLLVM_ENABLE_BINDINGS=OFF ^
@@ -154,6 +155,7 @@ cd "%ROOTDIR%%OUTDIR%\%TARGET%-%MCPU%\lib"
   --name zstd ^
   -target %TARGET% ^
   -mcpu=%MCPU% ^
+  -fno-sanitize-c ^
   -fstrip ^
   -OReleaseFast ^
   -lc ^
@@ -208,6 +210,7 @@ cmake "%ROOTDIR%/llvm" ^
   -G "Ninja" ^
   -DCMAKE_INSTALL_PREFIX="%ROOTDIR_CMAKE%%OUTDIR%/%TARGET%-%MCPU%" ^
   -DCMAKE_PREFIX_PATH="%ROOTDIR_CMAKE%%OUTDIR%/%TARGET%-%MCPU%" ^
+  -DLLVM_APPEND_VC_REV=OFF ^
   -DCMAKE_BUILD_TYPE=Release ^
   -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
   -DCMAKE_CROSSCOMPILING=True ^

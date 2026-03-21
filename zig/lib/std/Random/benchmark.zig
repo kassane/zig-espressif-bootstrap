@@ -5,7 +5,6 @@ const builtin = @import("builtin");
 const std = @import("std");
 const Io = std.Io;
 const time = std.time;
-const Timer = time.Timer;
 const Random = std.Random;
 
 const KiB = 1024;
@@ -72,7 +71,11 @@ const Result = struct {
 const long_block_size: usize = 8 * 8192;
 const short_block_size: usize = 8;
 
-pub fn benchmark(comptime H: anytype, bytes: usize, comptime block_size: usize) !Result {
+pub fn benchTime(io: Io) i96 {
+    return Io.Clock.awake.now(io).nanoseconds;
+}
+
+pub fn benchmark(comptime H: anytype, io: Io, bytes: usize, comptime block_size: usize) !Result {
     var rng = blk: {
         if (H.init_u8s) |init| {
             break :blk H.ty.init(init[0..].*);
@@ -86,12 +89,11 @@ pub fn benchmark(comptime H: anytype, bytes: usize, comptime block_size: usize) 
     var block: [block_size]u8 = undefined;
 
     var offset: usize = 0;
-    var timer = try Timer.start();
-    const start = timer.lap();
+    const start = benchTime(io);
     while (offset < bytes) : (offset += block.len) {
         rng.fill(block[0..]);
     }
-    const end = timer.read();
+    const end = benchTime(io);
 
     const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
     const throughput = @as(u64, @intFromFloat(@as(f64, @floatFromInt(bytes)) / elapsed_s));
@@ -187,7 +189,7 @@ pub fn main(init: std.process.Init) !void {
                     try stdout.print("{s} (long outputs)\n", .{R.name});
                     try stdout.flush();
 
-                    const result_long = try benchmark(R, count, long_block_size);
+                    const result_long = try benchmark(R, io, count, long_block_size);
                     try stdout.print("    {:5} MiB/s\n", .{result_long.throughput / (1 * MiB)});
                 }
             }
@@ -198,7 +200,7 @@ pub fn main(init: std.process.Init) !void {
                     try stdout.print("{s} (short outputs)\n", .{R.name});
                     try stdout.flush();
 
-                    const result_short = try benchmark(R, count, short_block_size);
+                    const result_short = try benchmark(R, io, count, short_block_size);
                     try stdout.print("    {:5} MiB/s\n", .{result_short.throughput / (1 * MiB)});
                 }
             }
@@ -211,7 +213,7 @@ pub fn main(init: std.process.Init) !void {
                     try stdout.print("{s} (cryptographic, long outputs)\n", .{R.name});
                     try stdout.flush();
 
-                    const result_long = try benchmark(R, count, long_block_size);
+                    const result_long = try benchmark(R, io, count, long_block_size);
                     try stdout.print("    {:5} MiB/s\n", .{result_long.throughput / (1 * MiB)});
                 }
             }
@@ -222,7 +224,7 @@ pub fn main(init: std.process.Init) !void {
                     try stdout.print("{s} (cryptographic, short outputs)\n", .{R.name});
                     try stdout.flush();
 
-                    const result_short = try benchmark(R, count, short_block_size);
+                    const result_short = try benchmark(R, io, count, short_block_size);
                     try stdout.print("    {:5} MiB/s\n", .{result_short.throughput / (1 * MiB)});
                 }
             }

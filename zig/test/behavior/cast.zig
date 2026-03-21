@@ -175,6 +175,7 @@ test "type coercion from int to float" {
             var int: Int = std.math.minInt(Int);
             while (int < std.math.maxInt(Int)) : (int += 1)
                 try value(Float, int);
+            try value(Float, int); // max
         }
 
         // Check that the min and max values of the integer type can safely be
@@ -201,6 +202,8 @@ test "type coercion from int to float" {
 
     try check.edgeValues(f128, u113);
     try check.edgeValues(f128, i114);
+
+    try check.value(c_longdouble, @as(u1, 0)); // Smoke test - size varies by target.
 
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
@@ -1922,6 +1925,47 @@ test "peer type resolution: float and comptime-known fixed-width integer" {
 
     try expectEqual(@as(T, 100.0), r1);
     try expectEqual(@as(T, 1.234), r2);
+}
+
+test "peer type resolution: float and runtime-known fixed-width integer" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn testPeerType(Float: type, Int: type) !void {
+            var i: Int = 100;
+            _ = &i;
+            var f: Float = 1.234;
+            _ = &f;
+            comptime assert(@TypeOf(i, f) == Float);
+            comptime assert(@TypeOf(f, i) == Float);
+
+            var t = true;
+            _ = &t;
+            const r1 = if (t) i else f;
+            const r2 = if (t) f else i;
+
+            try expectEqual(@as(Float, 100.0), r1);
+            try expectEqual(@as(Float, 1.234), r2);
+        }
+    };
+
+    try S.testPeerType(f16, u11);
+    try S.testPeerType(f16, i12);
+
+    try S.testPeerType(f32, u24);
+    try S.testPeerType(f32, i25);
+
+    try S.testPeerType(f64, u53);
+    try S.testPeerType(f64, i54);
+
+    try S.testPeerType(f80, u64);
+    try S.testPeerType(f80, i65);
+
+    try S.testPeerType(f128, u113);
+    try S.testPeerType(f128, i114);
+
+    try S.testPeerType(c_longdouble, u8); // Smoke test - size varies by target.
 }
 
 test "peer type resolution: same array type with sentinel" {

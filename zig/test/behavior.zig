@@ -24,7 +24,6 @@ test {
     _ = @import("behavior/duplicated_test_names.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/destructure.zig");
-    _ = @import("behavior/empty_union.zig");
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/error.zig");
     _ = @import("behavior/eval.zig");

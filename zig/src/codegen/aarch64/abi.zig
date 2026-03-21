@@ -13,7 +13,7 @@ pub const Class = union(enum) {
 
 /// For `float_array` the second element will be the amount of floats.
 pub fn classifyType(ty: Type, zcu: *Zcu) Class {
-    assert(ty.hasRuntimeBitsIgnoreComptime(zcu));
+    assert(ty.hasRuntimeBits(zcu));
 
     var maybe_float_bits: ?u16 = null;
     switch (ty.zigTypeTag(zcu)) {

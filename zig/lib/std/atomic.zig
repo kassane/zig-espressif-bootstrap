@@ -509,11 +509,11 @@ pub const Mutex = enum(u8) {
     locked,
 
     pub fn tryLock(m: *Mutex) bool {
-        return @cmpxchgWeak(Mutex, m, .unlocked, .locked, .acquire, .monotonic) == null;
+        return @cmpxchgStrong(Mutex, m, .unlocked, .locked, .acquire, .monotonic) == null;
     }
 
     pub fn unlock(m: *Mutex) void {
-        assert(m.* == .locked);
+        assert(@atomicLoad(Mutex, m, .unordered) == .locked);
         @atomicStore(Mutex, m, .unlocked, .release);
     }
 };

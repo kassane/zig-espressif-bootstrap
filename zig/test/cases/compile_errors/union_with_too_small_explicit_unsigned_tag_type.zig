@@ -11,5 +11,4 @@ export fn entry() void {
 
 // error
 //
-// :1:22: error: specified integer tag type cannot represent every field
-// :1:22: note: type 'u2' cannot fit values in range 0...4
+// :6:5: error: enum tag value '4' too large for type 'u2'

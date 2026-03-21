@@ -4,7 +4,6 @@ const builtin = @import("builtin");
 const std = @import("std");
 const Io = std.Io;
 const time = std.time;
-const Timer = time.Timer;
 const hash = std.hash;
 
 const KiB = 1024;
@@ -111,7 +110,11 @@ const Result = struct {
 
 const block_size: usize = 8 * 8192;
 
-pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Allocator) !Result {
+pub fn benchTime(io: Io) i96 {
+    return Io.Clock.awake.now(io).nanoseconds;
+}
+
+pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Allocator, io: Io) !Result {
     var blocks = try allocator.alloc(u8, bytes);
     defer allocator.free(blocks);
     random.bytes(blocks);
@@ -131,7 +134,7 @@ pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Alloc
         break :blk .init();
     };
 
-    var timer = try Timer.start();
+    const start = benchTime(io);
     for (0..block_count) |i| {
         h.update(blocks[i * block_size ..][0..block_size]);
     }
@@ -143,7 +146,7 @@ pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Alloc
         h.final();
     std.mem.doNotOptimizeAway(final);
 
-    const elapsed_ns = timer.read();
+    const elapsed_ns = benchTime(io) - start;
 
     const elapsed_s = @as(f64, @floatFromInt(elapsed_ns)) / time.ns_per_s;
     const size_float: f64 = @floatFromInt(block_size * block_count);
@@ -155,14 +158,14 @@ pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Alloc
     };
 }
 
-pub fn benchmarkHashSmallKeys(comptime H: anytype, key_size: usize, bytes: usize, allocator: std.mem.Allocator) !Result {
+pub fn benchmarkHashSmallKeys(comptime H: anytype, key_size: usize, bytes: usize, allocator: std.mem.Allocator, io: Io) !Result {
     var blocks = try allocator.alloc(u8, bytes);
     defer allocator.free(blocks);
     random.bytes(blocks);
 
     const key_count = bytes / key_size;
 
-    var timer = try Timer.start();
+    const start = benchTime(io);
 
     var sum: u64 = 0;
     for (0..key_count) |i| {
@@ -182,7 +185,7 @@ pub fn benchmarkHashSmallKeys(comptime H: anytype, key_size: usize, bytes: usize
         };
         sum +%= final;
     }
-    const elapsed_ns = timer.read();
+    const elapsed_ns = benchTime(io) - start;
 
     const elapsed_s = @as(f64, @floatFromInt(elapsed_ns)) / time.ns_per_s;
     const size_float: f64 = @floatFromInt(key_count * key_size);
@@ -204,6 +207,7 @@ pub fn benchmarkHashSmallKeysArrayPtr(
     comptime key_size: usize,
     bytes: usize,
     allocator: std.mem.Allocator,
+    io: Io,
 ) !Result {
     var blocks = try allocator.alloc(u8, bytes);
     defer allocator.free(blocks);
@@ -211,7 +215,7 @@ pub fn benchmarkHashSmallKeysArrayPtr(
 
     const key_count = bytes / key_size;
 
-    var timer = try Timer.start();
+    const start = benchTime(io);
 
     var sum: u64 = 0;
     for (0..key_count) |i| {
@@ -231,7 +235,7 @@ pub fn benchmarkHashSmallKeysArrayPtr(
         };
         sum +%= final;
     }
-    const elapsed_ns = timer.read();
+    const elapsed_ns = benchTime(io) - start;
 
     const elapsed_s = @as(f64, @floatFromInt(elapsed_ns)) / time.ns_per_s;
     const throughput: u64 = @intFromFloat(@as(f64, @floatFromInt(bytes)) / elapsed_s);
@@ -252,6 +256,7 @@ pub fn benchmarkHashSmallKeysArray(
     comptime key_size: usize,
     bytes: usize,
     allocator: std.mem.Allocator,
+    io: Io,
 ) !Result {
     var blocks = try allocator.alloc(u8, bytes);
     defer allocator.free(blocks);
@@ -260,7 +265,7 @@ pub fn benchmarkHashSmallKeysArray(
     const key_count = bytes / key_size;
 
     var i: usize = 0;
-    var timer = try Timer.start();
+    const start = benchTime(io);
 
     var sum: u64 = 0;
     while (i < key_count) : (i += 1) {
@@ -280,7 +285,7 @@ pub fn benchmarkHashSmallKeysArray(
         };
         sum +%= final;
     }
-    const elapsed_ns = timer.read();
+    const elapsed_ns = benchTime(io) - start;
 
     const elapsed_s = @as(f64, @floatFromInt(elapsed_ns)) / time.ns_per_s;
     const throughput: u64 = @intFromFloat(@as(f64, @floatFromInt(bytes)) / elapsed_s);
@@ -293,14 +298,14 @@ pub fn benchmarkHashSmallKeysArray(
     };
 }
 
-pub fn benchmarkHashSmallApi(comptime H: anytype, key_size: usize, bytes: usize, allocator: std.mem.Allocator) !Result {
+pub fn benchmarkHashSmallApi(comptime H: anytype, key_size: usize, bytes: usize, allocator: std.mem.Allocator, io: Io) !Result {
     var blocks = try allocator.alloc(u8, bytes);
     defer allocator.free(blocks);
     random.bytes(blocks);
 
     const key_count = bytes / key_size;
 
-    var timer = try Timer.start();
+    const start = benchTime(io);
 
     var sum: u64 = 0;
     for (0..key_count) |i| {
@@ -320,7 +325,7 @@ pub fn benchmarkHashSmallApi(comptime H: anytype, key_size: usize, bytes: usize,
         };
         sum +%= final;
     }
-    const elapsed_ns = timer.read();
+    const elapsed_ns = benchTime(io) - start;
 
     const elapsed_s = @as(f64, @floatFromInt(elapsed_ns)) / time.ns_per_s;
     const throughput: u64 = @intFromFloat(@as(f64, @floatFromInt(bytes)) / elapsed_s);
@@ -440,7 +445,7 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     }
 
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -454,7 +459,7 @@ pub fn main(init: std.process.Init) !void {
                 // This allows easier comparison between different implementations.
                 if (H.has_iterative_api and !test_small_key_only) {
                     prng.seed(seed);
-                    const result = try benchmarkHash(H, count, allocator);
+                    const result = try benchmarkHash(H, count, allocator, io);
                     try stdout.print("   iterative: {:5} MiB/s [{x:0<16}]\n", .{ result.throughput / (1 * MiB), result.hash });
                     try stdout.flush();
                 }
@@ -462,7 +467,7 @@ pub fn main(init: std.process.Init) !void {
                 if (!test_iterative_only) {
                     if (key_size) |size| {
                         prng.seed(seed);
-                        const result_small = try benchmarkHashSmallKeys(H, size, count, allocator);
+                        const result_small = try benchmarkHashSmallKeys(H, size, count, allocator, io);
                         try stdout.print("  small keys: {:3}B {:5} MiB/s {} Hashes/s [{x:0<16}]\n", .{
                             size,
                             result_small.throughput / (1 * MiB),
@@ -476,9 +481,9 @@ pub fn main(init: std.process.Init) !void {
                             inline for (sizes) |exact_size| {
                                 if (size == exact_size) {
                                     prng.seed(seed);
-                                    const result_array = try benchmarkHashSmallKeysArray(H, exact_size, count, allocator);
+                                    const result_array = try benchmarkHashSmallKeysArray(H, exact_size, count, allocator, io);
                                     prng.seed(seed);
-                                    const result_ptr = try benchmarkHashSmallKeysArrayPtr(H, exact_size, count, allocator);
+                                    const result_ptr = try benchmarkHashSmallKeysArrayPtr(H, exact_size, count, allocator, io);
                                     try stdout.print("       array: {:5} MiB/s [{x:0<16}]\n", .{
                                         result_array.throughput / (1 * MiB),
                                         result_array.hash,
@@ -493,7 +498,7 @@ pub fn main(init: std.process.Init) !void {
                         }
                     } else {
                         prng.seed(seed);
-                        const result_small = try benchmarkHashSmallKeys(H, default_small_key_size, count, allocator);
+                        const result_small = try benchmarkHashSmallKeys(H, default_small_key_size, count, allocator, io);
                         try stdout.print("  small keys: {:3}B {:5} MiB/s {} Hashes/s [{x:0<16}]\n", .{
                             default_small_key_size,
                             result_small.throughput / (1 * MiB),
@@ -507,7 +512,7 @@ pub fn main(init: std.process.Init) !void {
                             try stdout.print("       array:\n", .{});
                             inline for (sizes) |exact_size| {
                                 prng.seed(seed);
-                                const result = try benchmarkHashSmallKeysArray(H, exact_size, count, allocator);
+                                const result = try benchmarkHashSmallKeysArray(H, exact_size, count, allocator, io);
                                 try stdout.print("       {d: >3}B {:5} MiB/s [{x:0<16}]\n", .{
                                     exact_size,
                                     result.throughput / (1 * MiB),
@@ -518,7 +523,7 @@ pub fn main(init: std.process.Init) !void {
                             try stdout.print("   array ptr: \n", .{});
                             inline for (sizes) |exact_size| {
                                 prng.seed(seed);
-                                const result = try benchmarkHashSmallKeysArrayPtr(H, exact_size, count, allocator);
+                                const result = try benchmarkHashSmallKeysArrayPtr(H, exact_size, count, allocator, io);
                                 try stdout.print("       {d: >3}B {:5} MiB/s [{x:0<16}]\n", .{
                                     exact_size,
                                     result.throughput / (1 * MiB),

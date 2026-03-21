@@ -208,6 +208,9 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
     var archiver: std.tar.Writer = .{ .underlying_writer = &response.writer };
     archiver.prefix = "std";
 
+    var path_buf: std.ArrayList(u8) = .empty;
+    defer path_buf.deinit(gpa);
+
     while (try walker.next(io)) |entry| {
         switch (entry.kind) {
             .file => {
@@ -227,7 +230,17 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
             .interface = Io.File.Reader.initInterface(&.{}),
             .size = stat.size,
         };
-        try archiver.writeFileTimestamp(entry.path, &file_reader, stat.mtime);
+
+        const posix_path = if (comptime std.fs.path.sep == std.fs.path.sep_posix)
+            entry.path
+        else blk: {
+            path_buf.clearRetainingCapacity();
+            try path_buf.appendSlice(gpa, entry.path);
+            std.mem.replaceScalar(u8, path_buf.items, std.fs.path.sep, std.fs.path.sep_posix);
+            break :blk path_buf.items;
+        };
+
+        try archiver.writeFileTimestamp(posix_path, &file_reader, stat.mtime);
     }
 
     {

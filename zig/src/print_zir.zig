@@ -548,10 +548,10 @@ const Writer = struct {
             .shl_with_overflow,
             => try self.writeOverflowArithmetic(stream, extended),
 
-            .struct_decl => try self.writeStructDecl(stream, extended),
-            .union_decl => try self.writeUnionDecl(stream, extended),
-            .enum_decl => try self.writeEnumDecl(stream, extended),
-            .opaque_decl => try self.writeOpaqueDecl(stream, extended),
+            .struct_decl => try self.writeStructDecl(stream, inst),
+            .union_decl => try self.writeUnionDecl(stream, inst),
+            .enum_decl => try self.writeEnumDecl(stream, inst),
+            .opaque_decl => try self.writeOpaqueDecl(stream, inst),
 
             .tuple_decl => try self.writeTupleDecl(stream, extended),
 
@@ -1427,509 +1427,203 @@ const Writer = struct {
         try self.writeSrcNode(stream, inst_data.src_node);
     }
 
-    fn writeStructDecl(self: *Writer, stream: *std.Io.Writer, extended: Zir.Inst.Extended.InstData) !void {
-        const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
-
-        const extra = self.code.extraData(Zir.Inst.StructDecl, extended.operand);
+    fn writeStructDecl(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+        const struct_decl = self.code.getStructDecl(inst);
 
         const prev_parent_decl_node = self.parent_decl_node;
-        self.parent_decl_node = extra.data.src_node;
+        self.parent_decl_node = struct_decl.src_node;
         defer self.parent_decl_node = prev_parent_decl_node;
 
-        const fields_hash: std.zig.SrcHash = @bitCast([4]u32{
-            extra.data.fields_hash_0,
-            extra.data.fields_hash_1,
-            extra.data.fields_hash_2,
-            extra.data.fields_hash_3,
-        });
-
+        const fields_hash = self.code.getAssociatedSrcHash(inst).?;
         try stream.print("hash({x}) ", .{&fields_hash});
 
-        var extra_index: usize = extra.end;
+        try stream.print("{s}, ", .{@tagName(struct_decl.name_strategy)});
 
-        const captures_len = if (small.has_captures_len) blk: {
-            const captures_len = self.code.extra[extra_index];
-            extra_index += 1;
-            break :blk captures_len;
-        } else 0;
-
-        const fields_len = if (small.has_fields_len) blk: {
-            const fields_len = self.code.extra[extra_index];
-            extra_index += 1;
-            break :blk fields_len;
-        } else 0;
-
-        const decls_len = if (small.has_decls_len) blk: {
-            const decls_len = self.code.extra[extra_index];
-            extra_index += 1;
-            break :blk decls_len;
-        } else 0;
-
-        try self.writeFlag(stream, "known_non_opv, ", small.known_non_opv);
-        try self.writeFlag(stream, "known_comptime_only, ", small.known_comptime_only);
-
-        try stream.print("{s}, ", .{@tagName(small.name_strategy)});
-
-        extra_index = try self.writeCaptures(stream, extra_index, captures_len);
-        try stream.writeAll(", ");
-
-        if (small.has_backing_int) {
-            const backing_int_body_len = self.code.extra[extra_index];
-            extra_index += 1;
+        if (struct_decl.backing_int_type_body) |backing_int_type_body| {
+            assert(struct_decl.layout == .@"packed");
             try stream.writeAll("packed(");
-            if (backing_int_body_len == 0) {
-                const backing_int_ref: Zir.Inst.Ref = @enumFromInt(self.code.extra[extra_index]);
-                extra_index += 1;
-                try self.writeInstRef(stream, backing_int_ref);
-            } else {
-                const body = self.code.bodySlice(extra_index, backing_int_body_len);
-                extra_index += backing_int_body_len;
-                self.indent += 2;
-                try self.writeBracedDecl(stream, body);
-                self.indent -= 2;
-            }
+            try self.writeBracedDecl(stream, backing_int_type_body);
             try stream.writeAll("), ");
         } else {
-            try stream.print("{s}, ", .{@tagName(small.layout)});
+            try stream.print("{s}, ", .{@tagName(struct_decl.layout)});
         }
 
-        if (decls_len == 0) {
-            try stream.writeAll("{}, ");
-        } else {
-            try stream.writeAll("{\n");
-            self.indent += 2;
-            try self.writeBody(stream, self.code.bodySlice(extra_index, decls_len));
-            self.indent -= 2;
-            extra_index += decls_len;
-            try stream.splatByteAll(' ', self.indent);
-            try stream.writeAll("}, ");
-        }
-
-        if (fields_len == 0) {
-            try stream.writeAll("{}, {}) ");
-        } else {
-            const bits_per_field = 4;
-            const fields_per_u32 = 32 / bits_per_field;
-            const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
-            const Field = struct {
-                type_len: u32 = 0,
-                align_len: u32 = 0,
-                init_len: u32 = 0,
-                type: Zir.Inst.Ref = .none,
-                name: Zir.NullTerminatedString,
-                is_comptime: bool,
-            };
-            const fields = try self.arena.alloc(Field, fields_len);
-            {
-                var bit_bag_index: usize = extra_index;
-                extra_index += bit_bags_count;
-                var cur_bit_bag: u32 = undefined;
-                var field_i: u32 = 0;
-                while (field_i < fields_len) : (field_i += 1) {
-                    if (field_i % fields_per_u32 == 0) {
-                        cur_bit_bag = self.code.extra[bit_bag_index];
-                        bit_bag_index += 1;
-                    }
-                    const has_align = @as(u1, @truncate(cur_bit_bag)) != 0;
-                    cur_bit_bag >>= 1;
-                    const has_default = @as(u1, @truncate(cur_bit_bag)) != 0;
-                    cur_bit_bag >>= 1;
-                    const is_comptime = @as(u1, @truncate(cur_bit_bag)) != 0;
-                    cur_bit_bag >>= 1;
-                    const has_type_body = @as(u1, @truncate(cur_bit_bag)) != 0;
-                    cur_bit_bag >>= 1;
-
-                    const field_name_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
-                    extra_index += 1;
-
-                    fields[field_i] = .{
-                        .is_comptime = is_comptime,
-                        .name = field_name_index,
-                    };
-
-                    if (has_type_body) {
-                        fields[field_i].type_len = self.code.extra[extra_index];
-                    } else {
-                        fields[field_i].type = @enumFromInt(self.code.extra[extra_index]);
-                    }
-                    extra_index += 1;
-
-                    if (has_align) {
-                        fields[field_i].align_len = self.code.extra[extra_index];
-                        extra_index += 1;
-                    }
-
-                    if (has_default) {
-                        fields[field_i].init_len = self.code.extra[extra_index];
-                        extra_index += 1;
-                    }
-                }
-            }
-
-            try stream.writeAll("{\n");
-            self.indent += 2;
-
-            for (fields, 0..) |field, i| {
-                try stream.splatByteAll(' ', self.indent);
-                try self.writeFlag(stream, "comptime ", field.is_comptime);
-                if (field.name != .empty) {
-                    const field_name = self.code.nullTerminatedString(field.name);
-                    try stream.print("{f}: ", .{std.zig.fmtIdP(field_name)});
-                } else {
-                    try stream.print("@\"{d}\": ", .{i});
-                }
-                if (field.type != .none) {
-                    try self.writeInstRef(stream, field.type);
-                }
-
-                if (field.type_len > 0) {
-                    const body = self.code.bodySlice(extra_index, field.type_len);
-                    extra_index += body.len;
-                    self.indent += 2;
-                    try self.writeBracedDecl(stream, body);
-                    self.indent -= 2;
-                }
-
-                if (field.align_len > 0) {
-                    const body = self.code.bodySlice(extra_index, field.align_len);
-                    extra_index += body.len;
-                    self.indent += 2;
-                    try stream.writeAll(" align(");
-                    try self.writeBracedDecl(stream, body);
-                    try stream.writeAll(")");
-                    self.indent -= 2;
-                }
-
-                if (field.init_len > 0) {
-                    const body = self.code.bodySlice(extra_index, field.init_len);
-                    extra_index += body.len;
-                    self.indent += 2;
-                    try stream.writeAll(" = ");
-                    try self.writeBracedDecl(stream, body);
-                    self.indent -= 2;
-                }
-
-                try stream.writeAll(",\n");
-            }
-
-            self.indent -= 2;
-            try stream.splatByteAll(' ', self.indent);
-            try stream.writeAll("}) ");
-        }
-        try self.writeSrcNode(stream, .zero);
-    }
-
-    fn writeUnionDecl(self: *Writer, stream: *std.Io.Writer, extended: Zir.Inst.Extended.InstData) !void {
-        const small = @as(Zir.Inst.UnionDecl.Small, @bitCast(extended.small));
-
-        const extra = self.code.extraData(Zir.Inst.UnionDecl, extended.operand);
-
-        const prev_parent_decl_node = self.parent_decl_node;
-        self.parent_decl_node = extra.data.src_node;
-        defer self.parent_decl_node = prev_parent_decl_node;
-
-        const fields_hash: std.zig.SrcHash = @bitCast([4]u32{
-            extra.data.fields_hash_0,
-            extra.data.fields_hash_1,
-            extra.data.fields_hash_2,
-            extra.data.fields_hash_3,
-        });
-
-        try stream.print("hash({x}) ", .{&fields_hash});
-
-        var extra_index: usize = extra.end;
-
-        const tag_type_ref = if (small.has_tag_type) blk: {
-            const tag_type_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
-            extra_index += 1;
-            break :blk tag_type_ref;
-        } else .none;
-
-        const captures_len = if (small.has_captures_len) blk: {
-            const captures_len = self.code.extra[extra_index];
-            extra_index += 1;
-            break :blk captures_len;
-        } else 0;
-
-        const body_len = if (small.has_body_len) blk: {
-            const body_len = self.code.extra[extra_index];
-            extra_index += 1;
-            break :blk body_len;
-        } else 0;
-
-        const fields_len = if (small.has_fields_len) blk: {
-            const fields_len = self.code.extra[extra_index];
-            extra_index += 1;
-            break :blk fields_len;
-        } else 0;
-
-        const decls_len = if (small.has_decls_len) blk: {
-            const decls_len = self.code.extra[extra_index];
-            extra_index += 1;
-            break :blk decls_len;
-        } else 0;
-
-        try stream.print("{s}, {s}, ", .{
-            @tagName(small.name_strategy), @tagName(small.layout),
-        });
-        try self.writeFlag(stream, "autoenum, ", small.auto_enum_tag);
-
-        extra_index = try self.writeCaptures(stream, extra_index, captures_len);
+        try self.writeCaptures(stream, struct_decl.captures, struct_decl.capture_names);
+        try stream.writeAll(", ");
+        try self.writeBracedDecl(stream, struct_decl.decls);
         try stream.writeAll(", ");
 
-        if (decls_len == 0) {
-            try stream.writeAll("{}");
-        } else {
-            try stream.writeAll("{\n");
-            self.indent += 2;
-            try self.writeBody(stream, self.code.bodySlice(extra_index, decls_len));
-            self.indent -= 2;
-            extra_index += decls_len;
-            try stream.splatByteAll(' ', self.indent);
-            try stream.writeAll("}");
-        }
-
-        if (tag_type_ref != .none) {
-            try stream.writeAll(", ");
-            try self.writeInstRef(stream, tag_type_ref);
-        }
-
-        if (fields_len == 0) {
-            try stream.writeAll("}) ");
-            try self.writeSrcNode(stream, .zero);
-            return;
-        }
-        try stream.writeAll(", ");
-
-        const body = self.code.bodySlice(extra_index, body_len);
-        extra_index += body.len;
-
-        try self.writeBracedDecl(stream, body);
-        try stream.writeAll(", {\n");
-
-        self.indent += 2;
-        const bits_per_field = 4;
-        const fields_per_u32 = 32 / bits_per_field;
-        const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
-        const body_end = extra_index;
-        extra_index += bit_bags_count;
-        var bit_bag_index: usize = body_end;
-        var cur_bit_bag: u32 = undefined;
-        var field_i: u32 = 0;
-        while (field_i < fields_len) : (field_i += 1) {
-            if (field_i % fields_per_u32 == 0) {
-                cur_bit_bag = self.code.extra[bit_bag_index];
-                bit_bag_index += 1;
-            }
-            const has_type = @as(u1, @truncate(cur_bit_bag)) != 0;
-            cur_bit_bag >>= 1;
-            const has_align = @as(u1, @truncate(cur_bit_bag)) != 0;
-            cur_bit_bag >>= 1;
-            const has_value = @as(u1, @truncate(cur_bit_bag)) != 0;
-            cur_bit_bag >>= 1;
-            const unused = @as(u1, @truncate(cur_bit_bag)) != 0;
-            cur_bit_bag >>= 1;
-
-            _ = unused;
-
-            const field_name_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
-            const field_name = self.code.nullTerminatedString(field_name_index);
-            extra_index += 1;
-
-            try stream.splatByteAll(' ', self.indent);
-            try stream.print("{f}", .{std.zig.fmtIdP(field_name)});
-
-            if (has_type) {
-                const field_type = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
-                extra_index += 1;
-
-                try stream.writeAll(": ");
-                try self.writeInstRef(stream, field_type);
-            }
-            if (has_align) {
-                const align_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
-                extra_index += 1;
-
-                try stream.writeAll(" align(");
-                try self.writeInstRef(stream, align_ref);
-                try stream.writeAll(")");
-            }
-            if (has_value) {
-                const default_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
-                extra_index += 1;
-
-                try stream.writeAll(" = ");
-                try self.writeInstRef(stream, default_ref);
-            }
-            try stream.writeAll(",\n");
-        }
-
-        self.indent -= 2;
-        try stream.splatByteAll(' ', self.indent);
-        try stream.writeAll("}) ");
-        try self.writeSrcNode(stream, .zero);
-    }
-
-    fn writeEnumDecl(self: *Writer, stream: *std.Io.Writer, extended: Zir.Inst.Extended.InstData) !void {
-        const small = @as(Zir.Inst.EnumDecl.Small, @bitCast(extended.small));
-
-        const extra = self.code.extraData(Zir.Inst.EnumDecl, extended.operand);
-
-        const prev_parent_decl_node = self.parent_decl_node;
-        self.parent_decl_node = extra.data.src_node;
-        defer self.parent_decl_node = prev_parent_decl_node;
-
-        const fields_hash: std.zig.SrcHash = @bitCast([4]u32{
-            extra.data.fields_hash_0,
-            extra.data.fields_hash_1,
-            extra.data.fields_hash_2,
-            extra.data.fields_hash_3,
-        });
-
-        try stream.print("hash({x}) ", .{&fields_hash});
-
-        var extra_index: usize = extra.end;
-
-        const tag_type_ref = if (small.has_tag_type) blk: {
-            const tag_type_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
-            extra_index += 1;
-            break :blk tag_type_ref;
-        } else .none;
-
-        const captures_len = if (small.has_captures_len) blk: {
-            const captures_len = self.code.extra[extra_index];
-            extra_index += 1;
-            break :blk captures_len;
-        } else 0;
-
-        const body_len = if (small.has_body_len) blk: {
-            const body_len = self.code.extra[extra_index];
-            extra_index += 1;
-            break :blk body_len;
-        } else 0;
-
-        const fields_len = if (small.has_fields_len) blk: {
-            const fields_len = self.code.extra[extra_index];
-            extra_index += 1;
-            break :blk fields_len;
-        } else 0;
-
-        const decls_len = if (small.has_decls_len) blk: {
-            const decls_len = self.code.extra[extra_index];
-            extra_index += 1;
-            break :blk decls_len;
-        } else 0;
-
-        try stream.print("{s}, ", .{@tagName(small.name_strategy)});
-        try self.writeFlag(stream, "nonexhaustive, ", small.nonexhaustive);
-
-        extra_index = try self.writeCaptures(stream, extra_index, captures_len);
-        try stream.writeAll(", ");
-
-        if (decls_len == 0) {
-            try stream.writeAll("{}, ");
-        } else {
-            try stream.writeAll("{\n");
-            self.indent += 2;
-            try self.writeBody(stream, self.code.bodySlice(extra_index, decls_len));
-            self.indent -= 2;
-            extra_index += decls_len;
-            try stream.splatByteAll(' ', self.indent);
-            try stream.writeAll("}, ");
-        }
-
-        if (tag_type_ref != .none) {
-            try self.writeInstRef(stream, tag_type_ref);
-            try stream.writeAll(", ");
-        }
-
-        const body = self.code.bodySlice(extra_index, body_len);
-        extra_index += body.len;
-
-        try self.writeBracedDecl(stream, body);
-        if (fields_len == 0) {
-            try stream.writeAll(", {}) ");
-        } else {
-            try stream.writeAll(", {\n");
-
-            self.indent += 2;
-            const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
-            const body_end = extra_index;
-            extra_index += bit_bags_count;
-            var bit_bag_index: usize = body_end;
-            var cur_bit_bag: u32 = undefined;
-            var field_i: u32 = 0;
-            while (field_i < fields_len) : (field_i += 1) {
-                if (field_i % 32 == 0) {
-                    cur_bit_bag = self.code.extra[bit_bag_index];
-                    bit_bag_index += 1;
-                }
-                const has_tag_value = @as(u1, @truncate(cur_bit_bag)) != 0;
-                cur_bit_bag >>= 1;
-
-                const field_name = self.code.nullTerminatedString(@enumFromInt(self.code.extra[extra_index]));
-                extra_index += 1;
-
-                try stream.splatByteAll(' ', self.indent);
-                try stream.print("{f}", .{std.zig.fmtIdP(field_name)});
-
-                if (has_tag_value) {
-                    const tag_value_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
-                    extra_index += 1;
-
-                    try stream.writeAll(" = ");
-                    try self.writeInstRef(stream, tag_value_ref);
-                }
-                try stream.writeAll(",\n");
-            }
-            self.indent -= 2;
-            try stream.splatByteAll(' ', self.indent);
-            try stream.writeAll("}) ");
-        }
-        try self.writeSrcNode(stream, .zero);
-    }
-
-    fn writeOpaqueDecl(
-        self: *Writer,
-        stream: *std.Io.Writer,
-        extended: Zir.Inst.Extended.InstData,
-    ) !void {
-        const small = @as(Zir.Inst.OpaqueDecl.Small, @bitCast(extended.small));
-        const extra = self.code.extraData(Zir.Inst.OpaqueDecl, extended.operand);
-
-        const prev_parent_decl_node = self.parent_decl_node;
-        self.parent_decl_node = extra.data.src_node;
-        defer self.parent_decl_node = prev_parent_decl_node;
-
-        var extra_index: usize = extra.end;
-
-        const captures_len = if (small.has_captures_len) blk: {
-            const captures_len = self.code.extra[extra_index];
-            extra_index += 1;
-            break :blk captures_len;
-        } else 0;
-
-        const decls_len = if (small.has_decls_len) blk: {
-            const decls_len = self.code.extra[extra_index];
-            extra_index += 1;
-            break :blk decls_len;
-        } else 0;
-
-        try stream.print("{s}, ", .{@tagName(small.name_strategy)});
-
-        extra_index = try self.writeCaptures(stream, extra_index, captures_len);
-        try stream.writeAll(", ");
-
-        if (decls_len == 0) {
+        if (struct_decl.field_names.len == 0) {
             try stream.writeAll("{}) ");
         } else {
             try stream.writeAll("{\n");
             self.indent += 2;
-            try self.writeBody(stream, self.code.bodySlice(extra_index, decls_len));
+
+            var it = struct_decl.iterateFields();
+            while (it.next()) |field| {
+                try stream.splatByteAll(' ', self.indent);
+                try self.writeFlag(stream, "comptime ", field.is_comptime);
+                const field_name = self.code.nullTerminatedString(field.name);
+                try stream.print("{f}: ", .{std.zig.fmtIdP(field_name)});
+
+                self.indent += 2;
+                try self.writeBracedDecl(stream, field.type_body);
+                if (field.align_body) |body| {
+                    try stream.writeAll(" align(");
+                    try self.writeBracedDecl(stream, body);
+                    try stream.writeByte(')');
+                }
+                if (field.default_body) |body| {
+                    try stream.writeAll(" = ");
+                    try self.writeBracedDecl(stream, body);
+                }
+                self.indent -= 2;
+
+                try stream.writeAll(",\n");
+            }
+
             self.indent -= 2;
             try stream.splatByteAll(' ', self.indent);
             try stream.writeAll("}) ");
         }
+        try self.writeSrcNode(stream, .zero);
+    }
+
+    fn writeUnionDecl(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+        const union_decl = self.code.getUnionDecl(inst);
+
+        const prev_parent_decl_node = self.parent_decl_node;
+        self.parent_decl_node = union_decl.src_node;
+        defer self.parent_decl_node = prev_parent_decl_node;
+
+        const fields_hash = self.code.getAssociatedSrcHash(inst).?;
+        try stream.print("hash({x}) ", .{&fields_hash});
+
+        try stream.print("{s}, ", .{@tagName(union_decl.name_strategy)});
+
+        switch (union_decl.kind) {
+            .auto => try stream.writeAll("auto, "),
+            .@"extern" => try stream.writeAll("extern, "),
+            .@"packed" => try stream.writeAll("packed, "),
+            .packed_explicit => {
+                try stream.writeAll("packed(");
+                try self.writeBracedDecl(stream, union_decl.arg_type_body.?);
+                try stream.writeAll("), ");
+            },
+            .tagged_explicit => {
+                try stream.writeAll("tagged(");
+                try self.writeBracedDecl(stream, union_decl.arg_type_body.?);
+                try stream.writeAll("), ");
+            },
+            .tagged_enum => try stream.writeAll("tagged(enum), "),
+            .tagged_enum_explicit => {
+                try stream.writeAll("tagged(enum(");
+                try self.writeBracedDecl(stream, union_decl.arg_type_body.?);
+                try stream.writeAll(")), ");
+            },
+        }
+
+        try self.writeCaptures(stream, union_decl.captures, union_decl.capture_names);
+        try stream.writeAll(", ");
+        try self.writeBracedDecl(stream, union_decl.decls);
+        try stream.writeAll(", ");
+
+        if (union_decl.field_names.len == 0) {
+            try stream.writeAll("}) ");
+        } else {
+            try stream.writeAll("{\n");
+            self.indent += 2;
+
+            var it = union_decl.iterateFields();
+            while (it.next()) |field| {
+                try stream.splatByteAll(' ', self.indent);
+                const field_name = self.code.nullTerminatedString(field.name);
+                try stream.print("{f}", .{std.zig.fmtIdP(field_name)});
+
+                self.indent += 2;
+                if (field.type_body) |body| {
+                    try stream.writeAll(": ");
+                    try self.writeBracedDecl(stream, body);
+                }
+                if (field.align_body) |body| {
+                    try stream.writeAll(" align(");
+                    try self.writeBracedDecl(stream, body);
+                    try stream.writeByte(')');
+                }
+                if (field.value_body) |body| {
+                    try stream.writeAll(" = ");
+                    try self.writeBracedDecl(stream, body);
+                }
+                self.indent -= 2;
+
+                try stream.writeAll(",\n");
+            }
+            self.indent -= 2;
+            try stream.splatByteAll(' ', self.indent);
+            try stream.writeAll("}) ");
+        }
+        try self.writeSrcNode(stream, .zero);
+    }
+
+    fn writeEnumDecl(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+        const enum_decl = self.code.getEnumDecl(inst);
+
+        const prev_parent_decl_node = self.parent_decl_node;
+        self.parent_decl_node = enum_decl.src_node;
+        defer self.parent_decl_node = prev_parent_decl_node;
+
+        const fields_hash = self.code.getAssociatedSrcHash(inst).?;
+        try stream.print("hash({x}) ", .{&fields_hash});
+
+        try stream.print("{s}, ", .{@tagName(enum_decl.name_strategy)});
+        try self.writeFlag(stream, "nonexhaustive, ", enum_decl.nonexhaustive);
+        if (enum_decl.tag_type_body) |tag_type_body| {
+            try stream.writeAll("tag(");
+            try self.writeBracedDecl(stream, tag_type_body);
+            try stream.writeAll("), ");
+        }
+
+        try self.writeCaptures(stream, enum_decl.captures, enum_decl.capture_names);
+        try stream.writeAll(", ");
+        try self.writeBracedDecl(stream, enum_decl.decls);
+        try stream.writeAll(", ");
+
+        if (enum_decl.field_names.len == 0) {
+            try stream.writeAll("{}) ");
+        } else {
+            try stream.writeAll("{\n");
+            self.indent += 2;
+
+            var it = enum_decl.iterateFields();
+            while (it.next()) |field| {
+                try stream.splatByteAll(' ', self.indent);
+                const field_name = self.code.nullTerminatedString(field.name);
+                try stream.print("{f}", .{std.zig.fmtIdP(field_name)});
+                if (field.value_body) |body| {
+                    try stream.writeAll(" = ");
+                    try self.writeBracedDecl(stream, body);
+                }
+                try stream.writeAll(",\n");
+            }
+            self.indent -= 2;
+            try stream.splatByteAll(' ', self.indent);
+            try stream.writeAll("}) ");
+        }
+        try self.writeSrcNode(stream, .zero);
+    }
+
+    fn writeOpaqueDecl(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
+        const opaque_decl = self.code.getOpaqueDecl(inst);
+
+        const prev_parent_decl_node = self.parent_decl_node;
+        self.parent_decl_node = opaque_decl.src_node;
+        defer self.parent_decl_node = prev_parent_decl_node;
+
+        try stream.print("{s}, ", .{@tagName(opaque_decl.name_strategy)});
+        try self.writeCaptures(stream, opaque_decl.captures, opaque_decl.capture_names);
+        try stream.writeAll(", ");
+        try self.writeBracedDecl(stream, opaque_decl.decls);
+        try stream.writeAll(") ");
         try self.writeSrcNode(stream, .zero);
     }
 
@@ -2588,14 +2282,11 @@ const Writer = struct {
         return stream.print("%{d}", .{@intFromEnum(inst)});
     }
 
-    fn writeCaptures(self: *Writer, stream: *std.Io.Writer, extra_index: usize, captures_len: u32) !usize {
-        if (captures_len == 0) {
-            try stream.writeAll("{}");
-            return extra_index;
+    fn writeCaptures(self: *Writer, stream: *std.Io.Writer, captures: []const Zir.Inst.Capture, capture_names: []const Zir.NullTerminatedString) !void {
+        if (captures.len == 0) {
+            assert(capture_names.len == 0);
+            return stream.writeAll("{}");
         }
-
-        const captures: []const Zir.Inst.Capture = @ptrCast(self.code.extra[extra_index..][0..captures_len]);
-        const capture_names: []const Zir.NullTerminatedString = @ptrCast(self.code.extra[extra_index + captures_len ..][0..captures_len]);
         for (captures, capture_names) |capture, name| {
             try stream.writeAll("{ ");
             if (name != .empty) {
@@ -2604,8 +2295,6 @@ const Writer = struct {
             }
             try self.writeCapture(stream, capture);
         }
-
-        return extra_index + 2 * captures_len;
     }
 
     fn writeCapture(self: *Writer, stream: *std.Io.Writer, capture: Zir.Inst.Capture) !void {

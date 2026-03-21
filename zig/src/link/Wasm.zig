@@ -78,7 +78,7 @@ export_table: bool,
 /// Output name of the file
 name: []const u8,
 /// List of relocatable files to be linked into the final binary.
-objects: std.ArrayList(Object) = .{},
+objects: std.ArrayList(Object) = .empty,
 
 func_types: std.AutoArrayHashMapUnmanaged(FunctionType, void) = .empty,
 /// Provides a mapping of both imports and provided functions to symbol name.
@@ -278,7 +278,7 @@ any_tls_relocs: bool = false,
 any_passive_inits: bool = false,
 
 /// All MIR instructions for all Zcu functions.
-mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
+mir_instructions: std.MultiArrayList(Mir.Inst) = .empty,
 /// Corresponds to `mir_instructions`.
 mir_extra: std.ArrayList(u32) = .empty,
 /// All local types for all Zcu functions.
@@ -420,7 +420,7 @@ pub const OutputFunctionIndex = enum(u32) {
         const zcu = wasm.base.comp.zcu.?;
         const ip = &zcu.intern_pool;
         const nav = ip.getNav(nav_index);
-        return fromIpIndex(wasm, nav.status.fully_resolved.val);
+        return fromIpIndex(wasm, nav.resolved.?.value);
     }
 
     pub fn fromTagNameType(wasm: *const Wasm, tag_type: InternPool.Index) OutputFunctionIndex {
@@ -1022,7 +1022,7 @@ pub const FunctionImport = extern struct {
         pub fn fromIpNav(wasm: *const Wasm, nav_index: InternPool.Nav.Index) Resolution {
             const zcu = wasm.base.comp.zcu.?;
             const ip = &zcu.intern_pool;
-            return fromIpIndex(wasm, ip.getNav(nav_index).status.fully_resolved.val);
+            return fromIpIndex(wasm, ip.getNav(nav_index).resolved.?.value);
         }
 
         pub fn fromZcuFunc(wasm: *const Wasm, i: ZcuFunc.Index) Resolution {
@@ -1885,7 +1885,7 @@ pub const DataSegmentId = enum(u32) {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
                 const nav = ip.getNav(i.key(wasm).*);
-                if (nav.isThreadlocal(ip)) return .tls;
+                if (nav.resolved.?.@"threadlocal") return .tls;
                 const code = i.value(wasm).code;
                 return if (code.off == .none) .zero else .data;
             },
@@ -1908,7 +1908,7 @@ pub const DataSegmentId = enum(u32) {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
                 const nav = ip.getNav(i.key(wasm).*);
-                return nav.isThreadlocal(ip);
+                return nav.resolved.?.@"threadlocal";
             },
         };
     }
@@ -1934,7 +1934,7 @@ pub const DataSegmentId = enum(u32) {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
                 const nav = ip.getNav(i.key(wasm).*);
-                return nav.getLinkSection().toSlice(ip) orelse switch (category(id, wasm)) {
+                return nav.resolved.?.@"linksection".toSlice(ip) orelse switch (category(id, wasm)) {
                     .tls => ".tdata",
                     .data => ".data",
                     .zero => ".bss",
@@ -1962,9 +1962,9 @@ pub const DataSegmentId = enum(u32) {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
                 const nav = ip.getNav(i.key(wasm).*);
-                const explicit = nav.getAlignment();
+                const explicit = nav.resolved.?.@"align";
                 if (explicit != .none) return explicit;
-                const ty: Zcu.Type = .fromInterned(nav.typeOf(ip));
+                const ty: Zcu.Type = .fromInterned(nav.resolved.?.type);
                 const result = ty.abiAlignment(zcu);
                 assert(result != .none);
                 return result;
@@ -2269,7 +2269,7 @@ pub const ZcuImportIndex = enum(u32) {
         const zcu = wasm.base.comp.zcu.?;
         const ip = &zcu.intern_pool;
         const nav_index = index.ptr(wasm).*;
-        const ext = ip.getNav(nav_index).getResolvedExtern(ip).?;
+        const ext = ip.indexToKey(ip.getNav(nav_index).resolved.?.value).@"extern";
         const name_slice = ext.name.toSlice(ip);
         return wasm.getExistingString(name_slice).?;
     }
@@ -2278,7 +2278,7 @@ pub const ZcuImportIndex = enum(u32) {
         const zcu = wasm.base.comp.zcu.?;
         const ip = &zcu.intern_pool;
         const nav_index = index.ptr(wasm).*;
-        const ext = ip.getNav(nav_index).getResolvedExtern(ip).?;
+        const ext = ip.indexToKey(ip.getNav(nav_index).resolved.?.value).@"extern";
         const lib_name = ext.lib_name.toSlice(ip) orelse return .none;
         return wasm.getExistingString(lib_name).?.toOptional();
     }
@@ -2289,7 +2289,7 @@ pub const ZcuImportIndex = enum(u32) {
         const zcu = comp.zcu.?;
         const ip = &zcu.intern_pool;
         const nav_index = index.ptr(wasm).*;
-        const ext = ip.getNav(nav_index).getResolvedExtern(ip).?;
+        const ext = ip.indexToKey(ip.getNav(nav_index).resolved.?.value).@"extern";
         const fn_info = zcu.typeToFunc(.fromInterned(ext.ty)).?;
         return getExistingFunctionType(wasm, fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), target).?;
     }
@@ -2381,7 +2381,7 @@ pub const FunctionImportId = enum(u32) {
             .zcu_import => |i| {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
-                const ext = ip.getNav(i.ptr(wasm).*).getResolvedExtern(ip).?;
+                const ext = ip.indexToKey(ip.getNav(i.ptr(wasm).*).resolved.?.value).@"extern";
                 return ext.linkage != .weak and ext.lib_name != .none;
             },
         };
@@ -3288,7 +3288,8 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     const is_obj = comp.config.output_mode == .Obj;
     const target = &comp.root_mod.resolved_target.result;
 
-    const nav_init, const chased_nav_index = switch (ip.indexToKey(nav.status.fully_resolved.val)) {
+    switch (ip.indexToKey(nav.resolved.?.value)) {
+        else => {},
         .func => return, // global const which is a function alias
         .@"extern" => |ext| {
             if (is_obj) {
@@ -3302,7 +3303,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
             try wasm.function_imports.ensureUnusedCapacity(gpa, 1);
             try wasm.data_imports.ensureUnusedCapacity(gpa, 1);
             const zcu_import = wasm.addZcuImportReserved(ext.owner_nav);
-            if (ip.isFunctionType(nav.typeOf(ip))) {
+            if (ip.isFunctionType(nav.resolved.?.type)) {
                 wasm.function_imports.putAssumeCapacity(name, .fromZcuImport(zcu_import, wasm));
                 // Ensure there is a corresponding function type table entry.
                 const fn_info = zcu.typeToFunc(.fromInterned(ext.ty)).?;
@@ -3312,31 +3313,29 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
             }
             return;
         },
-        .variable => |variable| .{ variable.init, variable.owner_nav },
-        else => .{ nav.status.fully_resolved.val, nav_index },
-    };
-    //log.debug("updateNav {f} {d}", .{ nav.fqn.fmt(ip), chased_nav_index });
-    assert(!wasm.imports.contains(chased_nav_index));
+    }
+    //log.debug("updateNav {f} {d}", .{ nav.fqn.fmt(ip), nav_index });
+    assert(!wasm.imports.contains(nav_index));
 
-    if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) {
+    if (!Zcu.Type.fromInterned(nav.resolved.?.type).hasRuntimeBits(zcu)) {
         if (is_obj) {
-            assert(!wasm.navs_obj.contains(chased_nav_index));
+            assert(!wasm.navs_obj.contains(nav_index));
         } else {
-            assert(!wasm.navs_exe.contains(chased_nav_index));
+            assert(!wasm.navs_exe.contains(nav_index));
         }
         return;
     }
 
     if (is_obj) {
         const zcu_data_starts: ZcuDataStarts = .initObj(wasm);
-        const navs_i = try refNavObj(wasm, chased_nav_index);
-        const zcu_data = try lowerZcuData(wasm, pt, nav_init);
+        const navs_i = try refNavObj(wasm, nav_index);
+        const zcu_data = try lowerZcuData(wasm, pt, nav.resolved.?.value);
         navs_i.value(wasm).* = zcu_data;
         try zcu_data_starts.finishObj(wasm, pt);
     } else {
         const zcu_data_starts: ZcuDataStarts = .initExe(wasm);
-        const navs_i = try refNavExe(wasm, chased_nav_index);
-        const zcu_data = try lowerZcuData(wasm, pt, nav_init);
+        const navs_i = try refNavExe(wasm, nav_index);
+        const zcu_data = try lowerZcuData(wasm, pt, nav.resolved.?.value);
         navs_i.value(wasm).code = zcu_data.code;
         try zcu_data_starts.finishExe(wasm, pt);
     }
@@ -4173,9 +4172,8 @@ pub fn navAddr(wasm: *Wasm, nav_index: InternPool.Nav.Index) u32 {
     }
     const zcu = comp.zcu.?;
     const ip = &zcu.intern_pool;
-    const nav = ip.getNav(nav_index);
-    if (nav.getResolvedExtern(ip)) |ext| {
-        if (wasm.getExistingString(ext.name.toSlice(ip))) |symbol_name| {
+    switch (ip.indexToKey(ip.getNav(nav_index).resolved.?.value)) {
+        .@"extern" => |ext| if (wasm.getExistingString(ext.name.toSlice(ip))) |symbol_name| {
             if (wasm.object_data_imports.getPtr(symbol_name)) |import| {
                 switch (import.resolution.unpack(wasm)) {
                     .unresolved => unreachable,
@@ -4195,7 +4193,8 @@ pub fn navAddr(wasm: *Wasm, nav_index: InternPool.Nav.Index) u32 {
                     .nav_obj => @panic("TODO"),
                 }
             }
-        }
+        },
+        else => {},
     }
     // Otherwise it's a zero bit type; any address will do.
     return 0;
@@ -4226,7 +4225,7 @@ fn convertZcuFnType(
 
     if (CodeGen.firstParamSRet(cc, return_type, zcu, target)) {
         try params_buffer.append(gpa, .i32); // memory address is always a 32-bit handle
-    } else if (return_type.hasRuntimeBitsIgnoreComptime(zcu)) {
+    } else if (return_type.hasRuntimeBits(zcu)) {
         if (cc == .wasm_mvp) {
             switch (abi.classifyType(return_type, zcu)) {
                 .direct => |scalar_ty| {
@@ -4245,7 +4244,7 @@ fn convertZcuFnType(
     // param types
     for (params) |param_type_ip| {
         const param_type = Zcu.Type.fromInterned(param_type_ip);
-        if (!param_type.hasRuntimeBitsIgnoreComptime(zcu)) continue;
+        if (!param_type.hasRuntimeBits(zcu)) continue;
 
         switch (cc) {
             .wasm_mvp => {

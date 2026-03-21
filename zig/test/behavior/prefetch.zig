@@ -3,7 +3,6 @@ const std = @import("std");
 
 test "@prefetch()" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isLoongArch()) return error.SkipZigTest; // https://github.com/llvm/llvm-project/issues/134624
 
     var a: [2]u32 = .{ 42, 42 };
     var a_len = a.len;

@@ -1109,3 +1109,36 @@ test "'if' ignores error via local while 'else' ignores error directly" {
     try S.testOne(false);
     try S.testOne(true);
 }
+
+test "@errorCast into own inferred error set" {
+    const static = struct {
+        fn foo(b: bool) !void {
+            if (b) {
+                return @errorCast(error.Bad);
+            }
+        }
+    };
+    try static.foo(false);
+    if (static.foo(true)) {
+        return error.ExpectedError;
+    } else |err| {
+        try expect(err == error.Bad);
+    }
+
+    const errors = @typeInfo(@typeInfo(@TypeOf(static.foo(false))).error_union.error_set).error_set.?;
+    comptime assert(errors.len == 1);
+    comptime assert(std.mem.eql(u8, errors[0].name, "Bad"));
+}
+
+test "@errorCast into other inferred error set" {
+    const static = struct {
+        fn foo() !void {
+            return error.Bad;
+        }
+    };
+    const Ies = @typeInfo(@TypeOf(static.foo())).error_union.error_set;
+    const err: Ies = @errorCast(error.Bad);
+    try expect(err == error.Bad);
+    const non_err: Ies!u32 = @errorCast(@as(error{}!u32, 123));
+    try expect(try non_err == 123);
+}

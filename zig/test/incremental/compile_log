@@ -10,7 +10,7 @@ const std = @import("std");
 pub fn main() !void {
     try std.Io.File.stdout().writeStreamingAll(io, "Hello, World!\n");
 }
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="Hello, World!\n"
 
 #update=add compile log
@@ -20,7 +20,7 @@ pub fn main() !void {
     try std.Io.File.stdout().writeStreamingAll(io, "Hello, World!\n");
     @compileLog("this is a log");
 }
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_error=main.zig:4:5: error: found compile log statement
 #expect_compile_log=@as(*const [13:0]u8, "this is a log")
 
@@ -30,5 +30,5 @@ const std = @import("std");
 pub fn main() !void {
     try std.Io.File.stdout().writeStreamingAll(io, "Hello, World!\n");
 }
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="Hello, World!\n"

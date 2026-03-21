@@ -15,8 +15,8 @@ pub export fn entry2() void {
     const U = union(enum) {
         a: noreturn,
     };
-    var u: U = undefined;
-    u = .a;
+    const u: U = .a;
+    _ = u;
 }
 pub export fn entry3() void {
     const U = union(enum) {
@@ -30,12 +30,12 @@ pub export fn entry3() void {
 
 // error
 //
-// :11:14: error: cannot initialize 'noreturn' field of union
+// :11:14: error: cannot initialize union field with uninstantiable type 'noreturn'
 // :4:9: note: field 'b' declared here
 // :2:15: note: union declared here
-// :19:10: error: cannot initialize 'noreturn' field of union
+// :18:19: error: cannot initialize union field with uninstantiable type 'noreturn'
 // :16:9: note: field 'a' declared here
 // :15:15: note: union declared here
-// :28:13: error: runtime coercion from enum '@typeInfo(tmp.entry3.U).@"union".tag_type.?' to union 'tmp.entry3.U' which has a 'noreturn' field
-// :23:9: note: 'noreturn' field here
+// :28:13: error: runtime coercion from enum '@typeInfo(tmp.entry3.U).@"union".tag_type.?' to union 'tmp.entry3.U' which has non-void fields
+// :23:9: note: field 'a' has uninstantiable type 'noreturn'
 // :22:15: note: union declared here

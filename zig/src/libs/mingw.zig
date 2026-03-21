@@ -619,7 +619,6 @@ const mingw32_generic_src = [_][]const u8{
     "math" ++ path.sep_str ++ "lgamma.c",
     "math" ++ path.sep_str ++ "lgammaf.c",
     "math" ++ path.sep_str ++ "lgammal.c",
-    "math" ++ path.sep_str ++ "modfl.c",
     "math" ++ path.sep_str ++ "powi.c",
     "math" ++ path.sep_str ++ "powif.c",
     "math" ++ path.sep_str ++ "powil.c",
@@ -977,11 +976,8 @@ const mingw32_x86_src = [_][]const u8{
 
 const mingw32_x86_32_src = [_][]const u8{
     // ucrtbase
-    "math" ++ path.sep_str ++ "coshf.c",
-    "math" ++ path.sep_str ++ "modff.c",
     "math" ++ path.sep_str ++ "powf.c",
     "math" ++ path.sep_str ++ "sinhf.c",
-    "math" ++ path.sep_str ++ "tanhf.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "acosf.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "asinf.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atan2f.c",

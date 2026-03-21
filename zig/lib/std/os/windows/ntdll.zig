@@ -22,6 +22,7 @@ const HANDLE = windows.HANDLE;
 const HEAP = windows.HEAP;
 const IO_APC_ROUTINE = windows.IO_APC_ROUTINE;
 const IO_STATUS_BLOCK = windows.IO_STATUS_BLOCK;
+const KEY = windows.KEY;
 const KNONVOLATILE_CONTEXT_POINTERS = windows.KNONVOLATILE_CONTEXT_POINTERS;
 const LARGE_INTEGER = windows.LARGE_INTEGER;
 const LDR = windows.LDR;
@@ -37,6 +38,7 @@ const PCWSTR = windows.PCWSTR;
 const PROCESS = windows.PROCESS;
 const PVOID = windows.PVOID;
 const PWSTR = windows.PWSTR;
+const REG = windows.REG;
 const RTL_OSVERSIONINFOW = windows.RTL_OSVERSIONINFOW;
 const RTL_QUERY_REGISTRY_TABLE = windows.RTL_QUERY_REGISTRY_TABLE;
 const RUNTIME_FUNCTION = windows.RUNTIME_FUNCTION;
@@ -53,6 +55,9 @@ const UNWIND_HISTORY_TABLE = windows.UNWIND_HISTORY_TABLE;
 const USHORT = windows.USHORT;
 const VECTORED_EXCEPTION_HANDLER = windows.VECTORED_EXCEPTION_HANDLER;
 const WORD = windows.WORD;
+const USER_THREAD_START_ROUTINE = windows.USER_THREAD_START_ROUTINE;
+const PS = windows.PS;
+const TEB = windows.TEB;
 
 // ref: km/ntifs.h
 
@@ -109,14 +114,14 @@ pub extern "ntdll" fn NtCreateFile(
     ShareAccess: FILE.SHARE,
     CreateDisposition: FILE.CREATE_DISPOSITION,
     CreateOptions: FILE.MODE,
-    EaBuffer: ?*anyopaque,
+    EaBuffer: ?*const anyopaque,
     EaLength: ULONG,
 ) callconv(.winapi) NTSTATUS;
 
 pub extern "ntdll" fn NtDeviceIoControlFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
-    ApcRoutine: ?*const IO_APC_ROUTINE,
+    ApcRoutine: ?*align(2) const IO_APC_ROUTINE,
     ApcContext: ?*anyopaque,
     IoStatusBlock: *IO_STATUS_BLOCK,
     IoControlCode: CTL_CODE,
@@ -129,7 +134,7 @@ pub extern "ntdll" fn NtDeviceIoControlFile(
 pub extern "ntdll" fn NtFsControlFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
-    ApcRoutine: ?*const IO_APC_ROUTINE,
+    ApcRoutine: ?*align(2) const IO_APC_ROUTINE,
     ApcContext: ?*anyopaque,
     IoStatusBlock: *IO_STATUS_BLOCK,
     FsControlCode: CTL_CODE,
@@ -142,7 +147,7 @@ pub extern "ntdll" fn NtFsControlFile(
 pub extern "ntdll" fn NtLockFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
-    ApcRoutine: ?*const IO_APC_ROUTINE,
+    ApcRoutine: ?*align(2) const IO_APC_ROUTINE,
     ApcContext: ?*anyopaque,
     IoStatusBlock: *IO_STATUS_BLOCK,
     ByteOffset: *const LARGE_INTEGER,
@@ -164,7 +169,7 @@ pub extern "ntdll" fn NtOpenFile(
 pub extern "ntdll" fn NtQueryDirectoryFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
-    ApcRoutine: ?*const IO_APC_ROUTINE,
+    ApcRoutine: ?*align(2) const IO_APC_ROUTINE,
     ApcContext: ?*anyopaque,
     IoStatusBlock: *IO_STATUS_BLOCK,
     FileInformation: *anyopaque,
@@ -194,7 +199,7 @@ pub extern "ntdll" fn NtQueryVolumeInformationFile(
 pub extern "ntdll" fn NtReadFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
-    ApcRoutine: ?*const IO_APC_ROUTINE,
+    ApcRoutine: ?*align(2) const IO_APC_ROUTINE,
     ApcContext: ?*anyopaque,
     IoStatusBlock: *IO_STATUS_BLOCK,
     Buffer: *anyopaque,
@@ -217,7 +222,7 @@ pub extern "ntdll" fn NtSetInformationFile(
 pub extern "ntdll" fn NtWriteFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
-    ApcRoutine: ?*const IO_APC_ROUTINE,
+    ApcRoutine: ?*align(2) const IO_APC_ROUTINE,
     ApcContext: ?*anyopaque,
     IoStatusBlock: *IO_STATUS_BLOCK,
     Buffer: *const anyopaque,
@@ -356,6 +361,21 @@ pub extern "ntdll" fn NtQuerySystemInformation(
 ) callconv(.winapi) NTSTATUS;
 
 // ref none
+
+pub extern "ntdll" fn RtlGetActiveActivationContext(
+    ActivationContext: *?HANDLE,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn RtlActivateActivationContextEx(
+    Flags: ULONG,
+    Teb: *TEB,
+    ActivationContext: HANDLE,
+    Cookie: *ULONG,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn RtlReleaseActivationContext(
+    ActivationContext: HANDLE,
+) callconv(.winapi) void;
 
 pub extern "ntdll" fn LdrAddRefDll(
     Flags: ULONG,
@@ -507,7 +527,7 @@ pub extern "ntdll" fn NtDelayExecution(
 pub extern "ntdll" fn NtNotifyChangeDirectoryFileEx(
     FileHandle: HANDLE,
     Event: ?HANDLE,
-    ApcRoutine: ?*const IO_APC_ROUTINE,
+    ApcRoutine: ?*align(2) const IO_APC_ROUTINE,
     ApcContext: ?*anyopaque,
     IoStatusBlock: *IO_STATUS_BLOCK,
     Buffer: *anyopaque,
@@ -724,3 +744,59 @@ pub extern "ntdll" fn RtlWakeConditionVariable(
 pub extern "ntdll" fn RtlWakeAllConditionVariable(
     ConditionVariable: *CONDITION_VARIABLE,
 ) callconv(.winapi) void;
+
+pub extern "ntdll" fn NtOpenKeyEx(
+    KeyHandle: *HANDLE,
+    DesiredAccess: ACCESS_MASK,
+    ObjectAttributes: *const OBJECT.ATTRIBUTES,
+    OpenOptions: REG.OpenOptions,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn RtlOpenCurrentUser(
+    DesiredAccess: ACCESS_MASK,
+    CurrentUserKey: *HANDLE,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn NtQueryValueKey(
+    KeyHandle: HANDLE,
+    ValueName: *const UNICODE_STRING,
+    KeyValueInformationClass: KEY.VALUE.INFORMATION_CLASS,
+    KeyValueInformation: *anyopaque,
+    /// Length of KeyValueInformation buffer in bytes
+    Length: ULONG,
+    /// On STATUS_SUCCESS, contains the length of the populated portion of the
+    /// provided buffer. On STATUS_BUFFER_OVERFLOW or STATUS_BUFFER_TOO_SMALL,
+    /// contains the minimum `Length` value that would be required to hold the information.
+    ResultLength: *ULONG,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn NtLoadKeyEx(
+    TargetKey: *const OBJECT.ATTRIBUTES,
+    SourceFile: *const OBJECT.ATTRIBUTES,
+    Flags: REG.LoadOptions,
+    TrustClassKey: ?HANDLE,
+    Event: ?HANDLE,
+    DesiredAccess: ACCESS_MASK,
+    RootHandle: ?*HANDLE,
+    Reserved: ?*anyopaque,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn NtCreateThreadEx(
+    ThreadHandle: *HANDLE,
+    DesiredAccess: ACCESS_MASK,
+    ObjectAttributes: *const OBJECT.ATTRIBUTES,
+    ProcessHandle: HANDLE,
+    StartRoutine: *const USER_THREAD_START_ROUTINE,
+    Argument: ?PVOID,
+    CreateFlags: THREAD.CREATE_FLAGS,
+    ZeroBits: SIZE_T,
+    /// This value is rounded up to the nearest page.
+    /// If this value is larger than `StackReserve`, the reserved stack
+    /// size will be the rounded value of this parameter.
+    /// https://learn.microsoft.com/en-us/windows/win32/procthread/thread-stack-size
+    StackCommit: THREAD.StackSize,
+    StackReserve: THREAD.StackSize,
+    AttributeList: ?*PS.ATTRIBUTE.LIST,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn NtResumeThread(
+    ThreadHandle: HANDLE,
+    PreviousSuspendCount: ?*ULONG,
+) callconv(.winapi) NTSTATUS;

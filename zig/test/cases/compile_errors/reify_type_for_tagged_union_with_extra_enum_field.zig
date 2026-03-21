@@ -7,6 +7,5 @@ export fn entry() void {
 
 // error
 //
-// :2:35: error: 1 enum fields missing in union
-// :1:13: note: field 'arst' missing, declared here
-// :1:13: note: enum declared here
+// :2:16: error: enum field 'arst' missing from union
+// :1:36: note: enum field here

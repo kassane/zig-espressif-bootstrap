@@ -15,7 +15,6 @@ const math = std.math;
 const maxInt = std.math.maxInt;
 const UnexpectedError = std.posix.UnexpectedError;
 
-pub const advapi32 = @import("windows/advapi32.zig");
 pub const kernel32 = @import("windows/kernel32.zig");
 pub const ntdll = @import("windows/ntdll.zig");
 pub const ws2_32 = @import("windows/ws2_32.zig");
@@ -23,6 +22,75 @@ pub const crypt32 = @import("windows/crypt32.zig");
 pub const nls = @import("windows/nls.zig");
 
 pub const current_process: HANDLE = @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))));
+
+pub const PS = struct {
+    pub const ATTRIBUTE = extern struct {
+        Attribute: Type,
+        Size: SIZE_T,
+        u: extern union {
+            Value: ULONG_PTR,
+            ValuePtr: PVOID,
+        },
+        ReturnLength: ?*SIZE_T,
+
+        /// https://ntdoc.m417z.com/ps_attribute_num
+        /// Tag type is `u16` based on PS_ATTRIBUTE_NUMBER_MASK being 0xFFFF
+        pub const NUM = enum(u16) {
+            ParentProcess = 0,
+            DebugObject,
+            Token,
+            ClientId,
+            TebAddress,
+            ImageName,
+            ImageInfo,
+            MemoryReserve,
+            PriorityClass,
+            ErrorMode,
+            StdHandleInfo,
+            HandleList,
+            GroupAffinity,
+            PreferredNode,
+            IdealProcessor,
+            UmsThread,
+            MitigationOptions,
+            ProtectionLevel,
+            SecureProcess,
+            JobList,
+            ChildProcessPolicy,
+            AllApplicationPackagesPolicy,
+            Win32kFilter,
+            SafeOpenPromptOriginClaim,
+            BnoIsolation,
+            DesktopAppPolicy,
+            Chpe,
+            MitigationAuditOptions,
+            MachineType,
+            ComponentFilter,
+            EnableOptionalXStateFeatures,
+            SupportedMachines,
+            SveVectorLength,
+        };
+
+        /// https://ntdoc.m417z.com/psattributevalue
+        pub const Type = enum(ULONG_PTR) {
+            TEB_ADDRESS = construct(.TebAddress, true, false, false),
+            _,
+
+            pub fn construct(num: NUM, thread: bool, input: bool, additive: bool) ULONG_PTR {
+                var val: ULONG_PTR = @intFromEnum(num);
+                if (thread) val |= 0x10000;
+                if (input) val |= 0x20000;
+                if (additive) val |= 0x40000;
+                return val;
+            }
+        };
+
+        pub const LIST = extern struct {
+            TotalLength: SIZE_T,
+            Attributes: [1]ATTRIBUTE,
+        };
+    };
+};
 
 pub const OBJECT = struct {
     // ref: um/winternl.h
@@ -530,6 +598,14 @@ pub const FILE = struct {
         CurrentByteOffset: LARGE_INTEGER,
     };
 
+    pub const FULL_EA_INFORMATION = extern struct {
+        NextEntryOffset: ULONG,
+        Flags: UCHAR,
+        EaNameLength: UCHAR,
+        EaValueLength: USHORT,
+        EaName: [0]CHAR,
+    };
+
     pub const FS_DEVICE_INFORMATION = extern struct {
         DeviceType: DEVICE_TYPE,
         Characteristics: ULONG,
@@ -796,8 +872,6 @@ pub const FILE = struct {
             Mode: MODE,
         };
     };
-
-    // ref: km/
 };
 
 pub const DIRECTORY = struct {
@@ -821,9 +895,9 @@ pub const CONSOLE = struct {
                 /// input
                 Mode: MODE,
 
-                pub const MODE = enum(BOOLEAN) {
-                    Input = FALSE,
-                    Output = TRUE,
+                pub const MODE = enum(BOOLEAN.Backing) {
+                    Input,
+                    Output,
                 };
             };
 
@@ -833,9 +907,9 @@ pub const CONSOLE = struct {
                 /// input
                 Mode: MODE,
 
-                pub const MODE = enum(BOOLEAN) {
-                    Character = FALSE,
-                    WideCharacter = TRUE,
+                pub const MODE = enum(BOOLEAN.Backing) {
+                    Character,
+                    WideCharacter,
                 };
             };
 
@@ -1038,6 +1112,591 @@ pub const CONSOLE = struct {
             _,
         };
     };
+};
+
+pub const AFD = packed struct(ULONG) {
+    NO_FAST_IO: bool = false,
+    OVERLAPPED: bool = false,
+    Reserved0: u30 = 0,
+
+    pub const Mutability = enum { @"const", @"var" };
+    pub fn WSABUF(comptime mutability: Mutability) type {
+        return extern struct {
+            len: ULONG,
+            buf: switch (mutability) {
+                .@"const" => [*]const u8,
+                .@"var" => [*]u8,
+            },
+        };
+    }
+    pub const GUARANTEE = enum(c_int) {
+        BestEffort,
+        ControlledLoad,
+        Predictive,
+        GuaranteedDelay,
+        Guaranteed,
+        _,
+    };
+    pub const DEVICE_NAME: []const u16 = &.{ '\\', 'D', 'e', 'v', 'i', 'c', 'e', '\\', 'A', 'f', 'd' };
+    pub const ENDPOINT_TYPE = packed struct(ULONG) {
+        CONNECTIONLESS: bool = false,
+        Reserved1: u3 = 0,
+        MESSAGEMODE: bool = false,
+        Reserved5: u3 = 0,
+        RAW: bool = false,
+        Reserved9: u22 = 0,
+        REGISTERED_IO: bool = false,
+    };
+    pub const OPEN_PACKET = extern struct {
+        EndpointType: ENDPOINT_TYPE,
+        GroupID: LONG,
+        AddressFamily: LONG,
+        SocketType: LONG,
+        Protocol: LONG,
+        TransportDeviceNameLength: ULONG,
+        TransportDeviceName: [1]WCHAR,
+
+        pub const NAME = "AfdOpenPacketXX";
+
+        pub const FULL_EA_INFORMATION = extern struct {
+            Header: FILE.FULL_EA_INFORMATION = .{
+                .NextEntryOffset = 0,
+                .Flags = 0,
+                .EaNameLength = NAME.len,
+                .EaValueLength = @sizeOf(OPEN_PACKET),
+                .EaName = .{},
+            },
+            Name: [NAME.len:0]u8 = NAME.*,
+            Value: OPEN_PACKET,
+        };
+    };
+    pub const BIND_INFO = extern struct {
+        Mode: MODE,
+
+        pub const MODE = enum(ULONG) {
+            Unix = 0,
+            Passive = 1,
+            Active = 2,
+            _,
+        };
+    };
+    pub const LISTEN_INFO = extern struct {
+        UseSAN: BOOLEAN,
+        MaximumConnectionQueue: ULONG,
+        UseDelayedAcceptance: BOOLEAN,
+    };
+    pub const LISTEN_RESPONSE_INFO = extern struct {
+        Sequence: ULONG,
+    };
+    pub const ACCEPT_INFO = extern struct {
+        UseSAN: BOOLEAN,
+        Sequence: ULONG,
+        AcceptHandle: HANDLE,
+    };
+    pub const SUPER_ACCEPT_INFO = extern struct {
+        UseSAN: BOOLEAN,
+        AcceptHandle: HANDLE,
+        AcceptEndpoint: PVOID,
+        AcceptFileObject: PVOID,
+        ReceiveDataLength: ULONG,
+        LocalAddressLength: ULONG,
+        RemoteAddressLength: ULONG,
+        ListenResponseInfo: LISTEN_RESPONSE_INFO,
+    };
+    pub const DEFER_ACCEPT_INFO = extern struct {
+        Sequence: ULONG,
+        Reject: BOOLEAN,
+    };
+    pub const PARTIAL_DISCONNECT_INFO = extern struct {
+        DisconnectMode: MODE,
+        Timeout: LARGE_INTEGER,
+
+        pub const MODE = packed struct(ULONG) {
+            SEND: bool = false,
+            RECEIVE: bool = false,
+            ABORTIVE: bool = false,
+            UNCONNECT_DATAGRAM: bool = false,
+            Reserved4: u28 = 0,
+        };
+    };
+    pub const RECEIVE_INFORMATION = extern struct {
+        BytesAvailable: ULONG,
+        ExpeditedBytesAvailable: ULONG,
+    };
+    pub const HANDLE_INFO = extern struct {
+        TdiAddressHandle: HANDLE,
+        TdiConnectionHandle: HANDLE,
+    };
+    pub const INFORMATION = extern struct {
+        InformationType: TYPE,
+        Information: extern union {
+            Boolean: BOOLEAN,
+            Ulong: ULONG,
+            LargeInteger: LARGE_INTEGER,
+        },
+
+        pub const TYPE = enum(ULONG) {
+            INLINE_MODE = 0x01,
+            NONBLOCKING_MODE = 0x02,
+            MAX_SEND_SIZE = 0x03,
+            SENDS_PENDING = 0x04,
+            MAX_PATH_SEND_SIZE = 0x05,
+            RECEIVE_WINDOW_SIZE = 0x06,
+            SEND_WINDOW_SIZE = 0x07,
+            CONNECT_TIME = 0x08,
+            CIRCULAR_QUEUEING = 0x09,
+            GROUP_ID_AND_TYPE = 0x0A,
+            _,
+        };
+    };
+    pub const TRANSMIT_FILE_INFO = extern struct {
+        Offset: LARGE_INTEGER,
+        WriteLength: LARGE_INTEGER,
+        SendPacketLength: ULONG,
+        FileHandle: HANDLE,
+        Head: PVOID,
+        HeadLength: ULONG,
+        Tail: PVOID,
+        TailLength: ULONG,
+        Flags: FLAGS,
+
+        pub const FLAGS = packed struct(ULONG) {
+            DISCONNECT: bool = false,
+            REUSE_SOCKET: bool = false,
+            WRITE_BEHIND: bool = false,
+            Reserved3: u25 = 0,
+        };
+    };
+    pub const QUEUE_APC_INFO = extern struct {
+        Thread: HANDLE,
+        ApcRoutine: PVOID,
+        ApcContext: PVOID,
+        SystemArgument1: PVOID,
+        SystemArgument2: PVOID,
+    };
+    pub const SEND_INFO = extern struct {
+        BufferArray: [*]const WSABUF(.@"const"),
+        BufferCount: ULONG,
+        AfdFlags: AFD,
+        TdiFlags: TDI.SEND,
+    };
+    pub const SEND_DATAGRAM_INFO = extern struct {
+        BufferArray: [*]const WSABUF(.@"const"),
+        BufferCount: ULONG,
+        AfdFlags: AFD,
+        TdiRequest: TDI.REQUEST.SEND_DATAGRAM,
+        TdiConnInfo: TDI.CONNECTION.INFORMATION,
+    };
+    pub const RECV_INFO = extern struct {
+        BufferArray: [*]const WSABUF(.@"var"),
+        BufferCount: ULONG,
+        AfdFlags: AFD,
+        TdiFlags: TDI.RECEIVE,
+    };
+    pub const RECV_DATAGRAM_INFO = extern struct {
+        BufferArray: [*]const WSABUF(.@"var"),
+        BufferCount: ULONG,
+        AfdFlags: AFD,
+        TdiFlags: TDI.RECEIVE,
+        Address: PVOID,
+        AddressLength: *ULONG,
+    };
+    pub const SOCKOPT_INFO = extern struct {
+        mode: Mode,
+        level: i32,
+        optname: u32,
+        ding: u32 = 1,
+        optval: *const anyopaque,
+        optlen: usize,
+
+        pub const Mode = enum(u32) { set = 1, get = 2, special = 3, _ };
+
+        pub const UNIX_PATH = extern struct { Unknown0: usize = 0, Path: [PATH_MAX_WIDE:0]u16 };
+    };
+};
+
+pub const TDI = struct {
+    pub const STATUS = NTSTATUS;
+    pub const CONNECTION = struct {
+        pub const CONTEXT = PVOID;
+        pub const INFORMATION = extern struct {
+            /// length of user data buffer
+            UserDataLength: LONG,
+            /// pointer to user data buffer
+            UserData: PVOID,
+            /// length of following buffer
+            OptionsLength: LONG,
+            /// pointer to buffer containing options
+            Options: PVOID,
+            /// length of following buffer
+            RemoteAddressLength: LONG,
+            /// buffer containing the remote address
+            RemoteAddress: PVOID,
+        };
+    };
+    pub const ADDRESS = struct {
+        pub const TYPE = enum(USHORT) {
+            /// unspecified
+            UNSPEC = 0,
+            /// local to host (pipes, portals,
+            UNIX = 1,
+            /// internetwork: UDP, TCP, etc.
+            IP = 2,
+            /// arpanet imp addresses
+            IMPLINK = 3,
+            /// pup protocols: e.g. BSP
+            PUP = 4,
+            /// mit CHAOS protocols
+            CHAOS = 5,
+            /// XEROX NS protocols
+            NS = 6,
+            /// Netware IPX
+            IPX = 6,
+            /// nbs protocols
+            NBS = 7,
+            /// european computer manufacturers
+            ECMA = 8,
+            /// datakit protocols
+            DATAKIT = 9,
+            /// CCITT protocols, X.25 etc
+            CCITT = 10,
+            /// IBM SNA
+            SNA = 11,
+            /// DECnet
+            DECnet = 12,
+            /// Direct data link interface
+            DLI = 13,
+            /// LAT
+            LAT = 14,
+            /// NSC Hyperchannel
+            HYLINK = 15,
+            /// AppleTalk
+            APPLETALK = 16,
+            /// Netbios Addresses
+            NETBIOS = 17,
+            @"8022" = 18,
+            OSI_TSAP = 19,
+            /// for WzMail
+            NETONE = 20,
+            /// Banyan VINES IP
+            VNS = 21,
+            /// NETBIOS address extensions
+            NETBIOS_EX = 22,
+            /// IP version 6
+            IP6 = 23,
+            /// WCHAR Netbios address
+            NETBIOS_UNICODE_EX = 24,
+            _,
+        };
+        pub const IP = extern struct {
+            sin_port: USHORT,
+            in_addr: ULONG,
+            sin_zero: [8]UCHAR,
+        };
+        pub const IP6 = extern struct {
+            sin_port: USHORT,
+            flowinfo: ULONG,
+            addr: [8]USHORT,
+            scope_id: ULONG,
+        };
+    };
+    pub const REQUEST = extern struct {
+        Handle: extern union {
+            AddressHandle: HANDLE,
+            ConnectionContext: CONNECTION.CONTEXT,
+            ControlChannel: HANDLE,
+        },
+        RequestNotifyObject: PVOID,
+        RequestContext: PVOID,
+        TdiStatus: TDI.STATUS,
+
+        pub const STATUS = extern struct {
+            /// status of request completion
+            Status: TDI.STATUS,
+            /// the request context
+            RequestContext: PVOID,
+            /// number of bytes transferred in the request
+            BytesTransferred: ULONG,
+        };
+        pub const ASSOCIATE = extern struct {
+            Request: REQUEST,
+            AddressHandle: HANDLE,
+        };
+        pub const CONNECT = extern struct {
+            Request: REQUEST,
+            RequestConnectionInformation: *CONNECTION.INFORMATION,
+            ReturnConnectionInformation: *CONNECTION.INFORMATION,
+            Timeout: LARGE_INTEGER,
+        };
+        pub const ACCEPT = extern struct {
+            Request: REQUEST,
+            RequestConnectionInformation: *CONNECTION.INFORMATION,
+            ReturnConnectionInformation: *CONNECTION.INFORMATION,
+        };
+        pub const LISTEN = extern struct {
+            Request: REQUEST,
+            RequestConnectionInformation: *CONNECTION.INFORMATION,
+            ReturnConnectionInformation: *CONNECTION.INFORMATION,
+            ListenFlags: USHORT,
+        };
+        pub const DISCONNECT = extern struct {
+            Request: REQUEST,
+            Timeout: LARGE_INTEGER,
+        };
+        pub const SEND = extern struct {
+            Request: REQUEST,
+            SendFlags: USHORT,
+        };
+        pub const RECEIVE = extern struct {
+            Request: REQUEST,
+            ReceiveFlags: USHORT,
+        };
+        pub const SEND_DATAGRAM = extern struct {
+            Request: REQUEST,
+            SendDatagramInformation: *CONNECTION.INFORMATION,
+        };
+    };
+    pub const RECEIVE = packed struct(ULONG) {
+        Reserved0: u2 = 0,
+        BROADCAST: bool = false,
+        MULTICAST: bool = false,
+        PARTIAL: bool = false,
+        NORMAL: bool = false,
+        EXPEDITED: bool = false,
+        PEEK: bool = false,
+        NO_RESPONSE_EXP: bool = false,
+        COPY_LOOKAHEAD: bool = false,
+        ENTIRE_MESSAGE: bool = false,
+        AT_DISPATCH_LEVEL: bool = false,
+        CONTROL_INFO: bool = false,
+        FORCE_INDICATION: bool = false,
+        NO_PUSH: bool = false,
+        Reserved12: u17 = 0,
+    };
+    pub const SEND = packed struct(ULONG) {
+        Reserved0: u5 = 0,
+        EXPEDITED: bool = false,
+        PARTIAL: bool = false,
+        NO_RESPONSE_EXPECTED: bool = false,
+        NON_BLOCKING: bool = false,
+        AND_DISCONNECT: bool = false,
+        Reserved10: u22 = 0,
+    };
+};
+
+pub const NET = struct {
+    pub const LUID = packed struct(ULONG64) { Reserved: u24 = 0, Index: u24, IfType: u16 };
+    pub const IFINDEX = enum(ULONG) { _ };
+};
+
+pub const DNS = struct {
+    pub const INTERFACE_SETTINGS = extern struct {
+        Version: ULONG,
+        Flags: ULONG64,
+        Domain: PWSTR,
+        NameServer: PWSTR,
+        SearchList: PWSTR,
+        RegistrationEnabled: ULONG,
+        RegisterAdapterName: ULONG,
+        EnableLLMNR: ULONG,
+        QueryAdapterName: ULONG,
+        ProfileNameServer: PWSTR,
+    };
+
+    // ref: shared/windnsdef.h
+
+    pub const ADDR_MAX_SOCKADDR_LENGTH = 32;
+
+    pub const ADDR = extern struct {
+        MaxSa: [ADDR_MAX_SOCKADDR_LENGTH]CHAR,
+        DnsAddrUserDword: [8]DWORD,
+
+        pub const ARRAY = extern struct {
+            MaxCount: DWORD,
+            AddrCount: DWORD,
+            Tag: DWORD,
+            Family: WORD,
+            WordReserved: WORD,
+            Flags: DWORD,
+            MatchFlag: DWORD,
+            Reserved1: DWORD,
+            Reserved2: DWORD,
+            AddrArray: [0]ADDR,
+        };
+    };
+
+    pub const CUSTOM_SERVER = extern struct {
+        ServerType: CUSTOM_SERVER.TYPE,
+        Flags: FLAGS,
+        Info: extern union {
+            UDP: void,
+            DOH: extern struct { Template: PWSTR },
+            DOT: extern struct { Hostname: PWSTR },
+        },
+        MaxSa: [ADDR_MAX_SOCKADDR_LENGTH]CHAR,
+
+        pub const TYPE = enum(DWORD) { UDP = 0x1, DOH = 0x2, DOT = 0x3, _ };
+        pub const FLAGS = packed struct(ULONG64) {
+            UDP_FALLBACK: bool = false,
+            UPGRADE_FROM_WELL_KNOWN_SERVERS: bool = false,
+            Reserved2: u62 = 0,
+        };
+    };
+
+    // ref: um/WinDNS.h
+
+    pub const STATUS = Win32Error;
+
+    pub const TYPE = enum(WORD) {
+        A = 0x0001,
+        NS = 0x0002,
+        MD = 0x0003,
+        MF = 0x0004,
+        CNAME = 0x0005,
+        SOA = 0x0006,
+        MB = 0x0007,
+        MG = 0x0008,
+        MR = 0x0009,
+        NULL = 0x000a,
+        WKS = 0x000b,
+        PTR = 0x000c,
+        HINFO = 0x000d,
+        MINFO = 0x000e,
+        MX = 0x000f,
+        TEXT = 0x0010,
+        RP = 0x0011,
+        AFSDB = 0x0012,
+        X25 = 0x0013,
+        ISDN = 0x0014,
+        RT = 0x0015,
+        NSAP = 0x0016,
+        NSAPPTR = 0x0017,
+        SIG = 0x0018,
+        KEY = 0x0019,
+        PX = 0x001a,
+        GPOS = 0x001b,
+        AAAA = 0x001c,
+        LOC = 0x001d,
+        NXT = 0x001e,
+        EID = 0x001f,
+        NIMLOC = 0x0020,
+        SRV = 0x0021,
+        ATMA = 0x0022,
+        NAPTR = 0x0023,
+        KX = 0x0024,
+        CERT = 0x0025,
+        A6 = 0x0026,
+        DNAME = 0x0027,
+        SINK = 0x0028,
+        OPT = 0x0029,
+        DS = 0x002B,
+        RRSIG = 0x002E,
+        NSEC = 0x002F,
+        DNSKEY = 0x0030,
+        DHCID = 0x0031,
+        UINFO = 0x0064,
+        UID = 0x0065,
+        GID = 0x0066,
+        UNSPEC = 0x0067,
+        ADDRS = 0x00f8,
+        TKEY = 0x00f9,
+        TSIG = 0x00fa,
+        IXFR = 0x00fb,
+        AXFR = 0x00fc,
+        MAILB = 0x00fd,
+        MAILA = 0x00fe,
+        ALL = 0x00ff,
+        WINS = 0xff01,
+        WINSR = 0xff02,
+        TLSA = 0x0034,
+        SVCB = 0x0040,
+        HTTPS = 0x0041,
+        pub const NBSTAT: TYPE = .WINSR;
+        pub const ANY: TYPE = .ALL;
+    };
+
+    pub const QUERY = packed struct(ULONG64) {
+        pub const STANDARD: QUERY = .{};
+        ACCEPT_TRUNCATED_RESPONSE: bool = false,
+        USE_TCP_ONLY: bool = false,
+        NO_RECURSION: bool = false,
+        BYPASS_CACHE: bool = false,
+        NO_WIRE_QUERY: bool = false,
+        NO_LOCAL_NAME: bool = false,
+        NO_HOSTS_FILE: bool = false,
+        NO_NETBT: bool = false,
+        WIRE_ONLY: bool = false,
+        RETURN_MESSAGE: bool = false,
+        MULTICAST_ONLY: bool = false,
+        NO_MULTICAST: bool = false,
+        TREAT_AS_FQDN: bool = false,
+        ADDRCONFIG: bool = false,
+        DUAL_ADDR: bool = false,
+        Reserved15: u2 = 0,
+        MULTICAST_WAIT: bool = false,
+        MULTICAST_VERIFY: bool = false,
+        Reserved19: u1 = 0,
+        DONT_RESET_TTL_VALUES: bool = false,
+        DISABLE_IDN_ENCODING: bool = false,
+        Reserved22: u1 = 0,
+        APPEND_MULTILABEL: bool = false,
+        Reserved24: u34 = 0,
+        PARSE_ALL_RECORDS: bool = false,
+        Reserved59: u5 = 0,
+
+        pub const REQUEST = extern struct {
+            Version: DWORD,
+            QueryName: PCWSTR,
+            QueryType: TYPE,
+            QueryOptions: QUERY = .STANDARD,
+            pDnsServerList: ?*ADDR.ARRAY = null,
+            InterfaceIndex: ULONG = 0,
+            pQueryCompletionCallback: ?*const COMPLETION_ROUTINE = null,
+            pQueryContext: ?*anyopaque = null,
+
+            pub const @"3" = extern struct {
+                Base: REQUEST,
+                IsNetworkQueryRequired: BOOL = .FALSE,
+                RequiredNetworkIndex: DWORD = 0,
+                cCustomServers: DWORD = 0,
+                pCustomServers: ?*CUSTOM_SERVER = null,
+            };
+        };
+        pub const RESULT = extern struct {
+            Version: ULONG,
+            QueryStatus: STATUS,
+            QueryOptions: QUERY,
+            pQueryRecords: ?*RECORD,
+            Reserved: ?*anyopaque,
+        };
+        pub const CANCEL = extern struct {
+            Reserved: [32]CHAR align(8),
+        };
+        pub const COMPLETION_ROUTINE = fn (
+            pQueryContext: ?*anyopaque,
+            pQueryResults: *RESULT,
+        ) callconv(.winapi) void;
+    };
+    pub const FREE_TYPE = enum(c_int) { Flat = 0, RecordList, ParsedMessageFields };
+    pub const RECORD = extern struct {
+        pNext: ?*RECORD,
+        pName: *anyopaque,
+        wType: TYPE,
+        wDataLength: WORD,
+        Flags: FLAGS,
+        dwTtl: DWORD,
+        dwReserved: DWORD,
+        Data: extern union { A: [4]u8, AAAA: [16]u8 },
+
+        pub const FLAGS = packed struct(DWORD) {
+            Section: SECTION,
+            Delete: u1,
+            CharSet: u2,
+            Unused: u3,
+            Reserved: u24,
+        };
+    };
+    pub const SECTION = enum(u2) { Question, Answer, Authority, Additional };
 };
 
 // ref: km/ntddk.h
@@ -1251,6 +1910,24 @@ pub const THREAD = struct {
         AffinityMask: KAFFINITY,
         Priority: KPRIORITY,
         BasePriority: KPRIORITY,
+    };
+
+    pub const CREATE_FLAGS = packed struct(ULONG) {
+        CREATE_SUSPENDED: bool = false,
+        SKIP_THREAD_ATTACH: bool = false,
+        HIDE_FROM_DEBUGGER: bool = false,
+        LOADER_WORKER: bool = false,
+        SKIP_LOADER_INIT: bool = false,
+        BYPASS_PROCESS_FREEZE: bool = false,
+        Reserved6: u26 = 0,
+
+        pub const NONE: CREATE_FLAGS = .{};
+    };
+
+    pub const StackSize = enum(SIZE_T) {
+        /// The default size specified in the executable header
+        default = 0,
+        _,
     };
 };
 
@@ -1639,6 +2316,68 @@ pub const CTL_CODE = packed struct(ULONG) {
 };
 
 pub const IOCTL = struct {
+    pub const AFD = struct {
+        const CONTROL_CODE = packed struct {
+            Method: CTL_CODE.METHOD,
+            Function: u10,
+            DeviceType: CTL_CODE.FILE_DEVICE,
+            Reserved28: u4 = 0,
+        };
+        pub const BIND: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 0, .Method = .NEITHER });
+        pub const CONNECT: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 1, .Method = .NEITHER });
+        pub const START_LISTEN: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 2, .Method = .NEITHER });
+        pub const WAIT_FOR_LISTEN: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 3, .Method = .BUFFERED });
+        pub const ACCEPT: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 4, .Method = .BUFFERED });
+        pub const RECEIVE: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 5, .Method = .NEITHER });
+        pub const RECEIVE_DATAGRAM: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 6, .Method = .NEITHER });
+        pub const SEND: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 7, .Method = .NEITHER });
+        pub const SEND_DATAGRAM: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 8, .Method = .NEITHER });
+        pub const POLL: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 9, .Method = .BUFFERED });
+        pub const PARTIAL_DISCONNECT: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 10, .Method = .NEITHER });
+
+        pub const GET_ADDRESS: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 11, .Method = .NEITHER });
+        pub const QUERY_RECEIVE_INFO: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 12, .Method = .NEITHER });
+        pub const QUERY_HANDLES: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 13, .Method = .NEITHER });
+        pub const SET_INFORMATION: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 14, .Method = .NEITHER });
+        pub const GET_CONTEXT_LENGTH: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 15, .Method = .NEITHER });
+        pub const GET_CONTEXT: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 16, .Method = .NEITHER });
+        pub const SET_CONTEXT: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 17, .Method = .NEITHER });
+
+        pub const SET_CONNECT_DATA: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 18, .Method = .BUFFERED });
+        pub const SET_CONNECT_OPTIONS: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 19, .Method = .BUFFERED });
+        pub const SET_DISCONNECT_DATA: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 20, .Method = .BUFFERED });
+        pub const SET_DISCONNECT_OPTIONS: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 21, .Method = .BUFFERED });
+        pub const GET_CONNECT_DATA: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 22, .Method = .BUFFERED });
+        pub const GET_CONNECT_OPTIONS: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 23, .Method = .BUFFERED });
+        pub const GET_DISCONNECT_DATA: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 24, .Method = .BUFFERED });
+        pub const GET_DISCONNECT_OPTIONS: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 25, .Method = .BUFFERED });
+        pub const SIZE_CONNECT_DATA: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 26, .Method = .BUFFERED });
+        pub const SIZE_CONNECT_OPTIONS: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 27, .Method = .BUFFERED });
+        pub const SIZE_DISCONNECT_DATA: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 28, .Method = .BUFFERED });
+        pub const SIZE_DISCONNECT_OPTIONS: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 29, .Method = .BUFFERED });
+
+        pub const GET_INFORMATION: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 30, .Method = .NEITHER });
+        pub const TRANSMIT_FILE: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 31, .Method = .NEITHER });
+        pub const SUPER_ACCEPT: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 32, .Method = .NEITHER });
+
+        pub const EVENT_SELECT: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 33, .Method = .BUFFERED });
+        pub const ENUM_NETWORK_EVENTS: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 34, .Method = .BUFFERED });
+
+        pub const DEFER_ACCEPT: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 35, .Method = .BUFFERED });
+        pub const WAIT_FOR_LISTEN_LIFO: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 36, .Method = .BUFFERED });
+        pub const SET_QOS: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 37, .Method = .BUFFERED });
+        pub const GET_QOS: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 38, .Method = .BUFFERED });
+        pub const NO_OPERATION: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 39, .Method = .NEITHER });
+        pub const VALIDATE_GROUP: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 40, .Method = .BUFFERED });
+        pub const GET_UNACCEPTED_CONNECT_DATA: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 41, .Method = .BUFFERED });
+
+        pub const QUEUE_APC: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 42, .Method = .BUFFERED });
+
+        pub const SOCKOPT: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 47, .Method = .NEITHER });
+        pub const SUPER_CONNECT: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 49, .Method = .NEITHER });
+        pub const RECV_MSG: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 51, .Method = .NEITHER });
+        pub const RIO: CTL_CODE = @bitCast(CONTROL_CODE{ .DeviceType = .NETWORK, .Function = 70, .Method = .NEITHER });
+    };
     pub const CONDRV = struct {
         pub const READ_IO: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 1, .Method = .OUT_DIRECT, .Access = .ANY };
         pub const COMPLETE_IO: CTL_CODE = .{ .DeviceType = .CONSOLE, .Function = 2, .Method = .NEITHER, .Access = .ANY };
@@ -3005,7 +3744,7 @@ pub fn eqlIgnoreCaseWtf16(a: []const u16, b: []const u16) bool {
     }
     // Use RtlEqualUnicodeString on Windows when not in comptime to avoid including a
     // redundant copy of the uppercase data.
-    return ntdll.RtlEqualUnicodeString(&.init(a), &.init(b), TRUE) == TRUE;
+    return ntdll.RtlEqualUnicodeString(&.init(a), &.init(b), .TRUE).toBool();
 }
 
 /// Compares two WTF-8 strings using the equivalent functionality of
@@ -3212,28 +3951,12 @@ inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
 pub fn unexpectedError(err: Win32Error) UnexpectedError {
+    @branchHint(.cold);
     if (std.posix.unexpected_error_tracing) {
-        // 614 is the length of the longest windows error description
-        var buf_wstr: [614:0]WCHAR = undefined;
-        const len = kernel32.FormatMessageW(
-            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-            null,
-            err,
-            MAKELANGID(LANG.NEUTRAL, SUBLANG.DEFAULT),
-            &buf_wstr,
-            buf_wstr.len,
-            null,
-        );
-        std.debug.print("error.Unexpected: GetLastError({d}): {f}\n", .{
-            err, std.unicode.fmtUtf16Le(buf_wstr[0..len]),
-        });
+        std.debug.print("error.Unexpected: GetLastError({d}): {t}\n", .{ err, err });
         std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
     }
     return error.Unexpected;
-}
-
-pub fn unexpectedWSAError(err: ws2_32.WinsockError) UnexpectedError {
-    return unexpectedError(@as(Win32Error, @enumFromInt(@intFromEnum(err))));
 }
 
 /// Call this when you made a windows NtDll call
@@ -3273,8 +3996,8 @@ pub const Win32Error = @import("windows/win32error.zig").Win32Error;
 pub const LANG = @import("windows/lang.zig");
 pub const SUBLANG = @import("windows/sublang.zig");
 
-pub const BOOL = c_int;
-pub const BOOLEAN = BYTE;
+pub const BOOL = Bool(c_int);
+pub const BOOLEAN = Bool(BYTE);
 pub const BYTE = u8;
 pub const CHAR = u8;
 pub const UCHAR = u8;
@@ -3353,6 +4076,15 @@ fn STRING(comptime C: type) type {
             };
         }
 
+        pub fn initZ(string: [:0]const C) @This() {
+            const len: USHORT = @intCast(@sizeOf(C) * string.len);
+            return .{
+                .Length = len,
+                .MaximumLength = len + @sizeOf(C),
+                .Buffer = @constCast(string.ptr),
+            };
+        }
+
         pub fn isEmpty(string: *const @This()) bool {
             return string.Length == 0;
         }
@@ -3370,8 +4102,27 @@ fn STRING(comptime C: type) type {
 pub const ANSI_STRING = STRING(CHAR);
 pub const UNICODE_STRING = STRING(WCHAR);
 
-pub const TRUE = 1;
-pub const FALSE = 0;
+fn Bool(comptime BackingInteger: type) type {
+    return enum(Backing) {
+        /// false
+        FALSE = 0,
+        /// true
+        _,
+
+        /// This is not the only truthy value, comparisons against this value are always a bug.
+        pub const TRUE: @This() = @enumFromInt(1);
+
+        pub const Backing = BackingInteger;
+
+        pub fn toBool(b: @This()) bool {
+            return b != .FALSE;
+        }
+
+        pub fn fromBool(b: bool) @This() {
+            return @enumFromInt(@intFromBool(b));
+        }
+    };
+}
 
 pub const INVALID_HANDLE_VALUE: HANDLE = @ptrFromInt(maxInt(usize));
 
@@ -3384,19 +4135,6 @@ pub const IO_STATUS_BLOCK = extern struct {
         Pointer: ?*anyopaque,
     },
     Information: ULONG_PTR,
-};
-
-pub const OVERLAPPED = extern struct {
-    Internal: ULONG_PTR,
-    InternalHigh: ULONG_PTR,
-    DUMMYUNIONNAME: extern union {
-        DUMMYSTRUCTNAME: extern struct {
-            Offset: DWORD,
-            OffsetHigh: DWORD,
-        },
-        Pointer: ?PVOID,
-    },
-    hEvent: ?HANDLE,
 };
 
 pub const MAX_PATH = 260;
@@ -3444,27 +4182,12 @@ pub const STARTF_USESIZE = 0x00000002;
 pub const STARTF_USESTDHANDLES = 0x00000100;
 
 pub const THREAD_START_ROUTINE = fn (LPVOID) callconv(.winapi) DWORD;
+pub const USER_THREAD_START_ROUTINE = fn (LPVOID) callconv(.winapi) NTSTATUS;
 
-pub const SYSTEM_INFO = extern struct {
-    anon1: extern union {
-        dwOemId: DWORD,
-        anon2: extern struct {
-            wProcessorArchitecture: WORD,
-            wReserved: WORD,
-        },
-    },
-    dwPageSize: DWORD,
-    lpMinimumApplicationAddress: LPVOID,
-    lpMaximumApplicationAddress: LPVOID,
-    dwActiveProcessorMask: DWORD_PTR,
-    dwNumberOfProcessors: DWORD,
-    dwProcessorType: DWORD,
-    dwAllocationGranularity: DWORD,
-    wProcessorLevel: WORD,
-    wProcessorRevision: WORD,
+pub const FILETIME = extern struct {
+    dwLowDateTime: DWORD,
+    dwHighDateTime: DWORD,
 };
-
-pub const HRESULT = c_long;
 
 pub const GUID = extern struct {
     Data1: u32,
@@ -3506,6 +4229,16 @@ pub const GUID = extern struct {
         }
         return @as(GUID, @bitCast(bytes));
     }
+
+    pub fn format(self: GUID, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        return w.print("{{{x:0>8}-{x:0>4}-{x:0>4}-{x}-{x}}}", .{
+            self.Data1,
+            self.Data2,
+            self.Data3,
+            self.Data4[0..2],
+            self.Data4[2..8],
+        });
+    }
 };
 
 test GUID {
@@ -3517,6 +4250,16 @@ test GUID {
             .Data4 = "\x32\x54\x76\x98\xba\xdc\xfe\x91".*,
         },
         GUID.parse("{01234567-89AB-EF10-3254-7698badcfe91}"),
+    );
+    try std.testing.expectFmt(
+        "{01234567-89ab-ef10-3254-7698badcfe91}",
+        "{f}",
+        .{GUID.parse("{01234567-89AB-EF10-3254-7698badcfe91}")},
+    );
+    try std.testing.expectFmt(
+        "{00000001-0001-0001-0001-000000000001}",
+        "{f}",
+        .{GUID{ .Data1 = 1, .Data2 = 1, .Data3 = 1, .Data4 = [_]u8{ 0, 1, 0, 0, 0, 0, 0, 1 } }},
     );
 }
 
@@ -3560,7 +4303,7 @@ pub const RTL_QUERY_REGISTRY_TABLE = extern struct {
     Flags: ULONG,
     Name: ?PWSTR,
     EntryContext: ?*anyopaque,
-    DefaultType: ULONG,
+    DefaultType: REG.ValueType,
     DefaultData: ?*anyopaque,
     DefaultLength: ULONG,
 };
@@ -3625,34 +4368,120 @@ pub const RTL_QUERY_REGISTRY_DELETE = 0x00000040;
 /// If the types do not match, the call fails.
 pub const RTL_QUERY_REGISTRY_TYPECHECK = 0x00000100;
 
+/// REG_ is a crowded namespace with a lot of overlapping and unrelated
+/// defines in the Windows headers, so instead of strictly following the
+/// Windows headers names, extra namespaces are added here for clarity.
 pub const REG = struct {
-    /// No value type
-    pub const NONE: ULONG = 0;
-    /// Unicode nul terminated string
-    pub const SZ: ULONG = 1;
-    /// Unicode nul terminated string (with environment variable references)
-    pub const EXPAND_SZ: ULONG = 2;
-    /// Free form binary
-    pub const BINARY: ULONG = 3;
-    /// 32-bit number
-    pub const DWORD: ULONG = 4;
-    /// 32-bit number (same as REG_DWORD)
-    pub const DWORD_LITTLE_ENDIAN: ULONG = 4;
-    /// 32-bit number
-    pub const DWORD_BIG_ENDIAN: ULONG = 5;
-    /// Symbolic Link (unicode)
-    pub const LINK: ULONG = 6;
-    /// Multiple Unicode strings
-    pub const MULTI_SZ: ULONG = 7;
-    /// Resource list in the resource map
-    pub const RESOURCE_LIST: ULONG = 8;
-    /// Resource list in the hardware description
-    pub const FULL_RESOURCE_DESCRIPTOR: ULONG = 9;
-    pub const RESOURCE_REQUIREMENTS_LIST: ULONG = 10;
-    /// 64-bit number
-    pub const QWORD: ULONG = 11;
-    /// 64-bit number (same as REG_QWORD)
-    pub const QWORD_LITTLE_ENDIAN: ULONG = 11;
+    pub const ValueType = enum(ULONG) {
+        /// No value type
+        NONE = 0,
+        /// Unicode nul terminated string
+        SZ = 1,
+        /// Unicode nul terminated string (with environment variable references)
+        EXPAND_SZ = 2,
+        /// Free form binary
+        BINARY = 3,
+        /// 32-bit number
+        DWORD = 4,
+        /// 32-bit number
+        DWORD_BIG_ENDIAN = 5,
+        /// Symbolic Link (unicode)
+        LINK = 6,
+        /// Multiple Unicode strings
+        MULTI_SZ = 7,
+        /// Resource list in the resource map
+        RESOURCE_LIST = 8,
+        /// Resource list in the hardware description
+        FULL_RESOURCE_DESCRIPTOR = 9,
+        RESOURCE_REQUIREMENTS_LIST = 10,
+        /// 64-bit number
+        QWORD = 11,
+        _,
+
+        /// 32-bit number (same as REG_DWORD)
+        pub const DWORD_LITTLE_ENDIAN: ValueType = .DWORD;
+        /// 64-bit number (same as REG_QWORD)
+        pub const QWORD_LITTLE_ENDIAN: ValueType = .QWORD;
+    };
+
+    /// Used with NtOpenKeyEx, maybe others
+    pub const OpenOptions = packed struct(ULONG) {
+        Reserved0: u2 = 0,
+        /// Open for backup or restore
+        /// special access rules privilege required
+        BACKUP_RESTORE: bool = false,
+        /// Open symbolic link
+        OPEN_LINK: bool = false,
+        Reserved3: u28 = 0,
+    };
+
+    /// Used with NtLoadKeyEx, maybe others
+    pub const LoadOptions = packed struct(ULONG) {
+        /// Restore whole hive volatile
+        WHOLE_HIVE_VOLATILE: bool = false,
+        /// Unwind changes to last flush
+        REFRESH_HIVE: bool = false,
+        /// Never lazy flush this hive
+        NO_LAZY_FLUSH: bool = false,
+        /// Force the restore process even when we have open handles on subkeys
+        FORCE_RESTORE: bool = false,
+        /// Loads the hive visible to the calling process
+        APP_HIVE: bool = false,
+        /// Hive cannot be mounted by any other process while in use
+        PROCESS_PRIVATE: bool = false,
+        /// Starts Hive Journal
+        START_JOURNAL: bool = false,
+        /// Grow hive file in exact 4k increments
+        HIVE_EXACT_FILE_GROWTH: bool = false,
+        /// No RM is started for this hive (no transactions)
+        HIVE_NO_RM: bool = false,
+        /// Legacy single logging is used for this hive
+        HIVE_SINGLE_LOG: bool = false,
+        /// This hive might be used by the OS loader
+        BOOT_HIVE: bool = false,
+        /// Load the hive and return a handle to its root kcb
+        LOAD_HIVE_OPEN_HANDLE: bool = false,
+        /// Flush changes to primary hive file size as part of all flushes
+        FLUSH_HIVE_FILE_GROWTH: bool = false,
+        /// Open a hive's files in read-only mode
+        /// The same flag is used for REG_APP_HIVE_OPEN_READ_ONLY:
+        /// Open an app hive's files in read-only mode (if the hive was not previously loaded).
+        OPEN_READ_ONLY: bool = false,
+        /// Load the hive, but don't allow any modification of it
+        IMMUTABLE: bool = false,
+        /// Do not fall back to impersonating the caller if hive file access fails
+        NO_IMPERSONATION_FALLBACK: bool = false,
+        Reserved16: u16 = 0,
+    };
+};
+
+pub const KEY = struct {
+    pub const VALUE = struct {
+        /// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ne-wdm-_key_value_information_class
+        pub const INFORMATION_CLASS = enum(c_int) {
+            Basic = 0,
+            Full = 1,
+            Partial = 2,
+            FullAlign64 = 3,
+            PartialAlign64 = 4,
+            Layer = 5,
+            _,
+
+            pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".fields.len;
+        };
+
+        pub const PARTIAL_INFORMATION = extern struct {
+            TitleIndex: ULONG,
+            Type: REG.ValueType,
+            DataLength: ULONG,
+            Data: [0]UCHAR,
+
+            pub fn data(info: *const PARTIAL_INFORMATION) []const UCHAR {
+                const ptr: [*]const UCHAR = @ptrCast(&info.Data);
+                return ptr[0..info.DataLength];
+            }
+        };
+    };
 };
 
 pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x4;
@@ -3727,14 +4556,6 @@ pub const PATH_MAX_WIDE = 32767;
 ///
 /// TODO: More verification of this assumption.
 pub const NAME_MAX = 255;
-
-pub const FORMAT_MESSAGE_ALLOCATE_BUFFER = 0x00000100;
-pub const FORMAT_MESSAGE_ARGUMENT_ARRAY = 0x00002000;
-pub const FORMAT_MESSAGE_FROM_HMODULE = 0x00000800;
-pub const FORMAT_MESSAGE_FROM_STRING = 0x00000400;
-pub const FORMAT_MESSAGE_FROM_SYSTEM = 0x00001000;
-pub const FORMAT_MESSAGE_IGNORE_INSERTS = 0x00000200;
-pub const FORMAT_MESSAGE_MAX_WIDTH_MASK = 0x000000FF;
 
 pub const EXCEPTION_DATATYPE_MISALIGNMENT = 0x80000002;
 pub const EXCEPTION_ACCESS_VIOLATION = 0xc0000005;
@@ -4055,7 +4876,7 @@ pub const RUNTIME_FUNCTION = switch (native_arch) {
         BeginAddress: DWORD,
         DUMMYUNIONNAME: extern union {
             UnwindData: DWORD,
-            DUMMYSTRUCTNAME: packed struct {
+            DUMMYSTRUCTNAME: packed struct(u32) {
                 Flag: u2,
                 FunctionLength: u11,
                 Ret: u2,
@@ -4072,7 +4893,7 @@ pub const RUNTIME_FUNCTION = switch (native_arch) {
         BeginAddress: DWORD,
         DUMMYUNIONNAME: extern union {
             UnwindData: DWORD,
-            DUMMYSTRUCTNAME: packed struct {
+            DUMMYSTRUCTNAME: packed struct(u32) {
                 Flag: u2,
                 FunctionLength: u11,
                 RegF: u3,
@@ -4298,13 +5119,14 @@ pub const PEB = extern struct {
     // note: there is padding here on 64 bit
     TlsBitmap: *RTL_BITMAP,
     TlsBitmapBits: [2]ULONG,
+    /// Our base address of the memory region shared with the CSR server.
     ReadOnlySharedMemoryBase: PVOID,
 
     // Versions: 1703+
     SharedData: PVOID,
 
     // Versions: all
-    ReadOnlyStaticServerData: *PVOID,
+    ReadOnlyStaticServerData: *UnknownStaticServerDataIndirection,
     AnsiCodePageData: PVOID,
     OemCodePageData: PVOID,
     UnicodeCaseTableData: PVOID,
@@ -4391,6 +5213,7 @@ pub const PEB = extern struct {
     TracingFlags: ULONG,
 
     // Fields appended in 6.2 (Windows 8):
+    /// Base address in the CSRSS address space of the memory region shared with the CSR server.
     CsrServerReadOnlySharedMemoryBase: ULONGLONG,
 
     // Fields appended in 1511:
@@ -4401,6 +5224,14 @@ pub const PEB = extern struct {
     // Fields appended in 1709:
     TelemetryCoverageHeader: PVOID,
     CloudFileFlags: ULONG,
+
+    /// Details of this structure are unknown, but the existence of the field at offset 8 is known
+    /// from experimentation and from reverse-engineering kernelbase.dll.
+    const UnknownStaticServerDataIndirection = extern struct {
+        unknown: u64,
+        /// In the CSRSS address space.
+        base_static_server_data_addr: u64,
+    };
 };
 
 /// The `PEB_LDR_DATA` structure is the main record of what modules are loaded in a process.
@@ -4908,7 +5739,7 @@ pub const KUSER_SHARED_DATA = extern struct {
     KdDebuggerEnabled: BOOLEAN,
     DummyUnion1: extern union {
         MitigationPolicies: UCHAR,
-        Alt: packed struct {
+        Alt: packed struct(u8) {
             NXSupportPolicy: u2,
             SEHValidationPolicy: u2,
             CurDirDevicesSkippedForDlls: u2,
@@ -4924,7 +5755,7 @@ pub const KUSER_SHARED_DATA = extern struct {
     SafeBootMode: BOOLEAN,
     DummyUnion2: extern union {
         VirtualizationFlags: UCHAR,
-        Alt: packed struct {
+        Alt: packed struct(u8) {
             ArchStartedInEl2: u1,
             QcSlIsSupported: u1,
             SpareBits: u6,
@@ -4933,7 +5764,7 @@ pub const KUSER_SHARED_DATA = extern struct {
     Reserved12: [2]UCHAR,
     DummyUnion3: extern union {
         SharedDataFlags: ULONG,
-        Alt: packed struct {
+        Alt: packed struct(u32) {
             DbgErrorPortPresent: u1,
             DbgElevationEnabled: u1,
             DbgVirtEnabled: u1,
@@ -5006,7 +5837,7 @@ pub const SharedUserData: *const KUSER_SHARED_DATA = @ptrFromInt(0x7FFE0000);
 
 pub fn IsProcessorFeaturePresent(feature: PF) bool {
     if (@intFromEnum(feature) >= PROCESSOR_FEATURE_MAX) return false;
-    return SharedUserData.ProcessorFeatures[@intFromEnum(feature)] == 1;
+    return SharedUserData.ProcessorFeatures[@intFromEnum(feature)].toBool();
 }
 
 // https://github.com/reactos/reactos/blob/master/sdk/include/ndk/pstypes.h#L977-L983
@@ -5028,4 +5859,43 @@ pub fn wtf8ToWtf16Le(wtf16le: []u16, wtf8: []const u8) error{ BadPathName, NameT
     return std.unicode.wtf8ToWtf16Le(wtf16le, wtf8) catch |err| switch (err) {
         error.InvalidWtf8 => return error.BadPathName,
     };
+}
+
+/// Returns the path to the system directory, typically "C:\\WINDOWS\\System32".
+///
+/// Equivalent to `GetSystemDirectoryW` in kernel32.
+pub fn getSystemDirectoryWtf16Le() [:0]const u16 {
+    const ssd: *const BASE_STATIC_SERVER_DATA = @ptrCast(@alignCast(relocateCsrssAddress(
+        peb().ReadOnlyStaticServerData.base_static_server_data_addr,
+    )));
+    return ssd.windows_system_directory.relocate().sliceZ();
+}
+// https://github.com/reactos/reactos/blob/4b75ec5508d47b726d1210e24f5a849dae4e3bda/sdk/include/reactos/subsys/win/base.h#L119
+const BASE_STATIC_SERVER_DATA = extern struct {
+    windows_directory: ForeignString,
+    windows_system_directory: ForeignString,
+    named_object_directory: ForeignString,
+    /// This matches the 64-bit version of `UNICODE_STRING`---even on 32-bit targets, this string is
+    /// from 64-bit code (since it comes from CSRSS which is running outside of WOW64).
+    const ForeignString = extern struct {
+        length: u16,
+        maximum_length: u16,
+        /// Address in the CSRSS address space. To convert this to a valid pointer in *our* address
+        /// space, see `relocateCsrssAddress` (or the `ForeignString.relocate` wrapper function).
+        buffer_address: u64,
+        fn relocate(str: ForeignString) UNICODE_STRING {
+            return .{
+                .Length = str.length,
+                .MaximumLength = str.maximum_length,
+                .Buffer = @ptrCast(@alignCast(@constCast(relocateCsrssAddress(str.buffer_address)))),
+            };
+        }
+    };
+};
+/// Takes an address in the CSRSS address space's mapped view of the shared memory region, and
+/// returns the corresponding address in *our* mapped view of the shared memory region.
+fn relocateCsrssAddress(addr: u64) *const anyopaque {
+    const base: [*]const u8 = @ptrCast(peb().ReadOnlySharedMemoryBase);
+    const offset: usize = @intCast(addr - peb().CsrServerReadOnlySharedMemoryBase);
+    return base + offset;
 }

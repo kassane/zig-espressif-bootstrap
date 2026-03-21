@@ -7,7 +7,5 @@ export fn entry() void {
 
 // error
 //
-// :2:35: error: 2 enum fields missing in union
-// :1:13: note: field 'signed' missing, declared here
-// :1:13: note: field 'unsigned' missing, declared here
-// :1:13: note: enum declared here
+// :2:16: error: enum field 'signed' missing from union
+// :1:36: note: enum field here

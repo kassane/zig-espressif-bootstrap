@@ -339,7 +339,7 @@ fn classifySystemVStruct(
     var field_it = loaded_struct.iterateRuntimeOrder(ip);
     while (field_it.next()) |field_index| {
         const field_ty = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
-        const field_align = loaded_struct.fieldAlign(ip, field_index);
+        const field_align = loaded_struct.field_aligns.getOrNone(ip, field_index);
         byte_offset = std.mem.alignForward(
             u64,
             byte_offset,
@@ -355,7 +355,7 @@ fn classifySystemVStruct(
                 .@"packed" => {},
             }
         } else if (zcu.typeToUnion(field_ty)) |field_loaded_union| {
-            switch (field_loaded_union.flagsUnordered(ip).layout) {
+            switch (field_loaded_union.layout) {
                 .auto => unreachable,
                 .@"extern" => {
                     byte_offset = classifySystemVUnion(result, byte_offset, field_loaded_union, zcu, target);
@@ -369,11 +369,11 @@ fn classifySystemVStruct(
             result_class.* = result_class.combineSystemV(field_class);
         byte_offset += field_ty.abiSize(zcu);
     }
-    const final_byte_offset = starting_byte_offset + loaded_struct.sizeUnordered(ip);
+    const final_byte_offset = starting_byte_offset + loaded_struct.size;
     std.debug.assert(final_byte_offset == std.mem.alignForward(
         u64,
         byte_offset,
-        loaded_struct.flagsUnordered(ip).alignment.toByteUnits().?,
+        loaded_struct.alignment.toByteUnits().?,
     ));
     return final_byte_offset;
 }
@@ -398,7 +398,7 @@ fn classifySystemVUnion(
                 .@"packed" => {},
             }
         } else if (zcu.typeToUnion(field_ty)) |field_loaded_union| {
-            switch (field_loaded_union.flagsUnordered(ip).layout) {
+            switch (field_loaded_union.layout) {
                 .auto => unreachable,
                 .@"extern" => {
                     _ = classifySystemVUnion(result, starting_byte_offset, field_loaded_union, zcu, target);
@@ -411,7 +411,7 @@ fn classifySystemVUnion(
         for (result[@intCast(starting_byte_offset / 8)..][0..field_classes.len], field_classes) |*result_class, field_class|
             result_class.* = result_class.combineSystemV(field_class);
     }
-    return starting_byte_offset + loaded_union.sizeUnordered(ip);
+    return starting_byte_offset + loaded_union.size;
 }
 
 pub const zigcc = struct {

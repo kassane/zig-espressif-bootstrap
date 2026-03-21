@@ -29,8 +29,8 @@ allocator: Allocator,
 /// Used for opening TCP connections.
 io: Io,
 
-ca_bundle: if (disable_tls) void else std.crypto.Certificate.Bundle = if (disable_tls) {} else .{},
-ca_bundle_mutex: Io.Mutex = .init,
+ca_bundle_lock: if (disable_tls) void else Io.RwLock = if (disable_tls) {} else .init,
+ca_bundle: if (disable_tls) void else std.crypto.Certificate.Bundle = if (disable_tls) {} else .empty,
 /// Used both for the reader and writer buffers.
 tls_buffer_size: if (disable_tls) u0 else usize = if (disable_tls) 0 else std.crypto.tls.Client.min_buffer_len,
 /// If non-null, ssl secrets are logged to a stream. Creating such a stream
@@ -344,12 +344,17 @@ pub const Connection = struct {
                     &tls.connection.stream_writer.interface,
                     .{
                         .host = .{ .explicit = remote_host.bytes },
-                        .ca = .{ .bundle = client.ca_bundle },
+                        .ca = .{ .bundle = .{
+                            .gpa = client.allocator,
+                            .io = client.io,
+                            .lock = &client.ca_bundle_lock,
+                            .bundle = &client.ca_bundle,
+                        } },
                         .ssl_key_log = client.ssl_key_log,
                         .read_buffer = tls_read_buffer,
                         .write_buffer = socket_write_buffer,
                         .entropy = &random_buffer,
-                        .realtime_now_seconds = client.now.?.toSeconds(),
+                        .realtime_now = client.now.?,
                         // This is appropriate for HTTPS because the HTTP headers contain
                         // the content length which is used to detect truncation attacks.
                         .allow_truncation_attacks = true,
@@ -1310,7 +1315,7 @@ pub fn deinit(client: *Client) void {
 /// Asserts the client has no active connections.
 /// Uses `arena` for a few small allocations that must outlive the client, or
 /// at least until those fields are set to different values.
-pub fn initDefaultProxies(client: *Client, arena: Allocator, environ_map: *std.process.Environ.Map) !void {
+pub fn initDefaultProxies(client: *Client, arena: Allocator, environ_map: *const std.process.Environ.Map) !void {
     const io = client.io;
 
     // Prevent any new connections from being created.
@@ -1334,7 +1339,7 @@ pub fn initDefaultProxies(client: *Client, arena: Allocator, environ_map: *std.p
 
 fn createProxyFromEnvVar(
     arena: Allocator,
-    environ_map: *std.process.Environ.Map,
+    environ_map: *const std.process.Environ.Map,
     env_var_names: []const []const u8,
 ) !?*Proxy {
     const content = for (env_var_names) |name| {
@@ -1693,19 +1698,24 @@ pub fn request(
 
     const protocol = Protocol.fromUri(uri) orelse return error.UnsupportedUriScheme;
 
-    if (protocol == .tls) {
+    if (protocol == .tls) tls: {
         if (disable_tls) unreachable;
         {
-            client.ca_bundle_mutex.lockUncancelable(io);
-            defer client.ca_bundle_mutex.unlock(io);
-
-            if (client.now == null) {
-                const now = Io.Clock.real.now(io);
-                client.now = now;
-                client.ca_bundle.rescan(client.allocator, io, now) catch
-                    return error.CertificateBundleLoadFailure;
-            }
+            try client.ca_bundle_lock.lockShared(io);
+            defer client.ca_bundle_lock.unlockShared(io);
+            if (client.now != null) break :tls;
         }
+        var bundle: std.crypto.Certificate.Bundle = .empty;
+        defer bundle.deinit(client.allocator);
+        const now = Io.Clock.real.now(io);
+        bundle.rescan(client.allocator, io, now) catch |err| switch (err) {
+            error.Canceled => |e| return e,
+            else => return error.CertificateBundleLoadFailure,
+        };
+        try client.ca_bundle_lock.lock(io);
+        defer client.ca_bundle_lock.unlock(io);
+        client.now = now;
+        std.mem.swap(std.crypto.Certificate.Bundle, &client.ca_bundle, &bundle);
     }
 
     const connection = options.connection orelse c: {

@@ -24,6 +24,12 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+
+// zig patch: ssp/wchar.h header was added in FreeBSD 15
+#if __FreeBSD_version < 1500500
+	#error "ssp/wchar.h did not exist before FreeBSD 15"
+#endif /* error for FreeBSD before 15 */
+
 #ifndef _SSP_WCHAR_H_
 #define _SSP_WCHAR_H_
 

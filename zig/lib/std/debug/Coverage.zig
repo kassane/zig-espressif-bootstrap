@@ -27,10 +27,10 @@ string_bytes: std.ArrayList(u8),
 mutex: Io.Mutex,
 
 pub const init: Coverage = .{
-    .directories = .{},
-    .files = .{},
+    .directories = .empty,
+    .files = .empty,
     .mutex = .init,
-    .string_bytes = .{},
+    .string_bytes = .empty,
 };
 
 pub const String = enum(u32) {

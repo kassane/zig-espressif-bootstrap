@@ -41,6 +41,7 @@ pub const Protocol = enum(u32) {
     ethernet = 143,
     raw = 255,
     mptcp = 262,
+    _,
 };
 
 /// Windows 10 added support for unix sockets in build 17063, redstone 4 is the
@@ -159,6 +160,11 @@ pub const IpAddress = union(enum) {
         }
     }
 
+    /// Converts from an IPv4-mapped IPv6 address, or returns the IPv6 address directly.
+    pub fn fromIp6(ip6: Ip6Address) IpAddress {
+        return if (Ip4Address.fromIp6(ip6)) |ip4| .{ .ip4 = ip4 } else .{ .ip6 = ip6 };
+    }
+
     /// Includes the optional scope ("%foo" at the end) in IPv6 addresses.
     ///
     /// See `format` for an alternative that omits scopes and does
@@ -237,8 +243,14 @@ pub const IpAddress = union(enum) {
 
     /// Waits for a TCP connection. When using this API, `bind` does not need
     /// to be called. The returned `Server` has an open `stream`.
-    pub fn listen(address: IpAddress, io: Io, options: ListenOptions) ListenError!Server {
-        return io.vtable.netListenIp(io.userdata, address, options);
+    pub fn listen(address: *const IpAddress, io: Io, options: ListenOptions) ListenError!Server {
+        return .{
+            .socket = try io.vtable.netListenIp(io.userdata, address, options),
+            .options = if (Server.AcceptOptions != void) .{
+                .mode = options.mode,
+                .protocol = options.protocol,
+            },
+        };
     }
 
     pub const BindError = error{
@@ -320,8 +332,8 @@ pub const IpAddress = union(enum) {
     };
 
     /// Initiates a connection-oriented network stream.
-    pub fn connect(address: IpAddress, io: Io, options: ConnectOptions) ConnectError!Stream {
-        return io.vtable.netConnectIp(io.userdata, &address, options);
+    pub fn connect(address: *const IpAddress, io: Io, options: ConnectOptions) ConnectError!Stream {
+        return .{ .socket = try io.vtable.netConnectIp(io.userdata, address, options) };
     }
 };
 
@@ -341,6 +353,23 @@ pub const Ip4Address = struct {
         return .{
             .bytes = .{ 0, 0, 0, 0 },
             .port = port,
+        };
+    }
+
+    /// Converts from an IPv4-mapped IPv6 address, or returns `null`.
+    pub fn fromIp6(ip6: Ip6Address) ?Ip4Address {
+        return if (std.mem.eql(u8, ip6.bytes[0..12], &.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) .{
+            .bytes = ip6.bytes[12..].*,
+            .port = ip6.port,
+        } else null;
+    }
+
+    /// Given an `IpAddress`, converts it to an `Ip4Address` directly, or from
+    /// an IPv4-mapped IPv6 address, or returns `null`.
+    pub fn fromAny(addr: IpAddress) ?Ip6Address {
+        return switch (addr) {
+            .ip4 => |ip4| ip4,
+            .ip6 => |ip6| fromIp6(ip6),
         };
     }
 
@@ -429,9 +458,8 @@ pub const Ip6Address = struct {
 
     /// Constructs an IPv4-mapped IPv6 address.
     pub fn fromIp4(ip4: Ip4Address) Ip6Address {
-        const b = &ip4.bytes;
         return .{
-            .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, b[0], b[1], b[2], b[3] },
+            .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff } ++ ip4.bytes,
             .port = ip4.port,
         };
     }
@@ -572,19 +600,6 @@ pub const Ip6Address = struct {
             }
         }
 
-        pub const FromAddressError = Interface.NameError;
-
-        pub fn fromAddress(a: *const Ip6Address, io: Io) FromAddressError!Unresolved {
-            if (a.interface.isNone()) return .{
-                .bytes = a.bytes,
-                .interface_name = null,
-            };
-            return .{
-                .bytes = a.bytes,
-                .interface_name = try a.interface.name(io),
-            };
-        }
-
         pub fn format(u: *const Unresolved, w: *Io.Writer) Io.Writer.Error!void {
             const bytes = &u.bytes;
             if (std.mem.eql(u8, bytes[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
@@ -629,19 +644,12 @@ pub const Ip6Address = struct {
                 }
 
                 var i: usize = 0;
-                var abbrv = false;
-                while (i < parts.len) : (i += 1) {
+                while (parts.len - i != 0) : (i += 1) {
                     if (i == longest_start) {
                         // Emit "::" for the longest zero run
-                        if (!abbrv) {
-                            try w.writeAll(if (i == 0) "::" else ":");
-                            abbrv = true;
-                        }
+                        try w.writeAll(if (i == 0) "::" else ":");
                         i += longest_len - 1; // Skip the compressed range
                         continue;
-                    }
-                    if (abbrv) {
-                        abbrv = false;
                     }
                     try w.print("{x}", .{parts[i]});
                     if (i != parts.len - 1) {
@@ -704,24 +712,25 @@ pub const Ip6Address = struct {
         };
     }
 
-    pub const FormatError = Io.Writer.Error || Unresolved.FromAddressError;
+    pub const FormatError = Io.Writer.Error || Interface.NameError;
 
     /// Includes the optional scope ("%foo" at the end).
     ///
     /// See `format` for an alternative that omits scopes and does
     /// not require an `Io` parameter.
-    pub fn formatResolved(a: Ip6Address, io: Io, w: *Io.Writer) FormatError!void {
-        const u: Unresolved = try .fromAddress(io);
+    pub fn formatResolved(a: *const Ip6Address, io: Io, w: *Io.Writer) FormatError!void {
+        const interface_name = if (a.interface.isNone()) null else try a.interface.name(io);
+        const u: Unresolved = .{
+            .bytes = a.bytes,
+            .interface_name = if (interface_name) |name| name.toSlice() else null,
+        };
         try w.print("[{f}]:{d}", .{ u, a.port });
     }
 
     /// See `formatResolved` for an alternative that additionally prints the optional
     /// scope at the end of addresses and requires an `Io` parameter.
-    pub fn format(a: Ip6Address, w: *Io.Writer) Io.Writer.Error!void {
-        const u: Unresolved = .{
-            .bytes = a.bytes,
-            .interface_name = null,
-        };
+    pub fn format(a: *const Ip6Address, w: *Io.Writer) Io.Writer.Error!void {
+        const u: Unresolved = .{ .bytes = a.bytes, .interface_name = null };
         try w.print("[{f}]:{d}", .{ u, a.port });
     }
 
@@ -825,13 +834,20 @@ pub const Ip6Address = struct {
 pub const UnixAddress = struct {
     path: []const u8,
 
-    pub const max_len = 108;
+    pub const max_len = switch (native_os) {
+        .windows => std.os.windows.PATH_MAX_WIDE,
+        else => 108,
+    };
 
     pub const InitError = error{NameTooLong};
 
     pub fn init(p: []const u8) InitError!UnixAddress {
         if (p.len > max_len) return error.NameTooLong;
         return .{ .path = p };
+    }
+
+    pub fn isAbstract(ua: *const UnixAddress) bool {
+        return ua.path.len == 0 or ua.path[0] == 0;
     }
 
     pub const ListenError = error{
@@ -859,10 +875,13 @@ pub const UnixAddress = struct {
 
     pub fn listen(ua: *const UnixAddress, io: Io, options: ListenOptions) ListenError!Server {
         assert(ua.path.len <= max_len);
-        return .{ .socket = .{
-            .handle = try io.vtable.netListenUnix(io.userdata, ua, options),
-            .address = .{ .ip4 = .loopback(0) },
-        } };
+        return .{
+            .socket = .{
+                .handle = try io.vtable.netListenUnix(io.userdata, ua, options),
+                .address = .{ .ip4 = .loopback(0) },
+            },
+            .options = if (Server.AcceptOptions != void) .{ .mode = .stream, .protocol = null },
+        };
     }
 
     pub const ConnectError = error{
@@ -871,7 +890,6 @@ pub const UnixAddress = struct {
         SystemFdQuotaExceeded,
         AddressFamilyUnsupported,
         ProtocolUnsupportedBySystem,
-        ProtocolUnsupportedByAddressFamily,
         SocketModeUnsupported,
         AccessDenied,
         PermissionDenied,
@@ -1006,7 +1024,12 @@ pub const Interface = struct {
         }
     };
 
-    pub const NameError = Io.UnexpectedError || Io.Cancelable;
+    pub const NameError = error{
+        /// Out of range `index`.
+        InterfaceNotFound,
+        /// Interface name longer than `Name.max_len`.
+        NameTooLong,
+    } || Io.UnexpectedError || Io.Cancelable;
 
     /// Asserts not `none`.
     ///
@@ -1047,10 +1070,7 @@ pub const Socket = struct {
 
     /// Underlying platform-defined type which may or may not be
     /// interchangeable with a file system file descriptor.
-    pub const Handle = switch (native_os) {
-        .windows => std.os.windows.ws2_32.SOCKET,
-        else => std.posix.fd_t,
-    };
+    pub const Handle = std.posix.fd_t;
 
     /// Leaves `address` in a valid state.
     pub fn close(s: *const Socket, io: Io) void {
@@ -1109,25 +1129,7 @@ pub const Socket = struct {
         if (n != messages.len) return err.?;
     }
 
-    pub const ReceiveError = error{
-        /// Insufficient memory or other resource internal to the operating system.
-        SystemResources,
-        /// Per-process limit on the number of open file descriptors has been reached.
-        ProcessFdQuotaExceeded,
-        /// System-wide limit on the total number of open files has been reached.
-        SystemFdQuotaExceeded,
-        /// Local end has been shut down on a connection-oriented socket, or
-        /// the socket was never connected.
-        SocketUnconnected,
-        /// The socket type requires that message be sent atomically, and the
-        /// size of the message to be sent made this impossible. The message
-        /// was not transmitted, or was partially transmitted.
-        MessageOversize,
-        /// Network connection was unexpectedly closed by sender.
-        ConnectionResetByPeer,
-        /// The local network interface used to reach the destination is offline.
-        NetworkDown,
-    } || Io.UnexpectedError || Io.Cancelable;
+    pub const ReceiveError = Io.Operation.NetReceive.Error || Io.Cancelable;
 
     /// Waits for data. Connectionless.
     ///
@@ -1135,17 +1137,18 @@ pub const Socket = struct {
     /// * `receiveTimeout`
     pub fn receive(s: *const Socket, io: Io, buffer: []u8) ReceiveError!IncomingMessage {
         var message: IncomingMessage = .init;
-        const maybe_err, const count = io.vtable.netReceive(io.userdata, s.handle, (&message)[0..1], buffer, .{}, .none);
-        if (maybe_err) |err| switch (err) {
-            // No timeout is passed to `netReceieve`, so it must not return timeout related errors.
-            error.Timeout => unreachable,
-            else => |e| return e,
-        };
+        const maybe_err, const count = (try io.operate(.{ .net_receive = .{
+            .socket_handle = s.handle,
+            .message_buffer = (&message)[0..1],
+            .data_buffer = buffer,
+            .flags = .{},
+        } })).net_receive;
+        if (maybe_err) |err| return err;
         assert(1 == count);
         return message;
     }
 
-    pub const ReceiveTimeoutError = ReceiveError || Io.Timeout.Error;
+    pub const ReceiveTimeoutError = ReceiveError || Io.Timeout.Error || Io.ConcurrentError;
 
     /// Waits for data. Connectionless.
     ///
@@ -1161,7 +1164,12 @@ pub const Socket = struct {
         timeout: Io.Timeout,
     ) ReceiveTimeoutError!IncomingMessage {
         var message: IncomingMessage = .init;
-        const maybe_err, const count = io.vtable.netReceive(io.userdata, s.handle, (&message)[0..1], buffer, .{}, timeout);
+        const maybe_err, const count = (try io.operateTimeout(.{ .net_receive = .{
+            .socket_handle = s.handle,
+            .message_buffer = (&message)[0..1],
+            .data_buffer = buffer,
+            .flags = .{},
+        } }, timeout)).net_receive;
         if (maybe_err) |err| return err;
         assert(1 == count);
         return message;
@@ -1186,7 +1194,13 @@ pub const Socket = struct {
         flags: ReceiveFlags,
         timeout: Io.Timeout,
     ) struct { ?ReceiveTimeoutError, usize } {
-        return io.vtable.netReceive(io.userdata, s.handle, message_buffer, data_buffer, flags, timeout);
+        const result = io.operateTimeout(.{ .net_receive = .{
+            .socket_handle = s.handle,
+            .message_buffer = message_buffer,
+            .data_buffer = data_buffer,
+            .flags = flags,
+        } }, timeout) catch |err| return .{ err, 0 };
+        return result.net_receive;
     }
 
     pub const CreatePairError = error{
@@ -1383,6 +1397,7 @@ pub const Stream = struct {
 
 pub const Server = struct {
     socket: Socket,
+    options: AcceptOptions,
 
     pub fn deinit(s: *Server, io: Io) void {
         s.socket.close(io);
@@ -1414,9 +1429,14 @@ pub const Server = struct {
         ProtocolFailure,
     } || Io.UnexpectedError || Io.Cancelable;
 
+    pub const AcceptOptions = switch (native_os) {
+        .windows => struct { mode: Socket.Mode, protocol: ?Protocol },
+        else => void,
+    };
+
     /// Blocks until a client connects to the server.
     pub fn accept(s: *Server, io: Io) AcceptError!Stream {
-        return io.vtable.netAccept(io.userdata, s.socket.handle);
+        return .{ .socket = try io.vtable.netAccept(io.userdata, s.socket.handle, s.options) };
     }
 };
 

@@ -5,6 +5,7 @@ const Io = std.Io;
 const net = std.Io.net;
 const mem = std.mem;
 const testing = std.testing;
+const Allocator = std.mem.Allocator;
 
 test "parse and render IP addresses at comptime" {
     comptime {
@@ -84,28 +85,19 @@ test "IPv6 address parse failures" {
 }
 
 test "invalid but parseable IPv6 scope ids" {
-    const io = testing.io;
+    if (builtin.os.tag != .linux and builtin.os.tag != .windows and comptime !builtin.os.tag.isDarwin()) return error.SkipZigTest;
 
-    if (builtin.os.tag != .linux and comptime !builtin.os.tag.isDarwin()) {
-        return error.SkipZigTest; // TODO
-    }
+    const io = testing.io;
 
     try testing.expectError(error.InterfaceNotFound, net.IpAddress.resolveIp6(io, "ff01::fb%123s45678901234", 0));
 }
 
 test "parse and render IPv4 addresses" {
-    var buffer: [18]u8 = undefined;
-    for ([_][]const u8{
-        "0.0.0.0",
-        "255.255.255.255",
-        "1.2.3.4",
-        "123.255.0.91",
-        "127.0.0.1",
-    }) |ip| {
-        const addr = net.IpAddress.parseIp4(ip, 0) catch unreachable;
-        var newIp = std.fmt.bufPrint(buffer[0..], "{f}", .{addr}) catch unreachable;
-        try testing.expect(std.mem.eql(u8, ip, newIp[0 .. newIp.len - 2]));
-    }
+    try testIp4ParseAndRender("0.0.0.0");
+    try testIp4ParseAndRender("255.255.255.255");
+    try testIp4ParseAndRender("1.2.3.4");
+    try testIp4ParseAndRender("123.255.0.91");
+    try testIp4ParseAndRender("127.0.0.1");
 
     try testing.expectError(error.Overflow, net.IpAddress.parseIp4("256.0.0.1", 0));
     try testing.expectError(error.InvalidCharacter, net.IpAddress.parseIp4("x.0.0.1", 0));
@@ -115,9 +107,15 @@ test "parse and render IPv4 addresses" {
     try testing.expectError(error.NonCanonical, net.IpAddress.parseIp4("127.01.0.1", 0));
 }
 
-test "resolve DNS" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+fn testIp4ParseAndRender(text: []const u8) !void {
+    var buffer: [18]u8 = undefined;
+    const addr = try net.IpAddress.parseIp4(text, 0);
+    const rendered = try std.fmt.bufPrint(&buffer, "{f}", .{addr});
+    const without_port = rendered[0 .. rendered.len - 2];
+    try testing.expectEqualStrings(text, without_port);
+}
 
+test "resolve DNS" {
     const io = testing.io;
 
     // Resolve localhost, this should not fail.
@@ -129,10 +127,14 @@ test "resolve DNS" {
         var results_buffer: [32]net.HostName.LookupResult = undefined;
         var results: Io.Queue(net.HostName.LookupResult) = .init(&results_buffer);
 
-        try net.HostName.lookup(try .init("localhost"), io, &results, .{
+        net.HostName.lookup(try .init("localhost"), io, &results, .{
             .port = 80,
+            .request_canonical_name = true,
             .canonical_name_buffer = &canonical_name_buffer,
-        });
+        }) catch |err| switch (err) {
+            error.NetworkDown => return error.SkipZigTest,
+            else => |e| return e,
+        };
 
         var addresses_found: usize = 0;
 
@@ -141,7 +143,8 @@ test "resolve DNS" {
                 if (address.eql(&localhost_v4) or address.eql(&localhost_v6))
                     addresses_found += 1;
             },
-            .canonical_name => |canonical_name| try testing.expectEqualStrings("localhost", canonical_name.bytes),
+            .canonical_name => |canonical_name| if (builtin.os.tag == .linux)
+                try testing.expectEqualStrings("localhost", canonical_name.bytes),
         } else |err| switch (err) {
             error.Closed => {},
             error.Canceled => |e| return e,
@@ -177,16 +180,16 @@ test "resolve DNS" {
 }
 
 test "listen on a port, send bytes, receive bytes" {
-    if (builtin.single_threaded) return error.SkipZigTest;
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
     const io = testing.io;
 
     // Try only the IPv4 variant as some CI builders have no IPv6 localhost
     // configured.
     const localhost: net.IpAddress = .{ .ip4 = .loopback(0) };
 
-    var server = try localhost.listen(io, .{});
+    var server = localhost.listen(io, .{}) catch |err| switch (err) {
+        error.NetworkDown => return error.SkipZigTest,
+        else => |e| return e,
+    };
     defer server.deinit(io);
 
     const S = struct {
@@ -199,89 +202,54 @@ test "listen on a port, send bytes, receive bytes" {
         }
     };
 
-    const t = try std.Thread.spawn(.{}, S.clientFn, .{server.socket.address});
-    defer t.join();
+    var client_task = io.concurrent(S.clientFn, .{server.socket.address}) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => return error.SkipZigTest,
+    };
+    defer client_task.cancel(io) catch {};
 
     var stream = try server.accept(io);
     defer stream.close(io);
+
     var buf: [16]u8 = undefined;
     var stream_reader = stream.reader(io, &.{});
     const n = try stream_reader.interface.readSliceShort(&buf);
 
     try testing.expectEqual(@as(usize, 12), n);
-    try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
+    try testing.expectEqualStrings("Hello world!", buf[0..n]);
+
+    try client_task.await(io);
 }
 
 test "listen on an in use port" {
-    if (builtin.os.tag != .linux and comptime !builtin.os.tag.isDarwin() and builtin.os.tag != .windows) {
-        // TODO build abstractions for other operating systems
-        return error.SkipZigTest;
-    }
-
     const io = testing.io;
 
     const localhost: net.IpAddress = .{ .ip4 = .loopback(0) };
 
-    var server1 = try localhost.listen(io, .{ .reuse_address = true });
+    var server1 = localhost.listen(io, .{ .reuse_address = true }) catch |err| switch (err) {
+        error.NetworkDown => return error.SkipZigTest,
+        else => |e| return e,
+    };
     defer server1.deinit(io);
 
     var server2 = try server1.socket.address.listen(io, .{ .reuse_address = true });
     defer server2.deinit(io);
 }
 
-fn testClientToHost(allocator: mem.Allocator, name: []const u8, port: u16) anyerror!void {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    const io = testing.io;
-
-    const connection = try net.tcpConnectToHost(allocator, name, port);
-    defer connection.close(io);
-
-    var buf: [100]u8 = undefined;
-    const len = try connection.read(&buf);
-    const msg = buf[0..len];
-    try testing.expect(mem.eql(u8, msg, "hello from server\n"));
-}
-
-fn testClient(addr: net.IpAddress) anyerror!void {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    const io = testing.io;
-
-    const socket_file = try net.tcpConnectToAddress(addr);
-    defer socket_file.close(io);
-
-    var buf: [100]u8 = undefined;
-    const len = try socket_file.read(&buf);
-    const msg = buf[0..len];
-    try testing.expect(mem.eql(u8, msg, "hello from server\n"));
-}
-
-fn testServer(server: *net.Server) anyerror!void {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    const io = testing.io;
-
-    var stream = try server.accept(io);
-    var writer = stream.writer(io, &.{});
-    try writer.interface.print("hello from server\n", .{});
-}
-
 test "listen on a unix socket, send bytes, receive bytes" {
-    if (builtin.single_threaded) return error.SkipZigTest;
-    if (!net.has_unix_sockets) return error.SkipZigTest;
-    if (builtin.os.tag == .windows) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25983
-    if (builtin.cpu.arch == .mipsel) return error.SkipZigTest; // TODO
-
     const io = testing.io;
+    const gpa = testing.allocator;
 
-    const socket_path = try generateFileName(io, "socket.unix");
-    defer testing.allocator.free(socket_path);
+    const socket_path = try generateFileName(gpa, io, "socket.unix");
+    defer gpa.free(socket_path);
 
     const socket_addr = try net.UnixAddress.init(socket_path);
     defer Io.Dir.cwd().deleteFile(io, socket_path) catch {};
 
-    var server = try socket_addr.listen(io, .{});
+    var server = socket_addr.listen(io, .{}) catch |err| switch (err) {
+        error.AddressFamilyUnsupported => return error.SkipZigTest,
+        error.NetworkDown => return error.SkipZigTest,
+        else => |e| return e,
+    };
     defer server.socket.close(io);
 
     const S = struct {
@@ -295,59 +263,32 @@ test "listen on a unix socket, send bytes, receive bytes" {
         }
     };
 
-    const t = try std.Thread.spawn(.{}, S.clientFn, .{socket_path});
-    defer t.join();
+    var client_task = io.concurrent(S.clientFn, .{socket_path}) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => return error.SkipZigTest,
+    };
+    defer client_task.cancel(io) catch {};
 
     var stream = try server.accept(io);
     defer stream.close(io);
+
     var buf: [16]u8 = undefined;
     var stream_reader = stream.reader(io, &.{});
     const n = try stream_reader.interface.readSliceShort(&buf);
 
     try testing.expectEqual(@as(usize, 12), n);
-    try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
+    try testing.expectEqualStrings("Hello world!", buf[0..n]);
+
+    try client_task.await(io);
 }
 
-fn generateFileName(io: Io, base_name: []const u8) ![]const u8 {
+fn generateFileName(gpa: Allocator, io: Io, base_name: []const u8) ![]const u8 {
     const random_bytes_count = 12;
     const sub_path_len = comptime std.base64.url_safe.Encoder.calcSize(random_bytes_count);
     var random_bytes: [12]u8 = undefined;
     io.random(&random_bytes);
     var sub_path: [sub_path_len]u8 = undefined;
     _ = std.base64.url_safe.Encoder.encode(&sub_path, &random_bytes);
-    return std.fmt.allocPrint(testing.allocator, "{s}-{s}", .{ sub_path[0..], base_name });
-}
-
-test "non-blocking tcp server" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-    if (true) {
-        // https://github.com/ziglang/zig/issues/18315
-        return error.SkipZigTest;
-    }
-
-    const io = testing.io;
-
-    const localhost: net.IpAddress = .{ .ip4 = .loopback(0) };
-    var server = localhost.listen(io, .{ .force_nonblocking = true });
-    defer server.deinit(io);
-
-    const accept_err = server.accept(io);
-    try testing.expectError(error.WouldBlock, accept_err);
-
-    const socket_file = try net.tcpConnectToAddress(server.socket.address);
-    defer socket_file.close(io);
-
-    var stream = try server.accept(io);
-    defer stream.close(io);
-    var writer = stream.writer(io, .{});
-    try writer.interface.print("hello from server\n", .{});
-
-    var buf: [100]u8 = undefined;
-    const len = try socket_file.read(&buf);
-    const msg = buf[0..len];
-    try testing.expect(mem.eql(u8, msg, "hello from server\n"));
-
-    try stream.shutdown(io, .both);
+    return std.fmt.allocPrint(gpa, "{s}-{s}", .{ sub_path[0..], base_name });
 }
 
 test "decompress compressed DNS name" {
@@ -398,4 +339,22 @@ test "decompress compressed DNS name" {
     );
     try testing.expectEqual(packet.len - cname_data_index, n_consumed);
     try testing.expectEqualStrings("target.ziglang.org", result.bytes);
+}
+
+test "cancel accept" {
+    const io = testing.io;
+    const localhost: net.IpAddress = .{ .ip4 = .loopback(0) };
+
+    var server = localhost.listen(io, .{}) catch |err| switch (err) {
+        error.NetworkDown => return error.SkipZigTest,
+        else => |e| return e,
+    };
+    defer server.deinit(io);
+
+    var accept = io.concurrent(std.Io.net.Server.accept, .{ &server, io }) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => return error.SkipZigTest,
+    };
+    defer if (accept.cancel(io)) |stream| stream.close(io) else |_| {};
+
+    try io.sleep(.fromNanoseconds(1), .awake);
 }

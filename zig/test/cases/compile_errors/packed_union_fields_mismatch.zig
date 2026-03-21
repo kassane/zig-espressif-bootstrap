@@ -1,12 +1,14 @@
 export fn entry1() void {
-    _ = packed union {
+    const U = packed union {
         a: u1,
         b: u2,
     };
+    _ = @as(U, undefined);
 }
 
 // error
 //
-// :2:16: error: packed union has fields with mismatching bit sizes
-// :3:12: note: 1 bits here
-// :4:12: note: 2 bits here
+// :4:12: error: field bit width does not match earlier field
+// :4:12: note: field type 'u2' has bit width '2'
+// :3:12: note: other field type 'u1' has bit width '1'
+// :4:12: note: all fields in a packed union must have the same bit width

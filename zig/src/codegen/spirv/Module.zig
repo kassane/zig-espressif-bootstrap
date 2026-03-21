@@ -252,9 +252,9 @@ pub fn resolveNav(module: *Module, ip: *InternPool, nav_index: InternPool.Nav.In
     if (!entry.found_existing) {
         const nav = ip.getNav(nav_index);
         // TODO: Extern fn?
-        const kind: Decl.Kind = if (ip.isFunctionType(nav.typeOf(ip)))
+        const kind: Decl.Kind = if (ip.isFunctionType(nav.resolved.?.type))
             .func
-        else switch (nav.getAddrspace()) {
+        else switch (nav.resolved.?.@"addrspace") {
             .generic => .invocation_global,
             else => .global,
         };

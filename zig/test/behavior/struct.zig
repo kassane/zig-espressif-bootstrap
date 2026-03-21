@@ -749,7 +749,6 @@ test "packed struct with fp fields" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     const S = packed struct {
         data0: f32,
@@ -2177,7 +2176,7 @@ test "avoid unused field function body compile error" {
 
 test "pass a pointer to a comptime-only struct field to a function" {
     const S = struct {
-        fn checkField(field_ptr: *const type) !void {
+        fn checkField(comptime field_ptr: *const type) !void {
             try expect(field_ptr.* == u42);
         }
     };
@@ -2232,4 +2231,76 @@ test "overaligned extern struct fields" {
     try expect(std.mem.isAligned(@intFromPtr(&e.b), @alignOf(A)));
     try expect(std.mem.isAligned(@intFromPtr(&e.c), @alignOf(u32)));
     try expect(std.mem.isAligned(@intFromPtr(&e.d), @alignOf(B)));
+}
+
+test "runtime-known slice of comptime-only struct" {
+    const Mixed = struct { index: u32, T: type };
+
+    const static = struct {
+        fn doTheTest(index_offset: usize, s: []const Mixed) !void {
+            for (s, index_offset..) |*mixed, index| {
+                try expect(mixed.index == index);
+            }
+        }
+    };
+
+    try static.doTheTest(10, &.{
+        .{ .index = 10, .T = u8 },
+        .{ .index = 11, .T = noreturn },
+        .{ .index = 12, .T = *opaque {} },
+        .{ .index = 13, .T = undefined },
+        .{ .index = 14, .T = @TypeOf(undefined) },
+        .{ .index = 15, .T = Mixed },
+    });
+}
+
+test "struct contains aligned pointer to itself through type decl" {
+    const Slab = struct {
+        const Ptr = *align(64) const @This();
+        next: Ptr,
+    };
+    // We intentionally use `Slab.Ptr` before `Slab`.
+    var ptr: Slab.Ptr = undefined;
+    var slab: Slab align(64) = undefined;
+    ptr = &slab;
+    slab.next = ptr;
+
+    try expect(ptr == &slab);
+    try expect(slab.next == &slab);
+    try expect(slab.next.next == &slab);
+    try expect(slab.next.next.next == &slab);
+}
+
+test "struct contains underaligned field with overaligned pointer to itself" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    const S = struct {
+        ptr: *align(8) @This() align(1),
+    };
+    var val: S align(8) = undefined;
+    val.ptr = &val;
+    try expect(val.ptr == &val);
+    try expect(val.ptr.ptr == &val);
+    try expect(val.ptr.ptr.ptr == &val);
+}
+
+test "struct contains pointer to function accepting that struct" {
+    const S = struct {
+        const FnPtr = ?*const fn (@This()) void;
+        fn_ptr: FnPtr,
+    };
+    const dummy_fn_ptr: S.FnPtr = @ptrFromInt(0x100000);
+    const dummy_s: S = .{ .fn_ptr = dummy_fn_ptr };
+    try expect(dummy_s.fn_ptr == dummy_fn_ptr);
+    try expect(@TypeOf(dummy_s.fn_ptr.?) == *const fn (S) void);
+}
+
+test "struct queries typeinfo of struct containing pointer back to first struct" {
+    const static = struct {
+        const A = struct { b: *B };
+        const B = struct { a: T: {
+            _ = @typeInfo(A);
+            break :T u32;
+        } };
+    };
+    _ = @as(static.A, undefined);
 }

@@ -339,7 +339,7 @@ test "generic instantiation of tagged union with only one field" {
     try expect(S.foo(.{ .s = "ab" }) == 2);
 }
 
-test "nested generic function" {
+test "generic parameter type is function type" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
@@ -349,10 +349,7 @@ test "nested generic function" {
         fn bar(a: u32) anyerror!void {
             try expect(a == 123);
         }
-
-        fn g(_: *const fn (anytype) void) void {}
     };
-    try expect(@typeInfo(@TypeOf(S.g)).@"fn".is_generic);
     try S.foo(u32, S.bar, 123);
 }
 

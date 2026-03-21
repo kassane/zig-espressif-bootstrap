@@ -14,7 +14,7 @@ fn foo(recurse: bool) !void {
     try stdout.writeStreamingAll(io, "non-recursive path\n");
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="non-recursive path\n"
 
 #update=eliminate recursion and change argument
@@ -28,5 +28,5 @@ fn foo(recurse: bool) !void {
     try stdout.writeStreamingAll(io, "non-recursive path\n");
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="x==1\n"

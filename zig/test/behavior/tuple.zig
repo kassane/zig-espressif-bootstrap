@@ -592,3 +592,14 @@ test "array of tuples that end with a zero-bit field followed by padding" {
     try expect(S.foo[1][1] == 4);
     try expect(S.foo[1][2] == {});
 }
+
+test "call function at comptime through container-level const tuple" {
+    const static = struct {
+        const MyTuple = struct { (fn () u32) };
+        const val: MyTuple = .{foo};
+        fn foo() u32 {
+            return 1234;
+        }
+    };
+    comptime assert(static.val[0]() == 1234);
+}

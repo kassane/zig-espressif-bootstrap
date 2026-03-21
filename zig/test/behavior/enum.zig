@@ -823,15 +823,6 @@ test "enum with one member and u1 tag type @intFromEnum" {
     try expect(@intFromEnum(Enum.Test) == 0);
 }
 
-test "enum with comptime_int tag type" {
-    const Enum = enum(comptime_int) {
-        One = 3,
-        Two = 2,
-        Three = 1,
-    };
-    comptime assert(Tag(Enum) == comptime_int);
-}
-
 test "enum with one member default to u0 tag type" {
     const E0 = enum { X };
     comptime assert(Tag(E0) == u0);
@@ -1274,13 +1265,6 @@ fn getLazyInitialized(param: enum(u8) {
     return @intFromEnum(param);
 }
 
-test "Non-exhaustive enum backed by comptime_int" {
-    const E = enum(comptime_int) { a, b, c, _ };
-    comptime var e: E = .a;
-    e = @as(E, @enumFromInt(378089457309184723749));
-    try expect(@intFromEnum(e) == 378089457309184723749);
-}
-
 test "matching captures causes enum equivalence" {
     const S = struct {
         fn Nonexhaustive(comptime I: type) type {
@@ -1346,4 +1330,42 @@ test "comptime @enumFromInt with signed arithmetic" {
     const x: E = @enumFromInt(@as(i8, -1) * 0);
     comptime assert(x == .bar);
     comptime assert(@intFromEnum(x) == 0);
+}
+
+test "switch on empty enum" {
+    const E = enum {};
+    var e: E = undefined;
+    _ = &e;
+    switch (e) {}
+}
+
+test "switch on empty enum with a specified tag type" {
+    const E = enum(u8) {};
+    var e: E = undefined;
+    _ = &e;
+    switch (e) {}
+}
+
+test "empty enum passed as argument" {
+    const E = enum {
+        fn f(e: @This()) void {
+            switch (e) {}
+        }
+    };
+    E.f(@as(E, undefined));
+}
+
+test "enum int tag type uses declaration inside the enum" {
+    const static = struct {
+        const E = enum(E.IntTag) {
+            const IntTag = u8;
+            a,
+            b,
+            c,
+        };
+    };
+    try expect(@sizeOf(static.E) == @sizeOf(u8));
+    const val: static.E = .b;
+    try expect(val == .b);
+    try expect(@intFromEnum(val) == 1);
 }

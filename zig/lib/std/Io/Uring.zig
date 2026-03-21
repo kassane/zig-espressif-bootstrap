@@ -32,8 +32,7 @@ const pathToPosix = Io.Threaded.pathToPosix;
 const pid_t = linux.pid_t;
 const PosixAddress = Io.Threaded.PosixAddress;
 const posixAddressFamily = Io.Threaded.posixAddressFamily;
-const posixProtocol = Io.Threaded.posixProtocol;
-const posixSocketMode = Io.Threaded.posixSocketMode;
+const posixSocketModeProtocol = Io.Threaded.posixSocketModeProtocol;
 const process = std.process;
 const recoverableOsBugDetected = Io.Threaded.recoverableOsBugDetected;
 const setTimestampToPosix = Io.Threaded.setTimestampToPosix;
@@ -594,7 +593,10 @@ const CachedFd = struct {
                     @atomicStore(Once, &cached_fd.once, .uninitialized, .monotonic);
                     futexWake(ev, @ptrCast(&cached_fd.once), 1);
                 }
-                const fd = try ev.openat(cancel_region, linux.AT.FDCWD, path, flags, 0);
+                const fd = ev.openat(cancel_region, linux.AT.FDCWD, path, flags, 0) catch |err| switch (err) {
+                    error.OperationUnsupported => return error.Unexpected, // TMPFILE unset.
+                    else => |e| return e,
+                };
                 @atomicStore(Once, &cached_fd.once, .fromFd(fd), .monotonic);
                 futexWake(ev, @ptrCast(&cached_fd.once), std.math.maxInt(u32));
                 return fd;
@@ -752,6 +754,7 @@ pub fn io(ev: *Evented) Io {
             .unlockStderr = unlockStderr,
             .processCurrentPath = processCurrentPath,
             .processSetCurrentDir = processSetCurrentDir,
+            .processSetCurrentPath = processSetCurrentPath,
             .processReplace = processReplace,
             .processReplacePath = processReplacePath,
             .processSpawn = processSpawn,
@@ -776,7 +779,6 @@ pub fn io(ev: *Evented) Io {
             .netConnectUnix = netConnectUnixUnavailable,
             .netSocketCreatePair = netSocketCreatePairUnavailable,
             .netSend = netSendUnavailable,
-            .netReceive = netReceive,
             .netRead = netReadUnavailable,
             .netWrite = netWriteUnavailable,
             .netWriteFile = netWriteFileUnavailable,
@@ -1738,7 +1740,7 @@ const Group = struct {
         evented: *Evented,
         group: Group,
         fiber: *Fiber,
-        start: *const fn (context: *const anyopaque) Io.Cancelable!void,
+        start: *const fn (context: *const anyopaque) void,
 
         fn fromFiber(fiber: *Fiber) *Group.AsyncClosure {
             return @ptrFromInt(Fiber.max_context_align.max(.of(Group.AsyncClosure)).backward(
@@ -1784,11 +1786,7 @@ const Group = struct {
             const fiber = closure.fiber;
             message.handle(ev);
             assert(fiber.status.queue_next == null);
-            if (closure.start(closure.contextPointer())) {
-                assert(!fiber.cancel_protection.acknowledged); // group task acknowledged cancelation but did not return `error.Canceled`
-            } else |err| switch (err) {
-                error.Canceled => assert(fiber.cancel_protection.acknowledged), // group task returned `error.Canceled` but was never canceled
-            }
+            closure.start(closure.contextPointer());
             ev.yield(closure.group.removeFiber(ev, fiber), .destroy);
             unreachable; // switched to dead fiber
         }
@@ -1800,28 +1798,11 @@ fn groupAsync(
     type_erased: *Io.Group,
     context: []const u8,
     context_alignment: Alignment,
-    start: *const fn (context: *const anyopaque) Io.Cancelable!void,
+    start: *const fn (context: *const anyopaque) void,
 ) void {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
     return groupConcurrent(ev, type_erased, context, context_alignment, start) catch {
-        const fiber = Thread.current().currentFiber();
-        const pre_acknowledged = fiber.cancel_protection.acknowledged;
-        const result = start(context.ptr);
-        const post_acknowledged = fiber.cancel_protection.acknowledged;
-        if (result) {
-            if (pre_acknowledged) {
-                assert(post_acknowledged); // group task called `recancel` but was not canceled
-            } else {
-                assert(!post_acknowledged); // group task acknowledged cancelation but did not return `error.Canceled`
-            }
-        } else |err| switch (err) {
-            // Don't swallow the cancelation: make it visible to the `Group.async` caller.
-            error.Canceled => {
-                assert(!pre_acknowledged); // group task called `recancel` but was not canceled
-                assert(post_acknowledged); // group task returned `error.Canceled` but was never canceled
-                fiber.cancel_protection.recancel();
-            },
-        }
+        start(context.ptr);
     };
 }
 
@@ -1830,7 +1811,7 @@ fn groupConcurrent(
     type_erased: *Io.Group,
     context: []const u8,
     context_alignment: Alignment,
-    start: *const fn (context: *const anyopaque) Io.Cancelable!void,
+    start: *const fn (context: *const anyopaque) void,
 ) Io.ConcurrentError!void {
     assert(context_alignment.compare(.lte, Fiber.max_context_align)); // TODO
     assert(context.len <= Fiber.max_context_size); // TODO
@@ -2111,6 +2092,18 @@ fn operate(userdata: ?*anyopaque, operation: Io.Operation) Io.Cancelable!Io.Oper
         },
         .device_io_control => |o| .{
             .device_io_control = try ev.deviceIoControl(try maybe_sync.enterSync(ev), o),
+        },
+        .net_receive => |o| .{
+            .net_receive = r: {
+                const opt_err, const n = ev.netReceive(&maybe_sync.cancel_region, o.socket_handle, o.message_buffer, o.data_buffer, o.flags);
+                break :r .{
+                    if (opt_err) |err| switch (err) {
+                        error.Canceled => |e| return e,
+                        else => |e| e,
+                    } else null,
+                    n,
+                };
+            },
         },
     };
 }
@@ -2395,6 +2388,10 @@ fn batchDrainSubmitted(
                 return error.ConcurrencyUnavailable
             else
                 .{ .device_io_control = try ev.deviceIoControl(try maybe_sync.enterSync(ev), o) },
+            .net_receive => |o| {
+                _ = o;
+                @panic("TODO implement batchDrainSubmitted for net_receive");
+            },
         })) |result| {
             switch (batch.completed.tail) {
                 .none => batch.completed.head = index,
@@ -2432,7 +2429,7 @@ fn batchDrainReady(batch: *Io.Batch) Io.Timeout.Error!void {
                 break :cond true;
             },
         }) {
-            var operation_userdata: *Io.Operation.Storage.Pending.Userdata =
+            const operation_userdata: *Io.Operation.Storage.Pending.Userdata =
                 @ptrFromInt(next & ~@as(usize, 0b11));
             next = operation_userdata[0];
             const completion: Completion = .{
@@ -2495,6 +2492,7 @@ fn batchDrainReady(batch: *Io.Batch) Io.Timeout.Error!void {
                     },
                 },
                 .device_io_control => unreachable,
+                .net_receive => @panic("TODO"),
             })) |result| {
                 switch (batch.completed.tail) {
                     .none => batch.completed.head = index,
@@ -2727,12 +2725,10 @@ fn dirOpenDir(
             error.WouldBlock => return errnoBug(.AGAIN),
             error.FileTooBig => return errnoBug(.FBIG),
             error.NoSpaceLeft => return errnoBug(.NOSPC),
-            error.DeviceBusy => return errnoBug(.BUSY), // O_EXCL not passed
+            error.DeviceBusy => return errnoBug(.BUSY), // EXCL unset.
             error.FileBusy => return errnoBug(.TXTBSY),
             error.PathAlreadyExists => return errnoBug(.EXIST), // Not creating.
-            error.PipeBusy => return error.Unexpected, // Not opening a pipe.
-            error.AntivirusInterference => unreachable, // Windows-only
-            error.FileLocksUnsupported => return errnoBug(.OPNOTSUPP), // Not asking for locks.
+            error.OperationUnsupported => return errnoBug(.OPNOTSUPP), // No TMPFILE, no locks.
             else => |e| return e,
         },
     };
@@ -2815,13 +2811,16 @@ fn dirCreateFile(
 
     var maybe_sync: CancelRegion.Sync.Maybe = .{ .cancel_region = .init() };
     defer maybe_sync.deinit(ev);
-    const fd = try ev.openat(&maybe_sync.cancel_region, dir.handle, sub_path_posix, .{
+    const fd = ev.openat(&maybe_sync.cancel_region, dir.handle, sub_path_posix, .{
         .ACCMODE = if (flags.read) .RDWR else .WRONLY,
         .CREAT = true,
         .TRUNC = flags.truncate,
         .EXCL = flags.exclusive,
         .CLOEXEC = true,
-    }, flags.permissions.toMode());
+    }, flags.permissions.toMode()) catch |err| switch (err) {
+        error.OperationUnsupported => return error.Unexpected, // TMPFILE unset.
+        else => |e| return e,
+    };
     errdefer ev.closeAsync(fd);
 
     switch (flags.lock) {
@@ -2897,7 +2896,7 @@ fn dirCreateFileAtomic(
                     flags,
                     options.permissions.toMode(),
                 ) catch |err| switch (err) {
-                    error.IsDir, error.FileNotFound => {
+                    error.IsDir, error.FileNotFound, error.OperationUnsupported => {
                         // Ambiguous error code. It might mean the file system
                         // does not support O_TMPFILE. Therefore, we must fall
                         // back to not using O_TMPFILE.
@@ -2906,9 +2905,6 @@ fn dirCreateFileAtomic(
                     error.FileTooBig => return errnoBug(.FBIG),
                     error.DeviceBusy => return errnoBug(.BUSY), // O_EXCL not passed
                     error.PathAlreadyExists => return errnoBug(.EXIST), // Not creating.
-                    error.PipeBusy => return error.Unexpected, // Not opening a pipe.
-                    error.AntivirusInterference => unreachable, // Windows-only
-                    error.FileLocksUnsupported => return errnoBug(.OPNOTSUPP), // Not asking for locks.
                     else => |e| return e,
                 },
                 .flags = .{ .nonblocking = false },
@@ -2999,7 +2995,7 @@ fn dirOpenFile(
 
     var maybe_sync: CancelRegion.Sync.Maybe = .{ .cancel_region = .init() };
     defer maybe_sync.deinit(ev);
-    const fd = try ev.openat(&maybe_sync.cancel_region, dir.handle, sub_path_posix, .{
+    const fd = ev.openat(&maybe_sync.cancel_region, dir.handle, sub_path_posix, .{
         .ACCMODE = switch (flags.mode) {
             .read_only => .RDONLY,
             .write_only => .WRONLY,
@@ -3009,7 +3005,10 @@ fn dirOpenFile(
         .NOFOLLOW = !flags.follow_symlinks,
         .CLOEXEC = true,
         .PATH = flags.path_only,
-    }, 0);
+    }, 0) catch |err| switch (err) {
+        error.OperationUnsupported => return error.Unexpected, // TMPFILE unset.
+        else => |e| return e,
+    };
     errdefer ev.closeAsync(fd);
 
     if (!flags.allow_directory) {
@@ -3154,7 +3153,7 @@ fn dirRealPathFile(
         .PATH = true,
     }, 0) catch |err| switch (err) {
         error.WouldBlock => return errnoBug(.AGAIN),
-        error.FileLocksUnsupported => return errnoBug(.OPNOTSUPP), // Not asking for locks.
+        error.OperationUnsupported => return errnoBug(.OPNOTSUPP), // Not asking for locks.
         else => |e| return e,
     };
     defer ev.closeAsync(fd);
@@ -4197,13 +4196,13 @@ fn processSetCurrentDir(userdata: ?*anyopaque, dir: Dir) process.SetCurrentDirEr
     return fchdir(&sync, dir.handle);
 }
 
-fn processSetCurrentPath(userdata: ?*anyopaque, dir_path: []const u8) ChdirError!void {
+fn processSetCurrentPath(userdata: ?*anyopaque, dir_path: []const u8) process.SetCurrentPathError!void {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
     var path_buffer: [PATH_MAX]u8 = undefined;
     const dir_path_posix = try pathToPosix(dir_path, &path_buffer);
     var sync: CancelRegion.Sync = try .init(ev);
     defer sync.deinit(ev);
-    return ev.chdir(&sync, dir_path_posix);
+    return chdir(&sync, dir_path_posix);
 }
 
 fn processReplace(userdata: ?*anyopaque, options: process.ReplaceOptions) process.ReplaceError {
@@ -4571,10 +4570,7 @@ fn setUpChildIo(
         .close => _ = linux.close(std_fileno),
         .inherit => {},
         .ignore => try dup2(sync, dev_null_fd, std_fileno),
-        .file => |file| {
-            if (file.flags.nonblocking) @panic("TODO implement setUpChildIo when nonblocking file is used");
-            try dup2(sync, file.handle, std_fileno);
-        },
+        .file => |file| try dup2(sync, file.handle, std_fileno),
     }
 }
 
@@ -4586,7 +4582,7 @@ pub fn dup2(sync: *CancelRegion.Sync, old_fd: fd_t, new_fd: fd_t) DupError!void 
     while (true) {
         try sync.cancel_region.await(.nothing);
         switch (linux.errno(linux.dup2(old_fd, new_fd))) {
-            .SUCCESS => {},
+            .SUCCESS => return,
             .BUSY, .INTR => {},
             .INVAL => |err| return errnoBug(err), // invalid parameters
             .BADF => |err| return errnoBug(err), // use after free
@@ -4959,9 +4955,9 @@ fn randomSecure(userdata: ?*anyopaque, buffer: []u8) Io.RandomSecureError!void {
 
 fn netListenIpUnavailable(
     userdata: ?*anyopaque,
-    address: net.IpAddress,
+    address: *const net.IpAddress,
     options: net.IpAddress.ListenOptions,
-) net.IpAddress.ListenError!net.Server {
+) net.IpAddress.ListenError!net.Socket {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
     _ = ev;
     _ = address;
@@ -4972,10 +4968,12 @@ fn netListenIpUnavailable(
 fn netAcceptUnavailable(
     userdata: ?*anyopaque,
     listen_handle: net.Socket.Handle,
-) net.Server.AcceptError!net.Stream {
+    options: net.Server.AcceptOptions,
+) net.Server.AcceptError!net.Socket {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
     _ = ev;
     _ = listen_handle;
+    _ = options;
     return error.NetworkDown;
 }
 
@@ -4994,17 +4992,14 @@ fn netBindIp(
     var addr_len = addressToPosix(address, &storage);
     try ev.bind(&maybe_sync.cancel_region, socket_fd, &storage.any, addr_len);
     try ev.getsockname(try maybe_sync.enterSync(ev), socket_fd, &storage.any, &addr_len);
-    return .{
-        .handle = socket_fd,
-        .address = addressFromPosix(&storage),
-    };
+    return .{ .handle = socket_fd, .address = addressFromPosix(&storage) };
 }
 
 fn netConnectIpUnavailable(
     userdata: ?*anyopaque,
     address: *const net.IpAddress,
     options: net.IpAddress.ConnectOptions,
-) net.IpAddress.ConnectError!net.Stream {
+) net.IpAddress.ConnectError!net.Socket {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
     _ = ev;
     _ = address;
@@ -5058,37 +5053,16 @@ fn netSendUnavailable(
 }
 
 fn netReceive(
-    userdata: ?*anyopaque,
+    ev: *Evented,
+    cancel_region: *CancelRegion,
     handle: net.Socket.Handle,
     message_buffer: []net.IncomingMessage,
     data_buffer: []u8,
     flags: net.ReceiveFlags,
-    timeout: Io.Timeout,
-) struct { ?net.Socket.ReceiveTimeoutError, usize } {
-    const ev: *Evented = @ptrCast(@alignCast(userdata));
-    const ev_io = ev.io();
-
+) struct { ?net.Socket.ReceiveError, usize } {
     var message_i: usize = 0;
     var data_i: usize = 0;
 
-    const deadline: ?struct {
-        raw: Io.Timestamp,
-        timespec: linux.kernel_timespec,
-        clock: Io.Clock,
-    } = if (timeout.toTimestamp(ev_io)) |deadline| deadline: {
-        const ns = deadline.raw.toNanoseconds();
-        break :deadline .{
-            .raw = deadline.raw,
-            .timespec = .{
-                .sec = @intCast(@divFloor(ns, std.time.ns_per_s)),
-                .nsec = @intCast(@mod(ns, std.time.ns_per_s)),
-            },
-            .clock = deadline.clock,
-        };
-    } else null;
-
-    var cancel_region: CancelRegion = .init();
-    defer cancel_region.deinit();
     while (true) {
         if (message_buffer.len - message_i == 0) return .{ null, message_i };
         const message = &message_buffer[message_i];
@@ -5108,7 +5082,7 @@ fn netReceive(
         const thread = cancel_region.awaitIoUring() catch |err| return .{ err, message_i };
         thread.enqueue().* = .{
             .opcode = .RECVMSG,
-            .flags = if (deadline) |_| linux.IOSQE_IO_LINK else 0,
+            .flags = 0,
             .ioprio = 0,
             .fd = handle,
             .off = 0,
@@ -5119,26 +5093,6 @@ fn netReceive(
                 @as(u32, if (flags.peek) linux.MSG.PEEK else 0) |
                 @as(u32, if (flags.trunc) linux.MSG.TRUNC else 0),
             .user_data = @intFromPtr(cancel_region.fiber),
-            .buf_index = 0,
-            .personality = 0,
-            .splice_fd_in = 0,
-            .addr3 = 0,
-            .resv = 0,
-        };
-        if (deadline) |*deadline_ptr| thread.enqueue().* = .{
-            .opcode = .LINK_TIMEOUT,
-            .flags = linux.IOSQE_CQE_SKIP_SUCCESS,
-            .ioprio = 0,
-            .fd = 0,
-            .off = 0,
-            .addr = @intFromPtr(&deadline_ptr.timespec),
-            .len = 1,
-            .rw_flags = linux.IORING_TIMEOUT_ABS | @as(u32, switch (deadline_ptr.clock) {
-                .real => linux.IORING_TIMEOUT_REALTIME,
-                else => 0,
-                .boot => linux.IORING_TIMEOUT_BOOTTIME,
-            }),
-            .user_data = @intFromEnum(Completion.Userdata.wakeup),
             .buf_index = 0,
             .personality = 0,
             .splice_fd_in = 0,
@@ -5167,9 +5121,7 @@ fn netReceive(
                 continue;
             },
             .AGAIN => unreachable,
-            .INTR, .CANCELED => if (deadline) |d| if (now(ev, d.clock).nanoseconds >= d.raw.nanoseconds)
-                return .{ error.Timeout, message_i },
-
+            .INTR, .CANCELED => {},
             .BADF => |err| return .{ errnoBug(err), message_i },
             .NFILE => return .{ error.SystemFdQuotaExceeded, message_i },
             .MFILE => return .{ error.ProcessFdQuotaExceeded, message_i },
@@ -5668,7 +5620,7 @@ fn openat(
     path: [*:0]const u8,
     flags: linux.O,
     mode: linux.mode_t,
-) File.OpenError!fd_t {
+) !fd_t {
     var mut_flags = flags;
     if (@hasField(linux.O, "LARGEFILE")) mut_flags.LARGEFILE = true;
     while (true) {
@@ -5714,7 +5666,9 @@ fn openat(
             .PERM => return error.PermissionDenied,
             .EXIST => return error.PathAlreadyExists,
             .BUSY => return error.DeviceBusy,
-            .OPNOTSUPP => return error.FileLocksUnsupported,
+            // This can be triggered by file locking and TMPFILE, but those
+            // flags are mutually exclusive.
+            .OPNOTSUPP => return error.OperationUnsupported,
             .AGAIN => return error.WouldBlock,
             .TXTBSY => return error.FileBusy,
             .NXIO => return error.NoDevice,
@@ -5991,8 +5945,7 @@ fn socket(
     Unexpected,
     Canceled,
 }!fd_t {
-    const mode = posixSocketMode(options.mode);
-    const protocol = posixProtocol(options.protocol);
+    const mode, const protocol = try posixSocketModeProtocol(family, options.mode, options.protocol);
     const socket_fd = while (true) {
         const thread = try cancel_region.awaitIoUring();
         thread.enqueue().* = .{

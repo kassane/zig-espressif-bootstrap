@@ -52,7 +52,7 @@ pub fn StaticBitSet(comptime size: usize) type {
 /// This set is good for sets with a small size, but may generate
 /// inefficient code for larger sets, especially in debug mode.
 pub fn IntegerBitSet(comptime size: u16) type {
-    return packed struct {
+    return packed struct(MaskInt) {
         const Self = @This();
 
         // TODO: Make this a comptime field once those are fixed

@@ -11,7 +11,7 @@ pub fn main() !void {
     try std.Io.File.stdout().writeStreamingAll(io, "success\n");
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #file=foo.zig
 comptime {
     _ = @import("bad.zig");
@@ -34,5 +34,5 @@ pub fn main() !void {
     try std.Io.File.stdout().writeStreamingAll(io, "success\n");
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="success\n"

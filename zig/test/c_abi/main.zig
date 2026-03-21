@@ -718,7 +718,7 @@ export fn zig_med_struct_ints(s: MedStructInts) void {
     expect(s.z == 3) catch @panic("test failure");
 }
 
-const SmallPackedStruct = packed struct {
+const SmallPackedStruct = packed struct(u8) {
     a: u2,
     b: u2,
     c: u2,
@@ -744,7 +744,7 @@ test "C ABI small packed struct" {
     try expect(s2.d == 3);
 }
 
-const BigPackedStruct = packed struct {
+const BigPackedStruct = packed struct(u128) {
     a: u64,
     b: u64,
 };

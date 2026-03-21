@@ -36,9 +36,9 @@ pub fn threadSafeAllocator(self: *FixedBufferAllocator) Allocator {
         .ptr = self,
         .vtable = &.{
             .alloc = threadSafeAlloc,
-            .resize = Allocator.noResize,
-            .remap = Allocator.noRemap,
-            .free = Allocator.noFree,
+            .resize = threadSafeResize,
+            .remap = threadSafeRemap,
+            .free = threadSafeFree,
         },
     };
 }
@@ -127,19 +127,83 @@ pub fn free(
     }
 }
 
-fn threadSafeAlloc(ctx: *anyopaque, n: usize, alignment: mem.Alignment, ra: usize) ?[*]u8 {
+fn threadSafeAlloc(ctx: *anyopaque, n: usize, alignment: mem.Alignment, ret_addr: usize) ?[*]u8 {
     const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-    _ = ra;
+    _ = ret_addr;
     const ptr_align = alignment.toByteUnits();
-    var end_index = @atomicLoad(usize, &self.end_index, .seq_cst);
+    var cur_end_index = @atomicLoad(usize, &self.end_index, .monotonic);
     while (true) {
-        const adjust_off = mem.alignPointerOffset(self.buffer.ptr + end_index, ptr_align) orelse return null;
-        const adjusted_index = end_index + adjust_off;
+        const adjust_off = mem.alignPointerOffset(self.buffer.ptr + cur_end_index, ptr_align) orelse return null;
+        const adjusted_index = cur_end_index + adjust_off;
         const new_end_index = adjusted_index + n;
         if (new_end_index > self.buffer.len) return null;
-        end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, .seq_cst, .seq_cst) orelse
+        cur_end_index = @cmpxchgWeak(usize, &self.end_index, cur_end_index, new_end_index, .monotonic, .monotonic) orelse
             return self.buffer[adjusted_index..new_end_index].ptr;
     }
+}
+
+fn threadSafeResize(ctx: *anyopaque, memory: []u8, alignment: mem.Alignment, new_len: usize, ret_addr: usize) bool {
+    const fba: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
+    _ = alignment;
+    _ = ret_addr;
+
+    const cur_end_index = @atomicLoad(usize, &fba.end_index, .monotonic);
+    if (fba.buffer.ptr + cur_end_index != memory.ptr + memory.len) {
+        // It's not the most recent allocation, so it cannot be expanded,
+        // but it's fine if they want to make it smaller.
+        return new_len <= memory.len;
+    }
+
+    const new_end_index: usize = new_end_index: {
+        if (memory.len >= new_len) {
+            break :new_end_index cur_end_index - (memory.len - new_len);
+        }
+        if (fba.buffer.len - cur_end_index >= new_len - memory.len) {
+            break :new_end_index cur_end_index + (new_len - memory.len);
+        }
+        return false;
+    };
+    assert(fba.buffer.ptr + new_end_index == memory.ptr + new_len);
+
+    return null == @cmpxchgStrong(
+        usize,
+        &fba.end_index,
+        cur_end_index,
+        new_end_index,
+        .monotonic,
+        .monotonic,
+    ) or
+        new_len <= memory.len; // Shrinking allocations should always succeed.
+}
+
+fn threadSafeRemap(ctx: *anyopaque, memory: []u8, alignment: mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+    return if (threadSafeResize(ctx, memory, alignment, new_len, ret_addr)) memory.ptr else null;
+}
+
+fn threadSafeFree(ctx: *anyopaque, memory: []u8, alignment: mem.Alignment, ret_addr: usize) void {
+    const fba: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
+    _ = alignment;
+    _ = ret_addr;
+
+    assert(memory.len > 0);
+
+    const cur_end_index = @atomicLoad(usize, &fba.end_index, .monotonic);
+    if (fba.buffer.ptr + cur_end_index != memory.ptr + memory.len) {
+        // Not the most recent allocation; we cannot free it.
+        return;
+    }
+
+    const new_end_index = cur_end_index - memory.len;
+    assert(fba.buffer.ptr + new_end_index == memory.ptr);
+
+    _ = @cmpxchgStrong(
+        usize,
+        &fba.end_index,
+        cur_end_index,
+        new_end_index,
+        .monotonic,
+        .monotonic,
+    );
 }
 
 pub fn reset(self: *FixedBufferAllocator) void {

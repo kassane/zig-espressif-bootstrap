@@ -970,7 +970,7 @@ fn navRefOff(wasm: *Wasm, code: *ArrayList(u8), data: Mir.NavRefOff, is_wasm32: 
     const ip = &zcu.intern_pool;
     const gpa = comp.gpa;
     const is_obj = comp.config.output_mode == .Obj;
-    const nav_ty = ip.getNav(data.nav_index).typeOf(ip);
+    const nav_ty = ip.getNav(data.nav_index).resolved.?.type;
     assert(!ip.isFunctionType(nav_ty));
 
     try code.ensureUnusedCapacity(gpa, 11);

@@ -14,6 +14,8 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.zcu);
+const deps_log = std.log.scoped(.zcu_deps);
+const refs_log = std.log.scoped(.zcu_refs);
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
@@ -117,7 +119,7 @@ module_roots: std.AutoArrayHashMapUnmanaged(*Package.Module, File.Index.Optional
 ///
 /// Always accessed through `ImportTableAdapter`, where keys are fully resolved
 /// file paths in order to ensure files are properly deduplicated. This table owns
-/// the keys and values.
+/// the keysand values.
 ///
 /// Protected by Compilation's mutex.
 ///
@@ -175,7 +177,9 @@ embed_table: std.ArrayHashMapUnmanaged(
 /// is not yet implemented.
 intern_pool: InternPool = .empty,
 
-analysis_in_progress: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
+/// Value explains why this `AnalUnit` is being analyzed. It is `null` for the topmost analysis
+/// (index 0), and non-`null` for all others.
+analysis_in_progress: std.AutoArrayHashMapUnmanaged(AnalUnit, ?*const DependencyReason) = .empty,
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
 failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, *ErrorMsg) = .empty,
 /// This `AnalUnit` failed semantic analysis because it required analysis of another `AnalUnit` which itself failed.
@@ -187,6 +191,19 @@ transitive_failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .emp
 /// codegen and linking run on a separate thread.
 failed_codegen: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, *ErrorMsg) = .empty,
 failed_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, *ErrorMsg) = .empty,
+
+/// Key is an `AnalUnit` which is in `dependency_loop_nodes`. For each dependency loop, exactly one
+/// unit in the loop is in this map, though the choice is arbitrary and not necessarily reproducible
+/// between compilations. So, instead of (for instance) defining where the dependency loop "starts",
+/// this map simply exists to allow easily iterating all dependency loops exactly once.
+dependency_loops: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
+/// Key is an `AnalUnit`, value is the `AnalUnit` which the key references and why it does so.
+/// All units in here form loops. To iterate loops, see `dependency_loops`.
+dependency_loop_nodes: std.AutoArrayHashMapUnmanaged(AnalUnit, struct {
+    unit: AnalUnit,
+    reason: DependencyReason,
+}) = .empty,
+
 /// Keep track of `@compileLog`s per `AnalUnit`.
 /// We track the source location of the first `@compileLog` call, and all logged lines as a linked list.
 /// The list is singly linked, but we do track its tail for fast appends (optimizing many logs in one unit).
@@ -247,6 +264,10 @@ cimport_errors: std.AutoArrayHashMapUnmanaged(AnalUnit, std.zig.ErrorBundle) = .
 /// Maximum amount of distinct error values, set by --error-limit
 error_limit: ErrorInt,
 
+/// In safe builds, `Type.assertHasLayout` may be called cross-thread, so this lock
+/// guards accesses to `outdated` and `potentially_outdated`. In unsafe builds, the
+/// lock is not needed and is compiled out.
+outdated_lock: if (std.debug.runtime_safety) std.Io.RwLock else void = if (std.debug.runtime_safety) .init,
 /// Value is the number of PO dependencies of this AnalUnit.
 /// This value will decrease as we perform semantic analysis to learn what is outdated.
 /// If any of these PO deps is outdated, this value will be moved to `outdated`.
@@ -254,18 +275,21 @@ potentially_outdated: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
 /// Value is the number of PO dependencies of this AnalUnit.
 /// Once this value drops to 0, the AnalUnit is a candidate for re-analysis.
 outdated: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
-/// This contains all `AnalUnit`s in `outdated` whose PO dependency count is 0.
+/// This is the set of all `AnalUnit`s in `outdated` whose PO dependency count is 0.
 /// Such `AnalUnit`s are ready for immediate re-analysis.
 /// See `findOutdatedToAnalyze` for details.
-outdated_ready: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
+outdated_ready: struct {
+    /// These are separate from other units because it allows `findOutdatedToAnalyze` to prioritize
+    /// functions, which is useful because it means they will be sent to codegen more quickly.
+    funcs: std.AutoArrayHashMapUnmanaged(InternPool.Index, void),
+    /// Does not contain `.func` units.
+    other: std.AutoArrayHashMapUnmanaged(AnalUnit, void),
+} = .{ .funcs = .empty, .other = .empty },
 /// This contains a list of AnalUnit whose analysis or codegen failed, but the
 /// failure was something like running out of disk space, and trying again may
 /// succeed. On the next update, we will flush this list, marking all members of
 /// it as outdated.
 retryable_failures: std.ArrayList(AnalUnit) = .empty,
-
-func_body_analysis_queued: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty,
-nav_val_analysis_queued: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
 
 /// These are the modules which we initially queue for analysis in `Compilation.update`.
 /// `resolveReferences` will use these as the root of its reachability traversal.
@@ -321,6 +345,12 @@ cur_analysis_timer: ?Compilation.Timer = null,
 codegen_task_pool: CodegenTaskPool,
 
 generation: u32 = 0,
+
+pub const DependencyReason = struct {
+    src: LazySrcLoc,
+    /// Only populated if this is for a `.type_layout` unit.
+    type_layout_reason: Sema.type_resolution.LayoutResolveReason,
+};
 
 pub const IncrementalDebugState = struct {
     /// All container types in the ZCU, even dead ones.
@@ -693,11 +723,7 @@ pub const Exported = union(enum) {
 
     pub fn getAlign(exported: Exported, zcu: *Zcu) Alignment {
         return switch (exported) {
-            .nav => |nav| switch (zcu.intern_pool.getNav(nav).status) {
-                .unresolved => unreachable,
-                .type_resolved => |r| r.alignment,
-                .fully_resolved => |r| r.alignment,
-            },
+            .nav => |nav| zcu.intern_pool.getNav(nav).resolved.?.@"align",
             .uav => .none,
         };
     }
@@ -984,7 +1010,7 @@ pub const File = struct {
     /// changed -- this field is just a simple boolean.
     ///
     /// When `zoir` is updated, this field is set to `true`. In `updateZirRefs`, if this is `true`,
-    /// we invalidate the corresponding `zon_file` dependency, and reset it to `false`.
+    /// we invalidate the corresponding `source_file` dependency, and reset it to `false`.
     zoir_invalidated: bool,
 
     pub const Path = struct {
@@ -1219,6 +1245,15 @@ pub const ErrorMsg = struct {
     msg: []const u8,
     notes: []ErrorMsg = &.{},
     reference_trace_root: AnalUnit.Optional = .none,
+
+    pub fn order(lhs: *const ErrorMsg, rhs: *const ErrorMsg, zcu: *Zcu) std.math.Order {
+        return lhs.src_loc.order(rhs.src_loc, zcu).differ() orelse
+            std.mem.order(u8, lhs.msg, rhs.msg).differ() orelse
+            std.math.order(lhs.notes.len, rhs.notes.len).differ() orelse
+            for (lhs.notes, rhs.notes) |*lhs_note, *rhs_note| {
+                if (order(lhs_note, rhs_note, zcu).differ()) |o| break o;
+            } else .eq;
+    }
 
     pub fn create(
         gpa: Allocator,
@@ -1567,6 +1602,12 @@ pub const SrcLoc = struct {
                     // token points to the ')'
                     tree.tokenToSpan(data[1] - 1);
             },
+            .asm_clobbers => |offset| {
+                const tree = try src_loc.file_scope.getTree(zcu);
+                const node = offset.toAbsolute(src_loc.base_node);
+                const full = tree.fullAsm(node).?;
+                return tree.nodeToSpan(full.ast.clobbers.unwrap().?); // this should only be reachable if the clobbers are written in the source
+            },
             .for_input => |for_input| {
                 const tree = try src_loc.file_scope.getTree(zcu);
                 const node = for_input.for_node_offset.toAbsolute(src_loc.base_node);
@@ -1910,40 +1951,6 @@ pub const SrcLoc = struct {
                 const full = tree.fullPtrType(parent_node).?;
                 return tree.nodeToSpan(full.ast.bit_range_end.unwrap().?);
             },
-            .node_offset_container_tag => |node_off| {
-                const tree = try src_loc.file_scope.getTree(zcu);
-                const parent_node = node_off.toAbsolute(src_loc.base_node);
-
-                switch (tree.nodeTag(parent_node)) {
-                    .container_decl_arg, .container_decl_arg_trailing => {
-                        const full = tree.containerDeclArg(parent_node);
-                        const arg_node = full.ast.arg.unwrap().?;
-                        return tree.nodeToSpan(arg_node);
-                    },
-                    .tagged_union_enum_tag, .tagged_union_enum_tag_trailing => {
-                        const full = tree.taggedUnionEnumTag(parent_node);
-                        const arg_node = full.ast.arg.unwrap().?;
-
-                        return tree.tokensToSpan(
-                            tree.firstToken(arg_node) - 2,
-                            tree.lastToken(arg_node) + 1,
-                            tree.nodeMainToken(arg_node),
-                        );
-                    },
-                    else => unreachable,
-                }
-            },
-            .node_offset_field_default => |node_off| {
-                const tree = try src_loc.file_scope.getTree(zcu);
-                const parent_node = node_off.toAbsolute(src_loc.base_node);
-
-                const full: Ast.full.ContainerField = switch (tree.nodeTag(parent_node)) {
-                    .container_field => tree.containerField(parent_node),
-                    .container_field_init => tree.containerFieldInit(parent_node),
-                    else => unreachable,
-                };
-                return tree.nodeToSpan(full.ast.value_expr.unwrap().?);
-            },
             .node_offset_init_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(zcu);
                 const parent_node = node_off.toAbsolute(src_loc.base_node);
@@ -2019,6 +2026,20 @@ pub const SrcLoc = struct {
                 }
                 return tree.nodeToSpan(node);
             },
+            .container_arg => {
+                const tree = try src_loc.file_scope.getTree(zcu);
+                const node = src_loc.base_node;
+                var buf: [2]Ast.Node.Index = undefined;
+                if (tree.fullContainerDecl(&buf, node)) |container_decl| {
+                    const arg_node = container_decl.ast.arg.unwrap() orelse return tree.nodeToSpan(node);
+                    return tree.nodeToSpan(arg_node);
+                } else if (tree.builtinCallParams(&buf, node)) |args| {
+                    // Builtin calls (`@Enum` etc) should use the first argument.
+                    return tree.nodeToSpan(if (args.len > 0) args[0] else node);
+                } else {
+                    return tree.nodeToSpan(node);
+                }
+            },
             .container_field_name,
             .container_field_value,
             .container_field_type,
@@ -2027,8 +2048,38 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(zcu);
                 const node = src_loc.base_node;
                 var buf: [2]Ast.Node.Index = undefined;
-                const container_decl = tree.fullContainerDecl(&buf, node) orelse
+                const container_decl = tree.fullContainerDecl(&buf, node) orelse {
+                    // This could be a reification builtin. These are the args we care about:
+                    // * `@Enum(_, _, names, values)`
+                    // * `@Struct(_, _, names, types, values_and_aligns)`
+                    // * `@Union(_, _, names, types, aligns)`
+                    if (tree.builtinCallParams(&buf, node)) |args| {
+                        const builtin_name = tree.tokenSlice(tree.firstToken(node));
+                        const arg_index: ?u3 = if (std.mem.eql(u8, builtin_name, "@Enum")) switch (src_loc.lazy) {
+                            .container_field_name => 2,
+                            .container_field_value => 3,
+                            .container_field_type => null,
+                            .container_field_align => null,
+                            else => unreachable,
+                        } else if (std.mem.eql(u8, builtin_name, "@Struct")) switch (src_loc.lazy) {
+                            .container_field_name => 2,
+                            .container_field_value => 4,
+                            .container_field_type => 3,
+                            .container_field_align => 4,
+                            else => unreachable,
+                        } else if (std.mem.eql(u8, builtin_name, "@Union")) switch (src_loc.lazy) {
+                            .container_field_name => 2,
+                            .container_field_value => 4,
+                            .container_field_type => 3,
+                            .container_field_align => null,
+                            else => unreachable,
+                        } else null;
+                        if (arg_index) |i| {
+                            if (args.len >= i) return tree.nodeToSpan(args[i]);
+                        }
+                    }
                     return tree.nodeToSpan(node);
+                };
 
                 var cur_field_idx: usize = 0;
                 for (container_decl.ast.members) |member_node| {
@@ -2260,7 +2311,11 @@ pub const SrcLoc = struct {
                 var param_it = full.iterate(tree);
                 for (0..param_idx) |_| assert(param_it.next() != null);
                 const param = param_it.next().?;
-                return tree.nodeToSpan(param.type_expr.?);
+                if (param.anytype_ellipsis3) |tok| {
+                    return tree.tokenToSpan(tok);
+                } else {
+                    return tree.nodeToSpan(param.type_expr.?);
+                }
             },
         }
     }
@@ -2482,10 +2537,6 @@ pub const LazySrcLoc = struct {
         node_offset_ptr_bitoffset: Ast.Node.Offset,
         /// The source location points to the host size of a pointer.
         node_offset_ptr_hostsize: Ast.Node.Offset,
-        /// The source location points to the tag type of an union or an enum.
-        node_offset_container_tag: Ast.Node.Offset,
-        /// The source location points to the default value of a field.
-        node_offset_field_default: Ast.Node.Offset,
         /// The source location points to the type of an array or struct initializer.
         node_offset_init_ty: Ast.Node.Offset,
         /// The source location points to the LHS of an assignment (or assign-op, e.g. `+=`).
@@ -2507,6 +2558,8 @@ pub const LazySrcLoc = struct {
             offset: Ast.Node.Offset,
             output_index: u32,
         },
+        /// Points to the assembly node
+        asm_clobbers: Ast.Node.Offset,
         /// The source location points to a for loop input.
         for_input: struct {
             /// Points to the for loop AST node.
@@ -2530,6 +2583,11 @@ pub const LazySrcLoc = struct {
         fn_proto_param_type: FnProtoParam,
         array_cat_lhs: ArrayCat,
         array_cat_rhs: ArrayCat,
+        /// The source location points to the backing or tag type expression of
+        /// the container type declaration at the base node.
+        ///
+        /// For 'union(enum(T))', this points to 'T', not 'enum(T)'.
+        container_arg,
         /// The source location points to the name of the field at the given index
         /// of the container type declaration at the base node.
         container_field_name: u32,
@@ -2685,10 +2743,10 @@ pub const LazySrcLoc = struct {
             .struct_init, .struct_init_ref => zir.extraData(Zir.Inst.StructInit, inst.data.pl_node.payload_index).data.abs_node,
             .struct_init_anon => zir.extraData(Zir.Inst.StructInitAnon, inst.data.pl_node.payload_index).data.abs_node,
             .extended => switch (inst.data.extended.opcode) {
-                .struct_decl => zir.extraData(Zir.Inst.StructDecl, inst.data.extended.operand).data.src_node,
-                .union_decl => zir.extraData(Zir.Inst.UnionDecl, inst.data.extended.operand).data.src_node,
-                .enum_decl => zir.extraData(Zir.Inst.EnumDecl, inst.data.extended.operand).data.src_node,
-                .opaque_decl => zir.extraData(Zir.Inst.OpaqueDecl, inst.data.extended.operand).data.src_node,
+                .struct_decl => zir.getStructDecl(zir_inst).src_node,
+                .union_decl => zir.getUnionDecl(zir_inst).src_node,
+                .enum_decl => zir.getEnumDecl(zir_inst).src_node,
+                .opaque_decl => zir.getOpaqueDecl(zir_inst).src_node,
                 .reify_enum => zir.extraData(Zir.Inst.ReifyEnum, inst.data.extended.operand).data.node,
                 .reify_struct => zir.extraData(Zir.Inst.ReifyStruct, inst.data.extended.operand).data.node,
                 .reify_union => zir.extraData(Zir.Inst.ReifyUnion, inst.data.extended.operand).data.node,
@@ -2715,36 +2773,34 @@ pub const LazySrcLoc = struct {
         };
     }
 
-    /// Used to sort error messages, so that they're printed in a consistent order.
-    /// If an error is returned, a file could not be read in order to resolve a source location.
-    /// In that case, `bad_file_out` is populated, and sorting is impossible.
-    pub fn lessThan(lhs_lazy: LazySrcLoc, rhs_lazy: LazySrcLoc, zcu: *Zcu, bad_file_out: **Zcu.File) File.GetSourceError!bool {
-        const lhs_src = lhs_lazy.upgradeOrLost(zcu) orelse {
+    pub fn order(lhs: LazySrcLoc, rhs: LazySrcLoc, zcu: *Zcu) std.math.Order {
+        const lhs_resolved = lhs.upgradeOrLost(zcu) orelse {
             // LHS source location lost, so should never be referenced. Just sort it to the end.
-            return false;
+            return .gt;
         };
-        const rhs_src = rhs_lazy.upgradeOrLost(zcu) orelse {
+        const rhs_resolved = rhs.upgradeOrLost(zcu) orelse {
             // RHS source location lost, so should never be referenced. Just sort it to the end.
-            return true;
+            return .lt;
         };
-        if (lhs_src.file_scope != rhs_src.file_scope) {
-            const lhs_path = lhs_src.file_scope.path;
-            const rhs_path = rhs_src.file_scope.path;
-            if (lhs_path.root != rhs_path.root) {
-                return @intFromEnum(lhs_path.root) < @intFromEnum(rhs_path.root);
-            }
-            return std.mem.order(u8, lhs_path.sub_path, rhs_path.sub_path).compare(.lt);
+        if (lhs_resolved.file_scope != rhs_resolved.file_scope) {
+            const lhs_path = lhs_resolved.file_scope.path;
+            const rhs_path = rhs_resolved.file_scope.path;
+            return std.math.order(@intFromEnum(lhs_path.root), @intFromEnum(rhs_path.root)).differ() orelse
+                std.mem.order(u8, lhs_path.sub_path, rhs_path.sub_path).differ().?;
         }
-
-        const lhs_span = lhs_src.span(zcu) catch |err| {
-            bad_file_out.* = lhs_src.file_scope;
-            return err;
+        const prev_prot = zcu.comp.io.swapCancelProtection(.blocked);
+        defer _ = zcu.comp.io.swapCancelProtection(prev_prot);
+        const lhs_span = lhs_resolved.span(zcu) catch |err| {
+            assert(err != error.Canceled); // we're protected
+            // Failed to read LHS, so we'll get a transient error. Just sort it to the end.
+            return .gt;
         };
-        const rhs_span = rhs_src.span(zcu) catch |err| {
-            bad_file_out.* = rhs_src.file_scope;
-            return err;
+        const rhs_span = rhs_resolved.span(zcu) catch |err| {
+            assert(err != error.Canceled); // we're protected
+            // Failed to read RHS, so we'll get a transient error. Just sort it to the end.
+            return .lt;
         };
-        return lhs_span.main < rhs_span.main;
+        return std.math.order(lhs_span.main, rhs_span.main);
     }
 };
 
@@ -2800,6 +2856,8 @@ pub fn deinit(zcu: *Zcu) void {
         zcu.analysis_in_progress.deinit(gpa);
         zcu.failed_analysis.deinit(gpa);
         zcu.transitive_failed_analysis.deinit(gpa);
+        zcu.dependency_loops.deinit(gpa);
+        zcu.dependency_loop_nodes.deinit(gpa);
         zcu.failed_codegen.deinit(gpa);
         zcu.failed_types.deinit(gpa);
 
@@ -2830,11 +2888,9 @@ pub fn deinit(zcu: *Zcu) void {
 
         zcu.potentially_outdated.deinit(gpa);
         zcu.outdated.deinit(gpa);
-        zcu.outdated_ready.deinit(gpa);
+        zcu.outdated_ready.funcs.deinit(gpa);
+        zcu.outdated_ready.other.deinit(gpa);
         zcu.retryable_failures.deinit(gpa);
-
-        zcu.func_body_analysis_queued.deinit(gpa);
-        zcu.nav_val_analysis_queued.deinit(gpa);
 
         zcu.test_functions.deinit(gpa);
 
@@ -3063,18 +3119,24 @@ pub fn markDependeeOutdated(
     marked_po: enum { not_marked_po, marked_po },
     dependee: InternPool.Dependee,
 ) !void {
-    log.debug("outdated dependee: {f}", .{zcu.fmtDependee(dependee)});
+    const gpa = zcu.comp.gpa;
+    deps_log.debug("outdated dependee: {f}", .{zcu.fmtDependee(dependee)});
     var it = zcu.intern_pool.dependencyIterator(dependee);
+    if (std.debug.runtime_safety) zcu.outdated_lock.lockUncancelable(zcu.comp.io);
+    defer if (std.debug.runtime_safety) zcu.outdated_lock.unlock(zcu.comp.io);
     while (it.next()) |depender| {
         if (zcu.outdated.getPtr(depender)) |po_dep_count| {
             switch (marked_po) {
                 .not_marked_po => {},
                 .marked_po => {
                     po_dep_count.* -= 1;
-                    log.debug("outdated {f} => already outdated {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), po_dep_count.* });
+                    deps_log.debug("outdated {f} => already outdated {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), po_dep_count.* });
                     if (po_dep_count.* == 0) {
-                        log.debug("outdated ready: {f}", .{zcu.fmtAnalUnit(depender)});
-                        try zcu.outdated_ready.put(zcu.gpa, depender, {});
+                        deps_log.debug("outdated ready: {f}", .{zcu.fmtAnalUnit(depender)});
+                        switch (depender.unwrap()) {
+                            .func => |func| try zcu.outdated_ready.funcs.put(gpa, func, {}),
+                            else => try zcu.outdated_ready.other.put(gpa, depender, {}),
+                        }
                     }
                 },
             }
@@ -3090,14 +3152,17 @@ pub fn markDependeeOutdated(
             },
         };
         try zcu.outdated.putNoClobber(
-            zcu.gpa,
+            gpa,
             depender,
             new_po_dep_count,
         );
-        log.debug("outdated {f} => new outdated {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), new_po_dep_count });
+        deps_log.debug("outdated {f} => new outdated {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), new_po_dep_count });
         if (new_po_dep_count == 0) {
-            log.debug("outdated ready: {f}", .{zcu.fmtAnalUnit(depender)});
-            try zcu.outdated_ready.put(zcu.gpa, depender, {});
+            deps_log.debug("outdated ready: {f}", .{zcu.fmtAnalUnit(depender)});
+            switch (depender.unwrap()) {
+                .func => |func| try zcu.outdated_ready.funcs.put(gpa, func, {}),
+                else => try zcu.outdated_ready.other.put(gpa, depender, {}),
+            }
         }
         // If this is a Decl and was not previously PO, we must recursively
         // mark dependencies on its tyval as PO.
@@ -3109,17 +3174,27 @@ pub fn markDependeeOutdated(
 }
 
 pub fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
-    log.debug("up-to-date dependee: {f}", .{zcu.fmtDependee(dependee)});
+    if (std.debug.runtime_safety) zcu.outdated_lock.lockUncancelable(zcu.comp.io);
+    defer if (std.debug.runtime_safety) zcu.outdated_lock.unlock(zcu.comp.io);
+    return markPoDependeeUpToDateInner(zcu, dependee);
+}
+/// Assumes that `zcu.outdated_lock` is already held exclusively.
+fn markPoDependeeUpToDateInner(zcu: *Zcu, dependee: InternPool.Dependee) !void {
+    const gpa = zcu.comp.gpa;
+    deps_log.debug("up-to-date dependee: {f}", .{zcu.fmtDependee(dependee)});
     var it = zcu.intern_pool.dependencyIterator(dependee);
     while (it.next()) |depender| {
         if (zcu.outdated.getPtr(depender)) |po_dep_count| {
             // This depender is already outdated, but it now has one
             // less PO dependency!
             po_dep_count.* -= 1;
-            log.debug("up-to-date {f} => {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), po_dep_count.* });
+            deps_log.debug("up-to-date {f} => {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), po_dep_count.* });
             if (po_dep_count.* == 0) {
-                log.debug("outdated ready: {f}", .{zcu.fmtAnalUnit(depender)});
-                try zcu.outdated_ready.put(zcu.gpa, depender, {});
+                deps_log.debug("outdated ready: {f}", .{zcu.fmtAnalUnit(depender)});
+                switch (depender.unwrap()) {
+                    .func => |func| try zcu.outdated_ready.funcs.put(gpa, func, {}),
+                    else => try zcu.outdated_ready.other.put(gpa, depender, {}),
+                }
             }
             continue;
         }
@@ -3132,11 +3207,11 @@ pub fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
         };
         if (ptr.* > 1) {
             ptr.* -= 1;
-            log.debug("up-to-date {f} => {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), ptr.* });
+            deps_log.debug("up-to-date {f} => {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), ptr.* });
             continue;
         }
 
-        log.debug("up-to-date {f} => {f} po_deps=0 (up-to-date)", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender) });
+        deps_log.debug("up-to-date {f} => {f} po_deps=0 (up-to-date)", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender) });
 
         // This dependency is no longer PO, i.e. is known to be up-to-date.
         assert(zcu.potentially_outdated.swapRemove(depender));
@@ -3144,139 +3219,120 @@ pub fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
         // as no longer PO.
         switch (depender.unwrap()) {
             .@"comptime" => {},
-            .nav_val => |nav| try zcu.markPoDependeeUpToDate(.{ .nav_val = nav }),
-            .nav_ty => |nav| try zcu.markPoDependeeUpToDate(.{ .nav_ty = nav }),
-            .type => |ty| try zcu.markPoDependeeUpToDate(.{ .interned = ty }),
-            .func => |func| try zcu.markPoDependeeUpToDate(.{ .interned = func }),
-            .memoized_state => |stage| try zcu.markPoDependeeUpToDate(.{ .memoized_state = stage }),
+            .nav_val => |nav| try zcu.markPoDependeeUpToDateInner(.{ .nav_val = nav }),
+            .nav_ty => |nav| try zcu.markPoDependeeUpToDateInner(.{ .nav_ty = nav }),
+            .type_layout => |ty| try zcu.markPoDependeeUpToDateInner(.{ .type_layout = ty }),
+            .struct_defaults => |ty| try zcu.markPoDependeeUpToDateInner(.{ .struct_defaults = ty }),
+            .func => |func| try zcu.markPoDependeeUpToDateInner(.{ .func_ies = func }),
+            .memoized_state => |stage| try zcu.markPoDependeeUpToDateInner(.{ .memoized_state = stage }),
         }
     }
 }
 
 /// Given a AnalUnit which is newly outdated or PO, mark all AnalUnits which may
 /// in turn be PO, due to a dependency on the original AnalUnit's tyval or IES.
-fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUnit) !void {
+///
+/// Assumes that `zcu.outdated_lock` is already held exclusively.
+fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUnit) Allocator.Error!void {
+    const gpa = zcu.comp.gpa;
     const ip = &zcu.intern_pool;
     const dependee: InternPool.Dependee = switch (maybe_outdated.unwrap()) {
         .@"comptime" => return, // analysis of a comptime decl can't outdate any dependencies
         .nav_val => |nav| .{ .nav_val = nav },
         .nav_ty => |nav| .{ .nav_ty = nav },
-        .type => |ty| .{ .interned = ty },
-        .func => |func_index| .{ .interned = func_index }, // IES
+        .type_layout => |ty| .{ .type_layout = ty },
+        .struct_defaults => |ty| .{ .struct_defaults = ty },
+        .func => |func_index| .{ .func_ies = func_index },
         .memoized_state => |stage| .{ .memoized_state = stage },
     };
-    log.debug("potentially outdated dependee: {f}", .{zcu.fmtDependee(dependee)});
+    deps_log.debug("potentially outdated dependee: {f}", .{zcu.fmtDependee(dependee)});
     var it = ip.dependencyIterator(dependee);
     while (it.next()) |po| {
         if (zcu.outdated.getPtr(po)) |po_dep_count| {
-            // This dependency is already outdated, but it now has one more PO
-            // dependency.
+            // This dependency is already outdated, but it now has one more PO dependency.
             if (po_dep_count.* == 0) {
-                _ = zcu.outdated_ready.swapRemove(po);
+                switch (po.unwrap()) {
+                    .func => |func| _ = zcu.outdated_ready.funcs.swapRemove(func),
+                    else => _ = zcu.outdated_ready.other.swapRemove(po),
+                }
             }
             po_dep_count.* += 1;
-            log.debug("po {f} => {f} [outdated] po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po), po_dep_count.* });
+            deps_log.debug("po {f} => {f} [outdated] po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po), po_dep_count.* });
             continue;
         }
         if (zcu.potentially_outdated.getPtr(po)) |n| {
             // There is now one more PO dependency.
             n.* += 1;
-            log.debug("po {f} => {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po), n.* });
+            deps_log.debug("po {f} => {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po), n.* });
             continue;
         }
-        try zcu.potentially_outdated.putNoClobber(zcu.gpa, po, 1);
-        log.debug("po {f} => {f} po_deps=1", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po) });
+        try zcu.potentially_outdated.putNoClobber(gpa, po, 1);
+        deps_log.debug("po {f} => {f} po_deps=1", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po) });
         // This AnalUnit was not already PO, so we must recursively mark its dependers as also PO.
         try zcu.markTransitiveDependersPotentiallyOutdated(po);
     }
 }
 
+/// Selects an outdated `AnalUnit` to analyze next. Called from the main semantic analysis loop when
+/// there is no work immediately queued. The unit is chosen such that it is unlikely to require any
+/// recursive analysis (all of its previously-marked dependencies are already up-to-date), because
+/// recursive analysis can cause over-analysis on incremental updates.
 pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
-    if (!zcu.comp.config.incremental) return null;
-
-    if (zcu.outdated.count() == 0) {
-        // Any units in `potentially_outdated` must just be stuck in loops with one another: none of those
-        // units have had any outdated dependencies so far, and all of their remaining PO deps are triggered
-        // by other units in `potentially_outdated`. So, we can safety assume those units up-to-date.
-        zcu.potentially_outdated.clearRetainingCapacity();
-        log.debug("findOutdatedToAnalyze: no outdated depender", .{});
-        return null;
-    }
-
-    // Our goal is to find an outdated AnalUnit which itself has no outdated or
-    // PO dependencies. Most of the time, such an AnalUnit will exist - we track
-    // them in the `outdated_ready` set for efficiency. However, this is not
-    // necessarily the case, since the Decl dependency graph may contain loops
-    // via mutually recursive definitions:
-    //   pub const A = struct { b: *B };
-    //   pub const B = struct { b: *A };
-    // In this case, we must defer to more complex logic below.
-
-    if (zcu.outdated_ready.count() > 0) {
-        const unit = zcu.outdated_ready.keys()[0];
-        log.debug("findOutdatedToAnalyze: trivial {f}", .{zcu.fmtAnalUnit(unit)});
+    // We prioritize functions, because the sooner they get analyzed, the sooner they can be send to
+    // the codegen backend and linker, which are usually running in parallel (so this can increase
+    // parallelism).
+    // TODO: perhaps we should also experiment with *avoiding* functions if the codegen/link queue
+    // is backed up (for instance due to a very large function). That could help minimize blocking
+    // on the main thread in `CodegenTaskPool.start` waiting for the linker to catch up.
+    if (zcu.outdated_ready.funcs.count() > 0) {
+        const unit: AnalUnit = .wrap(.{ .func = zcu.outdated_ready.funcs.keys()[0] });
+        log.debug("findOutdatedToAnalyze: {f}", .{zcu.fmtAnalUnit(unit)});
         return unit;
     }
 
-    // There is no single AnalUnit which is ready for re-analysis. Instead, we must assume that some
-    // AnalUnit with PO dependencies is outdated -- e.g. in the above example we arbitrarily pick one of
-    // A or B. We should definitely not select a function, since a function can't be responsible for the
-    // loop (IES dependencies can't have loops). We should also, of course, not select a `comptime`
-    // declaration, since you can't depend on those!
-
-    // The choice of this unit could have a big impact on how much total analysis we perform, since
-    // if analysis concludes any dependencies on its result are up-to-date, then other PO AnalUnit
-    // may be resolved as up-to-date. To hopefully avoid doing too much work, let's find a unit
-    // which the most things depend on - the idea is that this will resolve a lot of loops (but this
-    // is only a heuristic).
-
-    log.debug("findOutdatedToAnalyze: no trivial ready, using heuristic; {d} outdated, {d} PO", .{
-        zcu.outdated.count(),
-        zcu.potentially_outdated.count(),
-    });
-
-    const ip = &zcu.intern_pool;
-
-    var chosen_unit: ?AnalUnit = null;
-    var chosen_unit_dependers: u32 = undefined;
-
-    inline for (.{ zcu.outdated.keys(), zcu.potentially_outdated.keys() }) |outdated_units| {
-        for (outdated_units) |unit| {
-            var n: u32 = 0;
-            var it = ip.dependencyIterator(switch (unit.unwrap()) {
-                .func => continue, // a `func` definitely can't be causing the loop so it is a bad choice
-                .@"comptime" => continue, // a `comptime` block can't even be depended on so it is a terrible choice
-                .type => |ty| .{ .interned = ty },
-                .nav_val => |nav| .{ .nav_val = nav },
-                .nav_ty => |nav| .{ .nav_ty = nav },
-                .memoized_state => {
-                    // If we've hit a loop and some `.memoized_state` is outdated, we should make that choice eagerly.
-                    // In general, it's good to resolve this early on, since -- for instance -- almost every function
-                    // references the panic handler.
-                    return unit;
-                },
-            });
-            while (it.next()) |_| n += 1;
-
-            if (chosen_unit == null or n > chosen_unit_dependers) {
-                chosen_unit = unit;
-                chosen_unit_dependers = n;
-            }
-        }
+    if (zcu.outdated_ready.other.count() > 0) {
+        const unit = zcu.outdated_ready.other.keys()[0];
+        log.debug("findOutdatedToAnalyze: {f}", .{zcu.fmtAnalUnit(unit)});
+        return unit;
     }
 
-    log.debug("findOutdatedToAnalyze: heuristic returned '{f}' ({d} dependers)", .{
-        zcu.fmtAnalUnit(chosen_unit.?),
-        chosen_unit_dependers,
-    });
+    // Usually, getting here means that everything is up-to-date, so there is no more work to do. We
+    // will see that `zcu.outdated` and `zcu.potentially_outdated` are both empty.
+    //
+    // However, if a previous update had a dependency loop compile error, there is a cycle in the
+    // dependency graph (which is usually acyclic), which can cause a scenario where no unit appears
+    // to be ready, because they're all waiting for the next in the loop to be up-to-date. In that
+    // case, we usually have to just bite the bullet and analyze one of them. An exception is if
+    // `zcu.outdated` is empty but `zcu.potentially_outdated` is non-empty: in that case, the only
+    // possible situation is a cycle where everything is actually up-to-date, so we can clear out
+    // `zcu.potentially_outdated` and we are done.
 
-    return chosen_unit.?;
+    if (std.debug.runtime_safety) zcu.outdated_lock.lockUncancelable(zcu.comp.io);
+    defer if (std.debug.runtime_safety) zcu.outdated_lock.unlock(zcu.comp.io);
+
+    if (zcu.outdated.count() == 0) {
+        // Everything is up-to-date. There could be lingering entries in `zcu.potentially_outdated`
+        // from a dependency loop on a previous update.
+        zcu.potentially_outdated.clearRetainingCapacity();
+        log.debug("findOutdatedToAnalyze: all up-to-date", .{});
+        return null;
+    }
+
+    const unit = zcu.outdated.keys()[0];
+    log.debug("findOutdatedToAnalyze: dependency loop affecting {d} units, selected {f}", .{
+        zcu.outdated.count(),
+        zcu.fmtAnalUnit(unit),
+    });
+    return unit;
 }
 
 /// During an incremental update, before semantic analysis, call this to flush all values from
 /// `retryable_failures` and mark them as outdated so they get re-analyzed.
 pub fn flushRetryableFailures(zcu: *Zcu) !void {
-    const gpa = zcu.gpa;
+    const comp = zcu.comp;
+    const gpa = comp.gpa;
+    if (std.debug.runtime_safety) zcu.outdated_lock.lockUncancelable(comp.io);
+    defer if (std.debug.runtime_safety) zcu.outdated_lock.unlock(comp.io);
     for (zcu.retryable_failures.items) |depender| {
         if (zcu.outdated.contains(depender)) continue;
         if (zcu.potentially_outdated.fetchSwapRemove(depender)) |kv| {
@@ -3350,12 +3406,59 @@ pub fn mapOldZirToNew(
     }
 
     while (match_stack.pop()) |match_item| {
-        // First, a check: if the number of captures of this type has changed, we can't map it, because
-        // we wouldn't know how to correlate type information with the last update.
-        // Synchronizes with logic in `Zcu.PerThread.recreateStructType` etc.
-        if (old_zir.typeCapturesLen(match_item.old_inst) != new_zir.typeCapturesLen(match_item.new_inst)) {
-            // Don't map this type or anything within it.
-            continue;
+        // There are some properties of type declarations which cannot change across incremental
+        // updates. If they have, we need to ignore this mapping. These properties are essentially
+        // everything passed into `InternPool.getDeclaredStructType` (likewise for unions, enums,
+        // and opaques).
+        const old_tag = old_zir.instructions.items(.data)[@intFromEnum(match_item.old_inst)].extended.opcode;
+        const new_tag = new_zir.instructions.items(.data)[@intFromEnum(match_item.new_inst)].extended.opcode;
+        if (old_tag != new_tag) continue;
+        switch (old_tag) {
+            .struct_decl => {
+                const old = old_zir.getStructDecl(match_item.old_inst);
+                const new = new_zir.getStructDecl(match_item.new_inst);
+                if (old.captures.len != new.captures.len) continue;
+                if (old.field_names.len != new.field_names.len) continue;
+                if (old.layout != new.layout) continue;
+                const old_any_field_aligns = old.field_align_body_lens != null;
+                const old_any_field_defaults = old.field_default_body_lens != null;
+                const old_any_comptime_fields = old.field_comptime_bits != null;
+                const old_explicit_backing_int = old.backing_int_type_body != null;
+                const new_any_field_aligns = new.field_align_body_lens != null;
+                const new_any_field_defaults = new.field_default_body_lens != null;
+                const new_any_comptime_fields = new.field_comptime_bits != null;
+                const new_explicit_backing_int = new.backing_int_type_body != null;
+                if (old_any_field_aligns != new_any_field_aligns) continue;
+                if (old_any_field_defaults != new_any_field_defaults) continue;
+                if (old_any_comptime_fields != new_any_comptime_fields) continue;
+                if (old_explicit_backing_int != new_explicit_backing_int) continue;
+            },
+            .union_decl => {
+                const old = old_zir.getUnionDecl(match_item.old_inst);
+                const new = new_zir.getUnionDecl(match_item.new_inst);
+                if (old.captures.len != new.captures.len) continue;
+                if (old.field_names.len != new.field_names.len) continue;
+                if (old.kind != new.kind) continue;
+                const old_any_field_aligns = old.field_align_body_lens != null;
+                const new_any_field_aligns = new.field_align_body_lens != null;
+                if (old_any_field_aligns != new_any_field_aligns) continue;
+            },
+            .enum_decl => {
+                const old = old_zir.getEnumDecl(match_item.old_inst);
+                const new = new_zir.getEnumDecl(match_item.new_inst);
+                if (old.captures.len != new.captures.len) continue;
+                if (old.field_names.len != new.field_names.len) continue;
+                if (old.nonexhaustive != new.nonexhaustive) continue;
+                const old_explicit_tag_type = old.tag_type_body != null;
+                const new_explicit_tag_type = new.tag_type_body != null;
+                if (old_explicit_tag_type != new_explicit_tag_type) continue;
+            },
+            .opaque_decl => {
+                const old = old_zir.getOpaqueDecl(match_item.old_inst);
+                const new = new_zir.getOpaqueDecl(match_item.new_inst);
+                if (old.captures.len != new.captures.len) continue;
+            },
+            else => unreachable,
         }
 
         // Match the namespace declaration itself
@@ -3377,25 +3480,21 @@ pub fn mapOldZirToNew(
         var comptime_decls: std.ArrayList(Zir.Inst.Index) = .empty;
         defer comptime_decls.deinit(gpa);
 
-        {
-            var old_decl_it = old_zir.declIterator(match_item.old_inst);
-            while (old_decl_it.next()) |old_decl_inst| {
-                const old_decl = old_zir.getDeclaration(old_decl_inst);
-                switch (old_decl.kind) {
-                    .@"comptime" => try comptime_decls.append(gpa, old_decl_inst),
-                    .unnamed_test => try unnamed_tests.append(gpa, old_decl_inst),
-                    .@"test" => try named_tests.put(gpa, old_zir.nullTerminatedString(old_decl.name), old_decl_inst),
-                    .decltest => try named_decltests.put(gpa, old_zir.nullTerminatedString(old_decl.name), old_decl_inst),
-                    .@"const", .@"var" => try named_decls.put(gpa, old_zir.nullTerminatedString(old_decl.name), old_decl_inst),
-                }
+        for (old_zir.typeDecls(match_item.old_inst)) |old_decl_inst| {
+            const old_decl = old_zir.getDeclaration(old_decl_inst);
+            switch (old_decl.kind) {
+                .@"comptime" => try comptime_decls.append(gpa, old_decl_inst),
+                .unnamed_test => try unnamed_tests.append(gpa, old_decl_inst),
+                .@"test" => try named_tests.put(gpa, old_zir.nullTerminatedString(old_decl.name), old_decl_inst),
+                .decltest => try named_decltests.put(gpa, old_zir.nullTerminatedString(old_decl.name), old_decl_inst),
+                .@"const", .@"var" => try named_decls.put(gpa, old_zir.nullTerminatedString(old_decl.name), old_decl_inst),
             }
         }
 
         var unnamed_test_idx: u32 = 0;
         var comptime_decl_idx: u32 = 0;
 
-        var new_decl_it = new_zir.declIterator(match_item.new_inst);
-        while (new_decl_it.next()) |new_decl_inst| {
+        for (new_zir.typeDecls(match_item.new_inst)) |new_decl_inst| {
             const new_decl = new_zir.getDeclaration(new_decl_inst);
             // Attempt to match this to a declaration in the old ZIR:
             // * For named declarations (`const`/`var`/`fn`), we match based on name.
@@ -3474,47 +3573,93 @@ pub fn mapOldZirToNew(
 /// The caller is responsible for ensuring the function decl itself is already
 /// analyzed, and for ensuring it can exist at runtime (see
 /// `Type.fnHasRuntimeBitsSema`). This function does *not* guarantee that the body
-/// will be analyzed when it returns: for that, see `ensureFuncBodyAnalyzed`.
-pub fn ensureFuncBodyAnalysisQueued(zcu: *Zcu, func_index: InternPool.Index) !void {
+/// will be analyzed when it returns: for that, see `PerThread.ensureFuncBodyUpToDate`.
+pub fn ensureFuncBodyAnalysisQueued(zcu: *Zcu, func: InternPool.Index) !void {
+    const comp = zcu.comp;
+    const gpa = comp.gpa;
+    const io = comp.io;
     const ip = &zcu.intern_pool;
-
-    const func = zcu.funcInfo(func_index);
-
-    assert(func.ty == func.uncoerced_ty); // analyze the body of the original function, not a coerced one
-
-    if (zcu.func_body_analysis_queued.contains(func_index)) return;
-
-    if (func.analysisUnordered(ip).is_analyzed) {
-        if (!zcu.outdated.contains(.wrap(.{ .func = func_index })) and
-            !zcu.potentially_outdated.contains(.wrap(.{ .func = func_index })))
-        {
-            // This function has been analyzed before and is definitely up-to-date.
-            return;
-        }
+    assert(func == ip.unwrapCoercedFunc(func)); // analyze the body of the original function, not a coerced one
+    if (ip.setWantRuntimeFnAnalysis(io, func)) {
+        // This is the first reference to this function, so we must ensure it will be analyzed.
+        if (std.debug.runtime_safety) zcu.outdated_lock.lockUncancelable(zcu.comp.io);
+        defer if (std.debug.runtime_safety) zcu.outdated_lock.unlock(zcu.comp.io);
+        try zcu.outdated.ensureUnusedCapacity(gpa, 1);
+        try zcu.outdated_ready.funcs.ensureUnusedCapacity(gpa, 1);
+        zcu.outdated.putAssumeCapacityNoClobber(.wrap(.{ .func = func }), 0);
+        zcu.outdated_ready.funcs.putAssumeCapacityNoClobber(func, {});
     }
-
-    try zcu.func_body_analysis_queued.ensureUnusedCapacity(zcu.gpa, 1);
-    try zcu.comp.queueJob(.{ .analyze_func = func_index });
-    zcu.func_body_analysis_queued.putAssumeCapacityNoClobber(func_index, {});
 }
 
-pub fn ensureNavValAnalysisQueued(zcu: *Zcu, nav_id: InternPool.Nav.Index) !void {
+pub fn ensureNavValAnalysisQueued(zcu: *Zcu, nav: InternPool.Nav.Index) !void {
+    const comp = zcu.comp;
+    const gpa = comp.gpa;
+    const io = comp.io;
     const ip = &zcu.intern_pool;
-
-    if (zcu.nav_val_analysis_queued.contains(nav_id)) return;
-
-    if (ip.getNav(nav_id).status == .fully_resolved) {
-        if (!zcu.outdated.contains(.wrap(.{ .nav_val = nav_id })) and
-            !zcu.potentially_outdated.contains(.wrap(.{ .nav_val = nav_id })))
-        {
-            // This `Nav` has been analyzed before and is definitely up-to-date.
-            return;
-        }
+    if (ip.setWantNavAnalysis(io, nav)) {
+        // This is the first reference to this function, so we must ensure it will be analyzed.
+        if (std.debug.runtime_safety) zcu.outdated_lock.lockUncancelable(zcu.comp.io);
+        defer if (std.debug.runtime_safety) zcu.outdated_lock.unlock(zcu.comp.io);
+        try zcu.outdated.ensureUnusedCapacity(gpa, 2);
+        try zcu.outdated_ready.other.ensureUnusedCapacity(gpa, 2);
+        zcu.outdated.putAssumeCapacityNoClobber(.wrap(.{ .nav_val = nav }), 0);
+        zcu.outdated.putAssumeCapacityNoClobber(.wrap(.{ .nav_ty = nav }), 0);
+        zcu.outdated_ready.other.putAssumeCapacityNoClobber(.wrap(.{ .nav_val = nav }), {});
+        zcu.outdated_ready.other.putAssumeCapacityNoClobber(.wrap(.{ .nav_ty = nav }), {});
     }
+}
 
-    try zcu.nav_val_analysis_queued.ensureUnusedCapacity(zcu.gpa, 1);
-    try zcu.comp.queueJob(.{ .analyze_comptime_unit = .wrap(.{ .nav_val = nav_id }) });
-    zcu.nav_val_analysis_queued.putAssumeCapacityNoClobber(nav_id, {});
+/// Called when an `InternPool.ComptimeUnit` is first created to mark it as outdated so that it will
+/// be semantically analyzed.
+pub fn queueComptimeUnitAnalysis(zcu: *Zcu, cu: InternPool.ComptimeUnit.Id) Allocator.Error!void {
+    const comp = zcu.comp;
+    const gpa = comp.gpa;
+    const io = comp.io;
+    const unit: AnalUnit = .wrap(.{ .@"comptime" = cu });
+    if (std.debug.runtime_safety) zcu.outdated_lock.lockUncancelable(io);
+    defer if (std.debug.runtime_safety) zcu.outdated_lock.unlock(io);
+    try zcu.outdated.ensureUnusedCapacity(gpa, 1);
+    try zcu.outdated_ready.other.ensureUnusedCapacity(gpa, 1);
+    zcu.outdated.putAssumeCapacityNoClobber(unit, 0);
+    zcu.outdated_ready.other.putAssumeCapacityNoClobber(unit, {});
+}
+
+/// If `unit` was marked as outdated or porentially outdated, clears that status and returns `true`.
+/// Otherwise, returns `false`.
+pub fn clearOutdatedState(zcu: *Zcu, unit: AnalUnit) bool {
+    const io = zcu.comp.io;
+    if (std.debug.runtime_safety) zcu.outdated_lock.lockUncancelable(io);
+    defer if (std.debug.runtime_safety) zcu.outdated_lock.unlock(io);
+    if (zcu.outdated.fetchSwapRemove(unit)) |kv| {
+        const was_ready = switch (unit.unwrap()) {
+            .func => |func| zcu.outdated_ready.funcs.swapRemove(func),
+            else => zcu.outdated_ready.other.swapRemove(unit),
+        };
+        if (kv.value == 0) {
+            assert(was_ready);
+        } else {
+            assert(!was_ready);
+        }
+        return true;
+    } else if (zcu.potentially_outdated.swapRemove(unit)) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+/// This function takes a `*const Zcu` and `@constCast`s it so that it can be called from functions
+/// in `Type` which otherwise do not modify the `Zcu`.
+pub fn assertUpToDate(zcu: *const Zcu, unit: AnalUnit) void {
+    if (!std.debug.runtime_safety) return;
+
+    const io = zcu.comp.io;
+
+    @constCast(zcu).outdated_lock.lockSharedUncancelable(io);
+    defer @constCast(zcu).outdated_lock.unlockShared(io);
+
+    assert(!zcu.outdated.contains(unit));
+    assert(!zcu.potentially_outdated.contains(unit));
 }
 
 pub const ImportResult = struct {
@@ -3533,56 +3678,83 @@ pub const ImportResult = struct {
     module: ?*Package.Module,
 };
 
-/// Delete all the Export objects that are caused by this `AnalUnit`. Re-analysis of
-/// this `AnalUnit` will cause them to be re-created (or not).
-pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
-    const gpa = zcu.gpa;
+/// Prepares `unit` for re-analysis by clearing all of the following state:
+/// * Compile errors associated with `unit`
+/// * Compile logs associated with `unit`
+/// * Exports performed by `unit`
+/// * Dependencies from `unit` on other things
+/// * References from `unit` to other units
+/// Delete all references in `reference_table` which are caused by `unit`, and all dependencies it
+/// has. Called in preparation for re-analysis, which will recreate references and dependencies.
+/// Re-analysis of the `AnalUnit` will cause appropriate references to be recreated.
+pub fn resetUnit(zcu: *Zcu, unit: AnalUnit) void {
+    const gpa = zcu.comp.gpa;
 
-    const exports_base, const exports_len = if (zcu.single_exports.fetchSwapRemove(anal_unit)) |kv|
-        .{ @intFromEnum(kv.value), 1 }
-    else if (zcu.multi_exports.fetchSwapRemove(anal_unit)) |info|
-        .{ info.value.index, info.value.len }
-    else
+    if (!dev.env.supports(.incremental)) {
+        // This is the first time `unit` is being analyzed, so there is no stale data to clear.
         return;
+    }
 
-    const exports = zcu.all_exports.items[exports_base..][0..exports_len];
+    // Compile errors
+    if (zcu.failed_analysis.fetchSwapRemove(unit)) |kv| {
+        kv.value.destroy(gpa);
+    } else if (zcu.dependency_loop_nodes.swapRemove(unit)) {
+        _ = zcu.dependency_loops.swapRemove(unit);
+        _ = zcu.transitive_failed_analysis.swapRemove(unit);
+    } else {
+        _ = zcu.transitive_failed_analysis.swapRemove(unit);
+    }
 
-    // In an only-c build, we're guaranteed to never use incremental compilation, so there are
-    // guaranteed not to be any exports in the output file that need deleting (since we only call
-    // `updateExports` on flush).
-    // This case is needed because in some rare edge cases, `Sema` wants to add and delete exports
-    // within a single update.
-    if (dev.env.supports(.incremental)) {
-        for (exports, exports_base..) |exp, export_index_usize| {
-            const export_idx: Export.Index = @enumFromInt(export_index_usize);
-            if (zcu.comp.bin_file) |lf| {
-                lf.deleteExport(exp.exported, exp.opts.name);
-            }
-            if (zcu.failed_exports.fetchSwapRemove(export_idx)) |failed_kv| {
-                failed_kv.value.destroy(gpa);
-            }
+    // Compile logs
+    if (zcu.compile_logs.fetchSwapRemove(unit)) |kv| {
+        var opt_line_idx = kv.value.first_line.toOptional();
+        while (opt_line_idx.unwrap()) |line_idx| {
+            zcu.free_compile_log_lines.append(gpa, line_idx) catch {
+                // This space will be reused eventually, so we need not propagate this error.
+                // Just leak it for now, and let GC reclaim it later on.
+                break;
+            };
+            opt_line_idx = line_idx.get(zcu).next;
         }
     }
 
-    zcu.free_exports.ensureUnusedCapacity(gpa, exports_len) catch {
-        // This space will be reused eventually, so we need not propagate this error.
-        // Just leak it for now, and let GC reclaim it later on.
-        return;
-    };
-    for (exports_base..exports_base + exports_len) |export_idx| {
-        zcu.free_exports.appendAssumeCapacity(@enumFromInt(export_idx));
+    // Exports
+    exports: {
+        const base: u32, const len: u32 = index: {
+            if (zcu.single_exports.fetchSwapRemove(unit)) |kv| {
+                break :index .{ @intFromEnum(kv.value), 1 };
+            }
+            if (zcu.multi_exports.fetchSwapRemove(unit)) |kv| {
+                break :index .{ kv.value.index, kv.value.len };
+            }
+            break :exports;
+        };
+        for (zcu.all_exports.items[base..][0..len], base..) |exp, exp_index_usize| {
+            const exp_index: Export.Index = @enumFromInt(exp_index_usize);
+            if (zcu.comp.bin_file) |lf| {
+                lf.deleteExport(exp.exported, exp.opts.name);
+            }
+            if (zcu.failed_exports.fetchSwapRemove(exp_index)) |failed_kv| {
+                failed_kv.value.destroy(gpa);
+            }
+        }
+        zcu.free_exports.ensureUnusedCapacity(gpa, len) catch {
+            // This space will be reused eventually, so we need not propagate this error.
+            // Just leak it for now, and let GC reclaim it later on.
+            break :exports;
+        };
+        for (base..base + len) |exp_index| {
+            zcu.free_exports.appendAssumeCapacity(@enumFromInt(exp_index));
+        }
     }
-}
 
-/// Delete all references in `reference_table` which are caused by this `AnalUnit`.
-/// Re-analysis of the `AnalUnit` will cause appropriate references to be recreated.
-pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
-    const gpa = zcu.gpa;
+    // Dependencies
+    zcu.intern_pool.removeDependenciesForDepender(gpa, unit);
 
+    // References
     zcu.clearCachedResolvedReferences();
-
     unit_refs: {
-        const kv = zcu.reference_table.fetchSwapRemove(anal_unit) orelse break :unit_refs;
+        const kv = zcu.reference_table.fetchSwapRemove(unit) orelse break :unit_refs;
         var idx = kv.value;
 
         while (idx != std.math.maxInt(u32)) {
@@ -3610,9 +3782,8 @@ pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
             }
         }
     }
-
     type_refs: {
-        const kv = zcu.type_reference_table.fetchSwapRemove(anal_unit) orelse break :type_refs;
+        const kv = zcu.type_reference_table.fetchSwapRemove(unit) orelse break :type_refs;
         var idx = kv.value;
 
         while (idx != std.math.maxInt(u32)) {
@@ -3623,22 +3794,6 @@ pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
             };
             idx = zcu.all_type_references.items[idx].next;
         }
-    }
-}
-
-/// Delete all compile logs performed by this `AnalUnit`.
-/// Re-analysis of the `AnalUnit` will cause logs to be rediscovered.
-pub fn deleteUnitCompileLogs(zcu: *Zcu, anal_unit: AnalUnit) void {
-    const kv = zcu.compile_logs.fetchSwapRemove(anal_unit) orelse return;
-    const gpa = zcu.gpa;
-    var opt_line_idx = kv.value.first_line.toOptional();
-    while (opt_line_idx.unwrap()) |line_idx| {
-        zcu.free_compile_log_lines.append(gpa, line_idx) catch {
-            // This space will be reused eventually, so we need not propagate this error.
-            // Just leak it for now, and let GC reclaim it later on.
-            return;
-        };
-        opt_line_idx = line_idx.get(zcu).next;
     }
 }
 
@@ -3851,9 +4006,9 @@ pub const AtomicPtrAlignmentDiagnostics = struct {
     max_bits: u16 = undefined,
 };
 
-/// If ABI alignment of `ty` is OK for atomic operations, returns 0.
-/// Otherwise returns the alignment required on a pointer for the target
-/// to perform atomic operations.
+/// Returns the alignment required for the target to perform atomic operations on type `ty` (that
+/// is, the required align attribute on the pointer). If the ABI alignment of `ty` is sufficient,
+/// returns `.none`.
 // TODO this function does not take into account CPU features, which can affect
 // this value. Audit this!
 pub fn atomicPtrAlignment(
@@ -3908,8 +4063,7 @@ pub fn atomicPtrAlignment(
     return error.BadType;
 }
 
-/// Returns null in the following cases:
-/// * Not a struct.
+/// Returns null if `ty` is not a struct.
 pub fn typeToStruct(zcu: *const Zcu, ty: Type) ?InternPool.LoadedStructType {
     if (ty.ip_index == .none) return null;
     const ip = &zcu.intern_pool;
@@ -3936,7 +4090,6 @@ pub fn structPackedFieldBitOffset(
 ) u16 {
     const ip = &zcu.intern_pool;
     assert(struct_type.layout == .@"packed");
-    assert(struct_type.haveLayout(ip));
     var bit_sum: u64 = 0;
     for (0..struct_type.field_types.len) |i| {
         if (i == field_index) {
@@ -3995,8 +4148,10 @@ pub const UnionLayout = struct {
 pub fn unionTagFieldIndex(zcu: *const Zcu, loaded_union: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
     const ip = &zcu.intern_pool;
     if (enum_tag.toIntern() == .none) return null;
-    assert(ip.typeOf(enum_tag.toIntern()) == loaded_union.enum_tag_ty);
-    return loaded_union.loadTagType(ip).tagValueIndex(ip, enum_tag.toIntern());
+    const enum_tag_key = ip.indexToKey(enum_tag.toIntern()).enum_tag;
+    assert(enum_tag_key.ty == loaded_union.enum_tag_type);
+    const loaded_enum = ip.loadEnumType(loaded_union.enum_tag_type);
+    return loaded_enum.tagValueIndex(ip, enum_tag_key.int);
 }
 
 pub const ResolvedReference = struct {
@@ -4012,13 +4167,13 @@ pub const ResolvedReference = struct {
 /// If an `AnalUnit` is not in the returned map, it is unreferenced.
 /// The returned hashmap is owned by the `Zcu`, so should not be freed by the caller.
 /// This hashmap is cached, so repeated calls to this function are cheap.
-pub fn resolveReferences(zcu: *Zcu) !*const std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+pub fn resolveReferences(zcu: *Zcu) Allocator.Error!*const std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
     if (zcu.resolved_references == null) {
         zcu.resolved_references = try zcu.resolveReferencesInner();
     }
     return &zcu.resolved_references.?;
 }
-fn resolveReferencesInner(zcu: *Zcu) !std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
     const gpa = zcu.gpa;
     const comp = zcu.comp;
     const ip = &zcu.intern_pool;
@@ -4049,32 +4204,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoArrayHashMapUnmanaged(AnalUnit, ?R
             const referencer = types.values()[type_idx];
             type_idx += 1;
 
-            log.debug("handle type '{f}'", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)});
-
-            // If this type undergoes type resolution, the corresponding `AnalUnit` is automatically referenced.
-            const has_resolution: bool = switch (ip.indexToKey(ty)) {
-                .struct_type, .union_type => true,
-                .enum_type => |k| k != .generated_tag,
-                .opaque_type => false,
-                else => unreachable,
-            };
-            if (has_resolution) {
-                // this should only be referenced by the type
-                const unit: AnalUnit = .wrap(.{ .type = ty });
-                try units.putNoClobber(gpa, unit, referencer);
-            }
-
-            // If this is a union with a generated tag, its tag type is automatically referenced.
-            // We don't add this reference for non-generated tags, as those will already be referenced via the union's type resolution, with a better source location.
-            if (zcu.typeToUnion(Type.fromInterned(ty))) |union_obj| {
-                const tag_ty = union_obj.enum_tag_ty;
-                if (tag_ty != .none) {
-                    if (ip.indexToKey(tag_ty).enum_type == .generated_tag) {
-                        const gop = try types.getOrPut(gpa, tag_ty);
-                        if (!gop.found_existing) gop.value_ptr.* = referencer;
-                    }
-                }
-            }
+            refs_log.debug("handle type '{f}'", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)});
 
             // Queue any decls within this type which would be automatically analyzed.
             // Keep in sync with analysis queueing logic in `Zcu.PerThread.ScanDeclIter.scanDecl`.
@@ -4084,7 +4214,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoArrayHashMapUnmanaged(AnalUnit, ?R
                 const unit: AnalUnit = .wrap(.{ .@"comptime" = cu });
                 const gop = try units.getOrPut(gpa, unit);
                 if (!gop.found_existing) {
-                    log.debug("type '{f}': ref comptime %{}", .{
+                    refs_log.debug("type '{f}': ref comptime %{}", .{
                         Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                         @intFromEnum(ip.getComptimeUnit(cu).zir_index.resolve(ip) orelse continue),
                     });
@@ -4118,7 +4248,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoArrayHashMapUnmanaged(AnalUnit, ?R
                     {
                         const gop = try units.getOrPut(gpa, .wrap(.{ .nav_val = nav_id }));
                         if (!gop.found_existing) {
-                            log.debug("type '{f}': ref test %{}", .{
+                            refs_log.debug("type '{f}': ref test %{}", .{
                                 Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                                 @intFromEnum(inst_info.inst),
                             });
@@ -4126,8 +4256,8 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoArrayHashMapUnmanaged(AnalUnit, ?R
                         }
                     }
                     // Non-fatal AstGen errors could mean this test decl failed
-                    if (nav.status == .fully_resolved) {
-                        const gop = try units.getOrPut(gpa, .wrap(.{ .func = nav.status.fully_resolved.val }));
+                    if (nav.resolved != null and nav.resolved.?.value != .none) {
+                        const gop = try units.getOrPut(gpa, .wrap(.{ .func = nav.resolved.?.value }));
                         if (!gop.found_existing) gop.value_ptr.* = referencer;
                     }
                 }
@@ -4141,7 +4271,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoArrayHashMapUnmanaged(AnalUnit, ?R
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
                     const gop = try units.getOrPut(gpa, unit);
                     if (!gop.found_existing) {
-                        log.debug("type '{f}': ref named %{}", .{
+                        refs_log.debug("type '{f}': ref named %{}", .{
                             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                             @intFromEnum(inst_info.inst),
                         });
@@ -4158,7 +4288,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoArrayHashMapUnmanaged(AnalUnit, ?R
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
                     const gop = try units.getOrPut(gpa, unit);
                     if (!gop.found_existing) {
-                        log.debug("type '{f}': ref named %{}", .{
+                        refs_log.debug("type '{f}': ref named %{}", .{
                             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                             @intFromEnum(inst_info.inst),
                         });
@@ -4173,18 +4303,25 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoArrayHashMapUnmanaged(AnalUnit, ?R
             unit_idx += 1;
 
             // `nav_val` and `nav_ty` reference each other *implicitly* to save memory.
+            // Likewise for `type_layout` and `struct_defaults` of a struct type.
             queue_paired: {
                 const other: AnalUnit = .wrap(switch (unit.unwrap()) {
                     .nav_val => |n| .{ .nav_ty = n },
                     .nav_ty => |n| .{ .nav_val = n },
-                    .@"comptime", .type, .func, .memoized_state => break :queue_paired,
+                    .struct_defaults => |ty| .{ .type_layout = ty },
+                    .type_layout => |ty| switch (ip.indexToKey(ty)) {
+                        .struct_type => .{ .struct_defaults = ty },
+                        .union_type, .enum_type, .opaque_type => break :queue_paired,
+                        else => unreachable,
+                    },
+                    .@"comptime", .func, .memoized_state => break :queue_paired,
                 });
                 const gop = try units.getOrPut(gpa, other);
                 if (gop.found_existing) break :queue_paired;
-                gop.value_ptr.* = units.values()[unit_idx]; // same reference location
+                gop.value_ptr.* = units.values()[unit_idx - 1]; // same reference location
             }
 
-            log.debug("handle unit '{f}'", .{zcu.fmtAnalUnit(unit)});
+            refs_log.debug("handle unit '{f}'", .{zcu.fmtAnalUnit(unit)});
 
             if (zcu.reference_table.get(unit)) |first_ref_idx| {
                 assert(first_ref_idx != std.math.maxInt(u32));
@@ -4193,7 +4330,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoArrayHashMapUnmanaged(AnalUnit, ?R
                     const ref = zcu.all_references.items[ref_idx];
                     const gop = try units.getOrPut(gpa, ref.referenced);
                     if (!gop.found_existing) {
-                        log.debug("unit '{f}': ref unit '{f}'", .{
+                        refs_log.debug("unit '{f}': ref unit '{f}'", .{
                             zcu.fmtAnalUnit(unit),
                             zcu.fmtAnalUnit(ref.referenced),
                         });
@@ -4213,7 +4350,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoArrayHashMapUnmanaged(AnalUnit, ?R
                     const ref = zcu.all_type_references.items[ref_idx];
                     const gop = try types.getOrPut(gpa, ref.referenced);
                     if (!gop.found_existing) {
-                        log.debug("unit '{f}': ref type '{f}'", .{
+                        refs_log.debug("unit '{f}': ref type '{f}'", .{
                             zcu.fmtAnalUnit(unit),
                             Type.fromInterned(ref.referenced).containerTypeName(ip).fmt(ip),
                         });
@@ -4286,7 +4423,7 @@ pub fn navSrcLine(zcu: *Zcu, nav_index: InternPool.Nav.Index) u32 {
 }
 
 pub fn navValue(zcu: *const Zcu, nav_index: InternPool.Nav.Index) Value {
-    return Value.fromInterned(zcu.intern_pool.getNav(nav_index).status.fully_resolved.val);
+    return .fromInterned(zcu.intern_pool.getNav(nav_index).resolved.?.value);
 }
 
 pub fn navFileScopeIndex(zcu: *Zcu, nav: InternPool.Nav.Index) File.Index {
@@ -4298,6 +4435,14 @@ pub fn navFileScope(zcu: *Zcu, nav: InternPool.Nav.Index) *File {
     return zcu.fileByIndex(zcu.navFileScopeIndex(nav));
 }
 
+pub fn navAlignment(zcu: *Zcu, nav_id: InternPool.Nav.Index) InternPool.Alignment {
+    const resolved = zcu.intern_pool.getNav(nav_id).resolved.?;
+    return switch (resolved.@"align") {
+        else => |a| a,
+        .none => Type.fromInterned(resolved.type).abiAlignment(zcu),
+    };
+}
+
 pub fn fmtAnalUnit(zcu: *Zcu, unit: AnalUnit) std.fmt.Alt(FormatAnalUnit, formatAnalUnit) {
     return .{ .data = .{ .unit = unit, .zcu = zcu } };
 }
@@ -4305,11 +4450,7 @@ pub fn fmtDependee(zcu: *Zcu, d: InternPool.Dependee) std.fmt.Alt(FormatDependee
     return .{ .data = .{ .dependee = d, .zcu = zcu } };
 }
 
-const FormatAnalUnit = struct {
-    unit: AnalUnit,
-    zcu: *Zcu,
-};
-
+const FormatAnalUnit = struct { unit: AnalUnit, zcu: *const Zcu };
 fn formatAnalUnit(data: FormatAnalUnit, writer: *Io.Writer) Io.Writer.Error!void {
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
@@ -4323,9 +4464,8 @@ fn formatAnalUnit(data: FormatAnalUnit, writer: *Io.Writer) Io.Writer.Error!void
                 return writer.print("comptime(inst=<lost> [{}])", .{@intFromEnum(cu_id)});
             }
         },
-        .nav_val => |nav| return writer.print("nav_val('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
-        .nav_ty => |nav| return writer.print("nav_ty('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
-        .type => |ty| return writer.print("ty('{f}' [{}])", .{ Type.fromInterned(ty).containerTypeName(ip).fmt(ip), @intFromEnum(ty) }),
+        .nav_val, .nav_ty => |nav, tag| return writer.print("{t}('{f}' [{}])", .{ tag, ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
+        .type_layout, .struct_defaults => |ty, tag| return writer.print("{t}('{f}' [{}])", .{ tag, Type.fromInterned(ty).containerTypeName(ip).fmt(ip), @intFromEnum(ty) }),
         .func => |func| {
             const nav = zcu.funcInfo(func).owner_nav;
             return writer.print("func('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(func) });
@@ -4334,8 +4474,7 @@ fn formatAnalUnit(data: FormatAnalUnit, writer: *Io.Writer) Io.Writer.Error!void
     }
 }
 
-const FormatDependee = struct { dependee: InternPool.Dependee, zcu: *Zcu };
-
+const FormatDependee = struct { dependee: InternPool.Dependee, zcu: *const Zcu };
 fn formatDependee(data: FormatDependee, writer: *Io.Writer) Io.Writer.Error!void {
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
@@ -4347,22 +4486,21 @@ fn formatDependee(data: FormatDependee, writer: *Io.Writer) Io.Writer.Error!void
             const file_path = zcu.fileByIndex(info.file).path;
             return writer.print("inst('{f}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
         },
-        .nav_val => |nav| {
+        .nav_val, .nav_ty => |nav, tag| {
             const fqn = ip.getNav(nav).fqn;
-            return writer.print("nav_val('{f}')", .{fqn.fmt(ip)});
+            return writer.print("{t}('{f}')", .{ tag, fqn.fmt(ip) });
         },
-        .nav_ty => |nav| {
-            const fqn = ip.getNav(nav).fqn;
-            return writer.print("nav_ty('{f}')", .{fqn.fmt(ip)});
+        .type_layout, .struct_defaults => |ip_index, tag| {
+            const name = Type.fromInterned(ip_index).containerTypeName(ip);
+            return writer.print("{t}('{f}')", .{ tag, name.fmt(ip) });
         },
-        .interned => |ip_index| switch (ip.indexToKey(ip_index)) {
-            .struct_type, .union_type, .enum_type => return writer.print("type('{f}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
-            .func => |f| return writer.print("ies('{f}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
-            else => unreachable,
+        .func_ies => |ip_index| {
+            const fqn = ip.getNav(ip.indexToKey(ip_index).func.owner_nav).fqn;
+            return writer.print("func_ies('{f}')", .{fqn.fmt(ip)});
         },
-        .zon_file => |file| {
+        .source_file => |file| {
             const file_path = zcu.fileByIndex(file).path;
-            return writer.print("zon_file('{f}')", .{file_path.fmt(zcu.comp)});
+            return writer.print("source_file('{f}')", .{file_path.fmt(zcu.comp)});
         },
         .embed_file => |ef_idx| {
             const ef = ef_idx.get(zcu);
@@ -4383,32 +4521,6 @@ fn formatDependee(data: FormatDependee, writer: *Io.Writer) Io.Writer.Error!void
             return writer.print("namespace('{f}', %{d}, '{f}')", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst), k.name.fmt(ip) });
         },
         .memoized_state => return writer.writeAll("memoized_state"),
-    }
-}
-
-/// Given the `InternPool.Index` of a function, set its resolved IES to `.none` if it
-/// may be outdated. `Sema` should do this before ever loading a resolved IES.
-pub fn maybeUnresolveIes(zcu: *Zcu, func_index: InternPool.Index) !void {
-    const unit = AnalUnit.wrap(.{ .func = func_index });
-    if (zcu.outdated.contains(unit) or zcu.potentially_outdated.contains(unit)) {
-        // We're consulting the resolved IES now, but the function is outdated, so its
-        // IES may have changed. We have to assume the IES is outdated and set the resolved
-        // set back to `.none`.
-        //
-        // This will cause `PerThread.analyzeFnBody` to mark the IES as outdated when it's
-        // eventually hit.
-        //
-        // Since the IES needs to be resolved, the function body will now definitely need
-        // re-analysis (even if the IES turns out to be the same!), so mark it as
-        // definitely-outdated if it's only PO.
-        if (zcu.potentially_outdated.fetchSwapRemove(unit)) |kv| {
-            const gpa = zcu.gpa;
-            try zcu.outdated.putNoClobber(gpa, unit, kv.value);
-            if (kv.value == 0) {
-                try zcu.outdated_ready.put(gpa, unit, {});
-            }
-        }
-        zcu.intern_pool.funcSetIesResolved(zcu.comp.io, func_index, .none);
     }
 }
 
@@ -4745,6 +4857,304 @@ fn explainWhyFileIsInModule(
 
         import = importer_ref.import;
     }
+}
+
+pub fn addDependencyLoopErrors(zcu: *Zcu, eb: *std.zig.ErrorBundle.Wip) Allocator.Error!void {
+    const gpa = zcu.comp.gpa;
+
+    const all_references = try zcu.resolveReferences();
+
+    var units: std.ArrayList(AnalUnit) = .empty;
+    defer units.deinit(gpa);
+
+    // TODO: sort the dependency loops somehow to make the error bundle reproducible
+    for (zcu.dependency_loops.keys()) |arbitrary_unit| {
+        units.clearRetainingCapacity();
+
+        var cur = arbitrary_unit;
+        while (true) {
+            try units.append(gpa, cur);
+            cur = zcu.dependency_loop_nodes.get(cur).?.unit;
+            if (cur == arbitrary_unit) break;
+        }
+
+        // `units` now contains all units in the loop. We need to pick a starting point somewhere
+        // along that loop to begin. We will pick whichever node has the shortest reference trace,
+        // because the other units may well just be referenced *by* that one! This is also likely
+        // to match the user's intuition for where the loop "starts".
+        var start_index: usize = 0;
+        var start_depth: u32 = depth: {
+            var depth: u32 = 0;
+            var opt_ref = all_references.get(units.items[0]) orelse {
+                // This dependency loop is actually unreferenced, so we don't need to emit a compile
+                // error at all! Move onto the next dependency loop.
+                continue;
+            };
+            while (opt_ref) |ref| : (opt_ref = all_references.get(ref.referencer).?) depth += 1;
+            break :depth depth;
+        };
+        for (units.items[1..], 1..) |unit, index| {
+            var depth: u32 = 0;
+            var opt_ref = all_references.get(unit).?;
+            while (opt_ref) |ref| : (opt_ref = all_references.get(ref.referencer).?) depth += 1;
+            if (depth < start_depth) {
+                start_index = index;
+                start_depth = depth;
+            }
+        }
+
+        // Collect a reference trace for the start of the loop.
+        var ref_trace: std.ArrayList(std.zig.ErrorBundle.ReferenceTrace) = .empty;
+        defer ref_trace.deinit(gpa);
+        const frame_limit = zcu.comp.reference_trace orelse 0;
+        try zcu.populateReferenceTrace(units.items[start_index], frame_limit, eb, &ref_trace);
+
+        if (units.items.len == 1) {
+            // Don't do a complicated message with multiple notes, just do a single error message.
+            assert(start_index == 0);
+            const root_msg = addDependencyLoopErrorLine(zcu, eb, units.items[start_index], ref_trace.items) catch |err| switch (err) {
+                error.AlreadyReported => return, // give up on the dep loop error
+                error.OutOfMemory => |e| return e,
+            };
+            try eb.root_list.append(eb.gpa, root_msg);
+            continue;
+        }
+
+        // Collect all notes first so we don't leave an incomplete root error message on `error.AlreadyReported`.
+        const note_buf = try gpa.alloc(std.zig.ErrorBundle.MessageIndex, units.items.len + 1);
+        defer gpa.free(note_buf);
+        note_buf[0] = addDependencyLoopErrorLine(zcu, eb, units.items[start_index], ref_trace.items) catch |err| switch (err) {
+            error.AlreadyReported => return, // give up on the dep loop error
+            error.OutOfMemory => |e| return e,
+        };
+        for (units.items[start_index + 1 ..], note_buf[1 .. units.items.len - start_index]) |unit, *note| {
+            note.* = addDependencyLoopErrorLine(zcu, eb, unit, &.{}) catch |err| switch (err) {
+                error.AlreadyReported => return, // give up on the dep loop error
+                error.OutOfMemory => |e| return e,
+            };
+        }
+        for (units.items[0..start_index], note_buf[units.items.len - start_index .. units.items.len]) |unit, *note| {
+            note.* = addDependencyLoopErrorLine(zcu, eb, unit, &.{}) catch |err| switch (err) {
+                error.AlreadyReported => return, // give up on the dep loop error
+                error.OutOfMemory => |e| return e,
+            };
+        }
+        note_buf[units.items.len] = try eb.addErrorMessage(.{
+            .msg = try eb.addString("eliminate any one of these dependencies to break the loop"),
+            .src_loc = .none,
+        });
+
+        try eb.addRootErrorMessage(.{
+            .msg = try eb.printString("dependency loop with length {d}", .{units.items.len}),
+            .src_loc = .none,
+            .notes_len = @intCast(units.items.len + 1),
+        });
+        const notes_start = try eb.reserveNotes(@intCast(units.items.len + 1));
+        const notes: []std.zig.ErrorBundle.MessageIndex = @ptrCast(eb.extra.items[notes_start..]);
+        @memcpy(notes, note_buf);
+    }
+}
+fn addDependencyLoopErrorLine(
+    zcu: *Zcu,
+    eb: *std.zig.ErrorBundle.Wip,
+    source_unit: AnalUnit,
+    ref_trace: []const std.zig.ErrorBundle.ReferenceTrace,
+) (Allocator.Error || error{AlreadyReported})!std.zig.ErrorBundle.MessageIndex {
+    const ip = &zcu.intern_pool;
+    const comp = zcu.comp;
+
+    const fmt_source: std.fmt.Alt(FormatAnalUnit, formatDependencyLoopSourceUnit) = .{ .data = .{
+        .unit = source_unit,
+        .zcu = zcu,
+    } };
+
+    const dep_node = zcu.dependency_loop_nodes.get(source_unit).?;
+
+    const msg: std.zig.ErrorBundle.String = if (dep_node.unit == source_unit) switch (source_unit.unwrap()) {
+        .@"comptime" => unreachable, // cannot be involved in a dependency loop
+        .nav_ty, .nav_val => try eb.printString("{f} depends on itself here", .{fmt_source}),
+        .memoized_state => unreachable, // memoized_state definitely does not *directly* depend on itself
+        .func => try eb.printString("{f} uses its own inferred error set here", .{fmt_source}),
+        .type_layout => try eb.printString("{f} depends on itself {s}", .{
+            fmt_source,
+            dep_node.reason.type_layout_reason.msg(),
+        }),
+        .struct_defaults => |ty| try eb.printString(
+            "default field values of '{f}' depend on themselves for initialization here",
+            .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)},
+        ),
+    } else switch (dep_node.unit.unwrap()) {
+        .@"comptime" => unreachable, // cannot be involved in a dependency loop
+        .nav_val => |nav| try eb.printString("{f} uses value of declaration '{f}' here", .{
+            fmt_source, ip.getNav(nav).fqn.fmt(ip),
+        }),
+        .nav_ty => |nav| try eb.printString("{f} uses type of declaration '{f}' here", .{
+            fmt_source, ip.getNav(nav).fqn.fmt(ip),
+        }),
+        .memoized_state => |stage| switch (stage) {
+            .panic => try eb.printString("{f} requires panic handler for call here", .{fmt_source}),
+            else => try eb.printString("{f} requires 'std.builtin' declarations here", .{fmt_source}),
+        },
+        .func => |func| try eb.printString("{f} uses inferred error set of function '{f}' here", .{
+            fmt_source, ip.getNav(zcu.funcInfo(func).owner_nav).fqn.fmt(ip),
+        }),
+        .type_layout => |ty| try eb.printString("{f} depends on type '{f}' {s}", .{
+            fmt_source,
+            Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+            dep_node.reason.type_layout_reason.msg(),
+        }),
+        .struct_defaults => |ty| try eb.printString(
+            "{f} uses default field values of '{f}' here",
+            .{ fmt_source, Type.fromInterned(ty).containerTypeName(ip).fmt(ip) },
+        ),
+    };
+
+    const src_loc = dep_node.reason.src.upgrade(zcu);
+    const source = src_loc.file_scope.getSource(zcu) catch |err| {
+        try Compilation.unableToLoadZcuFile(zcu, eb, src_loc.file_scope, err);
+        return error.AlreadyReported;
+    };
+    const span = src_loc.span(zcu) catch |err| {
+        try Compilation.unableToLoadZcuFile(zcu, eb, src_loc.file_scope, err);
+        return error.AlreadyReported;
+    };
+    const loc = std.zig.findLineColumn(source, span.main);
+    const eb_src = try eb.addSourceLocation(.{
+        .src_path = try eb.printString("{f}", .{src_loc.file_scope.path.fmt(comp)}),
+        .span_start = span.start,
+        .span_main = span.main,
+        .span_end = span.end,
+        .line = @intCast(loc.line),
+        .column = @intCast(loc.column),
+        .source_line = try eb.addString(loc.source_line),
+        .reference_trace_len = @intCast(ref_trace.len),
+    });
+    for (ref_trace) |rt| try eb.addReferenceTrace(rt);
+    return eb.addErrorMessage(.{
+        .msg = msg,
+        .src_loc = eb_src,
+    });
+}
+fn formatDependencyLoopSourceUnit(data: FormatAnalUnit, w: *Io.Writer) Io.Writer.Error!void {
+    const zcu = data.zcu;
+    const ip = &zcu.intern_pool;
+    switch (data.unit.unwrap()) {
+        .@"comptime" => unreachable, // cannot be involved in a dependency loop
+        .nav_val => |nav| try w.print("value of declaration '{f}'", .{ip.getNav(nav).fqn.fmt(ip)}),
+        .nav_ty => |nav| try w.print("type of declaration '{f}'", .{ip.getNav(nav).fqn.fmt(ip)}),
+        .memoized_state => |stage| switch (stage) {
+            .panic => try w.writeAll("panic handler"),
+            else => try w.writeAll("'std.builtin' declarations"),
+        },
+        .type_layout => |ty| try w.print("type '{f}'", .{
+            Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+        }),
+        .struct_defaults => |ty| try w.print("default field value of '{f}'", .{
+            Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+        }),
+        .func => |func| try w.print("function '{f}'", .{
+            ip.getNav(zcu.funcInfo(func).owner_nav).fqn.fmt(ip),
+        }),
+    }
+}
+
+pub fn populateReferenceTrace(
+    zcu: *Zcu,
+    root: AnalUnit,
+    frame_limit: u32,
+    eb: *std.zig.ErrorBundle.Wip,
+    ref_trace: *std.ArrayList(std.zig.ErrorBundle.ReferenceTrace),
+) Allocator.Error!void {
+    const ip = &zcu.intern_pool;
+    const gpa = zcu.comp.gpa;
+
+    if (frame_limit == 0) return;
+
+    const all_references = try zcu.resolveReferences();
+
+    var seen: std.AutoHashMapUnmanaged(InternPool.AnalUnit, void) = .empty;
+    defer seen.deinit(gpa);
+
+    var referenced_by = root;
+    while (all_references.get(referenced_by)) |maybe_ref| {
+        const ref = maybe_ref orelse break;
+        const gop = try seen.getOrPut(gpa, ref.referencer);
+        if (gop.found_existing) break;
+        if (ref_trace.items.len < frame_limit) {
+            var last_call_src = ref.src;
+            var opt_inline_frame = ref.inline_frame;
+            while (opt_inline_frame.unwrap()) |inline_frame| {
+                const f = inline_frame.ptr(zcu).*;
+                const func_nav = ip.indexToKey(f.callee).func.owner_nav;
+                const func_name = ip.getNav(func_nav).name.toSlice(ip);
+                addReferenceTraceFrame(zcu, eb, ref_trace, func_name, last_call_src, true) catch |err| switch (err) {
+                    error.OutOfMemory => |e| return e,
+                    error.AlreadyReported => {
+                        // An incomplete reference trace isn't the end of the world; just cut it off.
+                        return;
+                    },
+                };
+                last_call_src = f.call_src;
+                opt_inline_frame = f.parent;
+            }
+            const root_name: ?[]const u8 = switch (ref.referencer.unwrap()) {
+                .@"comptime" => "comptime",
+                .nav_val, .nav_ty => |nav| ip.getNav(nav).name.toSlice(ip),
+                .type_layout, .struct_defaults => |ty| Type.fromInterned(ty).containerTypeName(ip).toSlice(ip),
+                .func => |f| ip.getNav(zcu.funcInfo(f).owner_nav).name.toSlice(ip),
+                .memoized_state => null,
+            };
+            if (root_name) |n| {
+                addReferenceTraceFrame(zcu, eb, ref_trace, n, last_call_src, false) catch |err| switch (err) {
+                    error.OutOfMemory => |e| return e,
+                    error.AlreadyReported => {
+                        // An incomplete reference trace isn't the end of the world; just cut it off.
+                        return;
+                    },
+                };
+            }
+        }
+        referenced_by = ref.referencer;
+    }
+
+    if (seen.count() > ref_trace.items.len) {
+        try ref_trace.append(gpa, .{
+            .decl_name = @intCast(seen.count() - ref_trace.items.len),
+            .src_loc = .none,
+        });
+    }
+}
+fn addReferenceTraceFrame(
+    zcu: *Zcu,
+    eb: *std.zig.ErrorBundle.Wip,
+    ref_trace: *std.ArrayList(std.zig.ErrorBundle.ReferenceTrace),
+    name: []const u8,
+    lazy_src: Zcu.LazySrcLoc,
+    inlined: bool,
+) error{ OutOfMemory, AlreadyReported }!void {
+    const gpa = zcu.gpa;
+    const src = lazy_src.upgrade(zcu);
+    const source = src.file_scope.getSource(zcu) catch |err| {
+        try Compilation.unableToLoadZcuFile(zcu, eb, src.file_scope, err);
+        return error.AlreadyReported;
+    };
+    const span = src.span(zcu) catch |err| {
+        try Compilation.unableToLoadZcuFile(zcu, eb, src.file_scope, err);
+        return error.AlreadyReported;
+    };
+    const loc = std.zig.findLineColumn(source, span.main);
+    try ref_trace.append(gpa, .{
+        .decl_name = try eb.printString("{s}{s}", .{ name, if (inlined) " [inlined]" else "" }),
+        .src_loc = try eb.addSourceLocation(.{
+            .src_path = try eb.printString("{f}", .{src.file_scope.path.fmt(zcu.comp)}),
+            .span_start = span.start,
+            .span_main = span.main,
+            .span_end = span.end,
+            .line = @intCast(loc.line),
+            .column = @intCast(loc.column),
+            .source_line = 0,
+        }),
+    });
 }
 
 const TrackedUnitSema = struct {

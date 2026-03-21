@@ -2503,5 +2503,554 @@ pub const Win32Error = enum(u32) {
     REQUEST_PAUSED = 3050,
     /// Reissue the given operation as a cached IO operation.
     IO_REISSUE_AS_CACHED = 3950,
+
+    /// DNS server unable to interpret format.
+    DNS_ERROR_RCODE_FORMAT_ERROR = 9001,
+    /// DNS server failure.
+    DNS_ERROR_RCODE_SERVER_FAILURE = 9002,
+    /// DNS name does not exist.
+    DNS_ERROR_RCODE_NAME_ERROR = 9003,
+    /// DNS request not supported by name server.
+    DNS_ERROR_RCODE_NOT_IMPLEMENTED = 9004,
+    /// DNS operation refused.
+    DNS_ERROR_RCODE_REFUSED = 9005,
+    /// DNS name that ought not exist, does exist.
+    DNS_ERROR_RCODE_YXDOMAIN = 9006,
+    /// DNS RR set that ought not exist, does exist.
+    DNS_ERROR_RCODE_YXRRSET = 9007,
+    /// DNS RR set that ought to exist, does not exist.
+    DNS_ERROR_RCODE_NXRRSET = 9008,
+    /// DNS server not authoritative for zone.
+    DNS_ERROR_RCODE_NOTAUTH = 9009,
+    /// DNS name in update or prereq is not in zone.
+    DNS_ERROR_RCODE_NOTZONE = 9010,
+    /// DNS signature failed to verify.
+    DNS_ERROR_RCODE_BADSIG = 9016,
+    /// DNS bad key.
+    DNS_ERROR_RCODE_BADKEY = 9017,
+    /// DNS signature validity expired.
+    DNS_ERROR_RCODE_BADTIME = 9018,
+    /// DNSSEC errors
+    DNS_ERROR_DNSSEC_BASE = 9100,
+    /// Only the DNS server acting as the key master for the zone may perform this operation.
+    DNS_ERROR_KEYMASTER_REQUIRED = 9101,
+    /// This operation is not allowed on a zone that is signed or has signing keys.
+    DNS_ERROR_NOT_ALLOWED_ON_SIGNED_ZONE = 9102,
+    /// NSEC3 is not compatible with the RSA-SHA-1 algorithm. Choose a different algorithm or use NSEC.
+    DNS_ERROR_NSEC3_INCOMPATIBLE_WITH_RSA_SHA1 = 9103,
+    /// The zone does not have enough signing keys. There must be at least one key signing key (KSK) and at least one zone signing key (ZSK).
+    DNS_ERROR_NOT_ENOUGH_SIGNING_KEY_DESCRIPTORS = 9104,
+    /// The specified algorithm is not supported.
+    DNS_ERROR_UNSUPPORTED_ALGORITHM = 9105,
+    /// The specified key size is not supported.
+    DNS_ERROR_INVALID_KEY_SIZE = 9106,
+    /// One or more of the signing keys for a zone are not accessible to the DNS server. Zone signing will not be operational until this error is resolved.
+    DNS_ERROR_SIGNING_KEY_NOT_ACCESSIBLE = 9107,
+    /// The specified key storage provider does not support DPAPI++ data protection. Zone signing will not be operational until this error is resolved.
+    DNS_ERROR_KSP_DOES_NOT_SUPPORT_PROTECTION = 9108,
+    /// An unexpected DPAPI++ error was encountered. Zone signing will not be operational until this error is resolved.
+    DNS_ERROR_UNEXPECTED_DATA_PROTECTION_ERROR = 9109,
+    /// An unexpected crypto error was encountered. Zone signing may not be operational until this error is resolved.
+    DNS_ERROR_UNEXPECTED_CNG_ERROR = 9110,
+    /// The DNS server encountered a signing key with an unknown version. Zone signing will not be operational until this error is resolved.
+    DNS_ERROR_UNKNOWN_SIGNING_PARAMETER_VERSION = 9111,
+    /// The specified key service provider cannot be opened by the DNS server.
+    DNS_ERROR_KSP_NOT_ACCESSIBLE = 9112,
+    /// The DNS server cannot accept any more signing keys with the specified algorithm and KSK flag value for this zone.
+    DNS_ERROR_TOO_MANY_SKDS = 9113,
+    /// The specified rollover period is invalid.
+    DNS_ERROR_INVALID_ROLLOVER_PERIOD = 9114,
+    /// The specified initial rollover offset is invalid.
+    DNS_ERROR_INVALID_INITIAL_ROLLOVER_OFFSET = 9115,
+    /// The specified signing key is already in process of rolling over keys.
+    DNS_ERROR_ROLLOVER_IN_PROGRESS = 9116,
+    /// The specified signing key does not have a standby key to revoke.
+    DNS_ERROR_STANDBY_KEY_NOT_PRESENT = 9117,
+    /// This operation is not allowed on a zone signing key (ZSK).
+    DNS_ERROR_NOT_ALLOWED_ON_ZSK = 9118,
+    /// This operation is not allowed on an active signing key.
+    DNS_ERROR_NOT_ALLOWED_ON_ACTIVE_SKD = 9119,
+    /// The specified signing key is already queued for rollover.
+    DNS_ERROR_ROLLOVER_ALREADY_QUEUED = 9120,
+    /// This operation is not allowed on an unsigned zone.
+    DNS_ERROR_NOT_ALLOWED_ON_UNSIGNED_ZONE = 9121,
+    /// This operation could not be completed because the DNS server listed as the current key master for this zone is down or misconfigured. Resolve the problem on the current key master for this zone or use another DNS server to seize the key master role.
+    DNS_ERROR_BAD_KEYMASTER = 9122,
+    /// The specified signature validity period is invalid.
+    DNS_ERROR_INVALID_SIGNATURE_VALIDITY_PERIOD = 9123,
+    /// The specified NSEC3 iteration count is higher than allowed by the minimum key length used in the zone.
+    DNS_ERROR_INVALID_NSEC3_ITERATION_COUNT = 9124,
+    /// This operation could not be completed because the DNS server has been configured with DNSSEC features disabled. Enable DNSSEC on the DNS server.
+    DNS_ERROR_DNSSEC_IS_DISABLED = 9125,
+    /// This operation could not be completed because the XML stream received is empty or syntactically invalid.
+    DNS_ERROR_INVALID_XML = 9126,
+    /// This operation completed, but no trust anchors were added because all of the trust anchors received were either invalid, unsupported, expired, or would not become valid in less than 30 days.
+    DNS_ERROR_NO_VALID_TRUST_ANCHORS = 9127,
+    /// The specified signing key is not waiting for parental DS update.
+    DNS_ERROR_ROLLOVER_NOT_POKEABLE = 9128,
+    /// Hash collision detected during NSEC3 signing. Specify a different user-provided salt, or use a randomly generated salt, and attempt to sign the zone again.
+    DNS_ERROR_NSEC3_NAME_COLLISION = 9129,
+    /// NSEC is not compatible with the NSEC3-RSA-SHA-1 algorithm. Choose a different algorithm or use NSEC3.
+    DNS_ERROR_NSEC_INCOMPATIBLE_WITH_NSEC3_RSA_SHA1 = 9130,
+    /// Packet format
+    DNS_ERROR_PACKET_FMT_BASE = 9500,
+    /// No records found for given DNS query.
+    DNS_INFO_NO_RECORDS = 9501,
+    /// Bad DNS packet.
+    DNS_ERROR_BAD_PACKET = 9502,
+    /// No DNS packet.
+    DNS_ERROR_NO_PACKET = 9503,
+    /// DNS error, check rcode.
+    DNS_ERROR_RCODE = 9504,
+    /// Unsecured DNS packet.
+    DNS_ERROR_UNSECURE_PACKET = 9505,
+    /// DNS query request is pending.
+    DNS_REQUEST_PENDING = 9506,
+    /// Invalid DNS type.
+    DNS_ERROR_INVALID_TYPE = 9551,
+    /// Invalid IP address.
+    DNS_ERROR_INVALID_IP_ADDRESS = 9552,
+    /// Invalid property.
+    DNS_ERROR_INVALID_PROPERTY = 9553,
+    /// Try DNS operation again later.
+    DNS_ERROR_TRY_AGAIN_LATER = 9554,
+    /// Record for given name and type is not unique.
+    DNS_ERROR_NOT_UNIQUE = 9555,
+    /// DNS name does not comply with RFC specifications.
+    DNS_ERROR_NON_RFC_NAME = 9556,
+    /// DNS name is a fully-qualified DNS name.
+    DNS_STATUS_FQDN = 9557,
+    /// DNS name is dotted (multi-label).
+    DNS_STATUS_DOTTED_NAME = 9558,
+    /// DNS name is a single-part name.
+    DNS_STATUS_SINGLE_PART_NAME = 9559,
+    /// DNS name contains an invalid character.
+    DNS_ERROR_INVALID_NAME_CHAR = 9560,
+    /// DNS name is entirely numeric.
+    DNS_ERROR_NUMERIC_NAME = 9561,
+    /// The operation requested is not permitted on a DNS root server.
+    DNS_ERROR_NOT_ALLOWED_ON_ROOT_SERVER = 9562,
+    /// The record could not be created because this part of the DNS namespace has been delegated to another server.
+    DNS_ERROR_NOT_ALLOWED_UNDER_DELEGATION = 9563,
+    /// The DNS server could not find a set of root hints.
+    DNS_ERROR_CANNOT_FIND_ROOT_HINTS = 9564,
+    /// The DNS server found root hints but they were not consistent across all adapters.
+    DNS_ERROR_INCONSISTENT_ROOT_HINTS = 9565,
+    /// The specified value is too small for this parameter.
+    DNS_ERROR_DWORD_VALUE_TOO_SMALL = 9566,
+    /// The specified value is too large for this parameter.
+    DNS_ERROR_DWORD_VALUE_TOO_LARGE = 9567,
+    /// This operation is not allowed while the DNS server is loading zones in the background. Please try again later.
+    DNS_ERROR_BACKGROUND_LOADING = 9568,
+    /// The operation requested is not permitted on against a DNS server running on a read-only DC.
+    DNS_ERROR_NOT_ALLOWED_ON_RODC = 9569,
+    /// No data is allowed to exist underneath a DNAME record.
+    DNS_ERROR_NOT_ALLOWED_UNDER_DNAME = 9570,
+    /// This operation requires credentials delegation.
+    DNS_ERROR_DELEGATION_REQUIRED = 9571,
+    /// Name resolution policy table has been corrupted. DNS resolution will fail until it is fixed. Contact your network administrator.
+    DNS_ERROR_INVALID_POLICY_TABLE = 9572,
+    /// Not allowed to remove all addresses.
+    DNS_ERROR_ADDRESS_REQUIRED = 9573,
+    /// Zone errors
+    DNS_ERROR_ZONE_BASE = 9600,
+    /// DNS zone does not exist.
+    DNS_ERROR_ZONE_DOES_NOT_EXIST = 9601,
+    /// DNS zone information not available.
+    DNS_ERROR_NO_ZONE_INFO = 9602,
+    /// Invalid operation for DNS zone.
+    DNS_ERROR_INVALID_ZONE_OPERATION = 9603,
+    /// Invalid DNS zone configuration.
+    DNS_ERROR_ZONE_CONFIGURATION_ERROR = 9604,
+    /// DNS zone has no start of authority (SOA) record.
+    DNS_ERROR_ZONE_HAS_NO_SOA_RECORD = 9605,
+    /// DNS zone has no Name Server (NS) record.
+    DNS_ERROR_ZONE_HAS_NO_NS_RECORDS = 9606,
+    /// DNS zone is locked.
+    DNS_ERROR_ZONE_LOCKED = 9607,
+    /// DNS zone creation failed.
+    DNS_ERROR_ZONE_CREATION_FAILED = 9608,
+    /// DNS zone already exists.
+    DNS_ERROR_ZONE_ALREADY_EXISTS = 9609,
+    /// DNS automatic zone already exists.
+    DNS_ERROR_AUTOZONE_ALREADY_EXISTS = 9610,
+    /// Invalid DNS zone type.
+    DNS_ERROR_INVALID_ZONE_TYPE = 9611,
+    /// Secondary DNS zone requires master IP address.
+    DNS_ERROR_SECONDARY_REQUIRES_MASTER_IP = 9612,
+    /// DNS zone not secondary.
+    DNS_ERROR_ZONE_NOT_SECONDARY = 9613,
+    /// Need secondary IP address.
+    DNS_ERROR_NEED_SECONDARY_ADDRESSES = 9614,
+    /// WINS initialization failed.
+    DNS_ERROR_WINS_INIT_FAILED = 9615,
+    /// Need WINS servers.
+    DNS_ERROR_NEED_WINS_SERVERS = 9616,
+    /// NBTSTAT initialization call failed.
+    DNS_ERROR_NBSTAT_INIT_FAILED = 9617,
+    /// Invalid delete of start of authority (SOA)
+    DNS_ERROR_SOA_DELETE_INVALID = 9618,
+    /// A conditional forwarding zone already exists for that name.
+    DNS_ERROR_FORWARDER_ALREADY_EXISTS = 9619,
+    /// This zone must be configured with one or more master DNS server IP addresses.
+    DNS_ERROR_ZONE_REQUIRES_MASTER_IP = 9620,
+    /// The operation cannot be performed because this zone is shut down.
+    DNS_ERROR_ZONE_IS_SHUTDOWN = 9621,
+    /// This operation cannot be performed because the zone is currently being signed. Please try again later.
+    DNS_ERROR_ZONE_LOCKED_FOR_SIGNING = 9622,
+    /// Datafile errors
+    DNS_ERROR_DATAFILE_BASE = 9650,
+    /// DNS                                   0x000025b3
+    /// Primary DNS zone requires datafile.
+    DNS_ERROR_PRIMARY_REQUIRES_DATAFILE = 9651,
+    /// DNS                                   0x000025b4
+    /// Invalid datafile name for DNS zone.
+    DNS_ERROR_INVALID_DATAFILE_NAME = 9652,
+    /// DNS                                   0x000025b5
+    /// Failed to open datafile for DNS zone.
+    DNS_ERROR_DATAFILE_OPEN_FAILURE = 9653,
+    /// DNS                                   0x000025b6
+    /// Failed to write datafile for DNS zone.
+    DNS_ERROR_FILE_WRITEBACK_FAILED = 9654,
+    /// DNS                                   0x000025b7
+    /// Failure while reading datafile for DNS zone.
+    DNS_ERROR_DATAFILE_PARSING = 9655,
+    /// Database errors
+    DNS_ERROR_DATABASE_BASE = 9700,
+    /// DNS record does not exist.
+    DNS_ERROR_RECORD_DOES_NOT_EXIST = 9701,
+    /// DNS record format error.
+    DNS_ERROR_RECORD_FORMAT = 9702,
+    /// Node creation failure in DNS.
+    DNS_ERROR_NODE_CREATION_FAILED = 9703,
+    /// Unknown DNS record type.
+    DNS_ERROR_UNKNOWN_RECORD_TYPE = 9704,
+    /// DNS record timed out.
+    DNS_ERROR_RECORD_TIMED_OUT = 9705,
+    /// Name not in DNS zone.
+    DNS_ERROR_NAME_NOT_IN_ZONE = 9706,
+    /// CNAME loop detected.
+    DNS_ERROR_CNAME_LOOP = 9707,
+    /// Node is a CNAME DNS record.
+    DNS_ERROR_NODE_IS_CNAME = 9708,
+    /// A CNAME record already exists for given name.
+    DNS_ERROR_CNAME_COLLISION = 9709,
+    /// Record only at DNS zone root.
+    DNS_ERROR_RECORD_ONLY_AT_ZONE_ROOT = 9710,
+    /// DNS record already exists.
+    DNS_ERROR_RECORD_ALREADY_EXISTS = 9711,
+    /// Secondary DNS zone data error.
+    DNS_ERROR_SECONDARY_DATA = 9712,
+    /// Could not create DNS cache data.
+    DNS_ERROR_NO_CREATE_CACHE_DATA = 9713,
+    /// DNS name does not exist.
+    DNS_ERROR_NAME_DOES_NOT_EXIST = 9714,
+    /// Could not create pointer (PTR) record.
+    DNS_WARNING_PTR_CREATE_FAILED = 9715,
+    /// DNS domain was undeleted.
+    DNS_WARNING_DOMAIN_UNDELETED = 9716,
+    /// The directory service is unavailable.
+    DNS_ERROR_DS_UNAVAILABLE = 9717,
+    /// DNS zone already exists in the directory service.
+    DNS_ERROR_DS_ZONE_ALREADY_EXISTS = 9718,
+    /// DNS server not creating or reading the boot file for the directory service integrated DNS zone.
+    DNS_ERROR_NO_BOOTFILE_IF_DS_ZONE = 9719,
+    /// Node is a DNAME DNS record.
+    DNS_ERROR_NODE_IS_DNAME = 9720,
+    /// A DNAME record already exists for given name.
+    DNS_ERROR_DNAME_COLLISION = 9721,
+    /// An alias loop has been detected with either CNAME or DNAME records.
+    DNS_ERROR_ALIAS_LOOP = 9722,
+    /// Operation errors
+    DNS_ERROR_OPERATION_BASE = 9750,
+    /// DNS AXFR (zone transfer) complete.
+    DNS_INFO_AXFR_COMPLETE = 9751,
+    /// DNS zone transfer failed.
+    DNS_ERROR_AXFR = 9752,
+    /// Added local WINS server.
+    DNS_INFO_ADDED_LOCAL_WINS = 9753,
+    /// Secure update
+    DNS_ERROR_SECURE_BASE = 9800,
+    /// Secure update call needs to continue update request.
+    DNS_STATUS_CONTINUE_NEEDED = 9801,
+    /// Setup errors
+    DNS_ERROR_SETUP_BASE = 9850,
+    /// TCP/IP network protocol not installed.
+    DNS_ERROR_NO_TCPIP = 9851,
+    /// No DNS servers configured for local system.
+    DNS_ERROR_NO_DNS_SERVERS = 9852,
+    /// Directory partition (DP) errors
+    DNS_ERROR_DP_BASE = 9900,
+    /// The specified directory partition does not exist.
+    DNS_ERROR_DP_DOES_NOT_EXIST = 9901,
+    /// The specified directory partition already exists.
+    DNS_ERROR_DP_ALREADY_EXISTS = 9902,
+    /// This DNS server is not enlisted in the specified directory partition.
+    DNS_ERROR_DP_NOT_ENLISTED = 9903,
+    /// This DNS server is already enlisted in the specified directory partition.
+    DNS_ERROR_DP_ALREADY_ENLISTED = 9904,
+    /// The directory partition is not available at this time. Please wait a few minutes and try again.
+    DNS_ERROR_DP_NOT_AVAILABLE = 9905,
+    /// The operation failed because the domain naming master FSMO role could not be reached. The domain controller holding the domain naming master FSMO role is down or unable to service the request or is not running Windows Server 2003 or later.
+    DNS_ERROR_DP_FSMO_ERROR = 9906,
+    /// DNS RRL errors from 9911 to 9920
+    /// The RRL is not enabled.
+    DNS_ERROR_RRL_NOT_ENABLED = 9911,
+    /// The window size parameter is invalid. It should be greater than or equal to 1.
+    DNS_ERROR_RRL_INVALID_WINDOW_SIZE = 9912,
+    /// The IPv4 prefix length parameter is invalid. It should be less than or equal to 32.
+    DNS_ERROR_RRL_INVALID_IPV4_PREFIX = 9913,
+    /// The IPv6 prefix length parameter is invalid. It should be less than or equal to 128.
+    DNS_ERROR_RRL_INVALID_IPV6_PREFIX = 9914,
+    /// The TC Rate parameter is invalid. It should be less than 10.
+    DNS_ERROR_RRL_INVALID_TC_RATE = 9915,
+    /// The Leak Rate parameter is invalid. It should be either 0, or between 2 and 10.
+    DNS_ERROR_RRL_INVALID_LEAK_RATE = 9916,
+    /// The Leak Rate or TC Rate parameter is invalid. Leak Rate should be greater than TC Rate.
+    DNS_ERROR_RRL_LEAK_RATE_LESSTHAN_TC_RATE = 9917,
+    /// DNS Virtualization errors from 9921 to 9950
+    /// The virtualization instance already exists.
+    DNS_ERROR_VIRTUALIZATION_INSTANCE_ALREADY_EXISTS = 9921,
+    /// The virtualization instance does not exist.
+    DNS_ERROR_VIRTUALIZATION_INSTANCE_DOES_NOT_EXIST = 9922,
+    /// The virtualization tree is locked.
+    DNS_ERROR_VIRTUALIZATION_TREE_LOCKED = 9923,
+    /// Invalid virtualization instance name.
+    DNS_ERROR_INVAILD_VIRTUALIZATION_INSTANCE_NAME = 9924,
+    /// The default virtualization instance cannot be added, removed or modified.
+    DNS_ERROR_DEFAULT_VIRTUALIZATION_INSTANCE = 9925,
+    /// DNS ZoneScope errors from 9951 to 9970
+    /// The scope already exists for the zone.
+    DNS_ERROR_ZONESCOPE_ALREADY_EXISTS = 9951,
+    /// The scope does not exist for the zone.
+    DNS_ERROR_ZONESCOPE_DOES_NOT_EXIST = 9952,
+    /// The scope is the same as the default zone scope.
+    DNS_ERROR_DEFAULT_ZONESCOPE = 9953,
+    /// The scope name contains invalid characters.
+    DNS_ERROR_INVALID_ZONESCOPE_NAME = 9954,
+    /// Operation not allowed when the zone has scopes.
+    DNS_ERROR_NOT_ALLOWED_WITH_ZONESCOPES = 9955,
+    /// Failed to load zone scope.
+    DNS_ERROR_LOAD_ZONESCOPE_FAILED = 9956,
+    /// Failed to write data file for DNS zone scope. Please verify the file exists and is writable.
+    DNS_ERROR_ZONESCOPE_FILE_WRITEBACK_FAILED = 9957,
+    /// The scope name contains invalid characters.
+    DNS_ERROR_INVALID_SCOPE_NAME = 9958,
+    /// The scope does not exist.
+    DNS_ERROR_SCOPE_DOES_NOT_EXIST = 9959,
+    /// The scope is the same as the default scope.
+    DNS_ERROR_DEFAULT_SCOPE = 9960,
+    /// The operation is invalid on the scope.
+    DNS_ERROR_INVALID_SCOPE_OPERATION = 9961,
+    /// The scope is locked.
+    DNS_ERROR_SCOPE_LOCKED = 9962,
+    /// The scope already exists.
+    DNS_ERROR_SCOPE_ALREADY_EXISTS = 9963,
+    /// DNS Policy errors from 9971 to 9999
+    /// A policy with the same name already exists on this level (server level or zone level) on the DNS server.
+    DNS_ERROR_POLICY_ALREADY_EXISTS = 9971,
+    /// No policy with this name exists on this level (server level or zone level) on the DNS server.
+    DNS_ERROR_POLICY_DOES_NOT_EXIST = 9972,
+    /// The criteria provided in the policy are invalid.
+    DNS_ERROR_POLICY_INVALID_CRITERIA = 9973,
+    /// At least one of the settings of this policy is invalid.
+    DNS_ERROR_POLICY_INVALID_SETTINGS = 9974,
+    /// The client subnet cannot be deleted while it is being accessed by a policy.
+    DNS_ERROR_CLIENT_SUBNET_IS_ACCESSED = 9975,
+    /// The client subnet does not exist on the DNS server.
+    DNS_ERROR_CLIENT_SUBNET_DOES_NOT_EXIST = 9976,
+    /// A client subnet with this name already exists on the DNS server.
+    DNS_ERROR_CLIENT_SUBNET_ALREADY_EXISTS = 9977,
+    /// The IP subnet specified does not exist in the client subnet.
+    DNS_ERROR_SUBNET_DOES_NOT_EXIST = 9978,
+    /// The IP subnet that is being added, already exists in the client subnet.
+    DNS_ERROR_SUBNET_ALREADY_EXISTS = 9979,
+    /// The policy is locked.
+    DNS_ERROR_POLICY_LOCKED = 9980,
+    /// The weight of the scope in the policy is invalid.
+    DNS_ERROR_POLICY_INVALID_WEIGHT = 9981,
+    /// The DNS policy name is invalid.
+    DNS_ERROR_POLICY_INVALID_NAME = 9982,
+    /// The policy is missing criteria.
+    DNS_ERROR_POLICY_MISSING_CRITERIA = 9983,
+    /// The name of the the client subnet record is invalid.
+    DNS_ERROR_INVALID_CLIENT_SUBNET_NAME = 9984,
+    /// Invalid policy processing order.
+    DNS_ERROR_POLICY_PROCESSING_ORDER_INVALID = 9985,
+    /// The scope information has not been provided for a policy that requires it.
+    DNS_ERROR_POLICY_SCOPE_MISSING = 9986,
+    /// The scope information has been provided for a policy that does not require it.
+    DNS_ERROR_POLICY_SCOPE_NOT_ALLOWED = 9987,
+    /// The server scope cannot be deleted because it is referenced by a DNS Policy.
+    DNS_ERROR_SERVERSCOPE_IS_REFERENCED = 9988,
+    /// The zone scope cannot be deleted because it is referenced by a DNS Policy.
+    DNS_ERROR_ZONESCOPE_IS_REFERENCED = 9989,
+    /// The criterion client subnet provided in the policy is invalid.
+    DNS_ERROR_POLICY_INVALID_CRITERIA_CLIENT_SUBNET = 9990,
+    /// The criterion transport protocol provided in the policy is invalid.
+    DNS_ERROR_POLICY_INVALID_CRITERIA_TRANSPORT_PROTOCOL = 9991,
+    /// The criterion network protocol provided in the policy is invalid.
+    DNS_ERROR_POLICY_INVALID_CRITERIA_NETWORK_PROTOCOL = 9992,
+    /// The criterion interface provided in the policy is invalid.
+    DNS_ERROR_POLICY_INVALID_CRITERIA_INTERFACE = 9993,
+    /// The criterion FQDN provided in the policy is invalid.
+    DNS_ERROR_POLICY_INVALID_CRITERIA_FQDN = 9994,
+    /// The criterion query type provided in the policy is invalid.
+    DNS_ERROR_POLICY_INVALID_CRITERIA_QUERY_TYPE = 9995,
+    /// The criterion time of day provided in the policy is invalid.
+    DNS_ERROR_POLICY_INVALID_CRITERIA_TIME_OF_DAY = 9996,
+
+    /// An error occurred while performing an operation on a cryptographic message.
+    CRYPT_E_MSG_ERROR = 0x80091001,
+    /// Unknown cryptographic algorithm.
+    CRYPT_E_UNKNOWN_ALGO = 0x80091002,
+    /// The object identifier is poorly formatted.
+    CRYPT_E_OID_FORMAT = 0x80091003,
+    /// Invalid cryptographic message type.
+    CRYPT_E_INVALID_MSG_TYPE = 0x80091004,
+    /// Unexpected cryptographic message encoding.
+    CRYPT_E_UNEXPECTED_ENCODING = 0x80091005,
+    /// The cryptographic message does not contain an expected authenticated attribute.
+    CRYPT_E_AUTH_ATTR_MISSING = 0x80091006,
+    /// The hash value is not correct.
+    CRYPT_E_HASH_VALUE = 0x80091007,
+    /// The index value is not valid.
+    CRYPT_E_INVALID_INDEX = 0x80091008,
+    /// The content of the cryptographic message has already been decrypted.
+    CRYPT_E_ALREADY_DECRYPTED = 0x80091009,
+    /// The content of the cryptographic message has not been decrypted yet.
+    CRYPT_E_NOT_DECRYPTED = 0x8009100A,
+    /// The enveloped-data message does not contain the specified recipient.
+    CRYPT_E_RECIPIENT_NOT_FOUND = 0x8009100B,
+    /// Invalid control type.
+    CRYPT_E_CONTROL_TYPE = 0x8009100C,
+    /// Invalid issuer and/or serial number.
+    CRYPT_E_ISSUER_SERIALNUMBER = 0x8009100D,
+    /// Cannot find the original signer.
+    CRYPT_E_SIGNER_NOT_FOUND = 0x8009100E,
+    /// The cryptographic message does not contain all of the requested attributes.
+    CRYPT_E_ATTRIBUTES_MISSING = 0x8009100F,
+    /// The streamed cryptographic message is not ready to return data.
+    CRYPT_E_STREAM_MSG_NOT_READY = 0x80091010,
+    /// The streamed cryptographic message requires more data to complete the decode operation.
+    CRYPT_E_STREAM_INSUFFICIENT_DATA = 0x80091011,
+    /// The protected data needs to be re-protected.
+    CRYPT_I_NEW_PROTECTION_REQUIRED = 0x00091012,
+    /// The length specified for the output data was insufficient.
+    CRYPT_E_BAD_LEN = 0x80092001,
+    /// An error occurred during encode or decode operation.
+    CRYPT_E_BAD_ENCODE = 0x80092002,
+    /// An error occurred while reading or writing to a file.
+    CRYPT_E_FILE_ERROR = 0x80092003,
+    /// Cannot find object or property.
+    CRYPT_E_NOT_FOUND = 0x80092004,
+    /// The object or property already exists.
+    CRYPT_E_EXISTS = 0x80092005,
+    /// No provider was specified for the store or object.
+    CRYPT_E_NO_PROVIDER = 0x80092006,
+    /// The specified certificate is self signed.
+    CRYPT_E_SELF_SIGNED = 0x80092007,
+    /// The previous certificate or CRL context was deleted.
+    CRYPT_E_DELETED_PREV = 0x80092008,
+    /// Cannot find the requested object.
+    CRYPT_E_NO_MATCH = 0x80092009,
+    /// The certificate does not have a property that references a private key.
+    CRYPT_E_UNEXPECTED_MSG_TYPE = 0x8009200A,
+    /// Cannot find the certificate and private key for decryption.
+    CRYPT_E_NO_KEY_PROPERTY = 0x8009200B,
+    /// Cannot find the certificate and private key to use for decryption.
+    CRYPT_E_NO_DECRYPT_CERT = 0x8009200C,
+    /// Not a cryptographic message or the cryptographic message is not formatted correctly.
+    CRYPT_E_BAD_MSG = 0x8009200D,
+    /// The signed cryptographic message does not have a signer for the specified signer index.
+    CRYPT_E_NO_SIGNER = 0x8009200E,
+    /// Final closure is pending until additional frees or closes.
+    CRYPT_E_PENDING_CLOSE = 0x8009200F,
+    /// The certificate is revoked.
+    CRYPT_E_REVOKED = 0x80092010,
+    /// No Dll or exported function was found to verify revocation.
+    CRYPT_E_NO_REVOCATION_DLL = 0x80092011,
+    /// The revocation function was unable to check revocation for the certificate.
+    CRYPT_E_NO_REVOCATION_CHECK = 0x80092012,
+    /// The revocation function was unable to check revocation because the revocation server was offline.
+    CRYPT_E_REVOCATION_OFFLINE = 0x80092013,
+    /// The certificate is not in the revocation server's database.
+    CRYPT_E_NOT_IN_REVOCATION_DATABASE = 0x80092014,
+    /// The string contains a non-numeric character.
+    CRYPT_E_INVALID_NUMERIC_STRING = 0x80092020,
+    /// The string contains a non-printable character.
+    CRYPT_E_INVALID_PRINTABLE_STRING = 0x80092021,
+    /// The string contains a character not in the 7 bit ASCII character set.
+    CRYPT_E_INVALID_IA5_STRING = 0x80092022,
+    /// The string contains an invalid X500 name attribute key, oid, value or delimiter.
+    CRYPT_E_INVALID_X500_STRING = 0x80092023,
+    /// The dwValueType for the CERT_NAME_VALUE is not one of the character strings. Most likely it is either a CERT_RDN_ENCODED_BLOB or CERT_RDN_OCTET_STRING.
+    CRYPT_E_NOT_CHAR_STRING = 0x80092024,
+    /// The Put operation cannot continue. The file needs to be resized. However, there is already a signature present. A complete signing operation must be done.
+    CRYPT_E_FILERESIZED = 0x80092025,
+    /// The cryptographic operation failed due to a local security option setting.
+    CRYPT_E_SECURITY_SETTINGS = 0x80092026,
+    /// No DLL or exported function was found to verify subject usage.
+    CRYPT_E_NO_VERIFY_USAGE_DLL = 0x80092027,
+    /// The called function was unable to do a usage check on the subject.
+    CRYPT_E_NO_VERIFY_USAGE_CHECK = 0x80092028,
+    /// Since the server was offline, the called function was unable to complete the usage check.
+    CRYPT_E_VERIFY_USAGE_OFFLINE = 0x80092029,
+    /// The subject was not found in a Certificate Trust List (CT,.
+    CRYPT_E_NOT_IN_CTL = 0x8009202A,
+    /// None of the signers of the cryptographic message or certificate trust list is trusted.
+    CRYPT_E_NO_TRUSTED_SIGNER = 0x8009202B,
+    /// The public key's algorithm parameters are missing.
+    CRYPT_E_MISSING_PUBKEY_PARA = 0x8009202C,
+    /// An object could not be located using the object locator infrastructure with the given name.
+    CRYPT_E_OBJECT_LOCATOR_OBJECT_NOT_FOUND = 0x8009202D,
+    /// MessageText:
+    /// OSS Certificate encode/decode error code base
+    /// See asn1code.h for a definition of the OSS runtime errors. The OSS error values are offset by CRYPT_E_OSS_ERROR.
+    CRYPT_E_OSS_ERROR = 0x80093000,
+
+    /// No signature was present in the subject.
+    TRUST_E_NOSIGNATURE = 0x800B0100,
+    /// A required certificate is not within its validity period when verifying against the current system clock or the timestamp in the signed file.
+    CERT_E_EXPIRED = 0x800B0101,
+    /// The validity periods of the certification chain do not nest correctly.
+    CERT_E_VALIDITYPERIODNESTING = 0x800B0102,
+    /// A certificate that can only be used as an end-entity is being used as a CA or vice versa.
+    CERT_E_ROLE = 0x800B0103,
+    /// A path length constraint in the certification chain has been violated.
+    CERT_E_PATHLENCONST = 0x800B0104,
+    /// A certificate contains an unknown extension that is marked 'critical'.
+    CERT_E_CRITICAL = 0x800B0105,
+    /// A certificate being used for a purpose other than the ones specified by its CA.
+    CERT_E_PURPOSE = 0x800B0106,
+    /// A parent of a given certificate in fact did not issue that child certificate.
+    CERT_E_ISSUERCHAINING = 0x800B0107,
+    /// A certificate is missing or has an empty value for an important field, such as a subject or issuer name.
+    CERT_E_MALFORMED = 0x800B0108,
+    /// A certificate chain processed, but terminated in a root certificate which is not trusted by the trust provider.
+    CERT_E_UNTRUSTEDROOT = 0x800B0109,
+    /// A certificate chain could not be built to a trusted root authority.
+    CERT_E_CHAINING = 0x800B010A,
+    /// Generic trust failure.
+    TRUST_E_FAIL = 0x800B010B,
+    /// A certificate was explicitly revoked by its issuer.
+    CERT_E_REVOKED = 0x800B010C,
+    /// The certification path terminates with the test root which is not trusted with the current policy settings.
+    CERT_E_UNTRUSTEDTESTROOT = 0x800B010D,
+    /// The revocation process could not continue - the certificate(s) could not be checked.
+    CERT_E_REVOCATION_FAILURE = 0x800B010E,
+    /// The certificate's CN name does not match the passed value.
+    CERT_E_CN_NO_MATCH = 0x800B010F,
+    /// The certificate is not valid for the requested usage.
+    CERT_E_WRONG_USAGE = 0x800B0110,
+    /// The certificate was explicitly marked as untrusted by the user.
+    TRUST_E_EXPLICIT_DISTRUST = 0x800B0111,
+    /// A certification chain processed correctly, but one of the CA certificates is not trusted by the policy provider.
+    CERT_E_UNTRUSTEDCA = 0x800B0112,
+    /// The certificate has invalid policy.
+    CERT_E_INVALID_POLICY = 0x800B0113,
+    /// The certificate has an invalid name. The name is not included in the permitted list or is explicitly excluded.
+    CERT_E_INVALID_NAME = 0x800B0114,
+
     _,
 };

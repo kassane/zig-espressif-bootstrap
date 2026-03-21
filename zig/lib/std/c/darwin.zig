@@ -436,7 +436,7 @@ pub const thread_state_flavor_t = c_int;
 pub const ipc_space_t = mach_port_t;
 pub const ipc_space_port_t = ipc_space_t;
 
-pub const mach_msg_option_t = packed union {
+pub const mach_msg_option_t = packed union(integer_t) {
     RCV: MACH.RCV,
     SEND: MACH.SEND,
 

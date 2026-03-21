@@ -4,7 +4,6 @@ const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 pub const SimpleNetwork = extern struct {
     revision: u64,
@@ -110,10 +109,10 @@ pub const SimpleNetwork = extern struct {
     pub fn start(self: *SimpleNetwork) StartError!void {
         switch (self._start(self)) {
             .success => {},
-            .already_started => return Error.AlreadyStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .already_started => return error.AlreadyStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -122,10 +121,10 @@ pub const SimpleNetwork = extern struct {
     pub fn stop(self: *SimpleNetwork) StopError!void {
         switch (self._stop(self)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -138,11 +137,11 @@ pub const SimpleNetwork = extern struct {
     ) InitializeError!void {
         switch (self._initialize(self, extra_rx_buffer_size, extra_tx_buffer_size)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .out_of_resources => return Error.OutOfResources,
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .not_started => return error.NotStarted,
+            .out_of_resources => return error.OutOfResources,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -151,10 +150,10 @@ pub const SimpleNetwork = extern struct {
     pub fn reset(self: *SimpleNetwork, extended_verification: bool) ResetError!void {
         switch (self._reset(self, extended_verification)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -163,9 +162,9 @@ pub const SimpleNetwork = extern struct {
     pub fn shutdown(self: *SimpleNetwork) ShutdownError!void {
         switch (self._shutdown(self)) {
             .success => {},
-            .not_started => return ShutdownError.NotStarted,
-            .invalid_parameter => return ShutdownError.InvalidParameter,
-            .device_error => return ShutdownError.DeviceError,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -186,10 +185,10 @@ pub const SimpleNetwork = extern struct {
 
         switch (self._receive_filters(self, enable, disable, reset_mcast_filter, count, ptr)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -202,10 +201,10 @@ pub const SimpleNetwork = extern struct {
     ) StationAddressError!void {
         switch (self._station_address(self, reset_flag, new)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -213,10 +212,10 @@ pub const SimpleNetwork = extern struct {
     pub fn resetStatistics(self: *SimpleNetwork) StatisticsError!void {
         switch (self._statistics(self, true, null, null)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -227,10 +226,10 @@ pub const SimpleNetwork = extern struct {
         var stats_size: usize = @sizeOf(Statistics);
         switch (self._statistics(self, reset_flag, &stats_size, &stats)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
 
@@ -249,10 +248,10 @@ pub const SimpleNetwork = extern struct {
         var mac: MacAddress = undefined;
         switch (self._mcast_ip_to_mac(self, ipv6, ip, &mac)) {
             .success => return mac,
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -273,10 +272,10 @@ pub const SimpleNetwork = extern struct {
             buffer.ptr,
         )) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -289,9 +288,9 @@ pub const SimpleNetwork = extern struct {
     ) GetStatusError!void {
         switch (self._get_status(self, interrupt_status, recycled_tx_buf)) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
+            .not_started => return error.NotStarted,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -315,12 +314,12 @@ pub const SimpleNetwork = extern struct {
             protocol,
         )) {
             .success => {},
-            .not_started => return Error.NotStarted,
-            .not_ready => return Error.NotReady,
-            .buffer_too_small => return Error.BufferTooSmall,
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .not_started => return error.NotStarted,
+            .not_ready => return error.NotReady,
+            .buffer_too_small => return error.BufferTooSmall,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -340,11 +339,11 @@ pub const SimpleNetwork = extern struct {
             &packet.protocol,
         )) {
             .success => return packet,
-            .not_started => return Error.NotStarted,
-            .not_ready => return Error.NotReady,
-            .buffer_too_small => return Error.BufferTooSmall,
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
+            .not_started => return error.NotStarted,
+            .not_ready => return error.NotReady,
+            .buffer_too_small => return error.BufferTooSmall,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

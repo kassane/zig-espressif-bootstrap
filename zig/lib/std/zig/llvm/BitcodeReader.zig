@@ -34,8 +34,8 @@ pub const Block = struct {
 
         const default: Info = .{
             .block_name = &.{},
-            .record_names = .{},
-            .abbrevs = .{ .abbrevs = .{} },
+            .record_names = .empty,
+            .abbrevs = .{ .abbrevs = .empty },
         };
 
         const set_bid_id: u32 = 1;
@@ -109,8 +109,8 @@ pub fn init(allocator: std.mem.Allocator, options: InitOptions) BitcodeReader {
         .keep_names = options.keep_names,
         .bit_buffer = 0,
         .bit_offset = 0,
-        .stack = .{},
-        .block_info = .{},
+        .stack = .empty,
+        .block_info = .empty,
     };
 }
 
@@ -278,7 +278,7 @@ fn startBlock(bc: *BitcodeReader, block_id: ?u32, new_abbrev_len: u6) !void {
     state.* = .{
         .block_id = block_id,
         .abbrev_id_width = new_abbrev_len,
-        .abbrevs = .{ .abbrevs = .{} },
+        .abbrevs = .{ .abbrevs = .empty },
     };
     try state.abbrevs.abbrevs.ensureTotalCapacity(
         bc.allocator,

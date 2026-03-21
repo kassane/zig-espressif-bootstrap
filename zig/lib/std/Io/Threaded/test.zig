@@ -9,11 +9,6 @@ const assert = std.debug.assert;
 const windows = std.os.windows;
 
 test "concurrent vs main prevents deadlock via oversubscription" {
-    if (true) {
-        // https://codeberg.org/ziglang/zig/issues/30141
-        return error.SkipZigTest;
-    }
-
     var threaded: Io.Threaded = .init(std.testing.allocator, .{
         .argv0 = .empty,
         .environ = .empty,
@@ -37,19 +32,14 @@ test "concurrent vs main prevents deadlock via oversubscription" {
 }
 
 fn put(io: Io, queue: *Io.Queue(u8)) void {
-    queue.putOneUncancelable(io, 42);
+    queue.putOneUncancelable(io, 42) catch unreachable;
 }
 
 fn get(io: Io, queue: *Io.Queue(u8)) void {
-    assert(queue.getOneUncancelable(io) == 42);
+    assert(queue.getOneUncancelable(io) catch unreachable == 42);
 }
 
 test "concurrent vs concurrent prevents deadlock via oversubscription" {
-    if (true) {
-        // https://codeberg.org/ziglang/zig/issues/30141
-        return error.SkipZigTest;
-    }
-
     var threaded: Io.Threaded = .init(std.testing.allocator, .{
         .argv0 = .empty,
         .environ = .empty,
@@ -282,11 +272,10 @@ test "memory mapping fallback" {
 /// Wrapper around RtlDosPathNameToNtPathName_U for use in comparing
 /// the behavior of RtlDosPathNameToNtPathName_U with wToPrefixedFileW
 /// Note: RtlDosPathNameToNtPathName_U is not used in the Zig implementation
-//        because it allocates.
+///       because it allocates.
 fn RtlDosPathNameToNtPathName_U(path: [:0]const u16) !Io.Threaded.WindowsPathSpace {
     var out: windows.UNICODE_STRING = undefined;
-    const rc = windows.ntdll.RtlDosPathNameToNtPathName_U(path, &out, null, null);
-    if (rc != windows.TRUE) return error.BadPathName;
+    if (!windows.ntdll.RtlDosPathNameToNtPathName_U(path, &out, null, null).toBool()) return error.BadPathName;
     defer windows.ntdll.RtlFreeUnicodeString(&out);
 
     var path_space: Io.Threaded.WindowsPathSpace = undefined;
@@ -303,7 +292,7 @@ fn RtlDosPathNameToNtPathName_U(path: [:0]const u16) !Io.Threaded.WindowsPathSpa
 fn testToPrefixedFileNoOracle(comptime path: []const u8, comptime expected_path: []const u8) !void {
     const path_utf16 = std.unicode.utf8ToUtf16LeStringLiteral(path);
     const expected_path_utf16 = std.unicode.utf8ToUtf16LeStringLiteral(expected_path);
-    const actual_path = try Io.Threaded.wToPrefixedFileW(null, path_utf16);
+    const actual_path = try Io.Threaded.wToPrefixedFileW(null, path_utf16, .{});
     std.testing.expectEqualSlices(u16, expected_path_utf16, actual_path.span()) catch |e| {
         std.debug.print("got '{f}', expected '{f}'\n", .{ std.unicode.fmtUtf16Le(actual_path.span()), std.unicode.fmtUtf16Le(expected_path_utf16) });
         return e;
@@ -320,7 +309,7 @@ fn testToPrefixedFileWithOracle(comptime path: []const u8, comptime expected_pat
 /// Test that the Zig conversion matches the conversion that RtlDosPathNameToNtPathName_U does.
 fn testToPrefixedFileOnlyOracle(comptime path: []const u8) !void {
     const path_utf16 = std.unicode.utf8ToUtf16LeStringLiteral(path);
-    const zig_result = try Io.Threaded.wToPrefixedFileW(null, path_utf16);
+    const zig_result = try Io.Threaded.wToPrefixedFileW(null, path_utf16, .{});
     const win32_api_result = try RtlDosPathNameToNtPathName_U(path_utf16);
     std.testing.expectEqualSlices(u16, win32_api_result.span(), zig_result.span()) catch |e| {
         std.debug.print("got '{f}', expected '{f}'\n", .{ std.unicode.fmtUtf16Le(zig_result.span()), std.unicode.fmtUtf16Le(win32_api_result.span()) });

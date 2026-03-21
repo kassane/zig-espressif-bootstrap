@@ -3,7 +3,7 @@ data: std.ArrayList(u8) = .empty,
 basename: []const u8,
 index: File.Index,
 
-symtab: std.MultiArrayList(Nlist) = .{},
+symtab: std.MultiArrayList(Nlist) = .empty,
 strtab: StringTable = .{},
 
 symbols: std.ArrayList(Symbol) = .empty,
@@ -29,7 +29,7 @@ uavs: UavTable = .{},
 tlv_initializers: TlvInitializerTable = .{},
 
 /// A table of relocations.
-relocs: RelocationTable = .{},
+relocs: RelocationTable = .empty,
 
 dwarf: ?Dwarf = null,
 
@@ -150,7 +150,7 @@ fn newAtom(self: *ZigObject, allocator: Allocator, name: MachO.String, macho_fil
     atom.name = name;
 
     const relocs_index = @as(u32, @intCast(self.relocs.items.len));
-    self.relocs.addOneAssumeCapacity().* = .{};
+    self.relocs.addOneAssumeCapacity().* = .empty;
     atom.addExtra(.{ .rel_index = relocs_index, .rel_count = 0 }, macho_file);
 
     return index;
@@ -877,15 +877,14 @@ pub fn updateNav(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
 
-    const nav_init = switch (ip.indexToKey(nav.status.fully_resolved.val)) {
-        .func => .none,
-        .variable => |variable| variable.init,
+    switch (ip.indexToKey(nav.resolved.?.value)) {
+        else => {},
         .@"extern" => |@"extern"| {
             // Extern variable gets a __got entry only
             const name = @"extern".name.toSlice(ip);
             const lib_name = @"extern".lib_name.toSlice(ip);
             const sym_index = try self.getGlobalSymbol(macho_file, name, lib_name);
-            if (@"extern".is_threadlocal and macho_file.base.comp.config.any_non_single_threaded) self.symbols.items[sym_index].flags.tlv = true;
+            if (nav.resolved.?.@"threadlocal" and macho_file.base.comp.config.any_non_single_threaded) self.symbols.items[sym_index].flags.tlv = true;
             if (self.dwarf) |*dwarf| {
                 var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index);
                 defer debug_wip_nav.deinit();
@@ -897,10 +896,9 @@ pub fn updateNav(
             }
             return;
         },
-        else => nav.status.fully_resolved.val,
-    };
+    }
 
-    if (nav_init != .none and Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) {
+    if (Type.fromInterned(nav.resolved.?.type).hasRuntimeBits(zcu)) {
         const sym_index = try self.getOrCreateMetadataForNav(macho_file, nav_index);
         self.symbols.items[sym_index].getAtom(macho_file).?.freeRelocs(macho_file);
 
@@ -914,7 +912,7 @@ pub fn updateNav(
             &macho_file.base,
             pt,
             zcu.navSrcLoc(nav_index),
-            Value.fromInterned(nav_init),
+            .fromInterned(nav.resolved.?.value),
             &aw.writer,
             .{ .atom_index = sym_index },
         ) catch |err| switch (err) {
@@ -925,7 +923,7 @@ pub fn updateNav(
 
         const sect_index = try self.getNavOutputSection(macho_file, zcu, nav_index, code);
         if (isThreadlocal(macho_file, nav_index))
-            try self.updateTlv(macho_file, pt, nav_index, sym_index, sect_index, code)
+            try self.updateTlv(macho_file, zcu, nav_index, sym_index, sect_index, code)
         else
             try self.updateNavCode(macho_file, pt, nav_index, sym_index, sect_index, code);
 
@@ -959,7 +957,7 @@ fn updateNavCode(
 
     const mod = zcu.navFileScope(nav_index).mod.?;
     const target = &mod.resolved_target.result;
-    const required_alignment = switch (nav.status.fully_resolved.alignment) {
+    const required_alignment = switch (nav.resolved.?.@"align") {
         .none => switch (mod.optimize_mode) {
             .Debug, .ReleaseSafe, .ReleaseFast => target_util.defaultFunctionAlignment(target),
             .ReleaseSmall => target_util.minFunctionAlignment(target),
@@ -1030,13 +1028,13 @@ fn updateNavCode(
 fn updateTlv(
     self: *ZigObject,
     macho_file: *MachO,
-    pt: Zcu.PerThread,
+    zcu: *Zcu,
     nav_index: InternPool.Nav.Index,
     sym_index: Symbol.Index,
     sect_index: u8,
     code: []const u8,
 ) !void {
-    const ip = &pt.zcu.intern_pool;
+    const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
 
     log.debug("updateTlv {f} (0x{x})", .{ nav.fqn.fmt(ip), nav_index });
@@ -1045,7 +1043,7 @@ fn updateTlv(
     const init_sym_index = try self.createTlvInitializer(
         macho_file,
         nav.fqn.toSlice(ip),
-        pt.navAlignment(nav_index),
+        zcu.navAlignment(nav_index),
         sect_index,
         code,
     );
@@ -1167,14 +1165,10 @@ fn getNavOutputSection(
 ) error{OutOfMemory}!u8 {
     _ = self;
     const ip = &zcu.intern_pool;
-    const nav_val = zcu.navValue(nav_index);
+    const nav = ip.getNav(nav_index);
+    const nav_val: Value = .fromInterned(nav.resolved.?.value);
     if (ip.isFunctionType(nav_val.typeOf(zcu).toIntern())) return macho_file.zig_text_sect_index.?;
-    const is_const, const is_threadlocal, const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
-        .variable => |variable| .{ false, variable.is_threadlocal, variable.init },
-        .@"extern" => |@"extern"| .{ @"extern".is_const, @"extern".is_threadlocal, .none },
-        else => .{ true, false, nav_val.toIntern() },
-    };
-    if (is_threadlocal and macho_file.base.comp.config.any_non_single_threaded) {
+    if (nav.resolved.?.@"threadlocal" and macho_file.base.comp.config.any_non_single_threaded) {
         for (code) |byte| {
             if (byte != 0) break;
         } else return macho_file.getSectionByName("__DATA", "__thread_bss") orelse try macho_file.addSection(
@@ -1188,8 +1182,8 @@ fn getNavOutputSection(
             .{ .flags = macho.S_THREAD_LOCAL_REGULAR },
         );
     }
-    if (is_const) return macho_file.zig_const_sect_index.?;
-    if (nav_init != .none and Value.fromInterned(nav_init).isUndef(zcu))
+    if (nav.resolved.?.@"const") return macho_file.zig_const_sect_index.?;
+    if (nav_val.isUndef(zcu))
         return switch (zcu.navFileScope(nav_index).mod.?.optimize_mode) {
             .Debug, .ReleaseSafe => macho_file.zig_data_sect_index.?,
             .ReleaseFast, .ReleaseSmall => macho_file.zig_bss_sect_index.?,
@@ -1550,7 +1544,7 @@ fn isThreadlocal(macho_file: *MachO, nav_index: InternPool.Nav.Index) bool {
     if (!macho_file.base.comp.config.any_non_single_threaded)
         return false;
     const ip = &macho_file.base.comp.zcu.?.intern_pool;
-    return ip.getNav(nav_index).isThreadlocal(ip);
+    return ip.getNav(nav_index).resolved.?.@"threadlocal";
 }
 
 fn addAtom(self: *ZigObject, allocator: Allocator) !Atom.Index {

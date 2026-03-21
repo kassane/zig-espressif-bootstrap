@@ -82,7 +82,7 @@ fn testPointer() !void {
     try expect(u32_ptr_info.pointer.size == .one);
     try expect(u32_ptr_info.pointer.is_const == false);
     try expect(u32_ptr_info.pointer.is_volatile == false);
-    try expect(u32_ptr_info.pointer.alignment == @alignOf(u32));
+    try expect(u32_ptr_info.pointer.alignment == null);
     try expect(u32_ptr_info.pointer.child == u32);
     try expect(u32_ptr_info.pointer.sentinel() == null);
 }
@@ -99,7 +99,7 @@ fn testUnknownLenPtr() !void {
     try expect(u32_ptr_info.pointer.is_const == true);
     try expect(u32_ptr_info.pointer.is_volatile == true);
     try expect(u32_ptr_info.pointer.sentinel() == null);
-    try expect(u32_ptr_info.pointer.alignment == @alignOf(f64));
+    try expect(u32_ptr_info.pointer.alignment == null);
     try expect(u32_ptr_info.pointer.child == f64);
 }
 
@@ -130,7 +130,7 @@ fn testSlice() !void {
     try expect(u32_slice_info.pointer.size == .slice);
     try expect(u32_slice_info.pointer.is_const == false);
     try expect(u32_slice_info.pointer.is_volatile == false);
-    try expect(u32_slice_info.pointer.alignment == 4);
+    try expect(u32_slice_info.pointer.alignment == null);
     try expect(u32_slice_info.pointer.child == u32);
 }
 
@@ -266,9 +266,9 @@ fn testUnion() !void {
     try expect(notag_union_info.@"union".tag_type == null);
     try expect(notag_union_info.@"union".layout == .auto);
     try expect(notag_union_info.@"union".fields.len == 2);
-    try expect(notag_union_info.@"union".fields[0].alignment == @alignOf(void));
+    try expect(notag_union_info.@"union".fields[0].alignment == null);
     try expect(notag_union_info.@"union".fields[1].type == u32);
-    try expect(notag_union_info.@"union".fields[1].alignment == @alignOf(u32));
+    try expect(notag_union_info.@"union".fields[1].alignment == null);
 
     const TestExternUnion = extern union {
         foo: *anyopaque,
@@ -292,7 +292,7 @@ fn testStruct() !void {
     const unpacked_struct_info = @typeInfo(TestStruct);
     try expect(unpacked_struct_info.@"struct".is_tuple == false);
     try expect(unpacked_struct_info.@"struct".backing_integer == null);
-    try expect(unpacked_struct_info.@"struct".fields[0].alignment == @alignOf(u32));
+    try expect(unpacked_struct_info.@"struct".fields[0].alignment == null);
     try expect(unpacked_struct_info.@"struct".fields[0].defaultValue().? == 4);
     try expect(mem.eql(u8, "foobar", unpacked_struct_info.@"struct".fields[1].defaultValue().?));
 }
@@ -314,11 +314,11 @@ fn testPackedStruct() !void {
     try expect(struct_info.@"struct".layout == .@"packed");
     try expect(struct_info.@"struct".backing_integer == u128);
     try expect(struct_info.@"struct".fields.len == 4);
-    try expect(struct_info.@"struct".fields[0].alignment == 0);
+    try expect(struct_info.@"struct".fields[0].alignment == null);
     try expect(struct_info.@"struct".fields[2].type == f32);
     try expect(struct_info.@"struct".fields[2].defaultValue() == null);
     try expect(struct_info.@"struct".fields[3].defaultValue().? == 4);
-    try expect(struct_info.@"struct".fields[3].alignment == 0);
+    try expect(struct_info.@"struct".fields[3].alignment == null);
     try expect(struct_info.@"struct".decls.len == 1);
 }
 

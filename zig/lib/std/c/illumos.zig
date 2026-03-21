@@ -297,7 +297,7 @@ pub const lifreq = extern struct {
         /// Maximum transmission unit
         mtu: u32,
         // Technically [2]i32
-        muxid: packed struct { ip: i32, arp: i32 },
+        muxid: packed struct(u64) { ip: i32, arp: i32 },
         /// Neighbor reachability determination entries
         nd_req: lif_nd_req,
         /// Link info

@@ -691,8 +691,11 @@ struct splice {
 
 #ifndef	_KERNEL
 
+// zig patch: ssp/socket.h header was added in FreeBSD 15
+#if __FreeBSD_version >= 1500500
 #if defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
 #include <ssp/socket.h>
+#endif
 #endif
 
 #include <sys/cdefs.h>

@@ -189,7 +189,7 @@ pub fn updateExports(
             @panic("TODO: implement Linker linker code for exporting a constant value");
         },
     };
-    const nav_ty = ip.getNav(nav_index).typeOf(ip);
+    const nav_ty = ip.getNav(nav_index).resolved.?.type;
     const target = zcu.getTarget();
     if (ip.isFunctionType(nav_ty)) {
         const spv_decl_index = try linker.module.resolveNav(ip, nav_index);

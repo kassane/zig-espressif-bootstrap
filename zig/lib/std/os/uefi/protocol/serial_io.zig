@@ -3,7 +3,6 @@ const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 pub const SerialIo = extern struct {
     revision: u64,
@@ -39,7 +38,7 @@ pub const SerialIo = extern struct {
     pub fn reset(self: *SerialIo) ResetError!void {
         switch (self._reset(self)) {
             .success => {},
-            .device_error => return Error.DeviceError,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -64,8 +63,8 @@ pub const SerialIo = extern struct {
             stop_bits,
         )) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -74,8 +73,8 @@ pub const SerialIo = extern struct {
     pub fn setControl(self: *SerialIo, control: u32) SetControlError!void {
         switch (self._set_control(self, control)) {
             .success => {},
-            .unsupported => return Error.Unsupported,
-            .device_error => return Error.DeviceError,
+            .unsupported => return error.Unsupported,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -85,7 +84,7 @@ pub const SerialIo = extern struct {
         var control: u32 = undefined;
         switch (self._get_control(self, &control)) {
             .success => return control,
-            .device_error => return Error.DeviceError,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -95,8 +94,8 @@ pub const SerialIo = extern struct {
         var len: usize = buffer.len;
         switch (self._write(self, &len, buffer.ptr)) {
             .success => return len,
-            .device_error => return Error.DeviceError,
-            .timeout => return Error.Timeout,
+            .device_error => return error.DeviceError,
+            .timeout => return error.Timeout,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -106,8 +105,8 @@ pub const SerialIo = extern struct {
         var len: usize = buffer.len;
         switch (self._read(self, &len, buffer.ptr)) {
             .success => return len,
-            .device_error => return Error.DeviceError,
-            .timeout => return Error.Timeout,
+            .device_error => return error.DeviceError,
+            .timeout => return error.Timeout,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }

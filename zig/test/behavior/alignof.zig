@@ -39,3 +39,8 @@ test "correct alignment for elements and slices of aligned array" {
     try expect(@alignOf(@TypeOf(&buf[start..end])) == @alignOf(*u8));
     try expect(@alignOf(@TypeOf(&buf[start])) == @alignOf(*u8));
 }
+
+test "@alignOf(anyerror!noreturn)" {
+    try expect(@alignOf(anyerror!noreturn) == @alignOf(anyerror));
+    try expect(@alignOf(anyerror!anyerror!noreturn) == @alignOf(anyerror));
+}

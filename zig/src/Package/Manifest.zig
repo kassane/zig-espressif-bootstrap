@@ -66,7 +66,7 @@ pub fn parse(gpa: Allocator, ast: *const Ast, rng: std.Random, options: ParseOpt
         .gpa = gpa,
         .ast = ast.*,
         .arena = arena_instance.allocator(),
-        .errors = .{},
+        .errors = .empty,
 
         .name = undefined,
         .id = 0,
@@ -74,10 +74,10 @@ pub fn parse(gpa: Allocator, ast: *const Ast, rng: std.Random, options: ParseOpt
         .version_node = undefined,
         .dependencies = .{},
         .dependencies_node = .none,
-        .paths = .{},
+        .paths = .empty,
         .allow_missing_paths_field = options.allow_missing_paths_field,
         .minimum_zig_version = null,
-        .buf = .{},
+        .buf = .empty,
     };
     defer p.buf.deinit(gpa);
     defer p.errors.deinit(gpa);

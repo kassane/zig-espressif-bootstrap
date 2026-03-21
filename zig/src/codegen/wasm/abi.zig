@@ -22,7 +22,7 @@ pub const Class = union(enum) {
 /// or returned as value within a wasm function.
 pub fn classifyType(ty: Type, zcu: *const Zcu) Class {
     const ip = &zcu.intern_pool;
-    assert(ty.hasRuntimeBitsIgnoreComptime(zcu));
+    assert(ty.hasRuntimeBits(zcu));
     switch (ty.zigTypeTag(zcu)) {
         .int, .@"enum", .error_set => return .{ .direct = ty },
         .float => return .{ .direct = ty },
@@ -47,7 +47,7 @@ pub fn classifyType(ty: Type, zcu: *const Zcu) Class {
                 return .indirect;
             }
             const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[0]);
-            const explicit_align = struct_type.fieldAlign(ip, 0);
+            const explicit_align = struct_type.field_aligns.getOrNone(ip, 0);
             if (explicit_align != .none) {
                 if (explicit_align.compareStrict(.gt, field_ty.abiAlignment(zcu)))
                     return .indirect;
@@ -56,7 +56,7 @@ pub fn classifyType(ty: Type, zcu: *const Zcu) Class {
         },
         .@"union" => {
             const union_obj = zcu.typeToUnion(ty).?;
-            if (union_obj.flagsUnordered(ip).layout == .@"packed") {
+            if (union_obj.layout == .@"packed") {
                 return .{ .direct = ty };
             }
             const layout = ty.unionGetLayout(zcu);

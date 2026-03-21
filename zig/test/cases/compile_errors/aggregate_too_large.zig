@@ -12,16 +12,14 @@ const U = union {
     b: [1 << 32]u8,
 };
 
-const V = union {
-    a: u32,
-    b: T,
-};
-
 comptime {
-    _ = S;
-    _ = T;
-    _ = U;
-    _ = V;
+    _ = @as(S, undefined);
+}
+comptime {
+    _ = @as(T, undefined);
+}
+comptime {
+    _ = @as(U, undefined);
 }
 
 // error

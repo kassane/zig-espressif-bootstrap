@@ -35,7 +35,7 @@ pub fn create(owner: *std.Build) *UpdateSourceFiles {
             .owner = owner,
             .makeFn = make,
         }),
-        .output_source_files = .{},
+        .output_source_files = .empty,
     };
     return usf;
 }

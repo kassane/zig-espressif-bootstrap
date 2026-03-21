@@ -24,9 +24,9 @@ pub export fn entry3() void {
 }
 // error
 //
-// :7:10: error: values of type '[2]fn () void' must be comptime-known, but index value is runtime-known
+// :7:10: error: values of type 'fn () void' must be comptime-known, but index value is runtime-known
 // :7:10: note: use '*const fn () void' for a function pointer type
-// :15:18: error: values of type '[2]fn () void' must be comptime-known, but index value is runtime-known
+// :15:18: error: values of type 'fn () void' must be comptime-known, but index value is runtime-known
 // :15:17: note: use '*const fn () void' for a function pointer type
-// :22:19: error: values of type '[2]fn () void' must be comptime-known, but index value is runtime-known
+// :22:19: error: values of type 'fn () void' must be comptime-known, but index value is runtime-known
 // :22:18: note: use '*const fn () void' for a function pointer type

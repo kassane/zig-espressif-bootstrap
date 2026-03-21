@@ -4,7 +4,6 @@ const Guid = uefi.Guid;
 const Handle = uefi.Handle;
 const Status = uefi.Status;
 const cc = uefi.cc;
-const Error = Status.Error;
 
 /// EDID information for an active video output device
 pub const Active = extern struct {
@@ -51,7 +50,7 @@ pub const Override = extern struct {
         var attributes: Attributes = undefined;
         switch (self._get_edid(self, &handle, &attributes, &size, &ptr)) {
             .success => {},
-            .unsupported => return Error.Unsupported,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
 

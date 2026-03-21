@@ -743,6 +743,7 @@ fn windowsApiWriteMarker(io: Io) WindowsApiError!void {
         }, 0, .{})),
     } })).device_io_control.u.Status) {
         .SUCCESS => {},
+        .CANCELLED => unreachable,
         else => |status| return windows.unexpectedStatus(status),
     }
 }
@@ -970,6 +971,7 @@ fn windowsApiMoveToMarker(io: Io, nl_n: usize) WindowsApiError!void {
             })),
         } })).device_io_control.u.Status) {
             .SUCCESS => {},
+            .CANCELLED => unreachable,
             else => |status| return windows.unexpectedStatus(status),
         }
         if (read_output_char.Data.nLength >= 1 and buffer[0] == windows_api_start_marker) break;

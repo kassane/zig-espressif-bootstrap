@@ -1,17 +1,20 @@
 comptime {
-    _ = enum(i0) { a, _ };
+    const E = enum(i0) { a, _ };
+    _ = @as(E, undefined);
 }
 
 comptime {
-    _ = enum(u0) { a, _ };
+    const E = enum(u0) { a, _ };
+    _ = @as(E, undefined);
 }
 
 comptime {
-    _ = enum(u0) { a, b, _ };
+    const E = enum(u0) { a, b, _ };
+    _ = @as(E, undefined);
 }
 
 // error
 //
-// :2:9: error: non-exhaustive enum specifies every value
-// :6:9: error: non-exhaustive enum specifies every value
-// :10:23: error: enumeration value '1' too large for type 'u0'
+// :2:15: error: non-exhaustive enum specifies every value
+// :7:15: error: non-exhaustive enum specifies every value
+// :12:29: error: enum tag value '1' too large for type 'u0'

@@ -10,6 +10,17 @@ test "peer resolve int widening" {
     try expectEqual(i16, @TypeOf(c));
 }
 
+test "peer resolve small int and float" {
+    // This only works for integer types that can coerce to the float type.
+    // Larger integer types will cause a compiler error; no float widening occurs.
+    var i: u8 = 12;
+    var f: f32 = 34;
+    _ = .{ &i, &f };
+    const x = i + f;
+    try expectEqual(x, 46.0);
+    try expectEqual(@TypeOf(x), f32);
+}
+
 test "peer resolve arrays of different size to const slice" {
     try expectEqualStrings("true", boolToStr(true));
     try expectEqualStrings("false", boolToStr(false));

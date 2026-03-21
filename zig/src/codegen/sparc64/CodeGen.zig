@@ -1102,7 +1102,7 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
 fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !void {
     try self.blocks.putNoClobber(self.gpa, inst, .{
         // A block is a setup to be able to jump to the end.
-        .relocs = .{},
+        .relocs = .empty,
         // It also acts as a receptacle for break operands.
         // Here we use `MCValue.none` to represent a null value so that the first
         // break instruction will choose a MCValue for the block result and overwrite
@@ -1376,19 +1376,19 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         const rhs = try self.resolveInst(bin_op.rhs);
         const lhs_ty = self.typeOf(bin_op.lhs);
 
-        const int_ty = switch (lhs_ty.zigTypeTag(zcu)) {
+        const int_ty: Type = switch (lhs_ty.zigTypeTag(zcu)) {
             .vector => unreachable, // Handled by cmp_vector.
             .@"enum" => lhs_ty.intTagType(zcu),
             .int => lhs_ty,
-            .bool => Type.u1,
-            .pointer => Type.usize,
-            .error_set => Type.u16,
+            .bool => .u1,
+            .pointer => .usize,
+            .error_set => .u16,
             .optional => blk: {
                 const payload_ty = lhs_ty.optionalChild(zcu);
-                if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                    break :blk Type.u1;
+                if (!payload_ty.hasRuntimeBits(zcu)) {
+                    break :blk .u1;
                 } else if (lhs_ty.isPtrLikeOptional(zcu)) {
-                    break :blk Type.usize;
+                    break :blk .usize;
                 } else {
                     return self.fail("TODO SPARCv9 cmp non-pointer optionals", .{});
                 }
@@ -3452,8 +3452,8 @@ fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) 
     if (err_ty.errorSetIsEmpty(zcu)) {
         return error_union_mcv;
     }
-    if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-        return MCValue.none;
+    if (!payload_ty.hasRuntimeBits(zcu)) {
+        return .none;
     }
 
     const payload_offset: u32 = @intCast(errUnionPayloadOffset(payload_ty, zcu));
@@ -4481,7 +4481,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
     const ty = self.typeOf(ref);
 
     // If the type has no codegen bits, no need to store it.
-    if (!ty.hasRuntimeBitsIgnoreComptime(pt.zcu)) return .none;
+    if (!ty.hasRuntimeBits(pt.zcu)) return .none;
 
     if (ref.toIndex()) |inst| {
         return self.getResolvedInstValue(inst);

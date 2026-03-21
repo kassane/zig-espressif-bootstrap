@@ -1295,7 +1295,13 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
         const rec = self.getUnwindRecord(rec_index);
         const atom = rec.getAtom(macho_file);
         const addr = atom.getInputAddress(macho_file) + rec.atom_offset;
-        superposition.getPtr(addr).?.cu = rec_index;
+
+        try superposition.ensureUnusedCapacity(1);
+        const gop = superposition.getOrPutAssumeCapacity(addr);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{ .atom = rec.atom, .size = rec.length };
+        }
+        gop.value_ptr.cu = rec_index;
     }
 
     const FdeRange = struct { start: u64, end: u64 };
@@ -1305,7 +1311,13 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
     for (self.fdes.items, 0..) |fde, fde_index| {
         const atom = fde.getAtom(macho_file);
         const addr = atom.getInputAddress(macho_file) + fde.atom_offset;
-        superposition.getPtr(addr).?.fde = @intCast(fde_index);
+
+        try superposition.ensureUnusedCapacity(1);
+        const gop = superposition.getOrPutAssumeCapacity(addr);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{ .atom = fde.atom, .size = fde.pc_range };
+        }
+        gop.value_ptr.fde = @intCast(fde_index);
 
         // Build FDE range for coverage check
         const pc_range = fde.pc_range;

@@ -49,10 +49,13 @@ typedef	__fd_mask	fd_mask;
 typedef	__sigset_t	sigset_t;
 #endif
 
+// zig patch: ssp/ssp.h header and __SSP_FORTIFY_LEVEL were added in FreeBSD 15
+#if __FreeBSD_version >= 1500500
 #if !defined(_KERNEL) && defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
 #include <ssp/ssp.h>
 #else
 #define	__SSP_FORTIFY_LEVEL	0
+#endif
 #endif
 
 /*

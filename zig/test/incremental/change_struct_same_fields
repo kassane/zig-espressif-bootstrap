@@ -18,7 +18,7 @@ fn foo(val: *const S) !void {
     );
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="100 200\n"
 
 #update=change struct layout
@@ -36,7 +36,7 @@ fn foo(val: *const S) !void {
     );
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="100 200\n"
 
 #update=change values
@@ -54,5 +54,5 @@ fn foo(val: *const S) !void {
     );
 }
 const std = @import("std");
-const io = std.Io.Threaded.global_single_threaded.ioBasic();
+const io = std.Io.Threaded.global_single_threaded.io();
 #expect_stdout="1234 5678\n"

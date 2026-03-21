@@ -1,4 +1,4 @@
-const UntaggedUnion = union {};
+const UntaggedUnion = union { a: void };
 comptime {
     @intFromEnum(@as(UntaggedUnion, undefined));
 }

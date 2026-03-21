@@ -1,6 +1,6 @@
 extern fn Text(str: []const u8, num: i32) callconv(.c) void;
 export fn entry() void {
-    _ = Text;
+    Text(undefined, undefined);
 }
 
 // error

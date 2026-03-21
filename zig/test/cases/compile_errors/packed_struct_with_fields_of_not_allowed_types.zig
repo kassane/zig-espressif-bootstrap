@@ -76,30 +76,41 @@ export fn entry14() void {
         x: E,
     });
 }
+export fn entry15() void {
+    _ = @sizeOf(packed struct {
+        x: *const u32,
+    });
+}
 
 // error
 //
 // :3:12: error: packed structs cannot contain fields of type 'anyerror'
-// :3:12: note: type has no guaranteed in-memory representation
+// :3:12: note: type does not have a bit-packed representation
 // :8:12: error: packed structs cannot contain fields of type '[2]u24'
-// :8:12: note: type has no guaranteed in-memory representation
+// :8:12: note: type does not have a bit-packed representation
 // :13:20: error: packed structs cannot contain fields of type 'anyerror!u32'
-// :13:20: note: type has no guaranteed in-memory representation
+// :13:20: note: type does not have a bit-packed representation
 // :18:12: error: packed structs cannot contain fields of type 'tmp.S'
-// :18:12: note: only packed structs layout are allowed in packed types
+// :18:12: note: non-packed structs do not have a bit-packed representation
 // :56:11: note: struct declared here
 // :23:12: error: packed structs cannot contain fields of type 'tmp.U'
-// :23:12: note: only packed unions layout are allowed in packed types
+// :23:12: note: non-packed unions do not have a bit-packed representation
 // :59:18: note: union declared here
 // :28:12: error: packed structs cannot contain fields of type '?anyerror'
-// :28:12: note: type has no guaranteed in-memory representation
+// :28:12: note: type does not have a bit-packed representation
 // :38:12: error: packed structs cannot contain fields of type 'fn () void'
-// :38:12: note: type has no guaranteed in-memory representation
-// :38:12: note: use '*const ' to make a function pointer type
+// :38:12: note: type does not have a bit-packed representation
+// :43:12: error: packed structs cannot contain fields of type '*const fn () void'
+// :43:12: note: pointers cannot be directly bitpacked
+// :43:12: note: consider using 'usize' and '@intFromPtr'
 // :65:31: error: packed structs cannot contain fields of type '[]u8'
-// :65:31: note: slices have no guaranteed in-memory representation
+// :65:31: note: slices do not have a bit-packed representation
 // :70:12: error: packed structs cannot contain fields of type '*type'
-// :70:12: note: comptime-only pointer has no guaranteed in-memory representation
-// :70:12: note: types are not available at runtime
+// :70:12: note: pointers cannot be directly bitpacked
+// :70:12: note: consider using 'usize' and '@intFromPtr'
 // :76:12: error: packed structs cannot contain fields of type 'tmp.entry14.E'
-// :74:15: note: enum declared here
+// :74:15: note: integer tag type of enum is inferred
+// :74:15: note: consider explicitly specifying the integer tag type
+// :81:12: error: packed structs cannot contain fields of type '*const u32'
+// :81:12: note: pointers cannot be directly bitpacked
+// :81:12: note: consider using 'usize' and '@intFromPtr'

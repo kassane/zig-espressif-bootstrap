@@ -26,5 +26,6 @@ pub fn main() Error!void {
 // error
 // target=x86_64-linux
 //
-// :23:29: error: expected type 'error{InvalidCharacter}', found '@typeInfo(@typeInfo(@TypeOf(tmp.fooey)).@"fn".return_type.?).error_union.error_set'
+// :23:29: error: expected type 'error{InvalidCharacter}!void', found '@typeInfo(@typeInfo(@TypeOf(tmp.fooey)).@"fn".return_type.?).error_union.error_set'
 // :23:29: note: 'error.InvalidDirection' not a member of destination error set
+// :22:20: note: function return type declared here

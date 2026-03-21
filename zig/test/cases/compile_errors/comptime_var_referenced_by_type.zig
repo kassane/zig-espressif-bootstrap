@@ -21,6 +21,6 @@ comptime {
 // error
 //
 // :7:16: error: captured value contains reference to comptime var
-// :7:16: note: 'wrapper' points to '@as(*const tmp.Wrapper, @ptrCast(&v0)).*', where
+// :7:16: note: 'wrapper' points to 'v0', where
 // :16:5: note: 'v0.ptr' points to comptime var declared here
 // :17:29: note: called at comptime here

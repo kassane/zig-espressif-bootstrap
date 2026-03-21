@@ -33,6 +33,7 @@ const arch_bits = switch (native_arch) {
     .aarch64, .aarch64_be => @import("linux/aarch64.zig"),
     .arm, .armeb, .thumb, .thumbeb => @import("linux/arm.zig"),
     .hexagon => @import("linux/hexagon.zig"),
+    .loongarch32 => @import("linux/loongarch32.zig"),
     .loongarch64 => @import("linux/loongarch64.zig"),
     .m68k => @import("linux/m68k.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
@@ -194,7 +195,7 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
-    .riscv32, .riscv64, .loongarch64 => packed struct(u32) {
+    .riscv32, .riscv64, .loongarch32, .loongarch64 => packed struct(u32) {
         TYPE: MAP_TYPE,
         FIXED: bool = false,
         ANONYMOUS: bool = false,
@@ -330,7 +331,7 @@ pub const O = switch (native_arch) {
         TMPFILE: bool = false,
         _23: u9 = 0,
     },
-    .x86, .riscv32, .riscv64, .loongarch64 => packed struct(u32) {
+    .x86, .riscv32, .riscv64, .loongarch32, .loongarch64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
         _2: u4 = 0,
         CREAT: bool = false,
@@ -6345,6 +6346,7 @@ pub const MINSIGSTKSZ = switch (native_arch) {
     .xtensa,
     .xtensaeb,
     => 2048,
+    .loongarch32,
     .loongarch64,
     .sparc,
     .sparc64,
@@ -6384,6 +6386,7 @@ pub const SIGSTKSZ = switch (native_arch) {
     => 8192,
     .aarch64,
     .aarch64_be,
+    .loongarch32,
     .loongarch64,
     .sparc,
     .sparc64,
@@ -7113,7 +7116,7 @@ pub const io_uring_buf_reg = extern struct {
     flags: Flags,
     resv: [3]u64,
 
-    pub const Flags = packed struct {
+    pub const Flags = packed struct(u16) {
         _0: u1 = 0,
         /// Incremental buffer consumption.
         inc: bool,
@@ -9515,7 +9518,7 @@ pub const perf_event_attr = extern struct {
     sample_type: u64 = 0,
     read_format: u64 = 0,
 
-    flags: packed struct {
+    flags: packed struct(u64) {
         /// off by default
         disabled: bool = false,
         /// children inherit it

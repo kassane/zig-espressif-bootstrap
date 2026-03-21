@@ -3,6 +3,10 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const panic = std.debug.panicExtra;
 
+pub const std_options: std.Options = .{
+    .networking = false,
+};
+
 const SourceLocation = extern struct {
     file_name: ?[*:0]const u8,
     line: u32,

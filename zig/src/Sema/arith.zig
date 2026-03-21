@@ -20,6 +20,9 @@ pub fn incrementDefinedInt(
     const zcu = pt.zcu;
     assert(prev_val.typeOf(zcu).toIntern() == ty.toIntern());
     assert(!prev_val.isUndef(zcu));
+    if (ty.intInfo(zcu).bits == 0) {
+        return .{ .overflow = true, .val = try comptimeIntAdd(sema, prev_val, .one_comptime_int) };
+    }
     const res = try intAdd(sema, prev_val, try pt.intValue(ty, 1), ty);
     return .{ .overflow = res.overflow, .val = res.val };
 }
@@ -1053,7 +1056,7 @@ fn shlScalar(
             if (rhs_val.isUndef(zcu)) return rhs_val;
         },
     }
-    switch (try rhs_val.orderAgainstZeroSema(pt)) {
+    switch (Value.order(rhs_val, .zero_comptime_int, zcu)) {
         .gt => {},
         .eq => return lhs_val,
         .lt => return sema.failWithNegativeShiftAmount(block, rhs_src, rhs_val, vec_idx),
@@ -1090,7 +1093,7 @@ fn shlWithOverflowScalar(
     if (lhs_val.isUndef(zcu)) return sema.failWithUseOfUndef(block, lhs_src, vec_idx);
     if (rhs_val.isUndef(zcu)) return sema.failWithUseOfUndef(block, rhs_src, vec_idx);
 
-    switch (try rhs_val.orderAgainstZeroSema(pt)) {
+    switch (Value.order(rhs_val, .zero_comptime_int, zcu)) {
         .gt => {},
         .eq => return .{ .overflow_bit = .zero_u1, .wrapped_result = lhs_val },
         .lt => return sema.failWithNegativeShiftAmount(block, rhs_src, rhs_val, vec_idx),
@@ -1169,7 +1172,7 @@ fn shrScalar(
     if (lhs_val.isUndef(zcu)) return sema.failWithUseOfUndef(block, lhs_src, vec_idx);
     if (rhs_val.isUndef(zcu)) return sema.failWithUseOfUndef(block, rhs_src, vec_idx);
 
-    switch (try rhs_val.orderAgainstZeroSema(pt)) {
+    switch (Value.order(rhs_val, .zero_comptime_int, zcu)) {
         .gt => {},
         .eq => return lhs_val,
         .lt => return sema.failWithNegativeShiftAmount(block, rhs_src, rhs_val, vec_idx),
@@ -1430,8 +1433,8 @@ fn intAddWithOverflowInner(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value
     const info = ty.intInfo(zcu);
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = try lhs.toBigIntSema(&lhs_space, pt);
-    const rhs_bigint = try rhs.toBigIntSema(&rhs_space, pt);
+    const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
+    const rhs_bigint = rhs.toBigInt(&rhs_space, zcu);
     const limbs = try sema.arena.alloc(
         std.math.big.Limb,
         std.math.big.int.calcTwosCompLimbCount(info.bits),
@@ -1512,8 +1515,8 @@ fn intSubWithOverflowInner(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value
     const info = ty.intInfo(zcu);
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = try lhs.toBigIntSema(&lhs_space, pt);
-    const rhs_bigint = try rhs.toBigIntSema(&rhs_space, pt);
+    const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
+    const rhs_bigint = rhs.toBigInt(&rhs_space, zcu);
     const limbs = try sema.arena.alloc(
         std.math.big.Limb,
         std.math.big.int.calcTwosCompLimbCount(info.bits),
@@ -1597,8 +1600,8 @@ fn intMulWithOverflowInner(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value
     const info = ty.intInfo(zcu);
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = try lhs.toBigIntSema(&lhs_space, pt);
-    const rhs_bigint = try rhs.toBigIntSema(&rhs_space, pt);
+    const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
+    const rhs_bigint = rhs.toBigInt(&rhs_space, zcu);
     const limbs = try sema.arena.alloc(
         std.math.big.Limb,
         lhs_bigint.limbs.len + rhs_bigint.limbs.len,
@@ -1840,7 +1843,7 @@ fn intShl(
     var lhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
 
-    const shift_amt: usize = @intCast(try rhs.toUnsignedIntSema(pt));
+    const shift_amt: usize = @intCast(rhs.toUnsignedInt(zcu));
     if (shift_amt >= info.bits) {
         return sema.failWithTooLargeShiftAmount(block, lhs_ty, rhs, rhs_src, vec_idx);
     }
@@ -1862,7 +1865,7 @@ fn intShlSat(
     const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
 
     const shift_amt: usize = amt: {
-        if (try rhs.getUnsignedIntSema(pt)) |shift_amt_u64| {
+        if (rhs.getUnsignedInt(zcu)) |shift_amt_u64| {
             if (std.math.cast(usize, shift_amt_u64)) |shift_amt| break :amt shift_amt;
         }
         // We only support ints with up to 2^16 - 1 bits, so this
@@ -1895,9 +1898,9 @@ fn intShlWithOverflow(
     const info = lhs_ty.intInfo(zcu);
 
     var lhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = try lhs.toBigIntSema(&lhs_space, pt);
+    const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
 
-    const shift_amt: usize = @intCast(try rhs.toUnsignedIntSema(pt));
+    const shift_amt: usize = @intCast(rhs.toUnsignedInt(zcu));
     if (shift_amt >= info.bits) {
         return sema.failWithTooLargeShiftAmount(block, lhs_ty, rhs, rhs_src, vec_idx);
     }
@@ -1924,9 +1927,10 @@ fn comptimeIntShl(
     vec_idx: ?usize,
 ) !Value {
     const pt = sema.pt;
+    const zcu = pt.zcu;
     var lhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = try lhs.toBigIntSema(&lhs_space, pt);
-    if (try rhs.getUnsignedIntSema(pt)) |shift_amt_u64| {
+    const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
+    if (rhs.getUnsignedInt(zcu)) |shift_amt_u64| {
         if (std.math.cast(usize, shift_amt_u64)) |shift_amt| {
             const result_bigint = try intShlInner(sema, lhs_bigint, shift_amt);
             return pt.intValue_big(.comptime_int, result_bigint.toConst());
@@ -1963,15 +1967,15 @@ fn intShr(
     const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
 
     const shift_amt: usize = if (rhs_ty.toIntern() == .comptime_int_type) amt: {
-        if (try rhs.getUnsignedIntSema(pt)) |shift_amt_u64| {
+        if (rhs.getUnsignedInt(zcu)) |shift_amt_u64| {
             if (std.math.cast(usize, shift_amt_u64)) |shift_amt| break :amt shift_amt;
         }
-        if (try rhs.compareAllWithZeroSema(.lt, pt)) {
+        if (rhs.compareAllWithZero(.lt, zcu)) {
             return sema.failWithNegativeShiftAmount(block, rhs_src, rhs, vec_idx);
         } else {
             return sema.failWithUnsupportedComptimeShiftAmount(block, rhs_src, vec_idx);
         }
-    } else @intCast(try rhs.toUnsignedIntSema(pt));
+    } else @intCast(rhs.toUnsignedInt(zcu));
 
     if (lhs_ty.toIntern() != .comptime_int_type and shift_amt >= lhs_ty.intInfo(zcu).bits) {
         return sema.failWithTooLargeShiftAmount(block, lhs_ty, rhs, rhs_src, vec_idx);
@@ -2006,7 +2010,7 @@ fn intBitReverse(sema: *Sema, val: Value, ty: Type) !Value {
     const info = ty.intInfo(zcu);
 
     var val_space: Value.BigIntSpace = undefined;
-    const val_bigint = try val.toBigIntSema(&val_space, pt);
+    const val_bigint = val.toBigInt(&val_space, zcu);
 
     const limbs = try sema.arena.alloc(
         std.math.big.Limb,

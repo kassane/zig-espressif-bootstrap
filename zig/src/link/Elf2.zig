@@ -1876,32 +1876,15 @@ pub fn globalSymbol(elf: *Elf, opts: struct {
 
 fn navType(
     ip: *const InternPool,
-    nav_status: @FieldType(InternPool.Nav, "status"),
+    nav_resolved: @typeInfo(@FieldType(InternPool.Nav, "resolved")).optional.child,
     any_non_single_threaded: bool,
 ) std.elf.STT {
-    return switch (nav_status) {
-        .unresolved => unreachable,
-        .type_resolved => |tr| if (any_non_single_threaded and tr.is_threadlocal)
-            .TLS
-        else if (ip.isFunctionType(tr.type))
-            .FUNC
-        else
-            .OBJECT,
-        .fully_resolved => |fr| switch (ip.indexToKey(fr.val)) {
-            else => .OBJECT,
-            .variable => |variable| if (any_non_single_threaded and variable.is_threadlocal)
-                .TLS
-            else
-                .OBJECT,
-            .@"extern" => |@"extern"| if (any_non_single_threaded and @"extern".is_threadlocal)
-                .TLS
-            else if (ip.isFunctionType(@"extern".ty))
-                .FUNC
-            else
-                .OBJECT,
-            .func => .FUNC,
-        },
-    };
+    return if (any_non_single_threaded and nav_resolved.@"threadlocal")
+        .TLS
+    else if (ip.isFunctionType(nav_resolved.type))
+        .FUNC
+    else
+        .OBJECT;
 }
 fn namedSection(elf: *const Elf, name: []const u8) ?Symbol.Index {
     if (std.mem.eql(u8, name, ".rodata") or
@@ -1917,13 +1900,13 @@ fn namedSection(elf: *const Elf, name: []const u8) ?Symbol.Index {
 fn navSection(
     elf: *Elf,
     ip: *const InternPool,
-    nav_fr: @FieldType(@FieldType(InternPool.Nav, "status"), "fully_resolved"),
+    nav_resolved: @typeInfo(@FieldType(InternPool.Nav, "resolved")).optional.child,
 ) Symbol.Index {
-    if (nav_fr.@"linksection".toSlice(ip)) |@"linksection"|
+    if (nav_resolved.@"linksection".toSlice(ip)) |@"linksection"|
         if (elf.namedSection(@"linksection")) |si| return si;
     return switch (navType(
         ip,
-        .{ .fully_resolved = nav_fr },
+        nav_resolved,
         elf.base.comp.config.any_non_single_threaded,
     )) {
         else => unreachable,
@@ -1940,7 +1923,7 @@ fn navMapIndex(elf: *Elf, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Node.NavM
     const nav_gop = try elf.navs.getOrPut(gpa, nav_index);
     if (!nav_gop.found_existing) nav_gop.value_ptr.* = try elf.initSymbolAssumeCapacity(.{
         .name = nav.fqn.toSlice(ip),
-        .type = navType(ip, nav.status, elf.base.comp.config.any_non_single_threaded),
+        .type = navType(ip, nav.resolved.?, elf.base.comp.config.any_non_single_threaded),
     });
     return @enumFromInt(nav_gop.index);
 }
@@ -1950,7 +1933,7 @@ pub fn navSymbol(elf: *Elf, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Symbol.
     if (nav.getExtern(ip)) |@"extern"| return elf.globalSymbol(.{
         .name = @"extern".name.toSlice(ip),
         .lib_name = @"extern".lib_name.toSlice(ip),
-        .type = navType(ip, nav.status, elf.base.comp.config.any_non_single_threaded),
+        .type = navType(ip, nav.resolved.?, elf.base.comp.config.any_non_single_threaded),
         .bind = switch (@"extern".linkage) {
             .internal => .LOCAL,
             .strong => .GLOBAL,
@@ -2889,13 +2872,8 @@ fn updateNavInner(elf: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index)
     const ip = &zcu.intern_pool;
 
     const nav = ip.getNav(nav_index);
-    const nav_val = nav.status.fully_resolved.val;
-    const nav_init = switch (ip.indexToKey(nav_val)) {
-        else => nav_val,
-        .variable => |variable| variable.init,
-        .@"extern", .func => .none,
-    };
-    if (nav_init == .none or !Type.fromInterned(ip.typeOf(nav_init)).hasRuntimeBits(zcu)) return;
+    if (ip.indexToKey(nav.resolved.?.value) == .@"extern") return;
+    if (!Type.fromInterned(nav.resolved.?.type).hasRuntimeBits(zcu)) return;
 
     const nmi = try elf.navMapIndex(zcu, nav_index);
     const si = nmi.symbol(elf);
@@ -2904,9 +2882,9 @@ fn updateNavInner(elf: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index)
         switch (sym.ni) {
             .none => {
                 try elf.nodes.ensureUnusedCapacity(gpa, 1);
-                const sec_si = elf.navSection(ip, nav.status.fully_resolved);
+                const sec_si = elf.navSection(ip, nav.resolved.?);
                 const ni = try elf.mf.addLastChildNode(gpa, sec_si.node(elf), .{
-                    .alignment = pt.navAlignment(nav_index).toStdMem(),
+                    .alignment = zcu.navAlignment(nav_index).toStdMem(),
                     .moved = true,
                 });
                 elf.nodes.appendAssumeCapacity(.{ .nav = nmi });
@@ -2930,7 +2908,7 @@ fn updateNavInner(elf: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index)
         &elf.base,
         pt,
         zcu.navSrcLoc(nav_index),
-        .fromInterned(nav_init),
+        .fromInterned(nav.resolved.?.value),
         &nw.interface,
         .{ .atom_index = @intFromEnum(si) },
     ) catch |err| switch (err) {
@@ -3021,11 +2999,11 @@ fn updateFuncInner(
         switch (sym.ni) {
             .none => {
                 try elf.nodes.ensureUnusedCapacity(gpa, 1);
-                const sec_si = elf.navSection(ip, nav.status.fully_resolved);
+                const sec_si = elf.navSection(ip, nav.resolved.?);
                 const mod = zcu.navFileScope(func.owner_nav).mod.?;
                 const target = &mod.resolved_target.result;
                 const ni = try elf.mf.addLastChildNode(gpa, sec_si.node(elf), .{
-                    .alignment = switch (nav.status.fully_resolved.alignment) {
+                    .alignment = switch (nav.resolved.?.@"align") {
                         .none => switch (mod.optimize_mode) {
                             .Debug,
                             .ReleaseSafe,
@@ -3677,7 +3655,7 @@ fn updateExportsInner(
     const exported_si: Symbol.Index, const @"type": std.elf.STT = switch (exported) {
         .nav => |nav| .{
             try elf.navSymbol(zcu, nav),
-            navType(ip, ip.getNav(nav).status, elf.base.comp.config.any_non_single_threaded),
+            navType(ip, ip.getNav(nav).resolved.?, elf.base.comp.config.any_non_single_threaded),
         },
         .uav => |uav| .{ @enumFromInt(switch (try elf.lowerUav(
             pt,

@@ -1772,27 +1772,27 @@ pub const F80 = struct {
     }
 };
 
+fn SignOf(T: type) type {
+    return switch (@typeInfo(T)) {
+        .comptime_int, .comptime_float => comptime_int,
+        .int => IntFittingRange(@max(minInt(T), -1), @min(maxInt(T), 1)),
+        .float => IntFittingRange(-1, 1),
+        .vector => |vec| @Vector(vec.len, SignOf(vec.child)),
+        else => @compileError("Expected an int, float, or a vector of one, found " ++ @typeName(T)),
+    };
+}
+
 /// Returns -1, 0, or 1.
 /// Supports integer and float types and vectors of integer and float types.
 /// Unsigned integer types will always return 0 or 1.
+/// The returned integer type is the smallest that fits the possible values.
 /// Branchless.
-pub inline fn sign(i: anytype) @TypeOf(i) {
-    const T = @TypeOf(i);
-    return switch (@typeInfo(T)) {
-        .int, .comptime_int => @as(T, @intFromBool(i > 0)) - @as(T, @intFromBool(i < 0)),
-        .float, .comptime_float => @as(T, @floatFromInt(@intFromBool(i > 0))) - @as(T, @floatFromInt(@intFromBool(i < 0))),
-        .vector => |vinfo| blk: {
-            switch (@typeInfo(vinfo.child)) {
-                .int, .float => {
-                    const zero: T = @splat(0);
-                    const one: T = @splat(1);
-                    break :blk @select(vinfo.child, i > zero, one, zero) - @select(vinfo.child, i < zero, one, zero);
-                },
-                else => @compileError("Expected vector of ints or floats, found " ++ @typeName(T)),
-            }
-        },
-        else => @compileError("Expected an int, float or vector of one, found " ++ @typeName(T)),
-    };
+pub inline fn sign(n: anytype) SignOf(@TypeOf(n)) {
+    const T = SignOf(@TypeOf(n));
+    const zero: T = if (@typeInfo(T) == .vector) @splat(0) else 0;
+    const pos: T = @intCast(@intFromBool(n > zero));
+    const neg: T = @intCast(@intFromBool(n < zero));
+    return pos - neg;
 }
 
 fn testSign() !void {

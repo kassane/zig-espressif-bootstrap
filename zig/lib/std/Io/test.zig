@@ -255,8 +255,6 @@ test "Group.cancel" {
 }
 
 test "Group.concurrent" {
-    if (builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/30096
-
     const io = testing.io;
 
     var group: Io.Group = .init;
@@ -265,14 +263,14 @@ test "Group.concurrent" {
 
     group.concurrent(io, count, .{ 1, 10, &results[0] }) catch |err| switch (err) {
         error.ConcurrencyUnavailable => {
-            try testing.expect(builtin.single_threaded);
+            try expect(builtin.single_threaded);
             return;
         },
     };
 
     group.concurrent(io, count, .{ 20, 30, &results[1] }) catch |err| switch (err) {
         error.ConcurrencyUnavailable => {
-            try testing.expect(builtin.single_threaded);
+            try expect(builtin.single_threaded);
             return;
         },
     };
@@ -280,6 +278,57 @@ test "Group.concurrent" {
     try group.await(io);
 
     try testing.expectEqualSlices(usize, &.{ 45, 245 }, &results);
+}
+
+test "Group materializes error.Cancel" {
+    const S = struct {
+        fn task() Io.Cancelable!void {
+            return error.Canceled;
+        }
+    };
+
+    const io = testing.io;
+
+    var group: Io.Group = .init;
+
+    group.async(io, S.task, .{});
+    group.concurrent(io, S.task, .{}) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => {
+            try expect(builtin.single_threaded);
+            return;
+        },
+    };
+
+    try group.await(io);
+}
+
+test "Group task receives cancelation unknowingly" {
+    const S = struct {
+        io: Io,
+        err: ?Io.Cancelable!void,
+
+        fn task(s: *@This()) void {
+            foo(s);
+        }
+
+        fn foo(s: *@This()) void {
+            s.err = s.io.sleep(.fromSeconds(300), .awake);
+        }
+    };
+
+    const io = testing.io;
+
+    var group: Io.Group = .init;
+    var result: S = .{ .io = io, .err = null };
+    group.concurrent(io, S.task, .{&result}) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => {
+            try expect(builtin.single_threaded);
+            return;
+        },
+    };
+    group.cancel(io);
+
+    try expectError(error.Canceled, result.err.?);
 }
 
 fn testQueue(comptime len: usize) !void {
@@ -541,7 +590,7 @@ test "random" {
     io.random(@ptrCast(&b));
     io.random(@ptrCast(&c));
 
-    try std.testing.expect(a ^ b ^ c != 0);
+    try expect(a ^ b ^ c != 0);
 }
 
 test "randomSecure" {
@@ -835,7 +884,7 @@ test "Select" {
     };
     var buffer: [4]U = undefined;
     var select: Io.Select(U) = .init(io, &buffer);
-    defer select.cancel();
+    defer _ = select.cancel();
 
     select.async(.foo, S.foo, .{});
     select.concurrent(.bar, S.bar, .{io}) catch |err| switch (err) {
@@ -863,4 +912,39 @@ test "Select" {
     };
 
     try testing.expectEqual(42, result);
+}
+
+test "Select with empty buffer, no deadlock" {
+    const S = struct {
+        fn sleeper(io: Io, duration: Io.Duration) Io.Cancelable!void {
+            try io.sleep(duration, .awake);
+        }
+    };
+
+    const io = testing.io;
+
+    const U = union(enum) {
+        sleeper: Io.Cancelable!void,
+    };
+    var select: Io.Select(U) = .init(io, &.{});
+    defer select.cancelDiscard();
+
+    select.concurrent(.sleeper, S.sleeper, .{ io, .fromNanoseconds(1) }) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => return error.SkipZigTest,
+    };
+    select.concurrent(.sleeper, S.sleeper, .{ io, .fromSeconds(600) }) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => return error.SkipZigTest,
+    };
+    assert((try select.await()) == .sleeper);
+}
+
+test "Select.cancel with no tasks, no deadlock" {
+    const io = testing.io;
+
+    const U = union(enum) {
+        nothing: void,
+        also_nothing: void,
+    };
+    var select: Io.Select(U) = .init(io, &.{});
+    try expectEqual(null, select.cancel());
 }

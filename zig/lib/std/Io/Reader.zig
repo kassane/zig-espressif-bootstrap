@@ -1997,7 +1997,7 @@ pub fn writableVectorPosix(r: *Reader, buffer: []std.posix.iovec, data: []const 
 
 pub fn writableVectorWsa(
     r: *Reader,
-    buffer: []std.os.windows.ws2_32.WSABUF,
+    buffer: []std.os.windows.AFD.WSABUF(.@"var"),
     data: []const []u8,
 ) Error!struct { usize, usize } {
     var i: usize = 0;

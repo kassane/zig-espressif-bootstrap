@@ -11,6 +11,6 @@ export fn bar() void {
 
 // error
 //
+// :1:30: error: opaque return type 'anyopaque' not allowed
 // :1:30: error: opaque return type 'tmp.MyOpaque' not allowed
 // :4:18: note: opaque declared here
-// :1:30: error: opaque return type 'anyopaque' not allowed

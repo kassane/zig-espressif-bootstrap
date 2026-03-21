@@ -16,7 +16,11 @@ export fn entry3() void {
 // error
 //
 // :3:23: error: bit-pointer cannot refer to value of type 'tmp.entry1.S'
-// :3:23: note: only packed structs layout are allowed in packed types
+// :3:23: note: non-packed structs do not have a bit-packed representation
+// :2:22: note: struct declared here
 // :8:36: error: bit-pointer cannot refer to value of type 'tmp.entry2.S'
-// :8:36: note: only packed structs layout are allowed in packed types
+// :8:36: note: non-packed structs do not have a bit-packed representation
+// :7:15: note: struct declared here
 // :13:23: error: bit-pointer cannot refer to value of type 'tmp.entry3.E'
+// :12:15: note: integer tag type of enum is inferred
+// :12:15: note: consider explicitly specifying the integer tag type

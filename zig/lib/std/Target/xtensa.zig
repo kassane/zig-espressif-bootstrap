@@ -16,6 +16,7 @@ pub const Feature = enum {
     esp32s2ops,
     esp32s3ops,
     exception,
+    expstate,
     extendedl32r,
     forced_atomics,
     fp,
@@ -109,6 +110,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.exception)] = .{
         .llvm_name = "exception",
         .description = "Enable Xtensa Exception option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.expstate)] = .{
+        .llvm_name = "expstate",
+        .description = "Enable Xtensa EXPSTATE option",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.extendedl32r)] = .{
@@ -318,6 +324,7 @@ pub const cpu = struct {
             .dfpaccel,
             .div32,
             .exception,
+            .expstate,
             .fp,
             .highpriinterrupts_level7,
             .interrupt,

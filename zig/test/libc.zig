@@ -105,7 +105,7 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("regression/pthread_atfork-errno-clobber.c", false, .{});
     cases.addLibcTestCase("regression/pthread_cancel-sem_wait.c", false, .{});
     cases.addLibcTestCase("regression/pthread_cond-smasher.c", false, .{});
-    cases.addLibcTestCase("regression/pthread_cond_wait-cancel_ignored.c", false, .{});
+    // Flaky under heavy load: cases.addLibcTestCase("regression/pthread_cond_wait-cancel_ignored.c", false, .{});
     cases.addLibcTestCase("regression/pthread_condattr_setclock.c", false, .{});
     // "regression/pthread_create-oom.c": QEMU OOM
     cases.addLibcTestCase("regression/pthread_exit-cancel.c", false, .{});

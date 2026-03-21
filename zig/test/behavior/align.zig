@@ -18,6 +18,7 @@ test "global variable alignment" {
 test "large alignment of local constant" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // flaky
+    if (builtin.zig_backend == .stage2_c and builtin.target.abi == .msvc) return error.SkipZigTest;
 
     const x: f32 align(128) = 12.34;
     try std.testing.expect(@intFromPtr(&x) % 128 == 0);
@@ -30,13 +31,41 @@ test "slicing array of length 1 can not assume runtime index is always zero" {
     var runtime_index: usize = 1;
     _ = &runtime_index;
     const slice = @as(*align(4) [1]u8, &foo)[runtime_index..];
-    try expect(@TypeOf(slice) == []u8);
+    try expect(@TypeOf(slice) == []align(1) u8);
     try expect(slice.len == 0);
     try expect(@as(u2, @truncate(@intFromPtr(slice.ptr) - 1)) == 0);
 }
 
-test "default alignment allows unspecified in type syntax" {
-    try expect(*u32 == *align(@alignOf(u32)) u32);
+test "implicitly-aligned pointer is coercible to equivalent explicitly-aligned pointer" {
+    const A = *u32;
+    const B = *align(@alignOf(u32)) u32;
+
+    comptime assert(A != B);
+
+    const static = struct {
+        fn doTheTest() !void {
+            var buf: u32 = 123;
+
+            const ptr: A = &buf;
+            const coerced_ptr: B = ptr;
+
+            try expect(ptr == coerced_ptr);
+            try expect(ptr.* == 123);
+            try expect(coerced_ptr.* == 123);
+
+            const ptr_ptr: *const A = &ptr;
+            const coerced_ptr_ptr: *const B = ptr_ptr;
+
+            try expect(ptr_ptr == coerced_ptr_ptr);
+            try expect(ptr_ptr.* == &buf);
+            try expect(coerced_ptr_ptr.* == &buf);
+            try expect(ptr_ptr.*.* == 123);
+            try expect(coerced_ptr_ptr.*.* == 123);
+        }
+    };
+
+    try static.doTheTest();
+    try comptime static.doTheTest();
 }
 
 test "implicitly decreasing pointer alignment" {
@@ -307,11 +336,15 @@ test "runtime-known array index has best alignment possible" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     // take full advantage of over-alignment
-    var array align(4) = [_]u8{ 1, 2, 3, 4 };
+    var array align(4) = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     comptime assert(@TypeOf(&array[0]) == *align(4) u8);
-    comptime assert(@TypeOf(&array[1]) == *u8);
+    comptime assert(@TypeOf(&array[1]) == *align(1) u8);
     comptime assert(@TypeOf(&array[2]) == *align(2) u8);
-    comptime assert(@TypeOf(&array[3]) == *u8);
+    comptime assert(@TypeOf(&array[3]) == *align(1) u8);
+    comptime assert(@TypeOf(&array[4]) == *align(4) u8);
+    comptime assert(@TypeOf(&array[5]) == *align(1) u8);
+    comptime assert(@TypeOf(&array[6]) == *align(2) u8);
+    comptime assert(@TypeOf(&array[7]) == *align(1) u8);
 
     // because align is too small but we still figure out to use 2
     var bigger align(2) = [_]u64{ 1, 2, 3, 4 };
@@ -332,10 +365,14 @@ test "runtime-known array index has best alignment possible" {
     try testIndex(smaller[runtime_zero..].ptr, 3, *align(2) u32);
 
     // has to use ABI alignment because index known at runtime only
-    try testIndex2(&array, 0, *u8);
-    try testIndex2(&array, 1, *u8);
-    try testIndex2(&array, 2, *u8);
-    try testIndex2(&array, 3, *u8);
+    try testIndex2(&array, 0, *align(1) u8);
+    try testIndex2(&array, 1, *align(1) u8);
+    try testIndex2(&array, 2, *align(1) u8);
+    try testIndex2(&array, 3, *align(1) u8);
+    try testIndex2(&array, 4, *align(1) u8);
+    try testIndex2(&array, 5, *align(1) u8);
+    try testIndex2(&array, 6, *align(1) u8);
+    try testIndex2(&array, 7, *align(1) u8);
 }
 fn testIndex(smaller: [*]align(2) u32, index: usize, comptime T: type) !void {
     comptime assert(@TypeOf(&smaller[index]) == T);
