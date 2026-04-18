@@ -67,7 +67,7 @@ test_results: TestResults,
 
 /// The return address associated with creation of this step that can be useful
 /// to print along with debugging messages.
-debug_stack_trace: std.builtin.StackTrace,
+debug_stack_trace: std.debug.StackTrace,
 
 pub const TestResults = struct {
     /// The total number of tests in the step. Every test has a "status" from the following:
@@ -328,7 +328,7 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
 /// For debugging purposes, prints identifying information about this Step.
 pub fn dump(step: *Step, t: Io.Terminal) void {
     const w = t.writer;
-    if (step.debug_stack_trace.instruction_addresses.len > 0) {
+    if (step.debug_stack_trace.return_addresses.len > 0) {
         w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
         std.debug.writeStackTrace(&step.debug_stack_trace, t) catch {};
     } else {
@@ -725,19 +725,12 @@ pub inline fn handleChildProcUnsupported(s: *Step) error{ OutOfMemory, MakeFaile
 /// Asserts that the caller has already populated `s.result_failed_command`.
 pub fn handleChildProcessTerm(s: *Step, term: std.process.Child.Term) error{ MakeFailed, OutOfMemory }!void {
     assert(s.result_failed_command != null);
-    switch (term) {
-        .exited => |code| {
-            if (code != 0) {
-                return s.fail("process exited with error code {d}", .{code});
-            }
-        },
-        .signal => |sig| {
-            return s.fail("process terminated with signal {t}", .{sig});
-        },
-        .stopped, .unknown => {
-            return s.fail("process terminated unexpectedly", .{});
-        },
-    }
+    return switch (term) {
+        .exited => |code| if (code != 0) s.fail("process exited with error code {d}", .{code}),
+        .signal => |sig| s.fail("process terminated with signal {t}", .{sig}),
+        .stopped => |sig| s.fail("process stopped with signal {t}", .{sig}),
+        .unknown => s.fail("process terminated unexpectedly", .{}),
+    };
 }
 
 pub fn allocPrintCmd(

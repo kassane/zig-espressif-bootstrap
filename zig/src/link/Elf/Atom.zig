@@ -605,7 +605,7 @@ fn reportUndefined(
             .object => |x| x.symbols_resolver.items[rel.r_sym() - x.first_global.?],
             inline else => |x| x.symbols_resolver.items[rel.r_sym()],
         };
-        const gop = try undefs.getOrPut(idx);
+        const gop = try undefs.getOrPut(gpa, idx);
         if (!gop.found_existing) {
             gop.value_ptr.* = std.array_list.Managed(Elf.Ref).init(gpa);
         }

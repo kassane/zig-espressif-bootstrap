@@ -54,7 +54,7 @@ Ensure you have the required dependencies:
 
 Then it is the standard CMake build process:
 
-```
+```sh
 mkdir build
 cd build
 cmake ..
@@ -69,7 +69,7 @@ This produces `stage3/bin/zig` which is the Zig compiler built by itself.
 
 In this case, the only system dependency is a C compiler.
 
-```
+```sh
 cc -o bootstrap bootstrap.c
 ./bootstrap
 ```
@@ -87,9 +87,22 @@ therefore lacking these features:
 - Ability to compile C, C++, Objective-C, and Objective-C++ files
 
 Even when built this way, Zig provides an LLVM backend that produces bitcode
-files, which may be optimized and compiled into object files via a system Clang
-package. This can be used to produce system packages of Zig applications
-without the Zig package dependency on LLVM.
+files, which may be optimized and compiled into object files via separately
+installed Clang. Similarly, Zig provides a C backend that produces C source
+code, which may be optimized and compiled into object files via a separately
+installed C compiler toolchain.
+
+From here you can tinker with `zig2` or you can proceed to installation using
+the build system as usual:
+
+```sh
+./zig2 build
+```
+
+However, due to the above listed caveats, it is recommended to not proceed to
+this step until this issue is resolved:
+
+[completely eliminate dependency on LLVM library API calls](https://github.com/ziglang/zig/issues/25492)
 
 ## Building from Source Using Prebuilt Zig
 
@@ -105,7 +118,7 @@ The easiest way to obtain both of these artifacts is to use
 directory `out/zig-$target-$cpu` and `out/$target-$cpu`, to be used as
 `$ZIG_PREFIX` and `$LLVM_PREFIX`, respectively, in the following command:
 
-```
+```sh
 "$ZIG_PREFIX/zig" build \
   -p stage3 \
   --search-prefix "$LLVM_PREFIX" \
@@ -356,7 +369,7 @@ directory instead of a global installation.
 
 This is the generally recommended approach.
 
-```
+```sh
 cd ~/Downloads
 git clone --depth 1 --branch release/21.x https://github.com/llvm/llvm-project llvm-project-21
 cd llvm-project-21
@@ -383,7 +396,7 @@ This is occasionally needed when debugging Zig's LLVM backend. Here we build
 the three projects separately so that LLVM can be in Debug mode while the
 others are in Release mode.
 
-```
+```sh
 cd ~/Downloads
 git clone --depth 1 --branch release/21.x https://github.com/llvm/llvm-project llvm-project-21
 cd llvm-project-21
@@ -539,7 +552,7 @@ To reduce time spent waiting for the compiler to build, try these techniques:
 
 ### Testing
 
-```
+```sh
 stage4/bin/zig build test
 ```
 
@@ -559,7 +572,7 @@ Another example is choosing a different set of things to test. For example,
 not the other ones. Combining this suggestion with the previous one, you could
 do this:
 
-```
+```sh
 stage4/bin/zig build test-std -Dskip-release
 ```
 
@@ -575,13 +588,13 @@ this information and more in the `zig build --help` menu.
 This command will run the standard library tests with only the native target
 configuration and is estimated to complete in 3 minutes:
 
-```
+```sh
 zig build test-std -Dno-matrix
 ```
 
 However, one may also use `zig test` directly. From inside the `ziglang/zig` repo root:
 
-```
+```sh
 zig test lib/std/std.zig --zig-lib-dir lib
 ```
 
@@ -592,14 +605,14 @@ you're trying to test in practice.)
 
 Note that `--test-filter` filters on fully qualified names, so e.g. it's possible to run only the `std.json` tests with:
 
-```
+```sh
 zig test lib/std/std.zig --zig-lib-dir lib --test-filter "json."
 ```
 
 If you used `-Dno-lib` and you are in a `build/` subdirectory, you can omit the
 `--zig-lib-dir` argument:
 
-```
+```sh
 stage3/bin/zig test ../lib/std/std.zig
 ```
 
@@ -758,7 +771,7 @@ To build the LLDB fork, make sure you have
 [prerequisites](https://lldb.llvm.org/resources/build.html#preliminaries)
 installed, and then do something like:
 
-```
+```sh
 $ cmake llvm -G Ninja -B build -DLLVM_ENABLE_PROJECTS="clang;lldb" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLLVM_ENABLE_ASSERTIONS=ON -DLLDB_ENABLE_LIBEDIT=ON -DLLDB_ENABLE_PYTHON=ON
 $ cmake --build build --target lldb --target lldb-server
 ```

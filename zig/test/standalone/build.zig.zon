@@ -199,6 +199,9 @@
         .posix = .{
             .path = "posix",
         },
+        .debug_io_color = .{
+            .path = "debug_io_color",
+        },
     },
     .paths = .{
         "build.zig",

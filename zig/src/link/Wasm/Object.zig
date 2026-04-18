@@ -969,6 +969,41 @@ pub fn parse(
         func.type_index = func_type.ptr(ss).*;
     }
 
+    // Check for indirect function table in case of an MVP object file.
+    legacy_indirect_function_table: {
+        // If there is a symbol for each import table, this is not a legacy object file.
+        if (ss.table_imports.items.len == table_import_symbol_count) break :legacy_indirect_function_table;
+        if (table_import_symbol_count != 0) {
+            return diags.failParse(path, "expected a table entry symbol for each of the {d} table(s), but instead got {d} symbols.", .{
+                ss.table_imports.items.len, table_import_symbol_count,
+            });
+        }
+        // MVP object files cannot have any table definitions, only imports
+        // (for the indirect function table).
+        const tables = wasm.object_tables.items[tables_start..];
+        if (tables.len > 0) {
+            return diags.failParse(path, "table definition without representing table symbols", .{});
+        }
+        if (ss.table_imports.items.len != 1) {
+            return diags.failParse(path, "found more than one table import, but no representing table symbols", .{});
+        }
+        const table_import_name = ss.table_imports.items[0].name;
+        if (table_import_name != wasm.preloaded_strings.__indirect_function_table) {
+            return diags.failParse(path, "non-indirect function table import '{s}' is missing a corresponding symbol", .{
+                table_import_name.slice(wasm),
+            });
+        }
+
+        try ss.symbol_table.append(gpa, .{
+            .flags = .{
+                .undefined = true,
+                .no_strip = true,
+            },
+            .name = table_import_name.toOptional(),
+            .pointee = .{ .table_import = @enumFromInt(0) },
+        });
+    }
+
     // Apply symbol table information.
     for (ss.symbol_table.items) |symbol| switch (symbol.pointee) {
         .function_import => |index| {
@@ -1328,37 +1363,6 @@ pub fn parse(
             .tls = info.flags.tls,
             .retain = info.flags.retain,
             .alignment = info.flags.alignment,
-        };
-    }
-
-    // Check for indirect function table in case of an MVP object file.
-    legacy_indirect_function_table: {
-        // If there is a symbol for each import table, this is not a legacy object file.
-        if (ss.table_imports.items.len == table_import_symbol_count) break :legacy_indirect_function_table;
-        if (table_import_symbol_count != 0) {
-            return diags.failParse(path, "expected a table entry symbol for each of the {d} table(s), but instead got {d} symbols.", .{
-                ss.table_imports.items.len, table_import_symbol_count,
-            });
-        }
-        // MVP object files cannot have any table definitions, only imports
-        // (for the indirect function table).
-        const tables = wasm.object_tables.items[tables_start..];
-        if (tables.len > 0) {
-            return diags.failParse(path, "table definition without representing table symbols", .{});
-        }
-        if (ss.table_imports.items.len != 1) {
-            return diags.failParse(path, "found more than one table import, but no representing table symbols", .{});
-        }
-        const table_import_name = ss.table_imports.items[0].name;
-        if (table_import_name != wasm.preloaded_strings.__indirect_function_table) {
-            return diags.failParse(path, "non-indirect function table import '{s}' is missing a corresponding symbol", .{
-                table_import_name.slice(wasm),
-            });
-        }
-        const ptr = wasm.object_table_imports.getPtr(table_import_name).?;
-        ptr.flags = .{
-            .undefined = true,
-            .no_strip = true,
         };
     }
 

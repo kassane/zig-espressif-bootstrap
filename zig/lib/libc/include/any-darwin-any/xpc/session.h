@@ -118,7 +118,7 @@ xpc_session_t _Nullable
 xpc_session_create_xpc_service(const char *name,
 		dispatch_queue_t _Nullable target_queue,
 		xpc_session_create_flags_t flags,
-		xpc_rich_error_t _Nullable * _Nullable error_out);
+		xpc_rich_error_t _Nullable XPC_GIVES_REFERENCE * _Nullable error_out);
 
 /*!
  * @function xpc_session_create_mach_service
@@ -161,7 +161,7 @@ xpc_session_t _Nullable
 xpc_session_create_mach_service(const char *mach_service,
 		dispatch_queue_t _Nullable target_queue,
 		xpc_session_create_flags_t flags,
-		xpc_rich_error_t _Nullable * _Nullable error_out);
+		xpc_rich_error_t _Nullable XPC_GIVES_REFERENCE * _Nullable error_out);
 
 #pragma mark Session Configuration
 /*!
@@ -256,7 +256,7 @@ API_AVAILABLE(macos(13.0), ios(16.0), tvos(16.0), watchos(9.0))
 XPC_EXPORT XPC_SWIFT_NOEXPORT
 bool
 xpc_session_activate(xpc_session_t session,
-		xpc_rich_error_t _Nullable * _Nullable error_out);
+		xpc_rich_error_t _Nullable XPC_GIVES_REFERENCE * _Nullable error_out);
 
 /*!
  * @function xpc_session_cancel
@@ -350,7 +350,7 @@ API_AVAILABLE(macos(13.0), ios(16.0), tvos(16.0), watchos(9.0))
 XPC_EXPORT XPC_SWIFT_NOEXPORT XPC_RETURNS_RETAINED XPC_WARN_RESULT
 xpc_object_t _Nullable
 xpc_session_send_message_with_reply_sync(xpc_session_t session,
-		xpc_object_t message, xpc_rich_error_t _Nullable * _Nullable error_out);
+		xpc_object_t message, xpc_rich_error_t _Nullable XPC_GIVES_REFERENCE * _Nullable error_out);
 
 /*!
  * @function xpc_session_send_message_with_reply_async
@@ -443,8 +443,8 @@ xpc_session_set_peer_code_signing_requirement(xpc_session_t session, const char 
  * will be returned instead of reply, with `error_out` (if set) pointing to the
  * rich error describing the peer code signing error.
  */
-API_AVAILABLE(macos(26.0), ios(26.0))
-API_UNAVAILABLE(tvos, watchos)
+API_AVAILABLE(macos(26.0), ios(26.0), tvos(26.0), watchos(26.0))
+
 XPC_EXPORT XPC_SWIFT_NOEXPORT XPC_NONNULL_ALL
 void
 xpc_session_set_peer_requirement(xpc_session_t session, xpc_peer_requirement_t requirement);

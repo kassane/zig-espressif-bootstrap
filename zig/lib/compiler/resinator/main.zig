@@ -143,7 +143,13 @@ pub fn main(init: std.process.Init.Minimal) !void {
                 if (!zig_integration) io.unlockStderr();
             }
 
-            var comp = aro.Compilation.init(aro_arena, aro_arena, io, &diagnostics, Io.Dir.cwd());
+            var comp = try aro.Compilation.init(.{
+                .gpa = aro_arena,
+                .arena = aro_arena,
+                .io = io,
+                .diagnostics = &diagnostics,
+                .environ_map = &environ_map,
+            });
             defer comp.deinit();
 
             var argv: std.ArrayList([]const u8) = .empty;

@@ -22,8 +22,18 @@ pub fn deinit(si: *SelfInfo, io: Io) void {
     si.modules.deinit(gpa);
 }
 
-pub fn getSymbol(si: *SelfInfo, io: Io, address: usize) Error!std.debug.Symbol {
+pub fn getSymbols(
+    si: *SelfInfo,
+    io: Io,
+    symbol_allocator: Allocator,
+    text_arena: Allocator,
+    address: usize,
+    resolve_inline_callers: bool,
+    symbols: *std.ArrayList(std.debug.Symbol),
+) Error!void {
+    _ = resolve_inline_callers;
     const gpa = std.debug.getDebugInfoAllocator();
+
     const module = try si.findModule(gpa, io, address);
     defer si.mutex.unlock(io);
 
@@ -43,23 +53,23 @@ pub fn getSymbol(si: *SelfInfo, io: Io, address: usize) Error!std.debug.Symbol {
 
     const ofile_dwarf, const ofile_vaddr = file.getDwarfForAddress(gpa, io, vaddr) catch {
         // Return at least the symbol name if available.
-        return .{
+        return symbols.append(symbol_allocator, .{
             .name = try file.lookupSymbolName(vaddr),
             .compile_unit_name = null,
             .source_location = null,
-        };
+        });
     };
 
     const compile_unit = ofile_dwarf.findCompileUnit(native_endian, ofile_vaddr) catch {
         // Return at least the symbol name if available.
-        return .{
+        return symbols.append(symbol_allocator, .{
             .name = try file.lookupSymbolName(vaddr),
             .compile_unit_name = null,
             .source_location = null,
-        };
+        });
     };
 
-    return .{
+    try symbols.append(symbol_allocator, .{
         .name = ofile_dwarf.getSymbolName(ofile_vaddr) orelse
             try file.lookupSymbolName(vaddr),
         .compile_unit_name = compile_unit.die.getAttrString(
@@ -73,11 +83,12 @@ pub fn getSymbol(si: *SelfInfo, io: Io, address: usize) Error!std.debug.Symbol {
         },
         .source_location = ofile_dwarf.getLineNumberInfo(
             gpa,
+            text_arena,
             native_endian,
             compile_unit,
             ofile_vaddr,
         ) catch null,
-    };
+    });
 }
 pub fn getModuleName(si: *SelfInfo, io: Io, address: usize) Error![]const u8 {
     _ = si;

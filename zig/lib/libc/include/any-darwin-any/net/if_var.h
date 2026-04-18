@@ -219,11 +219,11 @@ struct if_data64 {
 
 #pragma pack()
 
-#if defined(DRIVERKIT) || defined(PRIVATE) || defined(DRIVERKIT_PRIVATE)
+#if defined(DRIVERKIT) || (defined(PRIVATE) && !defined(MODULES_SUPPORTED)) || defined(DRIVERKIT_PRIVATE)
 #include <net/if_var_status.h>
 #else
 struct ifnet_interface_advisory;
-#endif /* defined(DRIVERKIT) || defined(PRIVATE) || defined(DRIVERKIT_PRIVATE) */
+#endif /* defined(DRIVERKIT) || (defined(PRIVATE) && !defined(MODULES_SUPPORTED)) || defined(DRIVERKIT_PRIVATE) */
 
 
 /*

@@ -65,7 +65,7 @@ fn alloc(
     if (self.alloc_index == self.fail_index) {
         if (!self.has_induced_failure) {
             const st = std.debug.captureCurrentStackTrace(.{ .first_address = return_address }, &self.stack_addresses);
-            @memset(self.stack_addresses[@min(st.index, self.stack_addresses.len)..], 0);
+            @memset(self.stack_addresses[@min(st.return_addresses.len, self.stack_addresses.len)..], 0);
             self.has_induced_failure = true;
         }
         return null;
@@ -131,15 +131,15 @@ fn free(
 }
 
 /// Only valid once `has_induced_failure == true`
-pub fn getStackTrace(self: *FailingAllocator) std.builtin.StackTrace {
+pub fn getStackTrace(self: *FailingAllocator) std.debug.StackTrace {
     std.debug.assert(self.has_induced_failure);
     var len: usize = 0;
     while (len < self.stack_addresses.len and self.stack_addresses[len] != 0) {
         len += 1;
     }
     return .{
-        .instruction_addresses = &self.stack_addresses,
-        .index = len,
+        .return_addresses = self.stack_addresses[0..len],
+        .skipped = if (len == self.stack_addresses.len) .unknown else .none,
     };
 }
 

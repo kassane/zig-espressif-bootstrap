@@ -1386,7 +1386,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
         const old_air_bookkeeping = func.air_bookkeeping;
         try func.ensureProcessDeathCapacity(Air.Liveness.bpi);
 
-        func.reused_operands = @TypeOf(func.reused_operands).initEmpty();
+        func.reused_operands = @TypeOf(func.reused_operands).empty;
         try func.inst_tracking.ensureUnusedCapacity(func.gpa, 1);
         const tag = air_tags[@intFromEnum(inst)];
         switch (tag) {
@@ -1477,7 +1477,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             => try func.airCmp(inst, tag),
 
             .cmp_vector => try func.airCmpVector(inst),
-            .cmp_lt_errors_len => try func.airCmpLtErrorsLen(inst),
+            .cmp_lte_errors_len => try func.airCmpLteErrorsLen(inst),
 
             .slice           => try func.airSlice(inst),
             .array_to_slice  => try func.airArrayToSlice(inst),
@@ -4956,8 +4956,8 @@ fn genCall(
     // on linking.
     switch (info) {
         .air => |callee| {
-            if (try func.air.value(callee, pt)) |func_value| {
-                const func_key = zcu.intern_pool.indexToKey(func_value.ip_index);
+            if (callee.toInterned()) |func_ip_index| {
+                const func_key = zcu.intern_pool.indexToKey(func_ip_index);
                 switch (switch (func_key) {
                     else => func_key,
                     .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
@@ -5186,11 +5186,11 @@ fn airCmpVector(func: *Func, inst: Air.Inst.Index) !void {
     return func.fail("TODO implement airCmpVector for {}", .{func.target.cpu.arch});
 }
 
-fn airCmpLtErrorsLen(func: *Func, inst: Air.Inst.Index) !void {
+fn airCmpLteErrorsLen(func: *Func, inst: Air.Inst.Index) !void {
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try func.resolveInst(un_op);
     _ = operand;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airCmpLtErrorsLen for {}", .{func.target.cpu.arch});
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airCmpLteErrorsLen for {}", .{func.target.cpu.arch});
     return func.finishAir(inst, result, .{ un_op, .none, .none });
 }
 

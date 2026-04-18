@@ -1,8 +1,9 @@
 const std = @import("std");
-const Io = std.Io;
-const Allocator = mem.Allocator;
 const mem = std.mem;
 const process = std.process;
+const Allocator = mem.Allocator;
+const build_options = @import("build_options");
+
 const aro = @import("aro");
 const Compilation = aro.Compilation;
 const Diagnostics = aro.Diagnostics;
@@ -11,14 +12,15 @@ const Toolchain = aro.Toolchain;
 const assembly_backend = @import("assembly_backend");
 
 var debug_allocator: std.heap.DebugAllocator(.{
-    .stack_trace_frames = 0,
+    .stack_trace_frames = if (build_options.debug_allocations and std.debug.sys_can_stack_trace) 10 else 0,
+    .resize_stack_traces = build_options.debug_allocations,
     // A unique value so that when a default-constructed
-    // DebugAllocator is incorrectly passed to testing allocator, or
+    // GeneralPurposeAllocator is incorrectly passed to testing allocator, or
     // vice versa, panic occurs.
     .canary = @truncate(0xc647026dc6875134),
 }) = .{};
 
-pub fn main(init: std.process.Init.Minimal) u8 {
+pub fn main(init: process.Init.Minimal) u8 {
     const gpa = if (@import("builtin").link_libc)
         std.heap.c_allocator
     else
@@ -31,7 +33,10 @@ pub fn main(init: std.process.Init.Minimal) u8 {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var threaded: std.Io.Threaded = .init(gpa, .{});
+    var threaded: std.Io.Threaded = .init(gpa, .{
+        .argv0 = .init(init.args),
+        .environ = init.environ,
+    });
     defer threaded.deinit();
     const io = threaded.io();
 
@@ -43,7 +48,11 @@ pub fn main(init: std.process.Init.Minimal) u8 {
         return 1;
     };
 
-    const aro_name = process.executablePathAlloc(io, gpa) catch {
+    var environ_map = std.process.Environ.createMap(init.environ, gpa) catch |err|
+        std.process.fatal("failed to parse environment variables: {t}", .{err});
+    defer environ_map.deinit();
+
+    const aro_name = std.process.executableDirPathAlloc(io, gpa) catch {
         std.debug.print("unable to find Aro executable path\n", .{});
         if (fast_exit) process.exit(1);
         return 1;
@@ -51,15 +60,21 @@ pub fn main(init: std.process.Init.Minimal) u8 {
     defer gpa.free(aro_name);
 
     var stderr_buf: [1024]u8 = undefined;
-    var stderr = Io.File.stderr().writer(&stderr_buf);
+    var stderr = std.Io.File.stderr().writer(io, &stderr_buf);
     var diagnostics: Diagnostics = .{
         .output = .{ .to_writer = .{
-            .color = .detect(stderr.file),
+            .mode = std.Io.Terminal.Mode.detect(io, stderr.file, false, false) catch .no_color,
             .writer = &stderr.interface,
         } },
     };
 
-    var comp = Compilation.initDefault(gpa, arena, io, &diagnostics, Io.Dir.cwd()) catch |er| switch (er) {
+    var comp = Compilation.init(.{
+        .gpa = gpa,
+        .arena = arena,
+        .io = io,
+        .diagnostics = &diagnostics,
+        .environ_map = &environ_map,
+    }) catch |er| switch (er) {
         error.OutOfMemory => {
             std.debug.print("out of memory\n", .{});
             if (fast_exit) process.exit(1);
@@ -85,6 +100,7 @@ pub fn main(init: std.process.Init.Minimal) u8 {
             if (fast_exit) process.exit(1);
             return 1;
         },
+        error.Canceled => unreachable,
     };
     if (fast_exit) process.exit(@intFromBool(comp.diagnostics.errors != 0));
     return @intFromBool(diagnostics.errors != 0);

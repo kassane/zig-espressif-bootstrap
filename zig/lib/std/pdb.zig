@@ -314,11 +314,9 @@ pub const SymbolKind = enum(u16) {
 
 pub const TypeIndex = u32;
 
-// TODO According to this header:
-// https://github.com/microsoft/microsoft-pdb/blob/082c5290e5aff028ae84e43affa8be717aa7af73/include/cvinfo.h#L3722
-// we should define RecordPrefix as part of the ProcSym structure.
-// This might be important when we start generating PDB in self-hosted with our own PE linker.
 pub const ProcSym = extern struct {
+    record_len: u16,
+    record_kind: SymbolKind,
     parent: u32,
     end: u32,
     next: u32,
@@ -507,4 +505,145 @@ pub const SuperBlock = extern struct {
     // blocks. We're not even close to this with a 1GB pdb file, and LLVM didn't
     // implement it so we're kind of safe making this assumption for now.
     block_map_addr: u32,
+};
+
+pub const IpiStreamVersion = enum(u32) {
+    v40 = 19950410,
+    v41 = 19951122,
+    v50 = 19961031,
+    v70 = 19990903,
+    v80 = 20040203,
+    _,
+};
+
+pub const IpiStreamHeader = extern struct {
+    version: IpiStreamVersion,
+    header_size: u32,
+    type_index_begin: u32,
+    type_index_end: u32,
+    type_record_bytes: u32,
+    hash_stream_index: u16,
+    hash_aux_stream_index: u16,
+    hash_key_size: u32,
+    num_hash_buckets: u32,
+    hash_value_buffer_offset: i32,
+    hash_value_buffer_length: u32,
+    index_offset_buffer_offset: i32,
+    index_offset_buffer_length: u32,
+    hash_adj_buffer_offset: i32,
+    hash_adj_buffer_length: u32,
+};
+
+pub const LfRecordPrefix = extern struct {
+    len: u16,
+    kind: LfRecordKind,
+};
+
+pub const LfRecordKind = enum(u16) {
+    pointer = 0x1002,
+    modifier = 0x1001,
+    procedure = 0x1008,
+    mfunction = 0x1009,
+    label = 0x000e,
+    arglist = 0x1201,
+    fieldlist = 0x1203,
+    array = 0x1503,
+    class = 0x1504,
+    structure = 0x1505,
+    interface = 0x1519,
+    @"union" = 0x1506,
+    @"enum" = 0x1507,
+    typeserver2 = 0x1515,
+    vftable = 0x151d,
+    vtshape = 0x000a,
+    bitfield = 0x1205,
+    func_id = 0x1601,
+    mfunc_id = 0x1602,
+    buildinfo = 0x1603,
+    substr_list = 0x1604,
+    string_id = 0x1605,
+    udt_src_line = 0x1606,
+    udt_mod_src_line = 0x1607,
+    methodlist = 0x1206,
+    precomp = 0x1509,
+    endprecomp = 0x0014,
+    bclass = 0x1400,
+    binterface = 0x151a,
+    vbclass = 0x1401,
+    ivbclass = 0x1402,
+    vfunctab = 0x1409,
+    stmember = 0x150e,
+    method = 0x150f,
+    member = 0x150d,
+    nesttype = 0x1510,
+    onemethod = 0x1511,
+    enumerate = 0x1502,
+    index = 0x1404,
+    pad0 = 0xf0,
+    _,
+};
+
+pub const LfFuncId = extern struct {
+    len: u16,
+    kind: LfRecordKind,
+    scope_id: u32,
+    type: u32,
+    name: [1]u8, // null-terminated
+};
+
+pub const LfMFuncId = extern struct {
+    len: u16,
+    kind: LfRecordKind,
+    parent_type: u32,
+    type: u32,
+    name: [1]u8, // null-terminated
+};
+
+pub const InlineSiteSym = extern struct {
+    record_len: u16,
+    record_kind: SymbolKind,
+    parent: u32,
+    end: u32,
+    inlinee: u32,
+};
+
+pub const InlineSiteSym2 = extern struct {
+    record_len: u16,
+    record_kind: SymbolKind,
+    parent: u32,
+    end: u32,
+    inlinee: u32,
+    invocations: u32,
+};
+
+pub const InlineeSourceLineSignature = enum(u32) { normal = 0, ex = 1, _ };
+
+pub const InlineeSourceLine = extern struct {
+    inlinee: u32,
+    file_id: u32,
+    source_line_num: u32,
+};
+
+pub const InlineeSourceLineEx = extern struct {
+    inlinee: u32,
+    file_id: u32,
+    source_line_num: u32,
+    count_of_extra_files: u32,
+};
+
+pub const BinaryAnnotationOpcode = enum(u8) {
+    invalid = 0,
+    code_offset = 1,
+    change_code_offset_base = 2,
+    change_code_offset = 3,
+    change_code_length = 4,
+    change_file = 5,
+    change_line_offset = 6,
+    change_line_end_delta = 7,
+    change_range_kind = 8,
+    change_column_start = 9,
+    change_column_end_delta = 10,
+    change_code_offset_and_line_offset = 11,
+    change_code_length_and_code_offset = 12,
+    change_column_end = 13,
 };

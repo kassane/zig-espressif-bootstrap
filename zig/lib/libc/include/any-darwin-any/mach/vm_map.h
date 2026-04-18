@@ -52,7 +52,7 @@ typedef function_table_entry   *function_table_t;
 #endif /* AUTOTEST */
 
 #ifndef	vm_map_MSG_COUNT
-#define	vm_map_MSG_COUNT	33
+#define	vm_map_MSG_COUNT	34
 #endif	/* vm_map_MSG_COUNT */
 
 #include <Availability.h>
@@ -517,6 +517,24 @@ kern_return_t vm_remap_new
 	vm_inherit_t inheritance
 );
 
+/* Routine vm_reallocate */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+kern_return_t vm_reallocate
+(
+	vm_map_t target_task,
+	vm_address_t src,
+	vm_size_t src_size,
+	vm_address_t *dst,
+	vm_size_t dst_size,
+	vm_offset_t align_mask,
+	int options,
+	int flags
+);
+
 __END_DECLS
 
 /********************** Caution **************************/
@@ -972,6 +990,24 @@ __END_DECLS
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		vm_address_t src;
+		vm_size_t src_size;
+		vm_address_t dst;
+		vm_size_t dst_size;
+		vm_offset_t align_mask;
+		int options;
+		int flags;
+	} __Request__vm_reallocate_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Request__vm_map_subsystem__defined */
 
 /* union of all requests */
@@ -1008,6 +1044,7 @@ union __RequestUnion__vm_map_subsystem {
 	__Request__vm_purgable_control_t Request_vm_purgable_control;
 	__Request__vm_map_exec_lockdown_t Request_vm_map_exec_lockdown;
 	__Request__vm_remap_new_t Request_vm_remap_new;
+	__Request__vm_reallocate_t Request_vm_reallocate;
 };
 #endif /* !__RequestUnion__vm_map_subsystem__defined */
 /* typedefs for all replies */
@@ -1427,6 +1464,19 @@ union __RequestUnion__vm_map_subsystem {
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		kern_return_t RetCode;
+		vm_address_t dst;
+	} __Reply__vm_reallocate_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Reply__vm_map_subsystem__defined */
 
 /* union of all replies */
@@ -1463,6 +1513,7 @@ union __ReplyUnion__vm_map_subsystem {
 	__Reply__vm_purgable_control_t Reply_vm_purgable_control;
 	__Reply__vm_map_exec_lockdown_t Reply_vm_map_exec_lockdown;
 	__Reply__vm_remap_new_t Reply_vm_remap_new;
+	__Reply__vm_reallocate_t Reply_vm_reallocate;
 };
 #endif /* !__RequestUnion__vm_map_subsystem__defined */
 
@@ -1496,7 +1547,8 @@ union __ReplyUnion__vm_map_subsystem {
     { "vm_map_64", 3826 },\
     { "vm_purgable_control", 3830 },\
     { "vm_map_exec_lockdown", 3831 },\
-    { "vm_remap_new", 3832 }
+    { "vm_remap_new", 3832 },\
+    { "vm_reallocate", 3833 }
 #endif
 
 #ifdef __AfterMigUserHeader

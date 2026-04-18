@@ -870,14 +870,20 @@ pub const Inst = struct {
         /// Uses the `pl_op` field, payload represents the index of the target memory.
         wasm_memory_grow,
 
-        /// Returns `true` if and only if the operand, an integer with
-        /// the same size as the error integer type, is less than the
-        /// total number of errors in the Module.
+        /// Returns `true` if and only if the operand, an integer with the same
+        /// size as the error integer type, is less than *or equal to* the total
+        /// number of errors in the Zcu. The "or equal to" is a consequence of
+        /// value 0 being reserved for the "non-error" status in error unions.
+        ///
+        /// This instruction exists (as opposed to just using `cmp_lte` against
+        /// a constant) because the number of errors in the Zcu is not known
+        /// until `Compilation.flush`. Before then, semantic analysis could
+        /// discover new errors at any time.
+        ///
         /// Result type is always `bool`.
+        ///
         /// Uses the `un_op` field.
-        /// Note that the number of errors in the Module cannot be considered stable until
-        /// flush().
-        cmp_lt_errors_len,
+        cmp_lte_errors_len,
 
         /// Returns pointer to current error return trace.
         err_return_trace,
@@ -1616,7 +1622,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .cmp_gte_optimized,
         .cmp_gt_optimized,
         .cmp_neq_optimized,
-        .cmp_lt_errors_len,
+        .cmp_lte_errors_len,
         .is_null,
         .is_non_null,
         .is_null_ptr,
@@ -1836,15 +1842,6 @@ pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
     return .fromIntern(ip_index);
 }
 
-/// Returns `null` if runtime-known.
-pub fn value(air: Air, inst: Inst.Ref, pt: Zcu.PerThread) !?Value {
-    if (inst.toInterned()) |ip_index| {
-        return .fromInterned(ip_index);
-    }
-    const index = inst.toIndex().?;
-    return air.typeOfIndex(index, &pt.zcu.intern_pool).onePossibleValue(pt);
-}
-
 pub const NullTerminatedString = enum(u32) {
     none = std.math.maxInt(u32),
     _,
@@ -2061,7 +2058,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .mul_add,
         .field_parent_ptr,
         .wasm_memory_size,
-        .cmp_lt_errors_len,
+        .cmp_lte_errors_len,
         .err_return_trace,
         .addrspace_cast,
         .save_err_return_trace_index,

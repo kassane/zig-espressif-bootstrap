@@ -222,6 +222,12 @@
 #define DISPATCH_COLD
 #endif
 
+#if __has_attribute(no_sanitize)
+#define DISPATCH_NO_UBSAN __attribute__((no_sanitize("undefined")))
+#else
+#define DISPATCH_NO_UBSAN
+#endif
+
 #if __has_feature(assume_nonnull)
 #define DISPATCH_ASSUME_NONNULL_BEGIN _Pragma("clang assume_nonnull begin")
 #define DISPATCH_ASSUME_NONNULL_END   _Pragma("clang assume_nonnull end")
@@ -305,11 +311,13 @@
 
 #if __has_feature(enumerator_attributes)
 #define DISPATCH_ENUM_API_AVAILABLE(...) API_AVAILABLE(__VA_ARGS__)
+#define DISPATCH_ENUM_SPI_AVAILABLE(...) API_UNAVAILABLE(__VA_ARGS__)
 #define DISPATCH_ENUM_API_DEPRECATED(...) API_DEPRECATED(__VA_ARGS__)
 #define DISPATCH_ENUM_API_DEPRECATED_WITH_REPLACEMENT(...) \
 		API_DEPRECATED_WITH_REPLACEMENT(__VA_ARGS__)
 #else
 #define DISPATCH_ENUM_API_AVAILABLE(...)
+#define DISPATCH_ENUM_SPI_AVAILABLE(...)
 #define DISPATCH_ENUM_API_DEPRECATED(...)
 #define DISPATCH_ENUM_API_DEPRECATED_WITH_REPLACEMENT(...)
 #endif

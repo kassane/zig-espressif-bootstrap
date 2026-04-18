@@ -126,6 +126,7 @@ pub fn addCase(self: *LlvmIr, case: TestCase) void {
         .exact => |e| .{ .expected_exact = e },
     });
     check.setName(name);
+    check.max_bytes = 64 * 1024 * 1024; // allow fairly big LLVM IR files
 
     self.root_step.dependOn(&check.step);
 }

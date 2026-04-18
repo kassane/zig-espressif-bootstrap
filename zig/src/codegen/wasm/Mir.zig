@@ -169,6 +169,10 @@ pub const Inst = struct {
         call_tag_name,
         /// Lowers to a `call` instruction, using `intrinsic`.
         call_intrinsic,
+        /// Pops a value from the stack, and discards it.
+        ///
+        /// Uses `tag` (no additional data).
+        drop = 0x1A,
         /// Pops three values from the stack and pushes
         /// the first or second value dependent on the third value.
         /// Uses `tag`
@@ -1000,4 +1004,7 @@ pub const Intrinsic = enum(u32) {
     tanf,
     tanq,
     truncq,
+    __addo_limb64,
+    __subo_limb64,
+    __cmp_limb64,
 };

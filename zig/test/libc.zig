@@ -22,7 +22,7 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("functional/memstream.c", true, .{});
     // "functional/mntent.c": https://www.openwall.com/lists/musl/2024/10/22/1
     cases.addLibcTestCase("functional/popen.c", false, .{});
-    cases.addLibcTestCase("functional/pthread_cancel-points.c", false, .{});
+    // cases.addLibcTestCase("functional/pthread_cancel-points.c", false, .{}); - racey if multiple instances of the test run concurrently.
     cases.addLibcTestCase("functional/pthread_cancel.c", false, .{});
     cases.addLibcTestCase("functional/pthread_cond.c", false, .{});
     cases.addLibcTestCase("functional/pthread_mutex.c", false, .{});
@@ -31,7 +31,7 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("functional/pthread_tsd.c", false, .{});
     cases.addLibcTestCase("functional/qsort.c", true, .{});
     cases.addLibcTestCase("functional/random.c", true, .{});
-    cases.addLibcTestCase("functional/search_hsearch.c", false, .{}); // The test suite of wasi-libc runs this test case
+    cases.addLibcTestCase("functional/search_hsearch.c", true, .{});
     cases.addLibcTestCase("functional/search_insque.c", true, .{});
     cases.addLibcTestCase("functional/search_lsearch.c", true, .{});
     cases.addLibcTestCase("functional/search_tsearch.c", true, .{});
@@ -104,7 +104,7 @@ pub fn addCases(cases: *tests.LibcContext) void {
     // "regression/pthread-robust-detach.c": https://gitlab.com/qemu-project/qemu/-/issues/2424
     cases.addLibcTestCase("regression/pthread_atfork-errno-clobber.c", false, .{});
     cases.addLibcTestCase("regression/pthread_cancel-sem_wait.c", false, .{});
-    cases.addLibcTestCase("regression/pthread_cond-smasher.c", false, .{});
+    // Flaky under heavy load: cases.addLibcTestCase("regression/pthread_cond-smasher.c", false, .{});
     // Flaky under heavy load: cases.addLibcTestCase("regression/pthread_cond_wait-cancel_ignored.c", false, .{});
     cases.addLibcTestCase("regression/pthread_condattr_setclock.c", false, .{});
     // "regression/pthread_create-oom.c": QEMU OOM
@@ -197,7 +197,7 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("math/fabs.c", true, .{});
     cases.addLibcTestCase("math/fabsf.c", true, .{});
     cases.addLibcTestCase("math/fabsl.c", true, .{});
-    // cases.addLibcTestCase("math/fdim.c", true, .{});
+    cases.addLibcTestCase("math/fdim.c", true, .{});
     // cases.addLibcTestCase("math/fdimf.c", true, .{});
     // cases.addLibcTestCase("math/fdiml.c", true, .{});
     cases.addLibcTestCase("math/fenv.c", true, .{});
@@ -293,7 +293,7 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("math/remquo.c", true, .{});
     cases.addLibcTestCase("math/remquof.c", true, .{});
     cases.addLibcTestCase("math/remquol.c", true, .{});
-    // cases.addLibcTestCase("math/rint.c", true, .{});
+    cases.addLibcTestCase("math/rint.c", true, .{});
     cases.addLibcTestCase("math/rintf.c", true, .{});
     // cases.addLibcTestCase("math/rintl.c", true, .{});
     cases.addLibcTestCase("math/round.c", true, .{});

@@ -86,8 +86,6 @@ __BEGIN_DECLS
  * @constant MALLOC_ZONE_MALLOC_OPTION_CLEAR
  * Zero out the allocated memory, similar to calloc().
  *
- */
-/*!
  * @constant MALLOC_ZONE_MALLOC_OPTION_CANONICAL_TAG
  * Under MTE, use a tag of zero (canonical) instead of a random value.
  */

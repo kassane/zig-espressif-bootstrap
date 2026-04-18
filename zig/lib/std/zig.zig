@@ -23,6 +23,7 @@ pub const primitives = @import("zig/primitives.zig");
 pub const isPrimitive = primitives.isPrimitive;
 pub const Ast = @import("zig/Ast.zig");
 pub const AstGen = @import("zig/AstGen.zig");
+pub const AstSmith = @import("zig/AstSmith.zig");
 pub const Zir = @import("zig/Zir.zig");
 pub const Zoir = @import("zig/Zoir.zig");
 pub const ZonGen = @import("zig/ZonGen.zig");
@@ -985,11 +986,14 @@ pub const EmitArtifact = enum {
     docs,
     pdb,
     h,
+    compiler_rt_dyn_lib,
 
     /// If using `Server` to communicate with the compiler, it will place requested artifacts in
     /// paths under the output directory, where those paths are named according to this function.
     /// Returned string is allocated with `gpa` and owned by the caller.
     pub fn cacheName(ea: EmitArtifact, gpa: Allocator, opts: BinNameOptions) Allocator.Error![]const u8 {
+        // hack for stage2_x86_64 + coff. See Coff.flush.
+        if (ea == .compiler_rt_dyn_lib) return "compiler_rt.dll";
         const suffix: []const u8 = switch (ea) {
             .bin => return binNameAlloc(gpa, opts),
             .@"asm" => ".s",
@@ -999,6 +1003,7 @@ pub const EmitArtifact = enum {
             .docs => "-docs",
             .pdb => ".pdb",
             .h => ".h",
+            .compiler_rt_dyn_lib => unreachable,
         };
         return std.fmt.allocPrint(gpa, "{s}{s}", .{ opts.root_name, suffix });
     }
@@ -1121,6 +1126,7 @@ pub const ClangCliParam = struct {
         rtlib,
         static,
         dynamic,
+        version,
     };
 
     pub fn matchEql(self: @This(), arg: []const u8) u2 {
@@ -1165,6 +1171,7 @@ pub const ClangCliParam = struct {
 test {
     _ = Ast;
     _ = AstRlAnnotate;
+    _ = AstSmith;
     _ = BuiltinFn;
     _ = Client;
     _ = ErrorBundle;

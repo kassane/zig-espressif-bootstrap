@@ -45,6 +45,18 @@ fn getArrayLen(a: []const u32) usize {
     return a.len;
 }
 
+test "runtime array concat with comptime slice" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    var a: [1]u8 = .{1};
+    const b = (comptime @as([]const u8, &.{0})) ++ &a;
+    const c = &a ++ (comptime @as([]const u8, &.{0}));
+    try std.testing.expectEqualSlices(u8, &.{ 0, 1 }, b);
+    try std.testing.expectEqualSlices(u8, &.{ 1, 0 }, c);
+}
+
 test "array concat with undefined" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;

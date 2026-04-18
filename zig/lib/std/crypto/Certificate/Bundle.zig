@@ -184,7 +184,8 @@ pub fn addCertsFromDirPath(
 ) AddCertsFromDirPathError!void {
     var iterable_dir = try dir.openDir(io, sub_dir_path, .{ .iterate = true });
     defer iterable_dir.close(io);
-    return addCertsFromDir(cb, gpa, io, iterable_dir);
+    const now = Io.Clock.real.now(io);
+    return addCertsFromDir(cb, gpa, io, now, iterable_dir);
 }
 
 pub fn addCertsFromDirPathAbsolute(
@@ -330,6 +331,19 @@ const MapContext = struct {
         );
     }
 };
+
+test "addCertsFromDirPath compiles and accepts an empty directory" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var bundle: Bundle = .empty;
+    defer bundle.deinit(gpa);
+
+    try bundle.addCertsFromDirPath(gpa, io, tmp.dir, ".");
+}
 
 test "scan for OS-provided certificates" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;

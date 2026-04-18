@@ -313,7 +313,8 @@ pub const Token = struct {
             return tag.lexeme() orelse switch (tag) {
                 .invalid => "invalid token",
                 .identifier => "an identifier",
-                .string_literal, .multiline_string_literal_line => "a string literal",
+                .string_literal => "a string literal",
+                .multiline_string_literal_line => "a multiline string literal",
                 .char_literal => "a character literal",
                 .eof => "EOF",
                 .builtin => "a builtin function",

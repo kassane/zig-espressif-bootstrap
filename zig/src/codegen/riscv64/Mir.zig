@@ -189,7 +189,7 @@ pub const LoadSymbolPayload = struct {
 
 /// Used in conjunction with payload to transfer a list of used registers in a compact manner.
 pub const RegisterList = struct {
-    bitset: BitSet = BitSet.initEmpty(),
+    bitset: BitSet = .empty,
 
     const BitSet = IntegerBitSet(32);
     const Self = @This();

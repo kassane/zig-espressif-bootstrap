@@ -1,9 +1,41 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const abi = std.Build.abi.fuzz;
 const native_endian = @import("builtin").cpu.arch.endian();
 
 fn testOne() callconv(.c) bool {
     return false;
+}
+
+export fn runner_test_run(i: u32) void {
+    assert(i == 0);
+    abi.fuzzer_set_test(testOne);
+    abi.fuzzer_new_input(.fromSlice(""));
+    abi.fuzzer_new_input(.fromSlice("hello"));
+    abi.fuzzer_start_test();
+}
+
+export fn runner_test_name(i: u32) abi.Slice {
+    assert(i == 0);
+    return .fromSlice("test");
+}
+
+export fn runner_start_input_poller() void {}
+export fn runner_stop_input_poller() void {}
+
+export fn runner_futex_wait(ptr: *const u32, expected: u32) bool {
+    assert(ptr.* == expected); // single-threaded
+    return false;
+}
+
+export fn runner_futex_wake(ptr: *const u32, waiters: u32) void {
+    _ = ptr;
+    _ = waiters;
+}
+
+export fn runner_broadcast_input(test_i: u32, bytes: abi.Slice) void {
+    _ = test_i;
+    _ = bytes;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -19,9 +51,7 @@ pub fn main(init: std.process.Init) !void {
     defer cache_dir.close(io);
 
     abi.fuzzer_init(.fromSlice(cache_dir_path));
-    abi.fuzzer_set_test(testOne, .fromSlice("test"));
-    abi.fuzzer_new_input(.fromSlice(""));
-    abi.fuzzer_new_input(.fromSlice("hello"));
+    abi.fuzzer_main(1, 0, .iterations, 100);
 
     const pc_digest = abi.fuzzer_coverage().id;
     const coverage_file_path = "v/" ++ std.fmt.hex(pc_digest);

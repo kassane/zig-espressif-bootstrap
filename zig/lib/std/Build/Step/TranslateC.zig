@@ -18,14 +18,12 @@ target: std.Build.ResolvedTarget,
 optimize: std.builtin.OptimizeMode,
 output_file: std.Build.GeneratedFile,
 link_libc: bool,
-use_clang: bool,
 
 pub const Options = struct {
     root_source_file: std.Build.LazyPath,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     link_libc: bool = true,
-    use_clang: bool = true,
 };
 
 pub fn create(owner: *std.Build, options: Options) *TranslateC {
@@ -46,7 +44,6 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
         .optimize = options.optimize,
         .output_file = .{ .step = &translate_c.step },
         .link_libc = options.link_libc,
-        .use_clang = options.use_clang,
         .system_libs = .empty,
     };
     source.addStepDependencies(&translate_c.step);
@@ -174,9 +171,6 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     try argv_list.append("translate-c");
     if (translate_c.link_libc) {
         try argv_list.append("-lc");
-    }
-    if (!translate_c.use_clang) {
-        try argv_list.append("-fno-clang");
     }
 
     try argv_list.append("--cache-dir");

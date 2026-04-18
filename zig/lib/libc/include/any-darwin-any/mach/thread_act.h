@@ -52,7 +52,7 @@ typedef function_table_entry   *function_table_t;
 #endif /* AUTOTEST */
 
 #ifndef	thread_act_MSG_COUNT
-#define	thread_act_MSG_COUNT	32
+#define	thread_act_MSG_COUNT	34
 #endif	/* thread_act_MSG_COUNT */
 
 #include <Availability.h>
@@ -509,6 +509,31 @@ kern_return_t thread_adopt_exception_handler
 	thread_state_flavor_t flavor_mask
 );
 
+/* Routine thread_suspend2 */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+__WATCHOS_PROHIBITED
+kern_return_t thread_suspend2
+(
+	thread_read_t target_act,
+	mach_port_t *suspend_token
+);
+
+/* Routine thread_resume2 */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+__WATCHOS_PROHIBITED
+kern_return_t thread_resume2
+(
+	mach_port_t suspend_token
+);
+
 __END_DECLS
 
 /********************** Caution **************************/
@@ -939,6 +964,26 @@ __END_DECLS
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+	} __Request__thread_suspend2_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+	} __Request__thread_resume2_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Request__thread_act_subsystem__defined */
 
 /* union of all requests */
@@ -977,6 +1022,8 @@ union __RequestUnion__thread_act_subsystem {
 	__Request__thread_convert_thread_state_t Request_thread_convert_thread_state;
 	__Request__thread_get_exception_ports_info_t Request_thread_get_exception_ports_info;
 	__Request__thread_adopt_exception_handler_t Request_thread_adopt_exception_handler;
+	__Request__thread_suspend2_t Request_thread_suspend2;
+	__Request__thread_resume2_t Request_thread_resume2;
 };
 #endif /* !__RequestUnion__thread_act_subsystem__defined */
 /* typedefs for all replies */
@@ -1393,6 +1440,32 @@ union __RequestUnion__thread_act_subsystem {
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		/* start of the kernel processed data */
+		mach_msg_body_t msgh_body;
+		mach_msg_port_descriptor_t suspend_token;
+		/* end of the kernel processed data */
+	} __Reply__thread_suspend2_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		kern_return_t RetCode;
+	} __Reply__thread_resume2_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Reply__thread_act_subsystem__defined */
 
 /* union of all replies */
@@ -1431,6 +1504,8 @@ union __ReplyUnion__thread_act_subsystem {
 	__Reply__thread_convert_thread_state_t Reply_thread_convert_thread_state;
 	__Reply__thread_get_exception_ports_info_t Reply_thread_get_exception_ports_info;
 	__Reply__thread_adopt_exception_handler_t Reply_thread_adopt_exception_handler;
+	__Reply__thread_suspend2_t Reply_thread_suspend2;
+	__Reply__thread_resume2_t Reply_thread_resume2;
 };
 #endif /* !__RequestUnion__thread_act_subsystem__defined */
 
@@ -1466,7 +1541,9 @@ union __ReplyUnion__thread_act_subsystem {
     { "thread_swap_mach_voucher", 3627 },\
     { "thread_convert_thread_state", 3628 },\
     { "thread_get_exception_ports_info", 3630 },\
-    { "thread_adopt_exception_handler", 3631 }
+    { "thread_adopt_exception_handler", 3631 },\
+    { "thread_suspend2", 3632 },\
+    { "thread_resume2", 3633 }
 #endif
 
 #ifdef __AfterMigUserHeader

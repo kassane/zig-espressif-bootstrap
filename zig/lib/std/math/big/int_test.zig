@@ -1260,6 +1260,28 @@ test "subSat single-multi, signed, limb aligned" {
     try testing.expectEqual(minInt(SignedDoubleLimb), try a.toInt(SignedDoubleLimb));
 }
 
+test "addSat multi-multi, signed, unused limb" {
+    var a = try Managed.initSet(testing.allocator, 1 << (@bitSizeOf(Limb) - 1));
+    defer a.deinit();
+
+    try a.ensureTwosCompCapacity(3 * @bitSizeOf(Limb));
+    try a.addSat(&a, &a, .signed, 3 * @bitSizeOf(Limb));
+
+    try testing.expectEqual(1 << @bitSizeOf(Limb), try a.toInt(SignedDoubleLimb));
+}
+
+test "subSat multi-multi, signed, unused limb" {
+    var a = try Managed.initSet(testing.allocator, -1 << (@bitSizeOf(Limb) - 1));
+    defer a.deinit();
+
+    var b = try Managed.initSet(testing.allocator, 1 << (@bitSizeOf(Limb) - 1));
+    defer b.deinit();
+
+    try a.subSat(&a, &b, .signed, 3 * @bitSizeOf(Limb));
+
+    try testing.expectEqual(-1 << @bitSizeOf(Limb), try a.toInt(SignedDoubleLimb));
+}
+
 test "sub single-single" {
     var a = try Managed.initSet(testing.allocator, 50);
     defer a.deinit();

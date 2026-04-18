@@ -443,7 +443,7 @@ pub const Reader = struct {
             },
             .none => {
                 if (content_length) |len| {
-                    reader.state = .{ .body_remaining_content_length = len };
+                    reader.state = if (len == 0) .ready else .{ .body_remaining_content_length = len };
                     reader.interface = .{
                         .buffer = transfer_buffer,
                         .seek = 0,
@@ -509,27 +509,29 @@ pub const Reader = struct {
         limit: std.Io.Limit,
     ) std.Io.Reader.StreamError!usize {
         const reader: *Reader = @alignCast(@fieldParentPtr("interface", io_r));
+        if (reader.state == .ready) return error.EndOfStream;
         const remaining_content_length = &reader.state.body_remaining_content_length;
         const remaining = remaining_content_length.*;
-        if (remaining == 0) {
-            reader.state = .ready;
-            return error.EndOfStream;
-        }
         const n = try reader.in.stream(w, limit.min(.limited64(remaining)));
-        remaining_content_length.* = remaining - n;
+        if (n == remaining) {
+            reader.state = .ready;
+        } else {
+            remaining_content_length.* = remaining - n;
+        }
         return n;
     }
 
     fn contentLengthDiscard(io_r: *std.Io.Reader, limit: std.Io.Limit) std.Io.Reader.Error!usize {
         const reader: *Reader = @alignCast(@fieldParentPtr("interface", io_r));
+        if (reader.state == .ready) return error.EndOfStream;
         const remaining_content_length = &reader.state.body_remaining_content_length;
         const remaining = remaining_content_length.*;
-        if (remaining == 0) {
-            reader.state = .ready;
-            return error.EndOfStream;
-        }
         const n = try reader.in.discard(limit.min(.limited64(remaining)));
-        remaining_content_length.* = remaining - n;
+        if (n == remaining) {
+            reader.state = .ready;
+        } else {
+            remaining_content_length.* = remaining - n;
+        }
         return n;
     }
 

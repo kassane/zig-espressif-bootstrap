@@ -568,7 +568,10 @@ const Eval = struct {
             .signal => |sig| {
                 eval.fatal("generated executable '{s}' terminated with signal {t}", .{ binary_path, sig });
             },
-            .stopped, .unknown => {
+            .stopped => |sig| {
+                eval.fatal("generated executable '{s}' stopped with signal {t}", .{ binary_path, sig });
+            },
+            .unknown => {
                 eval.fatal("generated executable '{s}' terminated unexpectedly", .{binary_path});
             },
         }
@@ -627,19 +630,17 @@ const Eval = struct {
         }) catch |err| {
             eval.fatal("failed to spawn zig cc for '{s}': {t}", .{ c_path, err });
         };
+
+        if (result.term == .exited and result.term.exited == 0) return;
+
+        if (result.stderr.len != 0) {
+            std.log.err("zig cc stderr:\n{s}", .{result.stderr});
+        }
         switch (result.term) {
-            .exited => |code| if (code != 0) {
-                if (result.stderr.len != 0) {
-                    std.log.err("zig cc stderr:\n{s}", .{result.stderr});
-                }
-                eval.fatal("zig cc for '{s}' failed with code {d}", .{ c_path, code });
-            },
-            .signal, .stopped, .unknown => {
-                if (result.stderr.len != 0) {
-                    std.log.err("zig cc stderr:\n{s}", .{result.stderr});
-                }
-                eval.fatal("zig cc for '{s}' terminated unexpectedly", .{c_path});
-            },
+            .exited => |code| eval.fatal("zig cc for '{s}' failed with code {d}", .{ c_path, code }),
+            .signal => |sig| eval.fatal("zig cc for '{s}' terminated unexpectedly with signal {t}", .{ c_path, sig }),
+            .stopped => |sig| eval.fatal("zig cc for '{s}' stopped unexpectedly with signal {t}", .{ c_path, sig }),
+            .unknown => eval.fatal("zig cc for '{s}' terminated unexpectedly", .{c_path}),
         }
     }
 
@@ -918,7 +919,8 @@ fn waitChild(child: *std.process.Child, eval: *Eval) void {
     switch (term) {
         .exited => |code| if (code != 0) eval.fatal("compiler failed with code {d}", .{code}),
         .signal => |sig| eval.fatal("compiler terminated with signal {t}", .{sig}),
-        .stopped, .unknown => eval.fatal("compiler terminated unexpectedly", .{}),
+        .stopped => |sig| eval.fatal("compiler stopped unexpectedly with signal {t}", .{sig}),
+        .unknown => eval.fatal("compiler terminated unexpectedly", .{}),
     }
 }
 

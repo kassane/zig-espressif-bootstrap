@@ -1,4 +1,6 @@
-pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext) void {
+const std = @import("std");
+
+pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext, os: std.Target.Os.Tag) void {
     cases.addCase(.{
         .name = "return",
         .source =
@@ -430,6 +432,67 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext) void {
         \\    return error.TheSkyIsFalling;
         \\    ^
         ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .freebsd },
+            .{ .x86_64, .netbsd },
+            .{ .x86_64, .linux },
+            .{ .x86, .linux },
+            .{ .aarch64, .freebsd },
+            .{ .aarch64, .netbsd },
+            .{ .aarch64, .linux },
+            .{ .loongarch64, .linux },
+            .{ .powerpc64le, .linux },
+            .{ .riscv64, .linux },
+            .{ .s390x, .linux },
+            .{ .x86_64, .openbsd },
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .name = "trace through inline call",
+        .source =
+        \\pub fn main() !void {
+        \\    try foo();
+        \\}
+        \\inline fn foo() !void {
+        \\    try bar();
+        \\}
+        \\fn bar() !void {
+        \\    return error.ThisIsSoSad;
+        \\}
+        ,
+        .expect_error = "ThisIsSoSad",
+        .expect_trace = switch (os) {
+            // LLVM doesn't emit column info in the binary annotations for inlinee callees in PDBs,
+            // so our expected result is slightly different for Windows than on other operating
+            // systems.
+            .windows =>
+            \\source.zig:8:5: [address] in bar
+            \\    return error.ThisIsSoSad;
+            \\    ^
+            \\source.zig:5: [address] in foo
+            \\    try bar();
+            \\
+            \\source.zig:2:5: [address] in main
+            \\    try foo();
+            \\    ^
+            ,
+            else =>
+            \\source.zig:8:5: [address] in bar
+            \\    return error.ThisIsSoSad;
+            \\    ^
+            \\source.zig:5:5: [address] in foo
+            \\    try bar();
+            \\    ^
+            \\source.zig:2:5: [address] in main
+            \\    try foo();
+            \\    ^
+            ,
+        },
         .disable_trace_optimized = &.{
             .{ .x86_64, .freebsd },
             .{ .x86_64, .netbsd },

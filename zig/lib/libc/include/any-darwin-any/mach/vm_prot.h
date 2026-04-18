@@ -154,7 +154,6 @@ typedef int             vm_prot_t;
 #define VM_PROT_STRIP_READ              ((vm_prot_t) 0x80)
 #define VM_PROT_EXECUTE_ONLY    (VM_PROT_EXECUTE|VM_PROT_STRIP_READ)
 
-
 /*
  * Another invalid protection value to support pager TPRO protection.
  * VM_PROT_TPRO is a special marker that tells the a pager to

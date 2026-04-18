@@ -44,6 +44,8 @@ pub const Fingerprint = packed struct(u64) {
 pub const Hash = struct {
     /// Maximum size of a package hash. Unused bytes at the end are
     /// filled with zeroes.
+    ///
+    /// Assumed to be already validated.
     bytes: [max_len]u8,
 
     pub const Algo = std.crypto.hash.sha2.Sha256;
@@ -52,21 +54,35 @@ pub const Hash = struct {
     /// Example: "nnnn-vvvv-hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
     pub const max_len = 32 + 1 + 32 + 1 + (32 + 32 + 200) / 6;
 
+    /// Asserts `s` is valid.
     pub fn fromSlice(s: []const u8) Hash {
-        assert(s.len <= max_len);
+        assert(validate(s) == .ok);
         var result: Hash = undefined;
         @memcpy(result.bytes[0..s.len], s);
         @memset(result.bytes[s.len..], 0);
         return result;
     }
 
+    pub const Validation = enum { ok, short, long, incomplete };
+
+    pub fn validate(s: []const u8) Validation {
+        if (s.len > max_len) return .long;
+        if (s.len < 44) return .short;
+        const n_dashes = std.mem.countScalar(u8, s[0 .. s.len - 44], '-');
+        if (n_dashes < 2) return .incomplete;
+        return .ok;
+    }
+
+    test validate {
+        try std.testing.expectEqual(.short, validate(""));
+    }
+
     pub fn toSlice(ph: *const Hash) []const u8 {
         var end: usize = ph.bytes.len;
-        while (end > 0) {
+        while (true) {
             end -= 1;
             if (ph.bytes[end] != 0) return ph.bytes[0 .. end + 1];
         }
-        return ph.bytes[0..0];
     }
 
     pub fn eql(a: *const Hash, b: *const Hash) bool {
@@ -186,11 +202,6 @@ test Hash {
     };
     const result: Hash = .init(example_digest, "nasm", "2.16.1-3", 0xcafebabe, 10 * 1024 * 1024);
     try std.testing.expectEqualStrings("nasm-2.16.1-3-vrr-ygAAoADH9XG3tOdvPNuHen_d-XeHndOG-nNXmved", result.toSlice());
-}
-
-test "empty hash" {
-    const hash = Hash.fromSlice("");
-    try std.testing.expectEqualStrings("", hash.toSlice());
 }
 
 test {

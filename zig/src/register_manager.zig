@@ -34,12 +34,12 @@ pub fn RegisterManager(
         registers: TrackedRegisters = undefined,
         /// Tracks which registers are free (in which case the
         /// corresponding bit is set to 1)
-        free_registers: RegisterBitSet = .initFull(),
+        free_registers: RegisterBitSet = .full,
         /// Tracks all registers allocated in the course of this
         /// function
-        allocated_registers: RegisterBitSet = .initEmpty(),
+        allocated_registers: RegisterBitSet = .empty,
         /// Tracks registers which are locked from being allocated
-        locked_registers: RegisterBitSet = .initEmpty(),
+        locked_registers: RegisterBitSet = .empty,
 
         const Self = @This();
 
@@ -393,7 +393,7 @@ const MockRegister1 = enum(u2) {
     );
 
     const gp = blk: {
-        var set: RM.RegisterBitSet = .initEmpty();
+        var set: RM.RegisterBitSet = .empty;
         set.setRangeValue(.{
             .start = 0,
             .end = allocatable_registers.len,
@@ -421,7 +421,7 @@ const MockRegister2 = enum(u2) {
     );
 
     const gp = blk: {
-        var set: RM.RegisterBitSet = .initEmpty();
+        var set: RM.RegisterBitSet = .empty;
         set.setRangeValue(.{
             .start = 0,
             .end = allocatable_registers.len,
@@ -462,7 +462,7 @@ const MockRegister3 = enum(u3) {
     );
 
     const gp = blk: {
-        var set: RM.RegisterBitSet = .initEmpty();
+        var set: RM.RegisterBitSet = .empty;
         set.setRangeValue(.{
             .start = 0,
             .end = gp_regs.len,
@@ -470,7 +470,7 @@ const MockRegister3 = enum(u3) {
         break :blk set;
     };
     const ext = blk: {
-        var set: RM.RegisterBitSet = .initEmpty();
+        var set: RM.RegisterBitSet = .empty;
         set.setRangeValue(.{
             .start = gp_regs.len,
             .end = allocatable_registers.len,

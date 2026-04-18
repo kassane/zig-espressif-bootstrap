@@ -5,15 +5,14 @@ const assert = std.debug.assert;
 const aro = @import("aro");
 const Assembly = aro.Assembly;
 const Compilation = aro.Compilation;
-const Node = Tree.Node;
 const Source = aro.Source;
 const Tree = aro.Tree;
 const QualType = aro.QualType;
 const Value = aro.Value;
+const Error = aro.Compilation.Error;
+const Node = Tree.Node;
 
 const AsmCodeGen = @This();
-const Error = aro.Compilation.Error;
-
 tree: *const Tree,
 comp: *Compilation,
 text: *std.Io.Writer,
@@ -58,7 +57,7 @@ fn serializeFloat(comptime T: type, value: T, w: *std.Io.Writer) !void {
         },
         else => {
             const size = @bitSizeOf(T);
-            const storage_unit = std.enums.fromInt(StorageUnit, size).?;
+            const storage_unit = std.enums.fromInt(StorageUnit, size) orelse unreachable;
             const IntTy = @Int(.unsigned, size);
             const int_val: IntTy = @bitCast(value);
             return serializeInt(int_val, storage_unit, w);

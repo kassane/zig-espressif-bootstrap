@@ -352,6 +352,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         .end,
         .@"return",
         .@"unreachable",
+        .drop,
         .select,
         .i32_eqz,
         .i32_eq,

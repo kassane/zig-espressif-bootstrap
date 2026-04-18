@@ -19,7 +19,12 @@ comptime {
 inline fn muloXi4_genericSmall(comptime ST: type, a: ST, b: ST, overflow: *c_int) ST {
     overflow.* = 0;
     const min = math.minInt(ST);
-    const res: ST = a *% b;
+    const res: ST = if (ST == i128 and builtin.target.cpu.arch.isWasm()) res: {
+        // Despite compiler-rt being built with `-fno-builtin`, LLVM still converts this function to
+        // a call to `__muloti4` on WASM. This is an upstream bug: circumvent it by directly calling
+        // the "lower-level" compiler-rt routine for this wrapping multiplication.
+        break :res @import("mulXi3.zig").__multi3(a, b);
+    } else a *% b;
     // Hacker's Delight section Overflow subsection Multiplication
     // case a=-2^{31}, b=-1 problem, because
     // on some machines a*b = -2^{31} with overflow

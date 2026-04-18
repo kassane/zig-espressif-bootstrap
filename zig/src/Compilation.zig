@@ -1471,6 +1471,8 @@ pub const ClangPreprocessorMode = enum {
     stdout,
     /// precompiled C header
     pch,
+    /// `--version`
+    version,
 };
 
 pub const Framework = link.File.MachO.Framework;
@@ -2050,7 +2052,11 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                 },
                 .fully_qualified_name = "zigc",
                 .cc_argv = &.{},
-                .inherited = .{},
+                .inherited = .{
+                    .stack_check = false,
+                    .stack_protector = 0,
+                    .no_builtin = true,
+                },
                 .global = options.config,
                 .parent = options.root_mod,
             }) catch |err| switch (err) {
@@ -2479,7 +2485,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
 
         if (use_llvm) {
             if (opt_zcu) |zcu| {
-                zcu.llvm_object = try LlvmObject.create(arena, comp);
+                zcu.llvm_object = try LlvmObject.create(arena, zcu);
             }
         }
 
@@ -2932,16 +2938,16 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                     .none => unreachable,
                     .manifest_create, .manifest_read, .manifest_lock => |e| return comp.setMiscFailure(
                         .check_whole_cache,
-                        "failed to check cache: {s} {s}",
-                        .{ @tagName(man.diagnostic), @errorName(e) },
+                        "failed to check cache: {t} {t}",
+                        .{ man.diagnostic, e },
                     ),
                     .file_open, .file_stat, .file_read, .file_hash => |op| {
                         const pp = man.files.keys()[op.file_index].prefixed_path;
                         const prefix = man.cache.prefixes()[pp.prefix];
                         return comp.setMiscFailure(
                             .check_whole_cache,
-                            "failed to check cache: '{f}{s}' {s} {s}",
-                            .{ prefix, pp.sub_path, @tagName(man.diagnostic), @errorName(op.err) },
+                            "failed to check cache: '{f}{s}' {t} {t}",
+                            .{ prefix, pp.sub_path, man.diagnostic, op.err },
                         );
                     },
                 },
@@ -3226,15 +3232,15 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
             // cache manifest must not be written.
             if (anyErrors(comp)) return;
 
-            // Failure here only means an unnecessary cache miss.
-            man.writeManifest() catch |err| {
-                log.warn("failed to write cache manifest: {s}", .{@errorName(err)});
-            };
-
             if (comp.bin_file) |lf| {
                 lf.destroy();
                 comp.bin_file = null;
             }
+
+            // Failure here only means an unnecessary cache miss.
+            man.writeManifest() catch |err| {
+                log.warn("failed to write cache manifest: {s}", .{@errorName(err)});
+            };
 
             assert(whole.lock == null);
             whole.lock = man.toOwnedLock();
@@ -5735,6 +5741,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
                 .yes => argv.appendSliceAssumeCapacity(&.{ "-E", "-o", out_obj_path }),
                 .pch => argv.appendSliceAssumeCapacity(&.{ "-Xclang", "-emit-pch", "-o", out_obj_path }),
                 .stdout => argv.appendAssumeCapacity("-E"),
+                .version => argv.appendAssumeCapacity("--version"),
             }
 
             if (comp.emit_asm != null) {
@@ -5778,6 +5785,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
             .yes => argv.appendSliceAssumeCapacity(&.{ "-E", "-o", out_obj_path }),
             .pch => argv.appendSliceAssumeCapacity(&.{ "-Xclang", "-emit-pch", "-o", out_obj_path }),
             .stdout => argv.appendAssumeCapacity("-E"),
+            .version => argv.appendAssumeCapacity("--version"),
         }
         if (out_diag_path) |diag_file_path| {
             argv.appendSliceAssumeCapacity(&.{ "--serialize-diagnostics", diag_file_path });
@@ -5826,8 +5834,10 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
                         if (code != 0) {
                             std.process.exit(code);
                         }
-                        if (comp.clang_preprocessor_mode == .stdout)
-                            std.process.exit(0);
+                        switch (comp.clang_preprocessor_mode) {
+                            .stdout, .version => std.process.exit(0),
+                            else => {},
+                        }
                     },
                     else => std.process.abort(),
                 }
@@ -5860,7 +5870,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
                         log.err("clang failed with stderr: {s}", .{stderr});
                         return comp.failCObj(c_object, "clang terminated with signal {t}", .{sig});
                     },
-                    else => {
+                    .stopped => |sig| {
+                        log.err("clang failed with stderr: {s}", .{stderr});
+                        return comp.failCObj(c_object, "clang stopped with signal {t}", .{sig});
+                    },
+                    .unknown => {
                         log.err("clang terminated with stderr: {s}", .{stderr});
                         return comp.failCObj(c_object, "clang terminated unexpectedly", .{});
                     },
@@ -5875,11 +5889,10 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
                     return comp.failCObj(c_object, "clang exited with code {d}", .{exit_code});
                 }
             }
-            if (comp.clang_passthrough_mode and
-                comp.clang_preprocessor_mode == .stdout)
-            {
-                std.process.exit(0);
-            }
+            if (comp.clang_passthrough_mode) switch (comp.clang_preprocessor_mode) {
+                .stdout, .version => std.process.exit(0),
+                else => {},
+            };
         }
 
         if (out_dep_path) |dep_file_path| {
@@ -6288,7 +6301,11 @@ fn spawnZigRc(
             log.err("zig rc signaled {t} with stderr:\n{s}", .{ sig, stderr });
             return comp.failWin32Resource(win32_resource, "zig rc terminated unexpectedly", .{});
         },
-        else => {
+        .stopped => |sig| {
+            log.err("zig rc stopped {t} with stderr:\n{s}", .{ sig, stderr });
+            return comp.failWin32Resource(win32_resource, "zig rc terminated unexpectedly", .{});
+        },
+        .unknown => {
             log.err("zig rc terminated with stderr:\n{s}", .{stderr});
             return comp.failWin32Resource(win32_resource, "zig rc terminated unexpectedly", .{});
         },
@@ -6420,6 +6437,7 @@ fn addCommonCCArgs(
                 .illumos => try argv.append("__illumos__"),
                 // Homebrew targets without LLVM support; use communities's preferred macros.
                 .@"3ds" => try argv.append("-D__3DS__"),
+                .psp => try argv.append("-D__PSP__"),
                 .vita => try argv.append("-D__vita__"),
                 else => {},
             }

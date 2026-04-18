@@ -219,6 +219,8 @@ generated_docs: ?*GeneratedFile,
 generated_asm: ?*GeneratedFile,
 generated_bin: ?*GeneratedFile,
 generated_pdb: ?*GeneratedFile,
+// hack for stage2_x86_64 + coff
+generated_compiler_rt_dyn_lib: ?*GeneratedFile,
 generated_implib: ?*GeneratedFile,
 generated_llvm_bc: ?*GeneratedFile,
 generated_llvm_ir: ?*GeneratedFile,
@@ -441,6 +443,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .generated_asm = null,
         .generated_bin = null,
         .generated_pdb = null,
+        .generated_compiler_rt_dyn_lib = null,
         .generated_implib = null,
         .generated_llvm_bc = null,
         .generated_llvm_ir = null,
@@ -691,6 +694,13 @@ pub fn producesPdbFile(compile: *Compile) bool {
     return compile.isDynamicLibrary() or compile.kind == .exe or compile.kind == .@"test";
 }
 
+pub fn producesCompilerRtDynLib(compile: *Compile) bool {
+    if (compile.rootModuleTarget().ofmt != .coff) return false;
+    if (compile.bundle_compiler_rt orelse (compile.kind == .exe or compile.isDynamicLibrary()))
+        return compile.use_llvm == false;
+    return false;
+}
+
 pub fn producesImplib(compile: *Compile) bool {
     return compile.isDll();
 }
@@ -867,6 +877,12 @@ pub fn getEmittedH(compile: *Compile) LazyPath {
 pub fn getEmittedPdb(compile: *Compile) LazyPath {
     _ = compile.getEmittedBin();
     return compile.getEmittedFileGeneric(&compile.generated_pdb);
+}
+
+/// Returns the generated compiler_rt dynamic library.
+/// This is a hack for stage2_x86_64 + coff.
+pub fn getEmittedCompilerRtDynLib(compile: *Compile) ?LazyPath {
+    return compile.getEmittedFileGeneric(&compile.generated_compiler_rt_dyn_lib);
 }
 
 /// Returns the path to the generated documentation directory.
@@ -1794,6 +1810,8 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         // zig fmt: off
         if (compile.generated_bin)     |lp| lp.path = compile.outputPath(output_dir, .bin);
         if (compile.generated_pdb)     |lp| lp.path = compile.outputPath(output_dir, .pdb);
+        // hack for stage2_x86_64 + coff
+        if (compile.generated_compiler_rt_dyn_lib) |lp| lp.path = compile.outputPath(output_dir, .compiler_rt_dyn_lib);
         if (compile.generated_implib)  |lp| lp.path = compile.outputPath(output_dir, .implib);
         if (compile.generated_h)       |lp| lp.path = compile.outputPath(output_dir, .h);
         if (compile.generated_docs)    |lp| lp.path = compile.outputPath(output_dir, .docs);

@@ -1141,7 +1141,12 @@ fn run(
             dumpArgs(args);
             return error.ChildCrashed;
         },
-        else => {
+        .stopped => |sig| {
+            std.debug.print("{s}\nThe following command stopped with signal {t}:\n", .{ result.stderr, sig });
+            dumpArgs(args);
+            return error.ChildCrashed;
+        },
+        .unknown => {
             std.debug.print("{s}\nThe following command crashed:\n", .{result.stderr});
             dumpArgs(args);
             return error.ChildCrashed;

@@ -374,9 +374,7 @@ pub fn imm(lower: *const Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
         .ri_u,
         .i_u,
         .mi_u,
-        .rmi,
         .rmi_u,
-        .mri,
         .rrm,
         .rrmi,
         .pseudo_dbg_arg_i_u,
@@ -567,7 +565,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .rmi => &.{
             .{ .reg = inst.data.rix.r1 },
             .{ .mem = lower.mem(1, inst.data.rix.payload) },
-            .{ .imm = lower.imm(inst.ops, inst.data.rix.i) },
+            .{ .imm = .s(inst.data.rix.i) },
         },
         .rmi_s, .rmi_u => &.{
             .{ .reg = inst.data.rx.r1 },
@@ -589,7 +587,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .mri => &.{
             .{ .mem = lower.mem(0, inst.data.rix.payload) },
             .{ .reg = inst.data.rix.r1 },
-            .{ .imm = lower.imm(inst.ops, inst.data.rix.i) },
+            .{ .imm = .u(@as(u8, @intCast(inst.data.rix.i))) },
         },
         .rrm => &.{
             .{ .reg = inst.data.rrx.r1 },

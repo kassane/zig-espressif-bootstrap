@@ -435,8 +435,7 @@ pub const Function = struct {
     fn resolveInst(f: *Function, ref: Air.Inst.Ref) !CValue {
         const gop = try f.value_map.getOrPut(ref);
         if (!gop.found_existing) {
-            const val = try f.air.value(ref, f.dg.pt);
-            gop.value_ptr.* = .{ .constant = val.? };
+            gop.value_ptr.* = .{ .constant = .fromInterned(ref.toInterned().?) };
         }
         return gop.value_ptr.*;
     }
@@ -2723,7 +2722,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) Error!void {
                 const extra = f.air.extraData(Air.VectorCmp, ty_pl.payload).data;
                 break :blk try airCmpOp(f, inst, extra, extra.compareOperator());
             },
-            .cmp_lt_errors_len => try airCmpLtErrorsLen(f, inst),
+            .cmp_lte_errors_len => try airCmpLteErrorsLen(f, inst),
 
             // bool_and and bool_or are non-short-circuit operations
             .bool_and, .bit_and => try airBinOp(f, inst, "&",  "and", .none),
@@ -3389,7 +3388,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     const ptr_val = try f.resolveInst(bin_op.lhs);
     const src_ty = f.typeOf(bin_op.rhs);
 
-    const val_is_undef = if (try f.air.value(bin_op.rhs, pt)) |v| v.isUndef(zcu) else false;
+    const val_is_undef = if (bin_op.rhs.toInterned()) |ip_index| Value.fromInterned(ip_index).isUndef(zcu) else false;
 
     const w = &f.code.writer;
     if (val_is_undef) {
@@ -3729,7 +3728,7 @@ fn airEquality(
     return local;
 }
 
-fn airCmpLtErrorsLen(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airCmpLteErrorsLen(f: *Function, inst: Air.Inst.Index) !CValue {
     const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
 
     const operand = try f.resolveInst(un_op);
@@ -3922,8 +3921,8 @@ fn airCall(
 
     callee: {
         known: {
-            const callee_val = (try f.air.value(call.callee, pt)) orelse break :known;
-            const fn_nav, const need_cast = switch (ip.indexToKey(callee_val.toIntern())) {
+            const callee_ip_index = call.callee.toInterned() orelse break :known;
+            const fn_nav, const need_cast = switch (ip.indexToKey(callee_ip_index)) {
                 .@"extern" => |@"extern"| .{ @"extern".owner_nav, false },
                 .func => |func| .{ func.owner_nav, Type.fromInterned(func.ty).fnCallingConvention(zcu) != .naked and
                     Type.fromInterned(func.uncoerced_ty).fnCallingConvention(zcu) == .naked },
@@ -4027,7 +4026,7 @@ fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
     const tag = f.air.instructions.items(.tag)[@intFromEnum(inst)];
     const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
-    const operand_is_undef = if (try f.air.value(pl_op.operand, pt)) |v| v.isUndef(zcu) else false;
+    const operand_is_undef = if (pl_op.operand.toInterned()) |ip_index| Value.fromInterned(ip_index).isUndef(zcu) else false;
     if (!operand_is_undef) _ = try f.resolveInst(pl_op.operand);
 
     try reap(f, inst, &.{pl_op.operand});
@@ -4204,7 +4203,8 @@ fn airSwitchDispatch(f: *Function, inst: Air.Inst.Index) !void {
     const br = f.air.instructions.items(.data)[@intFromEnum(inst)].br;
     const w = &f.code.writer;
 
-    if (try f.air.value(br.operand, pt)) |cond_val| {
+    if (br.operand.toInterned()) |cond_ip_index| {
+        const cond_val: Value = .fromInterned(cond_ip_index);
         // Comptime-known dispatch. Iterate the cases to find the correct
         // one, and branch directly to the corresponding case.
         const switch_br = f.air.unwrapSwitch(br.block_inst);
@@ -4539,12 +4539,12 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
                 try f.writeCValue(w, cond_val, .other);
                 try w.writeAll(", ");
             }
-            const item_value = try f.air.value(item, pt);
+            const item_value: Value = .fromInterned(item.toInterned().?);
             // If `item_value` is a pointer with a known integer address, print the address
             // with no cast to avoid a warning.
             write_val: {
                 if (cond_ty.zigTypeTag(zcu) == .pointer) {
-                    if (item_value.?.getUnsignedInt(zcu)) |item_int| {
+                    if (item_value.getUnsignedInt(zcu)) |item_int| {
                         try w.print("{f}", .{try f.fmtIntLiteralDec(try pt.intValue(lowered_cond_ty, item_int))});
                         break :write_val;
                     }
@@ -4552,7 +4552,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
                     try f.renderType(w, .usize);
                     try w.writeByte(')');
                 }
-                try f.dg.renderValue(w, (try f.air.value(item, pt)).?, .other);
+                try f.dg.renderValue(w, .fromInterned(item.toInterned().?), .other);
             }
             switch (cond_cint) {
                 .zig_u128, .zig_i128 => try w.writeByte(')'),
@@ -4710,7 +4710,7 @@ fn lowerSwitchCmp(
     try f.writeCValue(w, cond_val, .other);
     try w.writeAll(if (use_builtin) ", " else compareOperatorC(operator));
     if (class == .big) try w.writeByte('&');
-    try f.dg.renderValue(w, (try f.air.value(case_inst, pt)).?, .other);
+    try f.dg.renderValue(w, .fromInterned(case_inst.toInterned().?), .other);
     if (use_builtin) {
         try f.dg.renderBuiltinInfo(w, ty, if (class == .big) .bits else .none);
         try w.writeByte(')');
@@ -6100,7 +6100,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     const value = try f.resolveInst(bin_op.rhs);
     const elem_ty = f.typeOf(bin_op.rhs);
     const elem_abi_size = elem_ty.abiSize(zcu);
-    const val_is_undef = if (try f.air.value(bin_op.rhs, pt)) |val| val.isUndef(zcu) else false;
+    const val_is_undef = if (bin_op.rhs.toInterned()) |ip_index| Value.fromInterned(ip_index).isUndef(zcu) else false;
     const w = &f.code.writer;
 
     if (val_is_undef) {

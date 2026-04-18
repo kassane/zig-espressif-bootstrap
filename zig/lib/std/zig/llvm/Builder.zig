@@ -2343,12 +2343,13 @@ pub const Global = struct {
         none = maxInt(u32),
         _,
 
-        pub fn unwrap(self: Index, builder: *const Builder) Index {
-            var cur = self;
+        pub fn unwrap(orig_index: Index, builder: *const Builder) Index {
+            var cur = orig_index;
             while (true) {
-                const replacement = cur.getReplacement(builder);
-                if (replacement == .none) return cur;
-                cur = replacement;
+                switch (builder.globals.values()[@intFromEnum(cur)].kind) {
+                    .replaced => |replacement| cur = replacement,
+                    else => return cur,
+                }
             }
         }
 
@@ -2388,8 +2389,12 @@ pub const Global = struct {
             return self.ptrConst(builder).type;
         }
 
-        pub fn toConst(self: Index) Constant {
-            return @enumFromInt(@intFromEnum(Constant.first_global) + @intFromEnum(self));
+        pub fn toConst(global: Index) Constant {
+            return @enumFromInt(@intFromEnum(Constant.first_global) + @intFromEnum(global));
+        }
+
+        pub fn toValue(global: Index) Value {
+            return global.toConst().toValue();
         }
 
         pub fn setLinkage(self: Index, linkage: Linkage, builder: *Builder) void {
@@ -2450,6 +2455,42 @@ pub const Global = struct {
             self.ptr(builder).kind = .{ .replaced = .none };
         }
 
+        /// Replaces whatever this `Global` currently contains with a new `Function`. Similar to
+        /// `Builder.addFunction`, but the same `Global` is reused.
+        pub fn toNewFunction(global: Index, builder: *Builder) Allocator.Error!Function.Index {
+            try builder.functions.ensureUnusedCapacity(builder.gpa, 1);
+            errdefer comptime unreachable;
+            const function: Function.Index = @enumFromInt(builder.functions.items.len);
+            builder.functions.appendAssumeCapacity(.{
+                .global = global,
+                .strip = undefined,
+            });
+            global.ptr(builder).kind = .{ .function = function };
+            return function;
+        }
+
+        /// Replaces whatever this `Global` currently contains with a new `Variable`. Similar to
+        /// `Builder.addVariable`, but the same `Global` is reused.
+        pub fn toNewVariable(global: Index, builder: *Builder) Allocator.Error!Variable.Index {
+            try builder.variables.ensureUnusedCapacity(builder.gpa, 1);
+            errdefer comptime unreachable;
+            const variable: Variable.Index = @enumFromInt(builder.variables.items.len);
+            builder.variables.appendAssumeCapacity(.{ .global = global });
+            global.ptr(builder).kind = .{ .variable = variable };
+            return variable;
+        }
+
+        /// Replaces whatever this `Global` currently contains with a new `Alias`. Similar to
+        /// `Builder.addAlias`, but the same `Global` is reused.
+        pub fn toNewAlias(global: Index, builder: *Builder) Allocator.Error!Alias.Index {
+            try builder.aliases.ensureUnusedCapacity(builder.gpa, 1);
+            errdefer comptime unreachable;
+            const alias: Alias.Index = @enumFromInt(builder.aliases.items.len);
+            builder.aliass.appendAssumeCapacity(.{ .global = global, .aliasee = .none });
+            global.ptr(builder).kind = .{ .alias = alias };
+            return alias;
+        }
+
         fn updateDsoLocal(self: Index, builder: *Builder) void {
             const self_ptr = self.ptr(builder);
             switch (self_ptr.linkage) {
@@ -2493,13 +2534,6 @@ pub const Global = struct {
             builder.next_replaced_global = @enumFromInt(@intFromEnum(builder.next_replaced_global) - 1);
             self.renameAssumeCapacity(builder.next_replaced_global, builder);
             self.ptr(builder).kind = .{ .replaced = other.unwrap(builder) };
-        }
-
-        fn getReplacement(self: Index, builder: *const Builder) Index {
-            return switch (builder.globals.values()[@intFromEnum(self)].kind) {
-                .replaced => |replacement| replacement,
-                else => .none,
-            };
         }
     };
 };
@@ -2591,22 +2625,6 @@ pub const Variable = struct {
 
         pub fn toValue(self: Index, builder: *const Builder) Value {
             return self.toConst(builder).toValue();
-        }
-
-        pub fn setLinkage(self: Index, linkage: Linkage, builder: *Builder) void {
-            return self.ptrConst(builder).global.setLinkage(linkage, builder);
-        }
-
-        pub fn setVisibility(self: Index, visibility: Visibility, builder: *Builder) void {
-            return self.ptrConst(builder).global.setVisibility(visibility, builder);
-        }
-
-        pub fn setDllStorageClass(self: Index, class: DllStorageClass, builder: *Builder) void {
-            return self.ptrConst(builder).global.setDllStorageClass(class, builder);
-        }
-
-        pub fn setUnnamedAddr(self: Index, unnamed_addr: UnnamedAddr, builder: *Builder) void {
-            return self.ptrConst(builder).global.setUnnamedAddr(unnamed_addr, builder);
         }
 
         pub fn setThreadLocal(self: Index, thread_local: ThreadLocal, builder: *Builder) void {
@@ -9692,8 +9710,12 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
 
     if (self.variables.items.len > 0) {
         if (need_newline) try w.writeByte('\n') else need_newline = true;
-        for (self.variables.items) |variable| {
-            if (variable.global.getReplacement(self) != .none) continue;
+        for (self.variables.items, 0..) |variable, variable_i| {
+            // Skip the variable if its global has been repurposed for something else.
+            switch (variable.global.ptrConst(self).kind) {
+                .variable => |v| if (@intFromEnum(v) != variable_i) continue,
+                else => continue,
+            }
             const global = variable.global.ptrConst(self);
             metadata_formatter.need_comma = true;
             defer metadata_formatter.need_comma = undefined;
@@ -9723,8 +9745,12 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
 
     if (self.aliases.items.len > 0) {
         if (need_newline) try w.writeByte('\n') else need_newline = true;
-        for (self.aliases.items) |alias| {
-            if (alias.global.getReplacement(self) != .none) continue;
+        for (self.aliases.items, 0..) |alias, alias_i| {
+            // Skip the alias if its global has been repurposed for something else.
+            switch (alias.global.ptrConst(self).kind) {
+                .alias => |a| if (@intFromEnum(a) != alias_i) continue,
+                else => continue,
+            }
             const global = alias.global.ptrConst(self);
             metadata_formatter.need_comma = true;
             defer metadata_formatter.need_comma = undefined;
@@ -9750,7 +9776,11 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
     defer attribute_groups.deinit(self.gpa);
 
     for (0.., self.functions.items) |function_i, function| {
-        if (function.global.getReplacement(self) != .none) continue;
+        // Skip the function if its global has been repurposed for something else.
+        switch (function.global.ptrConst(self).kind) {
+            .function => |f| if (@intFromEnum(f) != function_i) continue,
+            else => continue,
+        }
         if (need_newline) try w.writeByte('\n') else need_newline = true;
         const function_index: Function.Index = @enumFromInt(function_i);
         const global = function.global.ptrConst(self);
@@ -13687,20 +13717,32 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                 self.aliases.items.len,
         );
 
-        for (self.variables.items) |variable| {
-            if (variable.global.getReplacement(self) != .none) continue;
+        for (self.variables.items, 0..) |variable, variable_i| {
+            // Skip the variable if its global has been repurposed for something else.
+            switch (variable.global.ptrConst(self).kind) {
+                .variable => |v| if (@intFromEnum(v) != variable_i) continue,
+                else => continue,
+            }
 
             globals.putAssumeCapacity(variable.global, {});
         }
 
-        for (self.functions.items) |function| {
-            if (function.global.getReplacement(self) != .none) continue;
+        for (self.functions.items, 0..) |function, function_i| {
+            // Skip the function if its global has been repurposed for something else.
+            switch (function.global.ptrConst(self).kind) {
+                .function => |f| if (@intFromEnum(f) != function_i) continue,
+                else => continue,
+            }
 
             globals.putAssumeCapacity(function.global, {});
         }
 
-        for (self.aliases.items) |alias| {
-            if (alias.global.getReplacement(self) != .none) continue;
+        for (self.aliases.items, 0..) |alias, alias_i| {
+            // Skip the alias if its global has been repurposed for something else.
+            switch (alias.global.ptrConst(self).kind) {
+                .alias => |a| if (@intFromEnum(a) != alias_i) continue,
+                else => continue,
+            }
 
             globals.putAssumeCapacity(alias.global, {});
         }
@@ -13742,8 +13784,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
             defer section_map.deinit(self.gpa);
             try section_map.ensureUnusedCapacity(self.gpa, globals.count());
 
-            for (self.variables.items) |variable| {
-                if (variable.global.getReplacement(self) != .none) continue;
+            for (self.variables.items, 0..) |variable, variable_i| {
+                // Skip the variable if its global has been repurposed for something else.
+                switch (variable.global.ptrConst(self).kind) {
+                    .variable => |v| if (@intFromEnum(v) != variable_i) continue,
+                    else => continue,
+                }
 
                 const section = blk: {
                     if (variable.section == .none) break :blk 0;
@@ -13789,8 +13835,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                 });
             }
 
-            for (self.functions.items) |func| {
-                if (func.global.getReplacement(self) != .none) continue;
+            for (self.functions.items, 0..) |func, func_i| {
+                // Skip the function if its global has been repurposed for something else.
+                switch (func.global.ptrConst(self).kind) {
+                    .function => |f| if (@intFromEnum(f) != func_i) continue,
+                    else => continue,
+                }
 
                 const section = blk: {
                     if (func.section == .none) break :blk 0;
@@ -13830,8 +13880,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
                 });
             }
 
-            for (self.aliases.items) |alias| {
-                if (alias.global.getReplacement(self) != .none) continue;
+            for (self.aliases.items, 0..) |alias, alias_i| {
+                // Skip the alias if its global has been repurposed for something else.
+                switch (alias.global.ptrConst(self).kind) {
+                    .alias => |a| if (@intFromEnum(a) != alias_i) continue,
+                    else => continue,
+                }
 
                 const strtab = alias.global.strtab(self);
 
@@ -14635,8 +14689,13 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
             };
 
             for (self.functions.items, 0..) |func, func_index| {
+                // Skip the function if its global has been repurposed for something else.
+                switch (func.global.ptrConst(self).kind) {
+                    .function => |f| if (@intFromEnum(f) != func_index) continue,
+                    else => continue,
+                }
+
                 const FunctionBlock = ir.ModuleBlock.FunctionBlock;
-                if (func.global.getReplacement(self) != .none) continue;
 
                 if (func.instructions.len == 0) continue;
 

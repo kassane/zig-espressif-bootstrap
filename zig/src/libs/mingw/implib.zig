@@ -36,14 +36,14 @@ pub fn writeCoffArchive(
     var long_names: StringTable = .{};
     defer long_names.deinit(allocator);
 
-    var symbol_to_member_index = std.StringArrayHashMap(usize).init(allocator);
-    defer symbol_to_member_index.deinit();
+    var symbol_to_member_index: std.array_hash_map.String(usize) = .empty;
+    defer symbol_to_member_index.deinit(allocator);
     var string_table_len: usize = 0;
     var num_symbols: usize = 0;
 
     for (members.list.items, 0..) |member, i| {
         for (member.symbol_names_for_import_lib) |symbol_name| {
-            const gop_result = try symbol_to_member_index.getOrPut(symbol_name);
+            const gop_result = try symbol_to_member_index.getOrPut(allocator, symbol_name);
             // When building the symbol map, ignore duplicate symbol names.
             // This can happen in cases like (using .def file syntax):
             //  _foo

@@ -128,7 +128,7 @@ pub fn init(
 
 pub fn start(fuzz: *Fuzz) void {
     const io = fuzz.io;
-    fuzz.prog_node = fuzz.root_prog_node.start("Fuzzing", fuzz.run_steps.len);
+    fuzz.prog_node = fuzz.root_prog_node.start("Fuzzing", 0);
 
     if (fuzz.mode == .forever) {
         // For polling messages and sending updates to subscribers.
@@ -137,18 +137,8 @@ pub fn start(fuzz: *Fuzz) void {
     }
 
     for (fuzz.run_steps) |run| {
-        if (run.fuzz_tests.items.len > 1) {
-            // Multiple fuzzWorkerRuns currently cause race-conditions
-            // since they use the same Run step. See #30969
-            fatal("--fuzz not yet implemented for multiple tests", .{});
-        }
-    }
-
-    for (fuzz.run_steps) |run| {
-        for (run.fuzz_tests.items) |unit_test_name| {
-            assert(run.rebuilt_executable != null);
-            fuzz.group.async(io, fuzzWorkerRun, .{ fuzz, run, unit_test_name });
-        }
+        assert(run.rebuilt_executable != null);
+        fuzz.group.async(io, fuzzWorkerRun, .{ fuzz, run });
     }
 }
 
@@ -193,16 +183,13 @@ fn rebuildTestsWorkerRunFallible(run: *Step.Run, gpa: Allocator, parent_prog_nod
     run.rebuilt_executable = try rebuilt_bin_path.join(gpa, compile.out_filename);
 }
 
-fn fuzzWorkerRun(fuzz: *Fuzz, run: *Step.Run, unit_test_name: []const u8) void {
+fn fuzzWorkerRun(fuzz: *Fuzz, run: *Step.Run) void {
     const owner = run.step.owner;
     const gpa = owner.allocator;
     const graph = owner.graph;
     const io = graph.io;
 
-    const prog_node = fuzz.prog_node.start(unit_test_name, 0);
-    defer prog_node.end();
-
-    run.rerunInFuzzMode(fuzz, unit_test_name, prog_node) catch |err| switch (err) {
+    run.rerunInFuzzMode(fuzz, fuzz.prog_node) catch |err| switch (err) {
         error.MakeFailed => {
             var buf: [256]u8 = undefined;
             const stderr = io.lockStderr(&buf, graph.stderr_mode) catch |e| switch (e) {
@@ -213,7 +200,7 @@ fn fuzzWorkerRun(fuzz: *Fuzz, run: *Step.Run, unit_test_name: []const u8) void {
             return;
         },
         else => {
-            log.err("step '{s}': failed to rerun '{s}' in fuzz mode: {t}", .{ run.step.name, unit_test_name, err });
+            log.err("step '{s}': failed to rerun in fuzz mode: {t}", .{ run.step.name, err });
             return;
         },
     };

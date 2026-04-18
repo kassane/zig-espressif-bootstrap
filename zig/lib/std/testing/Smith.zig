@@ -205,6 +205,24 @@ pub noinline fn valueRangeLessThan(s: *Smith, T: type, at_least: T, less_than: T
     return s.valueRangeLessThanWithHash(T, at_least, less_than, firstHash());
 }
 
+/// It is asserted `len` is nonzero.
+/// It is asserted `len` fits within 64 bits.
+//
+// `noinline` to capture a unique return address
+pub noinline fn index(s: *Smith, len: usize) usize {
+    @disableInstrumentation();
+    return s.indexWithHash(len, firstHash());
+}
+
+/// It is asserted that the weight of `false` is non-zero.
+/// It is asserted that the weight of `true` is non-zero.
+//
+// `noinline` to capture a unique return address
+pub noinline fn boolWeighted(s: *Smith, false_weight: u64, true_weight: u64) bool {
+    @disableInstrumentation();
+    return s.boolWeightedWithHash(false_weight, true_weight, firstHash());
+}
+
 /// This is similar to `value(bool)` however it is gauraunteed to eventually
 /// return `true` and provides the fuzzer with an extra hint about the data.
 //
@@ -228,6 +246,7 @@ pub noinline fn eosWeighted(s: *Smith, weights: []const Weight) bool {
 /// This is similar to `value(bool)` however it is gauraunteed to eventually
 /// return `true` and provides the fuzzer with an extra hint about the data.
 ///
+/// It is asserted that the weight of `false` is non-zero.
 /// It is asserted that the weight of `true` is non-zero.
 //
 // `noinline` to capture a unique return address
@@ -463,6 +482,24 @@ pub fn valueRangeLessThanWithHash(s: *Smith, T: type, at_least: T, less_than: T,
     return s.valueWeightedWithHash(T, &.{.rangeLessThan(T, at_least, less_than, 1)}, hash);
 }
 
+/// It is asserted `len` is nonzero.
+/// It is asserted `len` fits within 64 bits.
+pub fn indexWithHash(s: *Smith, len: usize, hash: u32) usize {
+    @disableInstrumentation();
+    assert(len != 0);
+    return @intCast(s.valueWeightedWithHash(u64, &.{.rangeLessThan(u64, 0, @intCast(len), 1)}, hash));
+}
+
+/// It is asserted that the weight of `false` is non-zero.
+/// It is asserted that the weight of `true` is non-zero.
+pub fn boolWeightedWithHash(s: *Smith, false_weight: u64, true_weight: u64, hash: u32) bool {
+    @disableInstrumentation();
+    return s.valueWeightedWithHash(bool, &.{
+        .value(bool, false, false_weight),
+        .value(bool, true, true_weight),
+    }, hash);
+}
+
 /// This is similar to `value(bool)` however it is gauraunteed to eventually
 /// return `true` and provides the fuzzer with an extra hint about the data.
 pub fn eosWithHash(s: *Smith, hash: u32) bool {
@@ -504,8 +541,6 @@ pub fn eosWeightedWithHash(s: *Smith, weights: []const Weight, hash: u32) bool {
 ///
 /// It is asserted that the weight of `false` is non-zero.
 /// It is asserted that the weight of `true` is non-zero.
-//
-// `noinline` to capture a unique return address
 pub fn eosWeightedSimpleWithHash(s: *Smith, false_weight: u64, true_weight: u64, hash: u32) bool {
     @disableInstrumentation();
     return s.eosWeightedWithHash(&.{

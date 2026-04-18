@@ -443,7 +443,7 @@ const UnpackValueBits = struct {
                 // This @intCast is okay because no primitive can exceed the size of a u16.
                 const int_ty = try unpack.pt.intType(.unsigned, @intCast(bit_count));
                 const buf = try unpack.arena.alloc(u8, @intCast((val_bits + 7) / 8));
-                try val.writeToPackedMemory(unpack.pt, buf, 0);
+                try val.writeToPackedMemory(zcu, buf, 0);
                 const sub_val = try Value.readFromPackedMemory(int_ty, unpack.pt, buf, @intCast(bit_offset), unpack.arena);
                 try unpack.primitive(sub_val);
             },
@@ -722,7 +722,7 @@ const PackValueBits = struct {
             const val = Value.fromInterned(ip_val);
             const ty = val.typeOf(zcu);
             if (!val.isUndef(zcu)) {
-                try val.writeToPackedMemory(pt, buf, cur_bit_off);
+                try val.writeToPackedMemory(zcu, buf, cur_bit_off);
             }
             cur_bit_off += @intCast(ty.bitSize(zcu));
         }

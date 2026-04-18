@@ -12,8 +12,26 @@ pub fn main(init: std.process.Init) void {
     var add_addr: usize = undefined;
     _ = add(1, 2, &add_addr);
 
-    const symbol = di.getSymbol(io, add_addr) catch |err| fatal("failed to get symbol: {t}", .{err});
-    defer if (symbol.source_location) |sl| std.debug.getDebugInfoAllocator().free(sl.file_name);
+    const debug_gpa = std.debug.getDebugInfoAllocator();
+    const symbol_allocator = debug_gpa;
+
+    var symbols: std.ArrayList(std.debug.Symbol) = .empty;
+    defer symbols.deinit(symbol_allocator);
+
+    var text_arena: std.heap.ArenaAllocator = .init(debug_gpa);
+    defer text_arena.deinit();
+
+    di.getSymbols(
+        io,
+        symbol_allocator,
+        text_arena.allocator(),
+        add_addr,
+        false,
+        &symbols,
+    ) catch |err| fatal("failed to get symbol: {t}", .{err});
+
+    if (symbols.items.len != 1) fatal("expected 1 symbol, found {}", .{symbols.items.len});
+    const symbol = symbols.items[0];
 
     if (symbol.name == null) fatal("failed to resolve symbol name", .{});
     if (symbol.compile_unit_name == null) fatal("failed to resolve compile unit", .{});

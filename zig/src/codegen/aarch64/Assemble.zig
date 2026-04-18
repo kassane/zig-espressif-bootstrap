@@ -129,7 +129,7 @@ const matchers = matchers: {
                 break :Symbols @Struct(.auto, null, &field_names, &field_types, &@splat(.{}));
             } = undefined;
             const Symbol = std.meta.FieldEnum(@TypeOf(instruction.symbols));
-            comptime var unused_symbols: std.enums.EnumSet(Symbol) = .initFull();
+            comptime var unused_symbols: std.enums.EnumSet(Symbol) = .full;
             comptime var pattern_as: Assemble = .{ .source = instruction.pattern, .operands = undefined };
             inline while (true) {
                 comptime var ct_token_buf: [token_buf_len]u8 = undefined;

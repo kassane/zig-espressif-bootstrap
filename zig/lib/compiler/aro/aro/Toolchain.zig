@@ -495,9 +495,9 @@ pub fn addSystemIncludeDir(tc: *const Toolchain, path: []const u8) !void {
 pub fn addBuiltinIncludeDir(tc: *const Toolchain) !void {
     const d = tc.driver;
     const comp = d.comp;
+    const io = comp.io;
     const gpa = comp.gpa;
     const arena = comp.arena;
-    const io = comp.io;
     try d.includes.ensureUnusedCapacity(gpa, 1);
     if (d.resource_dir) |resource_dir| {
         const path = try std.fs.path.join(arena, &.{ resource_dir, "include" });
@@ -524,14 +524,12 @@ pub fn addBuiltinIncludeDir(tc: *const Toolchain) !void {
 /// Otherwise returns a slice of `buf`. If the file is larger than `buf` partial contents are returned
 pub fn readFile(tc: *const Toolchain, path: []const u8, buf: []u8) ?[]const u8 {
     const comp = tc.driver.comp;
-    const io = comp.io;
-    return comp.cwd.readFile(io, path, buf) catch null;
+    return comp.cwd.readFile(comp.io, path, buf) catch null;
 }
 
 pub fn exists(tc: *const Toolchain, path: []const u8) bool {
     const comp = tc.driver.comp;
-    const io = comp.io;
-    comp.cwd.access(io, path, .{}) catch return false;
+    comp.cwd.access(comp.io, path, .{}) catch return false;
     return true;
 }
 
@@ -549,8 +547,7 @@ pub fn canExecute(tc: *const Toolchain, path: []const u8) bool {
     }
 
     const comp = tc.driver.comp;
-    const io = comp.io;
-    comp.cwd.access(io, path, .{ .execute = true }) catch return false;
+    comp.cwd.access(comp.io, path, .{ .execute = true }) catch return false;
     // Todo: ensure path is not a directory
     return true;
 }

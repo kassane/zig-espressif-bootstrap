@@ -857,16 +857,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             len: usize,
             new_items: []const T,
         ) Allocator.Error!void {
-            const after_range = start + len;
-            const range = self.items[start..after_range];
-            if (range.len < new_items.len) {
-                const first = new_items[0..range.len];
-                const rest = new_items[range.len..];
-                @memcpy(range[0..first.len], first);
-                try self.insertSlice(gpa, after_range, rest);
-            } else {
-                self.replaceRangeAssumeCapacity(start, len, new_items);
-            }
+            try self.ensureTotalCapacity(gpa, try addOrOom(self.items.len - len, new_items.len));
+            self.replaceRangeAssumeCapacity(start, len, new_items);
         }
 
         /// Grows or shrinks the list as necessary.
@@ -874,26 +866,20 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Never invalidates element pointers.
         ///
         /// Asserts the capacity is enough for additional items.
-        pub fn replaceRangeAssumeCapacity(self: *Self, start: usize, len: usize, new_items: []const T) void {
-            const after_range = start + len;
-            const range = self.items[start..after_range];
+        pub fn replaceRangeAssumeCapacity(
+            self: *Self,
+            start: usize,
+            len: usize,
+            new_items: []const T,
+        ) void {
+            std.debug.assert(self.capacity - self.items.len >= new_items.len -| len);
 
-            if (range.len == new_items.len)
-                @memcpy(range[0..new_items.len], new_items)
-            else if (range.len < new_items.len) {
-                const first = new_items[0..range.len];
-                const rest = new_items[range.len..];
-                @memcpy(range[0..first.len], first);
-                const dst = self.addManyAtAssumeCapacity(after_range, rest.len);
-                @memcpy(dst, rest);
-            } else {
-                const extra = range.len - new_items.len;
-                @memcpy(range[0..new_items.len], new_items);
-                const src = self.items[after_range..];
-                @memmove(self.items[after_range - extra ..][0..src.len], src);
-                @memset(self.items[self.items.len - extra ..], undefined);
-                self.items.len -= extra;
-            }
+            const tail = self.items[start + len ..];
+            const vacated = self.items[self.items.len - (len -| new_items.len) ..];
+            self.items.len = self.items.len - len + new_items.len;
+            @memmove(self.items[start + new_items.len ..], tail);
+            @memcpy(self.items[start..][0..new_items.len], new_items);
+            @memset(vacated, undefined);
         }
 
         /// Grows or shrinks the list as necessary.
@@ -902,7 +888,12 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         ///
         /// If the unused capacity is insufficient for additional items,
         /// returns `error.OutOfMemory`.
-        pub fn replaceRangeBounded(self: *Self, start: usize, len: usize, new_items: []const T) error{OutOfMemory}!void {
+        pub fn replaceRangeBounded(
+            self: *Self,
+            start: usize,
+            len: usize,
+            new_items: []const T,
+        ) error{OutOfMemory}!void {
             if (self.capacity - self.items.len < new_items.len -| len) return error.OutOfMemory;
             return replaceRangeAssumeCapacity(self, start, len, new_items);
         }

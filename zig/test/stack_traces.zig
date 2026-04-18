@@ -1,4 +1,6 @@
-pub fn addCases(cases: *@import("tests.zig").StackTracesContext) void {
+const std = @import("std");
+
+pub fn addCases(cases: *@import("tests.zig").StackTracesContext, os: std.Target.Os.Tag) void {
     cases.addCase(.{
         .name = "simple panic",
         .source =
@@ -118,13 +120,13 @@ pub fn addCases(cases: *@import("tests.zig").StackTracesContext) void {
         \\    var stack_trace_buf: [8]usize = undefined;
         \\    dumpIt(&captureIt(&stack_trace_buf));
         \\}
-        \\fn captureIt(buf: []usize) std.builtin.StackTrace {
+        \\fn captureIt(buf: []usize) std.debug.StackTrace {
         \\    return captureItInner(buf);
         \\}
-        \\fn dumpIt(st: *const std.builtin.StackTrace) void {
+        \\fn dumpIt(st: *const std.debug.StackTrace) void {
         \\    std.debug.dumpStackTrace(st);
         \\}
-        \\fn captureItInner(buf: []usize) std.builtin.StackTrace {
+        \\fn captureItInner(buf: []usize) std.debug.StackTrace {
         \\    return std.debug.captureCurrentStackTrace(.{}, buf);
         \\}
         \\const std = @import("std");
@@ -159,13 +161,13 @@ pub fn addCases(cases: *@import("tests.zig").StackTracesContext) void {
         \\    var stack_trace_buf: [8]usize = undefined;
         \\    dumpIt(&captureIt(&stack_trace_buf));
         \\}
-        \\fn captureIt(buf: []usize) std.builtin.StackTrace {
+        \\fn captureIt(buf: []usize) std.debug.StackTrace {
         \\    return captureItInner(buf);
         \\}
-        \\fn dumpIt(st: *const std.builtin.StackTrace) void {
+        \\fn dumpIt(st: *const std.debug.StackTrace) void {
         \\    std.debug.dumpStackTrace(st);
         \\}
-        \\fn captureItInner(buf: []usize) std.builtin.StackTrace {
+        \\fn captureItInner(buf: []usize) std.debug.StackTrace {
         \\    return std.debug.captureCurrentStackTrace(.{}, buf);
         \\}
         \\const std = @import("std");
@@ -188,13 +190,13 @@ pub fn addCases(cases: *@import("tests.zig").StackTracesContext) void {
         \\fn threadMain(stack_trace_buf: []usize) void {
         \\    dumpIt(&captureIt(stack_trace_buf));
         \\}
-        \\fn captureIt(buf: []usize) std.builtin.StackTrace {
+        \\fn captureIt(buf: []usize) std.debug.StackTrace {
         \\    return captureItInner(buf);
         \\}
-        \\fn dumpIt(st: *const std.builtin.StackTrace) void {
+        \\fn dumpIt(st: *const std.debug.StackTrace) void {
         \\    std.debug.dumpStackTrace(st);
         \\}
-        \\fn captureItInner(buf: []usize) std.builtin.StackTrace {
+        \\fn captureItInner(buf: []usize) std.debug.StackTrace {
         \\    return std.debug.captureCurrentStackTrace(.{}, buf);
         \\}
         \\const std = @import("std");
@@ -220,5 +222,117 @@ pub fn addCases(cases: *@import("tests.zig").StackTracesContext) void {
         \\???:?:?: [address] in source.threadMain
         \\
         ,
+    });
+
+    cases.addCase(.{
+        .name = "simple inline panic",
+        .source =
+        \\pub fn main() void {
+        \\    foo();
+        \\}
+        \\inline fn foo() void {
+        \\    @panic("oh no");
+        \\}
+        \\
+        ,
+        .unwind = .any,
+        .expect_panic = true,
+        .expect = switch (os) {
+            // LLVM doesn't emit column info in the binary annotations for inlinee callees in PDBs,
+            // so the first location has only a row.
+            .windows =>
+            \\panic: oh no
+            \\source.zig:5: [address] in foo
+            \\    @panic("oh no");
+            \\
+            \\source.zig:2:8: [address] in main
+            \\    foo();
+            \\       ^
+            \\
+            ,
+            // On all other platforms, we resolve the innermost inline callee but we don't yet
+            // resolve the inline callers.
+            else =>
+            \\panic: oh no
+            \\source.zig:5:5: [address] in foo
+            \\    @panic("oh no");
+            \\    ^
+            ,
+        },
+        .expect_strip = switch (os) {
+            .windows =>
+            \\panic: oh no
+            \\???:?:?: [address] in source.foo
+            \\???:?:?: [address] in source.main
+            \\
+            ,
+            else =>
+            \\panic: oh no
+            \\???:?:?: [address] in source.foo
+            \\
+            ,
+        },
+    });
+
+    // Make sure all inline calls are resolved and in the right order!
+    cases.addCase(.{
+        .name = "nested inline panic",
+        .source =
+        \\pub fn main() void {
+        \\    foo();
+        \\}
+        \\inline fn foo() void {
+        \\    bar();
+        \\}
+        \\inline fn bar() void {
+        \\    baz();
+        \\}
+        \\inline fn baz() void {
+        \\    @panic("oh no");
+        \\}
+        \\
+        ,
+        .unwind = .any,
+        .expect_panic = true,
+        // This switch serves a similar purpose as in "inline panic".
+        .expect = switch (os) {
+            .windows =>
+            \\panic: oh no
+            \\source.zig:11: [address] in baz
+            \\    @panic("oh no");
+            \\
+            \\source.zig:8: [address] in bar
+            \\    baz();
+            \\
+            \\source.zig:5: [address] in foo
+            \\    bar();
+            \\
+            \\source.zig:2:8: [address] in main
+            \\    foo();
+            \\       ^
+            \\
+            ,
+            else =>
+            \\panic: oh no
+            \\source.zig:11:5: [address] in baz
+            \\    @panic("oh no");
+            \\    ^
+            ,
+        },
+        .expect_strip = switch (os) {
+            .windows =>
+            \\panic: oh no
+            \\???:?:?: [address] in baz
+            \\???:?:?: [address] in bar
+            \\???:?:?: [address] in foo
+            \\???:?:?: [address] in main
+            \\
+            ,
+            else =>
+            \\panic: oh no
+            \\???:?:?: [address] in baz
+            \\
+            ,
+        },
     });
 }

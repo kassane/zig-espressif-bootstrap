@@ -193,20 +193,20 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u1025, undefined);
         }
         fn testInts() !void {
-            try testArgs(i1, -1);
+            try testArgs(i1, -1 << 0);
             try testArgs(i1, 0);
             try testArgs(u1, 0);
             try testArgs(u1, 1 << 0);
 
             try testArgs(i2, -1 << 1);
-            try testArgs(i2, -1);
+            try testArgs(i2, -1 << 0);
             try testArgs(i2, 0);
             try testArgs(u2, 0);
             try testArgs(u2, 1 << 0);
             try testArgs(u2, 1 << 1);
 
             try testArgs(i3, -1 << 2);
-            try testArgs(i3, -1);
+            try testArgs(i3, -1 << 0);
             try testArgs(i3, 0);
             try testArgs(u3, 0);
             try testArgs(u3, 1 << 0);
@@ -214,7 +214,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u3, 1 << 2);
 
             try testArgs(i4, -1 << 3);
-            try testArgs(i4, -1);
+            try testArgs(i4, -1 << 0);
             try testArgs(i4, 0);
             try testArgs(u4, 0);
             try testArgs(u4, 1 << 0);
@@ -223,7 +223,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u4, 1 << 3);
 
             try testArgs(i5, -1 << 4);
-            try testArgs(i5, -1);
+            try testArgs(i5, -1 << 0);
             try testArgs(i5, 0);
             try testArgs(u5, 0);
             try testArgs(u5, 1 << 0);
@@ -232,7 +232,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u5, 1 << 4);
 
             try testArgs(i7, -1 << 6);
-            try testArgs(i7, -1);
+            try testArgs(i7, -1 << 0);
             try testArgs(i7, 0);
             try testArgs(u7, 0);
             try testArgs(u7, 1 << 0);
@@ -241,7 +241,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u7, 1 << 6);
 
             try testArgs(i8, -1 << 7);
-            try testArgs(i8, -1);
+            try testArgs(i8, -1 << 0);
             try testArgs(i8, 0);
             try testArgs(u8, 0);
             try testArgs(u8, 1 << 0);
@@ -250,7 +250,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u8, 1 << 7);
 
             try testArgs(i9, -1 << 8);
-            try testArgs(i9, -1);
+            try testArgs(i9, -1 << 0);
             try testArgs(i9, 0);
             try testArgs(u9, 0);
             try testArgs(u9, 1 << 0);
@@ -259,7 +259,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u9, 1 << 8);
 
             try testArgs(i15, -1 << 14);
-            try testArgs(i15, -1);
+            try testArgs(i15, -1 << 0);
             try testArgs(i15, 0);
             try testArgs(u15, 0);
             try testArgs(u15, 1 << 0);
@@ -268,16 +268,18 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u15, 1 << 14);
 
             try testArgs(i16, -1 << 15);
-            try testArgs(i16, -1);
+            try testArgs(i16, -1 << 7);
+            try testArgs(i16, -1 << 0);
             try testArgs(i16, 0);
             try testArgs(u16, 0);
             try testArgs(u16, 1 << 0);
             try testArgs(u16, 1 << 1);
+            try testArgs(u16, 1 << 7);
             try testArgs(u16, 1 << 14);
             try testArgs(u16, 1 << 15);
 
             try testArgs(i17, -1 << 16);
-            try testArgs(i17, -1);
+            try testArgs(i17, -1 << 0);
             try testArgs(i17, 0);
             try testArgs(u17, 0);
             try testArgs(u17, 1 << 0);
@@ -286,7 +288,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u17, 1 << 16);
 
             try testArgs(i31, -1 << 30);
-            try testArgs(i31, -1);
+            try testArgs(i31, -1 << 0);
             try testArgs(i31, 0);
             try testArgs(u31, 0);
             try testArgs(u31, 1 << 0);
@@ -295,16 +297,20 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u31, 1 << 30);
 
             try testArgs(i32, -1 << 31);
-            try testArgs(i32, -1);
+            try testArgs(i32, -1 << 15);
+            try testArgs(i32, -1 << 7);
+            try testArgs(i32, -1 << 0);
             try testArgs(i32, 0);
             try testArgs(u32, 0);
             try testArgs(u32, 1 << 0);
             try testArgs(u32, 1 << 1);
+            try testArgs(u32, 1 << 7);
+            try testArgs(u32, 1 << 15);
             try testArgs(u32, 1 << 30);
             try testArgs(u32, 1 << 31);
 
             try testArgs(i33, -1 << 32);
-            try testArgs(i33, -1);
+            try testArgs(i33, -1 << 0);
             try testArgs(i33, 0);
             try testArgs(u33, 0);
             try testArgs(u33, 1 << 0);
@@ -313,7 +319,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u33, 1 << 32);
 
             try testArgs(i63, -1 << 62);
-            try testArgs(i63, -1);
+            try testArgs(i63, -1 << 0);
             try testArgs(i63, 0);
             try testArgs(u63, 0);
             try testArgs(u63, 1 << 0);
@@ -322,16 +328,22 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u63, 1 << 62);
 
             try testArgs(i64, -1 << 63);
-            try testArgs(i64, -1);
+            try testArgs(i64, -1 << 31);
+            try testArgs(i64, -1 << 15);
+            try testArgs(i64, -1 << 7);
+            try testArgs(i64, -1 << 0);
             try testArgs(i64, 0);
             try testArgs(u64, 0);
             try testArgs(u64, 1 << 0);
             try testArgs(u64, 1 << 1);
+            try testArgs(u64, 1 << 7);
+            try testArgs(u64, 1 << 15);
+            try testArgs(u64, 1 << 31);
             try testArgs(u64, 1 << 62);
             try testArgs(u64, 1 << 63);
 
             try testArgs(i65, -1 << 64);
-            try testArgs(i65, -1);
+            try testArgs(i65, -1 << 0);
             try testArgs(i65, 0);
             try testArgs(u65, 0);
             try testArgs(u65, 1 << 0);
@@ -340,7 +352,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u65, 1 << 64);
 
             try testArgs(i95, -1 << 94);
-            try testArgs(i95, -1);
+            try testArgs(i95, -1 << 0);
             try testArgs(i95, 0);
             try testArgs(u95, 0);
             try testArgs(u95, 1 << 0);
@@ -349,7 +361,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u95, 1 << 94);
 
             try testArgs(i96, -1 << 95);
-            try testArgs(i96, -1);
+            try testArgs(i96, -1 << 0);
             try testArgs(i96, 0);
             try testArgs(u96, 0);
             try testArgs(u96, 1 << 0);
@@ -358,7 +370,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u96, 1 << 95);
 
             try testArgs(i97, -1 << 96);
-            try testArgs(i97, -1);
+            try testArgs(i97, -1 << 0);
             try testArgs(i97, 0);
             try testArgs(u97, 0);
             try testArgs(u97, 1 << 0);
@@ -367,7 +379,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u97, 1 << 96);
 
             try testArgs(i127, -1 << 126);
-            try testArgs(i127, -1);
+            try testArgs(i127, -1 << 0);
             try testArgs(i127, 0);
             try testArgs(u127, 0);
             try testArgs(u127, 1 << 0);
@@ -376,16 +388,24 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u127, 1 << 126);
 
             try testArgs(i128, -1 << 127);
-            try testArgs(i128, -1);
+            try testArgs(i128, -1 << 63);
+            try testArgs(i128, -1 << 31);
+            try testArgs(i128, -1 << 15);
+            try testArgs(i128, -1 << 7);
+            try testArgs(i128, -1 << 0);
             try testArgs(i128, 0);
             try testArgs(u128, 0);
             try testArgs(u128, 1 << 0);
             try testArgs(u128, 1 << 1);
+            try testArgs(u128, 1 << 7);
+            try testArgs(u128, 1 << 15);
+            try testArgs(u128, 1 << 31);
+            try testArgs(u128, 1 << 63);
             try testArgs(u128, 1 << 126);
             try testArgs(u128, 1 << 127);
 
             try testArgs(i129, -1 << 128);
-            try testArgs(i129, -1);
+            try testArgs(i129, -1 << 0);
             try testArgs(i129, 0);
             try testArgs(u129, 0);
             try testArgs(u129, 1 << 0);
@@ -394,7 +414,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u129, 1 << 128);
 
             try testArgs(i159, -1 << 158);
-            try testArgs(i159, -1);
+            try testArgs(i159, -1 << 0);
             try testArgs(i159, 0);
             try testArgs(u159, 0);
             try testArgs(u159, 1 << 0);
@@ -403,7 +423,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u159, 1 << 158);
 
             try testArgs(i160, -1 << 159);
-            try testArgs(i160, -1);
+            try testArgs(i160, -1 << 0);
             try testArgs(i160, 0);
             try testArgs(u160, 0);
             try testArgs(u160, 1 << 0);
@@ -412,7 +432,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u160, 1 << 159);
 
             try testArgs(i161, -1 << 160);
-            try testArgs(i161, -1);
+            try testArgs(i161, -1 << 0);
             try testArgs(i161, 0);
             try testArgs(u161, 0);
             try testArgs(u161, 1 << 0);
@@ -421,7 +441,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u161, 1 << 160);
 
             try testArgs(i191, -1 << 190);
-            try testArgs(i191, -1);
+            try testArgs(i191, -1 << 0);
             try testArgs(i191, 0);
             try testArgs(u191, 0);
             try testArgs(u191, 1 << 0);
@@ -430,7 +450,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u191, 1 << 190);
 
             try testArgs(i192, -1 << 191);
-            try testArgs(i192, -1);
+            try testArgs(i192, -1 << 0);
             try testArgs(i192, 0);
             try testArgs(u192, 0);
             try testArgs(u192, 1 << 0);
@@ -439,7 +459,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u192, 1 << 191);
 
             try testArgs(i193, -1 << 192);
-            try testArgs(i193, -1);
+            try testArgs(i193, -1 << 0);
             try testArgs(i193, 0);
             try testArgs(u193, 0);
             try testArgs(u193, 1 << 0);
@@ -448,7 +468,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u193, 1 << 192);
 
             try testArgs(i223, -1 << 222);
-            try testArgs(i223, -1);
+            try testArgs(i223, -1 << 0);
             try testArgs(i223, 0);
             try testArgs(u223, 0);
             try testArgs(u223, 1 << 0);
@@ -457,7 +477,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u223, 1 << 222);
 
             try testArgs(i224, -1 << 223);
-            try testArgs(i224, -1);
+            try testArgs(i224, -1 << 0);
             try testArgs(i224, 0);
             try testArgs(u224, 0);
             try testArgs(u224, 1 << 0);
@@ -466,7 +486,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u224, 1 << 223);
 
             try testArgs(i225, -1 << 224);
-            try testArgs(i225, -1);
+            try testArgs(i225, -1 << 0);
             try testArgs(i225, 0);
             try testArgs(u225, 0);
             try testArgs(u225, 1 << 0);
@@ -475,7 +495,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u225, 1 << 224);
 
             try testArgs(i255, -1 << 254);
-            try testArgs(i255, -1);
+            try testArgs(i255, -1 << 0);
             try testArgs(i255, 0);
             try testArgs(u255, 0);
             try testArgs(u255, 1 << 0);
@@ -484,16 +504,26 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u255, 1 << 254);
 
             try testArgs(i256, -1 << 255);
-            try testArgs(i256, -1);
+            try testArgs(i256, -1 << 127);
+            try testArgs(i256, -1 << 63);
+            try testArgs(i256, -1 << 31);
+            try testArgs(i256, -1 << 15);
+            try testArgs(i256, -1 << 7);
+            try testArgs(i256, -1 << 0);
             try testArgs(i256, 0);
             try testArgs(u256, 0);
             try testArgs(u256, 1 << 0);
             try testArgs(u256, 1 << 1);
+            try testArgs(u256, 1 << 7);
+            try testArgs(u256, 1 << 15);
+            try testArgs(u256, 1 << 31);
+            try testArgs(u256, 1 << 63);
+            try testArgs(u256, 1 << 127);
             try testArgs(u256, 1 << 254);
             try testArgs(u256, 1 << 255);
 
             try testArgs(i257, -1 << 256);
-            try testArgs(i257, -1);
+            try testArgs(i257, -1 << 0);
             try testArgs(i257, 0);
             try testArgs(u257, 0);
             try testArgs(u257, 1 << 0);
@@ -502,7 +532,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u257, 1 << 256);
 
             try testArgs(i383, -1 << 382);
-            try testArgs(i383, -1);
+            try testArgs(i383, -1 << 0);
             try testArgs(i383, 0);
             try testArgs(u383, 0);
             try testArgs(u383, 1 << 0);
@@ -511,7 +541,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u383, 1 << 382);
 
             try testArgs(i384, -1 << 383);
-            try testArgs(i384, -1);
+            try testArgs(i384, -1 << 0);
             try testArgs(i384, 0);
             try testArgs(u384, 0);
             try testArgs(u384, 1 << 0);
@@ -520,7 +550,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u384, 1 << 383);
 
             try testArgs(i385, -1 << 384);
-            try testArgs(i385, -1);
+            try testArgs(i385, -1 << 0);
             try testArgs(i385, 0);
             try testArgs(u385, 0);
             try testArgs(u385, 1 << 0);
@@ -529,7 +559,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u385, 1 << 384);
 
             try testArgs(i511, -1 << 510);
-            try testArgs(i511, -1);
+            try testArgs(i511, -1 << 0);
             try testArgs(i511, 0);
             try testArgs(u511, 0);
             try testArgs(u511, 1 << 0);
@@ -538,16 +568,28 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u511, 1 << 510);
 
             try testArgs(i512, -1 << 511);
-            try testArgs(i512, -1);
+            try testArgs(i512, -1 << 255);
+            try testArgs(i512, -1 << 127);
+            try testArgs(i512, -1 << 63);
+            try testArgs(i512, -1 << 31);
+            try testArgs(i512, -1 << 15);
+            try testArgs(i512, -1 << 7);
+            try testArgs(i512, -1 << 0);
             try testArgs(i512, 0);
             try testArgs(u512, 0);
             try testArgs(u512, 1 << 0);
             try testArgs(u512, 1 << 1);
+            try testArgs(u512, 1 << 7);
+            try testArgs(u512, 1 << 15);
+            try testArgs(u512, 1 << 31);
+            try testArgs(u512, 1 << 63);
+            try testArgs(u512, 1 << 127);
+            try testArgs(u512, 1 << 255);
             try testArgs(u512, 1 << 510);
             try testArgs(u512, 1 << 511);
 
             try testArgs(i513, -1 << 512);
-            try testArgs(i513, -1);
+            try testArgs(i513, -1 << 0);
             try testArgs(i513, 0);
             try testArgs(u513, 0);
             try testArgs(u513, 1 << 0);
@@ -556,7 +598,7 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u513, 1 << 512);
 
             try testArgs(i1023, -1 << 1022);
-            try testArgs(i1023, -1);
+            try testArgs(i1023, -1 << 0);
             try testArgs(i1023, 0);
             try testArgs(u1023, 0);
             try testArgs(u1023, 1 << 0);
@@ -565,16 +607,30 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u1023, 1 << 1022);
 
             try testArgs(i1024, -1 << 1023);
-            try testArgs(i1024, -1);
+            try testArgs(i1024, -1 << 511);
+            try testArgs(i1024, -1 << 255);
+            try testArgs(i1024, -1 << 127);
+            try testArgs(i1024, -1 << 63);
+            try testArgs(i1024, -1 << 31);
+            try testArgs(i1024, -1 << 15);
+            try testArgs(i1024, -1 << 7);
+            try testArgs(i1024, -1 << 0);
             try testArgs(i1024, 0);
             try testArgs(u1024, 0);
             try testArgs(u1024, 1 << 0);
             try testArgs(u1024, 1 << 1);
+            try testArgs(u1024, 1 << 7);
+            try testArgs(u1024, 1 << 15);
+            try testArgs(u1024, 1 << 31);
+            try testArgs(u1024, 1 << 63);
+            try testArgs(u1024, 1 << 127);
+            try testArgs(u1024, 1 << 255);
+            try testArgs(u1024, 1 << 511);
             try testArgs(u1024, 1 << 1022);
             try testArgs(u1024, 1 << 1023);
 
             try testArgs(i1025, -1 << 1024);
-            try testArgs(i1025, -1);
+            try testArgs(i1025, -1 << 0);
             try testArgs(i1025, 0);
             try testArgs(u1025, 0);
             try testArgs(u1025, 1 << 0);

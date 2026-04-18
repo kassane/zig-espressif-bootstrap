@@ -60,6 +60,13 @@ pub const Message = struct {
         /// address of the fuzz unit test. This is used to provide a starting
         /// point to view coverage.
         fuzz_start_addr,
+        /// Body is:
+        /// - u32le test index.
+        fuzz_test_change,
+        /// Body is:
+        /// - u32le test index
+        /// - input in remaining bytes
+        broadcast_fuzz_input,
         /// Body is a TimeReport.
         time_report,
 
@@ -176,6 +183,15 @@ pub fn serveMessageHeader(s: *const Server, header: OutMessage.Header) !void {
     try s.out.writeStruct(header, .little);
 }
 
+pub fn serveU32Message(s: *const Server, tag: OutMessage.Tag, int: u32) !void {
+    try serveMessageHeader(s, .{
+        .tag = tag,
+        .bytes_len = @sizeOf(u32),
+    });
+    try s.out.writeInt(u32, int, .little);
+    try s.out.flush();
+}
+
 pub fn serveU64Message(s: *const Server, tag: OutMessage.Tag, int: u64) !void {
     assert(tag != .coverage_id);
     try serveMessageHeader(s, .{
@@ -195,6 +211,16 @@ pub fn serveCoverageIdMessage(s: *const Server, id: u64, runs: u64, unique: u64,
     try s.out.writeInt(u64, runs, .little);
     try s.out.writeInt(u64, unique, .little);
     try s.out.writeInt(u64, cov, .little);
+    try s.out.flush();
+}
+
+pub fn serveBroadcastFuzzInputMessage(s: *const Server, test_i: u32, bytes: []const u8) !void {
+    try s.serveMessageHeader(.{
+        .tag = .broadcast_fuzz_input,
+        .bytes_len = @sizeOf(u32) + @as(u32, @intCast(bytes.len)),
+    });
+    try s.out.writeInt(u32, test_i, .little);
+    try s.out.writeAll(bytes);
     try s.out.flush();
 }
 

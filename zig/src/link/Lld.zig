@@ -1733,7 +1733,7 @@ fn spawnLld(comp: *Compilation, arena: Allocator, argv: []const []const u8) !voi
         },
         .stopped => |sig| {
             if (comp.clang_passthrough_mode) std.process.abort();
-            return diags.fail("{s} stopped with signal {d} and stderr:\n{s}", .{ argv[0], sig, stderr });
+            return diags.fail("{s} stopped with signal {t} and stderr:\n{s}", .{ argv[0], sig, stderr });
         },
         .unknown => |code| {
             if (comp.clang_passthrough_mode) std.process.abort();

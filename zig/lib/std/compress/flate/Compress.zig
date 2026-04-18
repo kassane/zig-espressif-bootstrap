@@ -1488,7 +1488,7 @@ const PackedContainer = packed struct(u2) {
 
 test Compress {
     const fbufs = try testingFreqBufs();
-    defer if (!builtin.fuzz) std.testing.allocator.destroy(fbufs);
+    defer std.testing.allocator.destroy(fbufs);
     try std.testing.fuzz(fbufs, testFuzzedCompressInput, .{});
 }
 
@@ -1818,7 +1818,7 @@ pub const Raw = struct {
 
 test Raw {
     const data_buf = try std.testing.allocator.create([4 * 65536]u8);
-    defer if (!builtin.fuzz) std.testing.allocator.destroy(data_buf);
+    defer std.testing.allocator.destroy(data_buf);
     var prng: std.Random.DefaultPrng = .init(std.testing.random_seed);
     prng.random().bytes(data_buf);
     try std.testing.fuzz(data_buf, testFuzzedRawInput, .{});
@@ -2491,7 +2491,7 @@ pub const Huffman = struct {
 
 test Huffman {
     const fbufs = try testingFreqBufs();
-    defer if (!builtin.fuzz) std.testing.allocator.destroy(fbufs);
+    defer std.testing.allocator.destroy(fbufs);
     try std.testing.fuzz(fbufs, testFuzzedHuffmanInput, .{});
 }
 

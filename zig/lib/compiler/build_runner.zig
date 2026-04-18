@@ -424,6 +424,7 @@ pub fn main(init: process.Init.Minimal) !void {
                     fatal("unable to parse jobs count '{s}': {t}", .{ text, err });
                 if (n < 1) fatal("number of jobs must be at least 1", .{});
                 threaded.setAsyncLimit(.limited(n));
+                graph.max_jobs = n;
             } else if (mem.eql(u8, arg, "--")) {
                 builder.args = argsRest(args, arg_idx);
                 break;
@@ -532,7 +533,7 @@ pub fn main(init: process.Init.Minimal) !void {
     }
 
     prepare(arena, builder, targets.items, &run, graph.random_seed) catch |err| switch (err) {
-        error.DependencyLoopDetected => {
+        error.DependencyLoopDetected, error.InsufficientMemory => {
             // Perhaps in the future there could be an Advanced Options flag
             // such as --debug-build-runner-leaks which would make this code
             // return instead of calling exit.
@@ -696,8 +697,8 @@ fn prepare(
         for (0..step_names.len) |i| {
             const step_name = step_names[step_names.len - i - 1];
             const s = b.top_level_steps.get(step_name) orelse {
-                std.debug.print("no step named '{s}'\n  access the help menu with 'zig build -h'\n", .{step_name});
-                process.exit(1);
+                std.log.info("access the help menu with \"zig build -h\"", .{});
+                fatal("no step named '{s}'", .{step_name});
             };
             step_stack.putAssumeCapacity(&s.step, {});
         }
@@ -716,8 +717,10 @@ fn prepare(
     {
         // Check that we have enough memory to complete the build.
         var any_problems = false;
+        var max_needed: usize = 0;
         for (step_stack.keys()) |s| {
             if (s.max_rss == 0) continue;
+            max_needed = @max(max_needed, s.max_rss);
             if (s.max_rss > run.available_rss) {
                 if (run.skip_oom_steps) {
                     s.state = .skipped_oom;
@@ -725,7 +728,7 @@ fn prepare(
                         dependant.pending_deps -= 1;
                     }
                 } else {
-                    std.debug.print("{s}{s}: this step declares an upper bound of {d} bytes of memory, exceeding the available {d} bytes of memory\n", .{
+                    std.log.err("{s}{s}: this step declares an upper bound of {d} bytes of memory, exceeding the available {d} bytes of memory", .{
                         s.owner.dep_prefix, s.name, s.max_rss, run.available_rss,
                     });
                     any_problems = true;
@@ -734,8 +737,11 @@ fn prepare(
         }
         if (any_problems) {
             if (run.max_rss_is_default) {
-                std.debug.print("note: use --maxrss to override the default", .{});
+                std.log.info("use --maxrss {d} to proceed, risking system memory exhaustion", .{
+                    max_needed,
+                });
             }
+            return error.InsufficientMemory;
         }
     }
 }

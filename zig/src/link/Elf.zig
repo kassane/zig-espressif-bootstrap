@@ -881,10 +881,10 @@ fn flushInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     self.rela_plt.clearRetainingCapacity();
 
     if (self.zigObjectPtr()) |zo| {
-        var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.array_list.Managed(Ref)) = .init(gpa);
+        var undefs: std.array_hash_map.Auto(SymbolResolver.Index, std.array_list.Managed(Ref)) = .empty;
         defer {
             for (undefs.values()) |*refs| refs.deinit();
-            undefs.deinit();
+            undefs.deinit(gpa);
         }
 
         var has_reloc_errors = false;
@@ -1332,10 +1332,10 @@ fn scanRelocs(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     const shared_objects = self.shared_objects.values();
 
-    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.array_list.Managed(Ref)) = .init(gpa);
+    var undefs: std.array_hash_map.Auto(SymbolResolver.Index, std.array_list.Managed(Ref)) = .empty;
     defer {
         for (undefs.values()) |*refs| refs.deinit();
-        undefs.deinit();
+        undefs.deinit(gpa);
     }
 
     var has_reloc_errors = false;
@@ -1748,12 +1748,12 @@ pub fn deleteExport(
 fn checkDuplicates(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
-    var dupes = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(File.Index)).init(gpa);
+    var dupes: std.array_hash_map.Auto(SymbolResolver.Index, std.ArrayList(File.Index)) = .empty;
     defer {
         for (dupes.values()) |*list| {
             list.deinit(gpa);
         }
-        dupes.deinit();
+        dupes.deinit(gpa);
     }
 
     if (self.zigObjectPtr()) |zig_object| {
@@ -2992,10 +2992,10 @@ fn allocateSpecialPhdrs(self: *Elf) void {
 fn writeAtoms(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
-    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.array_list.Managed(Ref)) = .init(gpa);
+    var undefs: std.array_hash_map.Auto(SymbolResolver.Index, std.array_list.Managed(Ref)) = .empty;
     defer {
         for (undefs.values()) |*refs| refs.deinit();
-        undefs.deinit();
+        undefs.deinit(gpa);
     }
 
     var buffer: std.Io.Writer.Allocating = .init(gpa);

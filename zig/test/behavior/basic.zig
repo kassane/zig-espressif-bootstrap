@@ -1248,6 +1248,20 @@ test "integer compare <= 128 bits" {
     }
 }
 
+test "integer compare > 128 bits" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    inline for (.{ u129, u255, u512, u800 }) |T| {
+        try testUnsignedCmp(T);
+        try comptime testUnsignedCmp(T);
+    }
+    inline for (.{ i129, i255, i512, i800 }) |T| {
+        try testSignedCmp(T);
+        try comptime testSignedCmp(T);
+    }
+}
+
 test "reference to inferred local variable works as expected" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 

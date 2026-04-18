@@ -296,6 +296,7 @@ typedef struct {
 	unsigned int                  pad3 : 24;
 	mach_msg_descriptor_type_t    type : 8;
 } mach_msg_type_descriptor_t;
+xnu_static_assert_struct_size(mach_msg_type_descriptor_t, 12);
 
 typedef struct {
 	mach_port_t                   name;
@@ -304,6 +305,7 @@ typedef struct {
 	mach_msg_type_name_t          disposition : 8;
 	mach_msg_descriptor_type_t    type : 8;
 } mach_msg_port_descriptor_t;
+xnu_static_assert_struct_size_kernel_user(mach_msg_port_descriptor_t, 16, 12);
 
 
 typedef struct {
@@ -314,6 +316,7 @@ typedef struct {
 	unsigned int                  pad1: 8;
 	mach_msg_descriptor_type_t    type: 8;
 } mach_msg_ool_descriptor32_t;
+xnu_static_assert_struct_size(mach_msg_ool_descriptor32_t, 12);
 
 typedef struct {
 	uint64_t                      address;
@@ -323,6 +326,7 @@ typedef struct {
 	mach_msg_descriptor_type_t    type: 8;
 	mach_msg_size_t               size;
 } mach_msg_ool_descriptor64_t;
+xnu_static_assert_struct_size(mach_msg_ool_descriptor64_t, 16);
 
 typedef struct {
 	void                         *address;
@@ -337,6 +341,7 @@ typedef struct {
 	mach_msg_size_t               size;
 #endif
 } mach_msg_ool_descriptor_t;
+xnu_static_assert_struct_size_kernel_user64_user32(mach_msg_ool_descriptor_t, 16, 16, 12);
 
 typedef struct {
 	uint32_t                      address;
@@ -346,6 +351,7 @@ typedef struct {
 	mach_msg_type_name_t          disposition : 8;
 	mach_msg_descriptor_type_t    type : 8;
 } mach_msg_ool_ports_descriptor32_t;
+xnu_static_assert_struct_size(mach_msg_ool_descriptor32_t, 12);
 
 typedef struct {
 	uint64_t                      address;
@@ -355,6 +361,7 @@ typedef struct {
 	mach_msg_descriptor_type_t    type : 8;
 	mach_msg_size_t               count;
 } mach_msg_ool_ports_descriptor64_t;
+xnu_static_assert_struct_size(mach_msg_ool_ports_descriptor64_t, 16);
 
 typedef struct {
 	void                         *address;
@@ -369,6 +376,7 @@ typedef struct {
 	mach_msg_size_t               count;
 #endif
 } mach_msg_ool_ports_descriptor_t;
+xnu_static_assert_struct_size_kernel_user64_user32(mach_msg_ool_ports_descriptor_t, 16, 16, 12);
 
 typedef struct {
 	uint32_t                      context;
@@ -377,6 +385,7 @@ typedef struct {
 	mach_msg_type_name_t          disposition : 8;
 	mach_msg_descriptor_type_t    type : 8;
 } mach_msg_guarded_port_descriptor32_t;
+xnu_static_assert_struct_size(mach_msg_guarded_port_descriptor32_t, 12);
 
 typedef struct {
 	uint64_t                      context;
@@ -385,6 +394,7 @@ typedef struct {
 	mach_msg_descriptor_type_t    type : 8;
 	mach_port_name_t              name;
 } mach_msg_guarded_port_descriptor64_t;
+xnu_static_assert_struct_size(mach_msg_guarded_port_descriptor64_t, 16);
 
 typedef struct {
 	mach_port_context_t           context;
@@ -398,6 +408,7 @@ typedef struct {
 	mach_port_name_t              name;
 #endif /* defined(__LP64__) */
 } mach_msg_guarded_port_descriptor_t;
+xnu_static_assert_struct_size_kernel_user64_user32(mach_msg_guarded_port_descriptor_t, 16, 16, 12);
 
 /*
  * LP64support - This union definition is not really
@@ -411,10 +422,12 @@ typedef union {
 	mach_msg_type_descriptor_t            type;
 	mach_msg_guarded_port_descriptor_t    guarded_port;
 } mach_msg_descriptor_t;
+xnu_static_assert_struct_size_kernel_user64_user32(mach_msg_descriptor_t, 16, 16, 12);
 
 typedef struct {
 	mach_msg_size_t msgh_descriptor_count;
 } mach_msg_body_t;
+xnu_static_assert_struct_size(mach_msg_body_t, 4);
 
 #define MACH_MSG_BODY_NULL            ((mach_msg_body_t *) 0)
 #define MACH_MSG_DESCRIPTOR_NULL      ((mach_msg_descriptor_t *) 0)
@@ -427,6 +440,7 @@ typedef struct {
 	mach_port_name_t              msgh_voucher_port;
 	mach_msg_id_t                 msgh_id;
 } mach_msg_header_t;
+xnu_static_assert_struct_size_kernel_user(mach_msg_header_t, 32, 24);
 
 
 #define msgh_reserved                 msgh_voucher_port
@@ -436,6 +450,7 @@ typedef struct {
 	mach_msg_header_t             header;
 	mach_msg_body_t               body;
 } mach_msg_base_t;
+xnu_static_assert_struct_size_kernel_user(mach_msg_base_t, 36, 28);
 
 
 typedef unsigned int mach_msg_trailer_type_t;
@@ -449,6 +464,7 @@ typedef struct {
 	mach_msg_trailer_type_t       msgh_trailer_type;
 	mach_msg_trailer_size_t       msgh_trailer_size;
 } mach_msg_trailer_t;
+xnu_static_assert_struct_size(mach_msg_trailer_t, 8);
 
 /*
  *  The msgh_seqno field carries a sequence number
@@ -464,6 +480,7 @@ typedef struct {
 	mach_msg_trailer_size_t       msgh_trailer_size;
 	mach_port_seqno_t             msgh_seqno;
 } mach_msg_seqno_trailer_t;
+xnu_static_assert_struct_size(mach_msg_seqno_trailer_t, 12);
 
 typedef struct {
 	unsigned int                  val[2];
@@ -475,6 +492,7 @@ typedef struct {
 	mach_port_seqno_t             msgh_seqno;
 	security_token_t              msgh_sender;
 } mach_msg_security_trailer_t;
+xnu_static_assert_struct_size(mach_msg_security_trailer_t, 20);
 
 /*
  * The audit token is an opaque token which identifies
@@ -512,6 +530,7 @@ typedef struct {
 	security_token_t              msgh_sender;
 	audit_token_t                 msgh_audit;
 } mach_msg_audit_trailer_t;
+xnu_static_assert_struct_size(mach_msg_audit_trailer_t, 52);
 
 typedef struct {
 	mach_msg_trailer_type_t       msgh_trailer_type;
@@ -521,6 +540,7 @@ typedef struct {
 	audit_token_t                 msgh_audit;
 	mach_port_context_t           msgh_context;
 } mach_msg_context_trailer_t;
+xnu_static_assert_struct_size_kernel_user64_user32(mach_msg_context_trailer_t, 60, 60, 56);
 
 
 
@@ -546,6 +566,7 @@ typedef struct {
 	mach_msg_filter_id            msgh_ad;
 	msg_labels_t                  msgh_labels;
 } mach_msg_mac_trailer_t;
+xnu_static_assert_struct_size_kernel_user64_user32(mach_msg_mac_trailer_t, 68, 68, 64);
 
 
 #define MACH_MSG_TRAILER_MINIMUM_SIZE  sizeof(mach_msg_trailer_t)

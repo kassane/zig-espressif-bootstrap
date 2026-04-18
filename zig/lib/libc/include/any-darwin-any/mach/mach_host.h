@@ -52,7 +52,7 @@ typedef function_table_entry   *function_table_t;
 #endif /* AUTOTEST */
 
 #ifndef	mach_host_MSG_COUNT
-#define	mach_host_MSG_COUNT	35
+#define	mach_host_MSG_COUNT	36
 #endif	/* mach_host_MSG_COUNT */
 
 #include <Availability.h>
@@ -443,6 +443,23 @@ kern_return_t mach_zone_info_for_zone
 	mach_zone_info_t *info
 );
 
+/* Routine mach_memory_info_redacted */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+kern_return_t mach_memory_info_redacted
+(
+	mach_port_t host,
+	mach_zone_name_array_t *names,
+	mach_msg_type_number_t *namesCnt,
+	mach_zone_info_array_t *info,
+	mach_msg_type_number_t *infoCnt,
+	mach_memory_info_array_t *memory_info,
+	mach_msg_type_number_t *memory_infoCnt
+);
+
 __END_DECLS
 
 /********************** Caution **************************/
@@ -787,6 +804,16 @@ __END_DECLS
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+	} __Request__mach_memory_info_redacted_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Request__mach_host_subsystem__defined */
 
 /* union of all requests */
@@ -821,6 +848,7 @@ union __RequestUnion__mach_host_subsystem {
 	__Request__host_get_multiuser_config_flags_t Request_host_get_multiuser_config_flags;
 	__Request__host_check_multiuser_mode_t Request_host_check_multiuser_mode;
 	__Request__mach_zone_info_for_zone_t Request_mach_zone_info_for_zone;
+	__Request__mach_memory_info_redacted_t Request_mach_memory_info_redacted;
 };
 #endif /* !__RequestUnion__mach_host_subsystem__defined */
 /* typedefs for all replies */
@@ -1217,6 +1245,26 @@ union __RequestUnion__mach_host_subsystem {
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		/* start of the kernel processed data */
+		mach_msg_body_t msgh_body;
+		mach_msg_ool_descriptor_t names;
+		mach_msg_ool_descriptor_t info;
+		mach_msg_ool_descriptor_t memory_info;
+		/* end of the kernel processed data */
+		NDR_record_t NDR;
+		mach_msg_type_number_t namesCnt;
+		mach_msg_type_number_t infoCnt;
+		mach_msg_type_number_t memory_infoCnt;
+	} __Reply__mach_memory_info_redacted_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Reply__mach_host_subsystem__defined */
 
 /* union of all replies */
@@ -1251,6 +1299,7 @@ union __ReplyUnion__mach_host_subsystem {
 	__Reply__host_get_multiuser_config_flags_t Reply_host_get_multiuser_config_flags;
 	__Reply__host_check_multiuser_mode_t Reply_host_check_multiuser_mode;
 	__Reply__mach_zone_info_for_zone_t Reply_mach_zone_info_for_zone;
+	__Reply__mach_memory_info_redacted_t Reply_mach_memory_info_redacted;
 };
 #endif /* !__RequestUnion__mach_host_subsystem__defined */
 
@@ -1282,7 +1331,8 @@ union __ReplyUnion__mach_host_subsystem {
     { "host_set_multiuser_config_flags", 228 },\
     { "host_get_multiuser_config_flags", 229 },\
     { "host_check_multiuser_mode", 230 },\
-    { "mach_zone_info_for_zone", 231 }
+    { "mach_zone_info_for_zone", 231 },\
+    { "mach_memory_info_redacted", 235 }
 #endif
 
 #ifdef __AfterMigUserHeader

@@ -1,15 +1,17 @@
 const std = @import("std");
-const Io = std.Io;
 const assert = std.debug.assert;
 const mem = std.mem;
 const process = std.process;
+const Io = std.Io;
+
 const aro = @import("aro");
 const compiler_util = @import("../util.zig");
+
 const Translator = @import("Translator.zig");
 
 const fast_exit = @import("builtin").mode != .Debug;
 
-pub fn main(init: std.process.Init) u8 {
+pub fn main(init: process.Init) u8 {
     const gpa = init.gpa;
     const arena = init.arena.allocator();
     const io = init.io;
@@ -33,16 +35,20 @@ pub fn main(init: std.process.Init) u8 {
     var stderr = Io.File.stderr().writer(io, &stderr_buf);
     var diagnostics: aro.Diagnostics = switch (zig_integration) {
         false => .{ .output = .{ .to_writer = .{
-            .mode = Io.Terminal.Mode.detect(io, stderr.file, NO_COLOR, CLICOLOR_FORCE) catch unreachable,
+            .mode = Io.Terminal.Mode.detect(io, stderr.file, NO_COLOR, CLICOLOR_FORCE) catch .no_color,
             .writer = &stderr.interface,
         } } },
-        true => .{ .output = .{ .to_list = .{
-            .arena = .init(gpa),
-        } } },
+        true => .{ .output = .{ .to_list = .{ .arena = .init(gpa) } } },
     };
     defer diagnostics.deinit();
 
-    var comp = aro.Compilation.initDefault(gpa, arena, io, &diagnostics, .cwd(), environ_map) catch |err| switch (err) {
+    var comp = aro.Compilation.init(.{
+        .gpa = gpa,
+        .arena = arena,
+        .io = io,
+        .diagnostics = &diagnostics,
+        .environ_map = environ_map,
+    }) catch |err| switch (err) {
         error.OutOfMemory => {
             std.debug.print("ran out of memory initializing C compilation\n", .{});
             if (fast_exit) process.exit(1);
@@ -82,7 +88,6 @@ pub fn main(init: std.process.Init) u8 {
             return 1;
         },
     };
-
     assert(comp.diagnostics.errors == 0 or !zig_integration);
     if (fast_exit) process.exit(@intFromBool(comp.diagnostics.errors != 0));
     return @intFromBool(comp.diagnostics.errors != 0);
@@ -107,10 +112,23 @@ pub const usage =
     \\Usage {s}: [options] file [CC options]
     \\
     \\Options:
-    \\  --help              Print this message
-    \\  --version           Print translate-c version
-    \\  -fmodule-libs       Import libraries as modules
-    \\  -fno-module-libs    (default) Install libraries next to output file
+    \\  --help                      Print this message
+    \\  --version                   Print translate-c version
+    \\  -fmodule-libs               Import libraries as modules
+    \\  -fno-module-libs            (default) Install libraries next to output file
+    \\  -fpub-static                (default) Translate static functions as pub
+    \\  -fno-pub-static             Do not translate static functions as pub
+    \\  -ffunc-bodies               (default) Translate function bodies
+    \\  -fno-func-bodies            Do not translate function bodies
+    \\  -fkeep-macro-literals       (default) Preserve macro names for literals
+    \\  -fno-keep-macro-literals    Do not preserve macro names for literals
+    \\  -fdefault-init              Default initialize struct fields
+    \\  -fno-default-init           (default) Do not default initialize struct fields
+    \\  -fstrict-flex-arrays=<n>    Control when to treat a trailing array as a flexible array member (default: 2)
+    \\                                0: any trailing array
+    \\                                1: size [0]/[1]/[]
+    \\                                2: size [0]/[]
+    \\                                3: [] only
     \\
     \\
 ;
@@ -119,7 +137,14 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: []const [:0]const u8, zig
     const gpa = d.comp.gpa;
     const io = d.comp.io;
 
-    var aro_args: std.ArrayList([:0]const u8) = .empty;
+    var module_libs = true;
+    var pub_static = true;
+    var func_bodies = true;
+    var keep_macro_literals = true;
+    var default_init = true;
+    var strict_flex_arrays: Translator.StrictFlexArraysLevel = .@"2";
+
+    var aro_args: std.ArrayList([:0]const u8) = try .initCapacity(gpa, args.len);
     defer aro_args.deinit(gpa);
 
     for (args, 0..) |arg, i| {
@@ -139,8 +164,34 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: []const [:0]const u8, zig
         } else if (mem.eql(u8, arg, "--zig-integration")) {
             if (i != 1 or !zig_integration)
                 return d.fatal("--zig-integration must be the first argument", .{});
+        } else if (mem.eql(u8, arg, "-fmodule-libs")) {
+            module_libs = true;
+        } else if (mem.eql(u8, arg, "-fno-module-libs")) {
+            module_libs = false;
+        } else if (mem.eql(u8, arg, "-fpub-static")) {
+            pub_static = true;
+        } else if (mem.eql(u8, arg, "-fno-pub-static")) {
+            pub_static = false;
+        } else if (mem.eql(u8, arg, "-ffunc-bodies")) {
+            func_bodies = true;
+        } else if (mem.eql(u8, arg, "-fno-func-bodies")) {
+            func_bodies = false;
+        } else if (mem.eql(u8, arg, "-fkeep-macro-literals")) {
+            keep_macro_literals = true;
+        } else if (mem.eql(u8, arg, "-fno-keep-macro-literals")) {
+            keep_macro_literals = false;
+        } else if (mem.eql(u8, arg, "-fdefault-init")) {
+            default_init = true;
+        } else if (mem.eql(u8, arg, "-fno-default-init")) {
+            default_init = false;
+        } else if (mem.startsWith(u8, arg, "-fstrict-flex-arrays=")) {
+            const val_str = arg["-fstrict-flex-arrays=".len..];
+            if (val_str.len != 1 or val_str[0] < '0' or val_str[0] > '3') {
+                return d.fatal("-fstrict-flex-arrays= requires a value of '0', '1', '2', or '3'", .{});
+            }
+            strict_flex_arrays = @enumFromInt(val_str[0] - '0');
         } else {
-            try aro_args.append(gpa, arg);
+            aro_args.appendAssumeCapacity(arg);
         }
     }
     const user_macros = macros: {
@@ -148,7 +199,7 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: []const [:0]const u8, zig
         defer macro_buf.deinit(gpa);
 
         var discard_buf: [256]u8 = undefined;
-        var discarding: std.Io.Writer.Discarding = .init(&discard_buf);
+        var discarding: Io.Writer.Discarding = .init(&discard_buf);
         assert(!try d.parseArgs(&discarding.writer, &macro_buf, aro_args.items));
         if (macro_buf.items.len > std.math.maxInt(u32)) {
             return d.fatal("user provided macro source exceeded max size", .{});
@@ -185,7 +236,9 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: []const [:0]const u8, zig
         else => |e| return e,
     };
 
-    var pp = try aro.Preprocessor.initDefault(d.comp);
+    var pp = try aro.Preprocessor.init(d.comp, .{
+        .base_file = source.id,
+    });
     defer pp.deinit();
 
     var name_buf: [std.fs.max_name_bytes]u8 = undefined;
@@ -235,6 +288,12 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: []const [:0]const u8, zig
         .comp = d.comp,
         .pp = &pp,
         .tree = &c_tree,
+        .module_libs = module_libs,
+        .pub_static = pub_static,
+        .func_bodies = func_bodies,
+        .keep_macro_literals = keep_macro_literals,
+        .default_init = default_init,
+        .strict_flex_arrays = strict_flex_arrays,
     });
     defer gpa.free(rendered_zig);
 

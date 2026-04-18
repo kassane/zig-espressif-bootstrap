@@ -81,7 +81,7 @@
 //! Resizing and remapping are forwarded directly to the backing allocator,
 //! except where such operations would change the category from large to small.
 const builtin = @import("builtin");
-const StackTrace = std.builtin.StackTrace;
+const StackTrace = std.debug.StackTrace;
 
 const std = @import("std");
 const log = std.log.scoped(.DebugAllocator);
@@ -229,7 +229,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                 std.debug.dumpStackTrace(self.getStackTrace(trace_kind));
             }
 
-            fn getStackTrace(self: *LargeAlloc, trace_kind: TraceKind) std.builtin.StackTrace {
+            fn getStackTrace(self: *LargeAlloc, trace_kind: TraceKind) std.debug.StackTrace {
                 assert(@intFromEnum(trace_kind) < trace_n);
                 const stack_addresses = &self.stack_addresses[@intFromEnum(trace_kind)];
                 var len: usize = 0;
@@ -237,8 +237,8 @@ pub fn DebugAllocator(comptime config: Config) type {
                     len += 1;
                 }
                 return .{
-                    .instruction_addresses = stack_addresses,
-                    .index = len,
+                    .return_addresses = stack_addresses[0..len],
+                    .skipped = if (len < stack_addresses.len) .none else .unknown,
                 };
             }
 
@@ -339,8 +339,8 @@ pub fn DebugAllocator(comptime config: Config) type {
                 len += 1;
             }
             return .{
-                .instruction_addresses = stack_addresses,
-                .index = len,
+                .return_addresses = stack_addresses[0..len],
+                .skipped = if (len < stack_addresses.len) .none else .unknown,
             };
         }
 
@@ -508,7 +508,7 @@ pub fn DebugAllocator(comptime config: Config) type {
 
         fn collectStackTrace(first_trace_addr: usize, addr_buf: *[stack_n]usize) void {
             const st = std.debug.captureCurrentStackTrace(.{ .first_address = first_trace_addr }, addr_buf);
-            @memset(addr_buf[@min(st.index, addr_buf.len)..], 0);
+            @memset(addr_buf[@min(st.return_addresses.len, addr_buf.len)..], 0);
         }
 
         fn reportDoubleFree(ret_addr: usize, alloc_stack_trace: StackTrace, free_stack_trace: StackTrace) void {

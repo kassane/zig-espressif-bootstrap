@@ -199,7 +199,7 @@ xpc_connection_create(const char * _Nullable name,
  * connection has been activated. See {@link xpc_connection_activate()}.
  */
 API_AVAILABLE(macos(10.7), macCatalyst(5.0))
-API_UNAVAILABLE(ios)
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_MALLOC XPC_RETURNS_RETAINED XPC_WARN_RESULT XPC_NONNULL1
 xpc_connection_t
 xpc_connection_create_mach_service(const char *name,
@@ -679,7 +679,7 @@ xpc_connection_get_egid(xpc_connection_t connection);
  * delivery either at the kernel layer or at the XPC layer.
  */
 API_AVAILABLE(macos(10.7))
-API_UNAVAILABLE(ios)
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_NONNULL_ALL XPC_WARN_RESULT
 pid_t
 xpc_connection_get_pid(xpc_connection_t connection);
@@ -695,7 +695,7 @@ xpc_connection_get_pid(xpc_connection_t connection);
  * The audit session ID of the remote peer at the time the connection was made.
  */
 API_AVAILABLE(macos(10.7))
-API_UNAVAILABLE(ios)
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_NONNULL_ALL XPC_WARN_RESULT
 au_asid_t
 xpc_connection_get_asid(xpc_connection_t connection);
@@ -828,8 +828,8 @@ xpc_connection_set_peer_code_signing_requirement(xpc_connection_t connection, co
  * is expected on the connection and the peer does not satisfy the requirement `XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT`
  * will be delivered instead of the reply.
  */
-API_AVAILABLE(macos(14.4), ios(17.4))
-API_UNAVAILABLE(tvos, watchos)
+API_AVAILABLE(macos(14.4), ios(17.4), tvos(17.4), watchos(10.4))
+
 XPC_EXPORT XPC_NONNULL_ALL XPC_WARN_RESULT
 int
 xpc_connection_set_peer_entitlement_exists_requirement(xpc_connection_t connection, const char *entitlement);
@@ -866,8 +866,8 @@ xpc_connection_set_peer_entitlement_exists_requirement(xpc_connection_t connecti
  * is expected on the connection and the peer does not satisfy the requirement `XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT`
  * will be delivered instead of the reply.
  */
-API_AVAILABLE(macos(14.4), ios(17.4))
-API_UNAVAILABLE(tvos, watchos)
+API_AVAILABLE(macos(14.4), ios(17.4), tvos(17.4), watchos(10.4))
+
 XPC_EXPORT XPC_NONNULL_ALL XPC_WARN_RESULT
 int
 xpc_connection_set_peer_entitlement_matches_value_requirement(xpc_connection_t connection, const char *entitlement, xpc_object_t value);
@@ -903,8 +903,8 @@ xpc_connection_set_peer_entitlement_matches_value_requirement(xpc_connection_t c
  * is expected on the connection and the peer does not satisfy the requirement `XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT`
  * will be delivered instead of the reply.
  */
-API_AVAILABLE(macos(14.4), ios(17.4))
-API_UNAVAILABLE(tvos, watchos)
+API_AVAILABLE(macos(14.4), ios(17.4), tvos(17.4), watchos(10.4))
+
 XPC_EXPORT XPC_NONNULL1 XPC_WARN_RESULT
 int
 xpc_connection_set_peer_team_identity_requirement(xpc_connection_t connection, const char * _Nullable signing_identifier);
@@ -938,8 +938,8 @@ xpc_connection_set_peer_team_identity_requirement(xpc_connection_t connection, c
  * is expected on the connection and the peer does not satisfy the requirement `XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT`
  * will be delivered instead of the reply.
  */
-API_AVAILABLE(macos(14.4), ios(17.4))
-API_UNAVAILABLE(tvos, watchos)
+API_AVAILABLE(macos(14.4), ios(17.4), tvos(17.4), watchos(10.4))
+
 XPC_EXPORT XPC_NONNULL1 XPC_WARN_RESULT
 int
 xpc_connection_set_peer_platform_identity_requirement(xpc_connection_t connection, const char * _Nullable signing_identifier);
@@ -986,8 +986,8 @@ xpc_connection_set_peer_platform_identity_requirement(xpc_connection_t connectio
  * is expected on the connection and the peer does not satisfy the requirement `XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT`
  * will be delivered instead of the reply.
  */
-API_AVAILABLE(macos(14.4), ios(17.4))
-API_UNAVAILABLE(tvos, watchos)
+API_AVAILABLE(macos(14.4), ios(17.4), tvos(17.4), watchos(10.4))
+
 XPC_EXPORT XPC_NONNULL_ALL XPC_WARN_RESULT
 int
 xpc_connection_set_peer_lightweight_code_requirement(xpc_connection_t connection, xpc_object_t lwcr);
@@ -1012,8 +1012,8 @@ xpc_connection_set_peer_lightweight_code_requirement(xpc_connection_t connection
  * is expected on the connection and the peer does not satisfy the requirement `XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT`
  * will be delivered instead of the reply.
  */
-API_AVAILABLE(macos(26.0), ios(26.0))
-API_UNAVAILABLE(tvos, watchos)
+API_AVAILABLE(macos(26.0), ios(26.0), tvos(26.0), watchos(26.0))
+
 XPC_EXPORT XPC_SWIFT_NOEXPORT XPC_NONNULL_ALL
 void
 xpc_connection_set_peer_requirement(xpc_connection_t connection,

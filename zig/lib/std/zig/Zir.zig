@@ -2009,6 +2009,14 @@ pub const Inst = struct {
         /// `operand` is payload index to `BinNode`.
         /// `small` is unused.
         shl_with_overflow,
+        /// `@round`, `@floor`, `@ceil`, or `@trunc`, with a result type.
+        /// `operand` is payload index to `BinNode`.
+        /// `small` is a `RoundOp` representing the specific operation being performed.
+        round_op,
+        /// Returns the type for the operand of a rounding op.
+        /// `operand` is `UnNode`.
+        /// `small` is unused.
+        round_op_ty,
         /// `operand` is payload index to `UnNode`.
         c_undef,
         /// `operand` is payload index to `UnNode`.
@@ -3233,6 +3241,13 @@ pub const Inst = struct {
         string_to_union_field_attrs,
     };
 
+    pub const RoundOp = enum(u16) {
+        round,
+        floor,
+        ceil,
+        trunc,
+    };
+
     pub const UnNode = struct {
         node: Ast.Node.Offset,
         operand: Ref,
@@ -4344,6 +4359,7 @@ fn findTrackableInner(
                 .sub_with_overflow,
                 .mul_with_overflow,
                 .shl_with_overflow,
+                .round_op,
                 .c_undef,
                 .c_include,
                 .c_define,
@@ -4385,6 +4401,7 @@ fn findTrackableInner(
                 .dbg_empty_stmt,
                 .astgen_error,
                 .float_op_result_ty,
+                .round_op_ty,
                 => return,
 
                 // `@TypeOf` has a body.

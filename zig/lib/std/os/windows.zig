@@ -3952,7 +3952,7 @@ inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {
 /// and you get an unexpected error.
 pub fn unexpectedError(err: Win32Error) UnexpectedError {
     @branchHint(.cold);
-    if (std.posix.unexpected_error_tracing) {
+    if (std.options.unexpected_error_tracing) {
         std.debug.print("error.Unexpected: GetLastError({d}): {t}\n", .{ err, err });
         std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
     }
@@ -3962,7 +3962,7 @@ pub fn unexpectedError(err: Win32Error) UnexpectedError {
 /// Call this when you made a windows NtDll call
 /// and you get an unexpected status.
 pub fn unexpectedStatus(status: NTSTATUS) UnexpectedError {
-    if (std.posix.unexpected_error_tracing) {
+    if (std.options.unexpected_error_tracing) {
         std.debug.print("error.Unexpected NTSTATUS=0x{x} ({s})\n", .{
             @intFromEnum(status),
             std.enums.tagName(NTSTATUS, status) orelse "<unnamed>",

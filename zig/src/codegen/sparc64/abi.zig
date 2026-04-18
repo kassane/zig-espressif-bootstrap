@@ -49,7 +49,7 @@ pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, 
 const RegisterBitSet = RegisterManager.RegisterBitSet;
 pub const RegisterClass = struct {
     pub const gp: RegisterBitSet = blk: {
-        var set = RegisterBitSet.initEmpty();
+        var set = RegisterBitSet.empty;
         set.setRangeValue(.{
             .start = 0,
             .end = allocatable_regs.len,

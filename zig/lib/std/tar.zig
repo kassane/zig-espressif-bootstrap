@@ -120,8 +120,10 @@ pub const Diagnostics = struct {
     }
 };
 
-/// pipeToFileSystem options
-pub const PipeOptions = struct {
+/// Deprecated, renamed to `ExtractOptions`.
+pub const PipeOptions = ExtractOptions;
+
+pub const ExtractOptions = struct {
     /// Number of directory levels to skip when extracting files.
     strip_components: u32 = 0,
     /// How to handle the "mode" property of files from within the tar file.
@@ -580,10 +582,15 @@ pub const PaxIterator = struct {
     }
 };
 
-/// Saves tar file content to the file systems.
-pub fn pipeToFileSystem(io: Io, dir: Io.Dir, reader: *Io.Reader, options: PipeOptions) !void {
-    var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
+/// Deprecated, renamed to `extract`.
+pub const pipeToFileSystem = extract;
+
+/// Ingests tar file from `reader`, populating file contents within `dir`. If
+/// any file would be extracted outside of `dir`, an error is return instead.
+pub fn extract(io: Io, dir: Io.Dir, reader: *Io.Reader, options: ExtractOptions) !void {
+    var file_name_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    var link_name_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    var sanitize_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
     var file_contents_buffer: [1024]u8 = undefined;
     var it: Iterator = .init(reader, .{
         .file_name_buffer = &file_name_buffer,
@@ -592,14 +599,15 @@ pub fn pipeToFileSystem(io: Io, dir: Io.Dir, reader: *Io.Reader, options: PipeOp
     });
 
     while (try it.next()) |file| {
-        const file_name = stripComponents(file.name, options.strip_components);
-        if (file_name.len == 0 and file.kind != .directory) {
+        const n = sanitizePath(&sanitize_buffer, file.name, options.strip_components) catch 0;
+        if (n == 0 and file.kind != .directory) {
             const d = options.diagnostics orelse return error.TarComponentsOutsideStrippedPrefix;
             try d.errors.append(d.allocator, .{ .components_outside_stripped_prefix = .{
                 .file_name = try d.allocator.dupe(u8, file.name),
             } });
             continue;
         }
+        const file_name = sanitize_buffer[0..n];
         if (options.diagnostics) |d| {
             try d.findRoot(file.kind, file_name);
         }
@@ -665,27 +673,59 @@ fn createDirAndSymlink(io: Io, dir: Io.Dir, link_name: []const u8, file_name: []
     };
 }
 
-fn stripComponents(path: []const u8, count: u32) []const u8 {
+fn sanitizePath(buffer: []u8, path: []const u8, strip_components: u32) error{Invalid}!usize {
+    if (path.len == 0 or path[0] == '/') return error.Invalid;
     var i: usize = 0;
-    var c = count;
-    while (c > 0) : (c -= 1) {
-        if (std.mem.findScalarPos(u8, path, i, '/')) |pos| {
-            i = pos + 1;
-        } else {
-            i = path.len;
-            break;
+    var c = strip_components;
+    var it = std.mem.tokenizeScalar(u8, path, '/');
+    while (it.next()) |component| {
+        if (std.mem.eql(u8, component, ".")) continue;
+        if (std.mem.eql(u8, component, "..")) {
+            if (i == 0) return error.Invalid;
+            while (true) {
+                const ends_with_slash = buffer[i - 1] == '/';
+                i -= 1;
+                if (ends_with_slash or i == 0) break;
+            }
+            continue;
         }
+        if (c > 0) {
+            c -= 1;
+            continue;
+        }
+        if (i > 0) {
+            buffer[i] = '/';
+            i += 1;
+        }
+        @memcpy(buffer[i..][0..component.len], component);
+        i += component.len;
     }
-    return path[i..];
+    if (c > 0) return error.Invalid;
+    return i;
 }
 
-test stripComponents {
-    const expectEqualStrings = testing.expectEqualStrings;
-    try expectEqualStrings("a/b/c", stripComponents("a/b/c", 0));
-    try expectEqualStrings("b/c", stripComponents("a/b/c", 1));
-    try expectEqualStrings("c", stripComponents("a/b/c", 2));
-    try expectEqualStrings("", stripComponents("a/b/c", 3));
-    try expectEqualStrings("", stripComponents("a/b/c", 4));
+fn testSanitizePath(expected: []const u8, input: []const u8, strip: u32) !void {
+    var buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    const result = buffer[0..try sanitizePath(&buffer, input, strip)];
+    try testing.expectEqualStrings(expected, result);
+}
+
+fn testSanitizePathError(expected: anyerror, input: []const u8, strip: u32) !void {
+    var buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    try testing.expectError(expected, sanitizePath(&buffer, input, strip));
+}
+
+test sanitizePath {
+    try testSanitizePath("a/b/c", "a/b/c", 0);
+    try testSanitizePath("a/b/c", "a/x/y/../../b/c", 0);
+    try testSanitizePath("b/c", "a/b/c", 1);
+    try testSanitizePath("c", "a/b/c", 2);
+    try testSanitizePath("", "a/b/c", 3);
+    try testSanitizePath("", "a/b/c/../../..", 0);
+    try testSanitizePathError(error.Invalid, "a/b/c", 4);
+    try testSanitizePathError(error.Invalid, "..", 0);
+    try testSanitizePathError(error.Invalid, "a/b/../../..", 0);
+    try testSanitizePathError(error.Invalid, "a/b/../..", 1);
 }
 
 test PaxIterator {
@@ -958,7 +998,7 @@ test Iterator {
     }
 }
 
-test pipeToFileSystem {
+test extract {
     const io = testing.io;
     // Example tar file is created from this tree structure:
     // $ tree example
@@ -987,7 +1027,7 @@ test pipeToFileSystem {
     const dir = tmp.dir;
 
     // Save tar from reader to the file system `dir`
-    pipeToFileSystem(io, dir, &reader, .{
+    extract(io, dir, &reader, .{
         .mode_mode = .ignore,
         .strip_components = 1,
         .exclude_empty_directories = true,
@@ -1009,7 +1049,7 @@ test pipeToFileSystem {
     );
 }
 
-test "pipeToFileSystem root_dir" {
+test "extract root_dir" {
     const io = testing.io;
     const data = @embedFile("tar/testdata/example.tar");
     var reader: Io.Reader = .fixed(data);
@@ -1021,7 +1061,7 @@ test "pipeToFileSystem root_dir" {
         var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
         defer diagnostics.deinit();
 
-        pipeToFileSystem(io, tmp.dir, &reader, .{
+        extract(io, tmp.dir, &reader, .{
             .strip_components = 1,
             .diagnostics = &diagnostics,
         }) catch |err| {
@@ -1043,7 +1083,7 @@ test "pipeToFileSystem root_dir" {
         var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
         defer diagnostics.deinit();
 
-        pipeToFileSystem(io, tmp.dir, &reader, .{
+        extract(io, tmp.dir, &reader, .{
             .strip_components = 0,
             .diagnostics = &diagnostics,
         }) catch |err| {
@@ -1068,7 +1108,7 @@ test "findRoot with single file archive" {
 
     var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
     defer diagnostics.deinit();
-    try pipeToFileSystem(io, tmp.dir, &reader, .{ .diagnostics = &diagnostics });
+    try extract(io, tmp.dir, &reader, .{ .diagnostics = &diagnostics });
 
     try testing.expectEqualStrings("", diagnostics.root_dir);
 }
@@ -1083,12 +1123,12 @@ test "findRoot without explicit root dir" {
 
     var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
     defer diagnostics.deinit();
-    try pipeToFileSystem(io, tmp.dir, &reader, .{ .diagnostics = &diagnostics });
+    try extract(io, tmp.dir, &reader, .{ .diagnostics = &diagnostics });
 
     try testing.expectEqualStrings("root", diagnostics.root_dir);
 }
 
-test "pipeToFileSystem strip_components" {
+test "extract strip_components" {
     const io = testing.io;
     const data = @embedFile("tar/testdata/example.tar");
     var reader: Io.Reader = .fixed(data);
@@ -1098,7 +1138,7 @@ test "pipeToFileSystem strip_components" {
     var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
     defer diagnostics.deinit();
 
-    pipeToFileSystem(io, tmp.dir, &reader, .{
+    extract(io, tmp.dir, &reader, .{
         .strip_components = 3,
         .diagnostics = &diagnostics,
     }) catch |err| {
@@ -1120,7 +1160,7 @@ fn normalizePath(bytes: []u8) []u8 {
 }
 
 // File system mode based on tar header mode and mode_mode options.
-fn filePermissions(mode: u32, options: PipeOptions) Io.File.Permissions {
+fn filePermissions(mode: u32, options: ExtractOptions) Io.File.Permissions {
     return if (!Io.File.Permissions.has_executable_bit or options.mode_mode == .ignore or (mode & 0o100) == 0)
         .default_file
     else
@@ -1142,13 +1182,13 @@ test "executable bit" {
     const S = std.posix.S;
     const data = @embedFile("tar/testdata/example.tar");
 
-    for ([_]PipeOptions.ModeMode{ .ignore, .executable_bit_only }) |opt| {
+    for ([_]ExtractOptions.ModeMode{ .ignore, .executable_bit_only }) |opt| {
         var reader: Io.Reader = .fixed(data);
 
         var tmp = testing.tmpDir(.{ .follow_symlinks = false });
         //defer tmp.cleanup();
 
-        pipeToFileSystem(io, tmp.dir, &reader, .{
+        extract(io, tmp.dir, &reader, .{
             .strip_components = 1,
             .exclude_empty_directories = true,
             .mode_mode = opt,

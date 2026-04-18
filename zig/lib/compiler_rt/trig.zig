@@ -7,6 +7,13 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/__sindf.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/__tand.c
 // https://git.musl-libc.org/cgit/musl/tree/src/math/__tandf.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/__sinl.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/__cosl.c
+// https://git.musl-libc.org/cgit/musl/tree/src/math/__tanl.c
+
+const std = @import("std");
+
+pub const pi_4 = std.math.pi / 4.0;
 
 /// kernel cos function on [-pi/4, pi/4], pi/4 ~ 0.785398164
 /// Input x is assumed to be bounded by ~pi/4 in magnitude.
@@ -43,7 +50,7 @@
 ///         expression for cos().  Retention happens in all cases tested
 ///         under FreeBSD, so don't pessimize things by forcibly clipping
 ///         any extra precision in w.
-pub fn __cos(x: f64, y: f64) f64 {
+pub fn cos(x: f64, y: f64) f64 {
     const C1 = 4.16666666666666019037e-02; // 0x3FA55555, 0x5555554C
     const C2 = -1.38888888888741095749e-03; // 0xBF56C16C, 0x16C15177
     const C3 = 2.48015872894767294178e-05; // 0x3EFA01A0, 0x19CB1590
@@ -59,7 +66,7 @@ pub fn __cos(x: f64, y: f64) f64 {
     return w + (((1.0 - w) - hz) + (z * r - x * y));
 }
 
-pub fn __cosdf(x: f64) f32 {
+pub fn cosdf(x: f64) f32 {
     // |cos(x) - c(x)| < 2**-34.1 (~[-5.37e-11, 5.295e-11]).
     const C0 = -0x1ffffffd0c5e81.0p-54; // -0.499999997251031003120
     const C1 = 0x155553e1053a42.0p-57; //  0.0416666233237390631894
@@ -71,6 +78,46 @@ pub fn __cosdf(x: f64) f32 {
     const w = z * z;
     const r = C2 + z * C3;
     return @floatCast(((1.0 + z * C0) + w * C1) + (w * z) * r);
+}
+
+pub fn cosx(x: f80, y: f80) f80 {
+    const C1: f80 = 0.0416666666666666666136;
+    const C2: f64 = -0.0013888888888888874;
+    const C3: f64 = 0.000024801587301571716;
+    const C4: f64 = -0.00000027557319215507120;
+    const C5: f64 = 0.0000000020876754400407278;
+    const C6: f64 = -1.1470297442401303e-11;
+    const C7: f64 = 4.7383039476436467e-14;
+
+    const z = x * x;
+    const r = z * (C1 + z * (C2 + z * (C3 + z * (C4 +
+        z * (C5 + z * (C6 + z * C7))))));
+    const hz = 0.5 * z;
+    const w = 1.0 - hz;
+
+    return w + (((1.0 - w) - hz) + (z * r - x * y));
+}
+
+pub fn cosq(x: f128, y: f128) f128 {
+    const C1: f128 = 0.04166666666666666666666666666666658424671;
+    const C2: f128 = -0.001388888888888888888888888888863490893732;
+    const C3: f128 = 0.00002480158730158730158730158600795304914210;
+    const C4: f128 = -0.2755731922398589065255474947078934284324e-6;
+    const C5: f128 = 0.2087675698786809897659225313136400793948e-8;
+    const C6: f128 = -0.1147074559772972315817149986812031204775e-10;
+    const C7: f128 = 0.4779477332386808976875457937252120293400e-13;
+    const C8: f64 = -0.1561920696721507929516718307820958119868e-15;
+    const C9: f64 = 0.4110317413744594971475941557607804508039e-18;
+    const C10: f64 = -0.8896592467191938803288521958313920156409e-21;
+    const C11: f64 = 0.1601061435794535138244346256065192782581e-23;
+
+    const z = x * x;
+    const r = z * (C1 + z * (C2 + z * (C3 + z * (C4 + z * (C5 + z * (C6 +
+        z * (C7 + z * (C8 + z * (C9 + z * (C10 + z * C11))))))))));
+    const hz = 0.5 * z;
+    const w = 1.0 - hz;
+
+    return w + (((1.0 - w) - hz) + (z * r - x * y));
 }
 
 /// kernel sin function on ~[-pi/4, pi/4] (except on -0), pi/4 ~ 0.7854
@@ -100,7 +147,7 @@ pub fn __cosdf(x: f64) f32 {
 ///              r = x *(S2+x *(S3+x *(S4+x *(S5+x *S6))))
 ///         then                   3    2
 ///              sin(x) = x + (S1*x + (x *(r-y/2)+y))
-pub fn __sin(x: f64, y: f64, iy: i32) f64 {
+pub fn sin(x: f64, y: f64, iy: i32) f64 {
     const S1 = -1.66666666666666324348e-01; // 0xBFC55555, 0x55555549
     const S2 = 8.33333333332248946124e-03; // 0x3F811111, 0x1110F8A6
     const S3 = -1.98412698298579493134e-04; // 0xBF2A01A0, 0x19C161D5
@@ -119,7 +166,7 @@ pub fn __sin(x: f64, y: f64, iy: i32) f64 {
     }
 }
 
-pub fn __sindf(x: f64) f32 {
+pub fn sindf(x: f64) f32 {
     // |sin(x)/x - s(x)| < 2**-37.5 (~[-4.89e-12, 4.824e-12]).
     const S1 = -0x15555554cbac77.0p-55; // -0.166666666416265235595
     const S2 = 0x111110896efbb2.0p-59; //  0.0083333293858894631756
@@ -132,6 +179,52 @@ pub fn __sindf(x: f64) f32 {
     const r = S3 + z * S4;
     const s = z * x;
     return @floatCast((x + s * (S1 + z * S2)) + s * w * r);
+}
+
+pub fn sinx(x: f80, y: f80, iy: i32) f80 {
+    const S1: f80 = -0.166666666666666666671;
+    const S2: f64 = 0.0083333333333333332;
+    const S3: f64 = -0.00019841269841269427;
+    const S4: f64 = 0.0000027557319223597490;
+    const S5: f64 = -0.000000025052108218074604;
+    const S6: f64 = 1.6059006598854211e-10;
+    const S7: f64 = -7.6429779983024564e-13;
+    const S8: f64 = 2.6174587166648325e-15;
+
+    const z = x * x;
+    const v = z * x;
+    const r = S2 + z * (S3 + z * (S4 + z * (S5 +
+        z * (S6 + z * (S7 + z * S8)))));
+
+    if (iy == 0)
+        return x + v * (S1 + z * r);
+
+    return x - ((z * (0.5 * y - v * r) - y) - v * S1);
+}
+
+pub fn sinq(x: f128, y: f128, iy: i32) f128 {
+    const S1: f128 = -0.16666666666666666666666666666666666606732416116558;
+    const S2: f128 = 0.0083333333333333333333333333333331135404851288270047;
+    const S3: f128 = -0.00019841269841269841269841269839935785325638310428717;
+    const S4: f128 = 0.27557319223985890652557316053039946268333231205686e-5;
+    const S5: f128 = -0.25052108385441718775048214826384312253862930064745e-7;
+    const S6: f128 = 0.16059043836821614596571832194524392581082444805729e-9;
+    const S7: f128 = -0.76471637318198151807063387954939213287488216303768e-12;
+    const S8: f128 = 0.28114572543451292625024967174638477283187397621303e-14;
+    const S9: f64 = -0.82206352458348947812512122163446202498005154296863e-17;
+    const S10: f64 = 0.19572940011906109418080609928334380560135358385256e-19;
+    const S11: f64 = -0.38680813379701966970673724299207480965452616911420e-22;
+    const S12: f64 = 0.64038150078671872796678569586315881020659912139412e-25;
+
+    const z = x * x;
+    const v = z * x;
+    const r = S2 + z * (S3 + z * (S4 + z * (S5 + z * (S6 + z * (S7 + z * (S8 +
+        z * (S9 + z * (S10 + z * (S11 + z * S12)))))))));
+
+    if (iy == 0)
+        return x + v * (S1 + z * r);
+
+    return x - ((z * (0.5 * y - v * r) - y) - v * S1);
 }
 
 /// kernel tan function on ~[-pi/4, pi/4] (except on -0), pi/4 ~ 0.7854
@@ -166,7 +259,7 @@ pub fn __sindf(x: f64) f32 {
 ///      4. For x in [0.67434,pi/4],  let y = pi/4 - x, then
 ///              tan(x) = tan(pi/4-y) = (1-tan(y))/(1+tan(y))
 ///                     = 1 - 2*(tan(y) - (tan(y)^2)/(1+tan(y)))
-pub fn __tan(x_: f64, y_: f64, odd: bool) f64 {
+pub fn tan(x_: f64, y_: f64, odd: bool) f64 {
     var x = x_;
     var y = y_;
 
@@ -239,7 +332,7 @@ pub fn __tan(x_: f64, y_: f64, odd: bool) f64 {
     return a0 + a * (1.0 + a0 * w0 + a0 * v);
 }
 
-pub fn __tandf(x: f64, odd: bool) f32 {
+pub fn tandf(x: f64, odd: bool) f32 {
     // |tan(x)/x - t(x)| < 2**-25.5 (~[-2e-08, 2e-08]).
     const T = [_]f64{
         0x15554d3418c99f.0p-54, // 0.333331395030791399758
@@ -270,4 +363,161 @@ pub fn __tandf(x: f64, odd: bool) f32 {
     const u = T[0] + z * T[1];
     const r0 = (x + s * u) + (s * w) * (t + w * r);
     return @floatCast(if (odd) -1.0 / r0 else r0);
+}
+
+pub fn tanx(x_: f80, y_: f80, odd: i32) f80 {
+    const pio4: f80 = 0.785398163397448309628;
+    const pio4lo: f80 = -1.25413940316708300586e-20;
+
+    const T3: f80 = 0.333333333333333333180;
+    const T5: f80 = 0.133333333333333372290;
+    const T7: f80 = 0.0539682539682504975744;
+    const T9: f64 = 0.021869488536312216;
+    const T11: f64 = 0.0088632355256619590;
+    const T13: f64 = 0.0035921281113786528;
+    const T15: f64 = 0.0014558334756312418;
+    const T17: f64 = 0.00059003538700862256;
+    const T19: f64 = 0.00023907843576635544;
+    const T21: f64 = 0.000097154625656538905;
+    const T23: f64 = 0.000038440165747303162;
+    const T25: f64 = 0.000018082171885432524;
+    const T27: f64 = 0.0000024196006108814377;
+    const T29: f64 = 0.0000078293456938132840;
+    const T31: f64 = -0.0000032609076735050182;
+    const T33: f64 = 0.0000023261313142559411;
+
+    var x = x_;
+    var y = y_;
+    const big = @abs(x) >= 0.67434;
+    var sign: i8 = 0;
+
+    if (big) {
+        if (x < 0) {
+            sign = -1;
+            x = -x;
+            y = -y;
+        }
+        x = (pio4 - x) + (pio4lo - y);
+        y = 0.0;
+    }
+
+    var z = x * x;
+    var w = z * z;
+
+    var r = T5 + w * (T9 + w * (T13 + w * (T17 + w * (T21 +
+        w * (T25 + w * (T29 + w * T33))))));
+
+    var v = z * (T7 + w * (T11 + w * (T15 + w * (T19 + w * (T23 +
+        w * (T27 + w * T31))))));
+
+    var s = z * x;
+    r = y + z * (s * (r + v) + y) + T3 * s;
+    w = x + r;
+
+    if (big) {
+        s = @as(f80, @floatFromInt(1 - 2 * odd));
+        v = s - 2.0 * (x + (r - w * w / (w + s)));
+        return if (sign == -1) -v else v;
+    }
+
+    if (odd == 0) {
+        return w;
+    }
+
+    // if allow error up to 2 ulp, simply return
+    // -1.0 / (x+r) here
+    //
+    // compute -1.0 / (x+r) accurately
+    z = w + 0x1p32 - 0x1p32;
+    v = r - (z - x);
+    const a = -1.0 / w;
+    const t = a + 0x1p32 - 0x1p32;
+    s = 1.0 + t * z;
+    return t + a * (s + t * v);
+}
+
+pub fn tanq(x_: f128, y_: f128, odd: i32) f128 {
+    const pio4: f128 = 0x1.921fb54442d18469898cc51701b8p-1;
+    const pio4lo: f128 = 0x1.cd129024e088a67cc74020bbea60p-116;
+
+    const T3: f128 = 0x1.5555555555555555555555555553p-2;
+    const T5: f128 = 0x1.1111111111111111111111111eb5p-3;
+    const T7: f128 = 0x1.ba1ba1ba1ba1ba1ba1ba1b694cd6p-5;
+    const T9: f128 = 0x1.664f4882c10f9f32d6bbe09d8bcdp-6;
+    const T11: f128 = 0x1.226e355e6c23c8f5b4f5762322eep-7;
+    const T13: f128 = 0x1.d6d3d0e157ddfb5fed8e84e27b37p-9;
+    const T15: f128 = 0x1.7da36452b75e2b5fce9ee7c2c92ep-10;
+    const T17: f128 = 0x1.355824803674477dfcf726649efep-11;
+    const T19: f128 = 0x1.f57d7734d1656e0aceb716f614c2p-13;
+    const T21: f128 = 0x1.967e18afcb180ed942dfdc518d6cp-14;
+    const T23: f128 = 0x1.497d8eea21e95bc7e2aa79b9f2cdp-15;
+    const T25: f128 = 0x1.0b132d39f055c81be49eff7afd50p-16;
+    const T27: f128 = 0x1.b0f72d33eff7bfa2fbc1059d90b6p-18;
+    const T29: f128 = 0x1.5ef2daf21d1113df38d0fbc00267p-19;
+    const T31: f128 = 0x1.1c77d6eac0234988cdaa04c96626p-20;
+    const T33: f128 = 0x1.cd2a5a292b180e0bdd701057dfe3p-22;
+    const T35: f128 = 0x1.75c7357d0298c01a31d0a6f7d518p-23;
+    const T37: f128 = 0x1.2f3190f4718a9a520f98f50081fcp-24;
+    const T39: f64 = 0.000000028443389121318352;
+    const T41: f64 = 0.000000011981013102001973;
+    const T43: f64 = 0.0000000038303578044958070;
+    const T45: f64 = 0.0000000034664378216909893;
+    const T47: f64 = -0.0000000015090641701997785;
+    const T49: f64 = 0.0000000029449552300483952;
+    const T51: f64 = -0.0000000022006995706097711;
+    const T53: f64 = 0.0000000015468200913196612;
+    const T55: f64 = -0.00000000061311613386849674;
+    const T57: f64 = 1.4912469681508012e-10;
+
+    var x = x_;
+    var y = y_;
+
+    const big = @abs(x) >= 0.67434;
+    var sign: i8 = 0;
+
+    if (big) {
+        if (x < 0) {
+            sign = -1;
+            x = -x;
+            y = -y;
+        }
+        x = (pio4 - x) + (pio4lo - y);
+        y = 0.0;
+    }
+
+    var z = x * x;
+    var w = z * z;
+
+    var r = T5 + w * (T9 + w * (T13 + w * (T17 + w * (T21 +
+        w * (T25 + w * (T29 + w * (T33 + w * (T37 + w * (T41 +
+            w * (T45 + w * (T49 + w * (T53 + w * T57))))))))))));
+
+    var v = z * (T7 + w * (T11 + w * (T15 + w * (T19 + w * (T23 +
+        w * (T27 + w * (T31 + w * (T35 + w * (T39 + w * (T43 +
+            w * (T47 + w * (T51 + w * T55))))))))))));
+
+    var s = z * x;
+    r = y + z * (s * (r + v) + y) + T3 * s;
+    w = x + r;
+
+    if (big) {
+        s = @as(f128, @floatFromInt(1 - 2 * odd));
+        v = s - 2.0 * (x + (r - w * w / (w + s)));
+        return if (sign == -1) -v else v;
+    }
+
+    if (odd == 0) {
+        return w;
+    }
+
+    // if allow error up to 2 ulp, simply return
+    // -1.0 / (x+r) here
+    //
+    // compute -1.0 / (x+r) accurately
+    z = w + 0x1p32 - 0x1p32;
+    v = r - (z - x);
+    const a = -1.0 / w;
+    const t = a + 0x1p32 - 0x1p32;
+    s = 1.0 + t * z;
+    return t + a * (s + t * v);
 }

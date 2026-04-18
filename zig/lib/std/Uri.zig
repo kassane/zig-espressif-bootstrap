@@ -374,13 +374,11 @@ pub fn fmt(uri: *const Uri, flags: Format.Flags) std.fmt.Alt(Format, Format.defa
 /// The return value will contain strings pointing into the original `text`.
 /// Each component that is provided will be non-`null`.
 pub fn parse(text: []const u8) ParseError!Uri {
-    const end = for (text, 0..) |byte, i| {
-        if (!isSchemeChar(byte)) break i;
-    } else text.len;
-    // After the scheme, a ':' must appear.
-    if (end >= text.len) return error.InvalidFormat;
-    if (text[end] != ':') return error.UnexpectedCharacter;
-    return parseAfterScheme(text[0..end], text[end + 1 ..]);
+    const scheme, const rest = std.mem.cutScalar(u8, text, ':') orelse
+        return error.InvalidFormat;
+    if (!isValidScheme(scheme))
+        return error.UnexpectedCharacter;
+    return parseAfterScheme(scheme, rest);
 }
 
 pub const ResolveInPlaceError = ParseError || error{NoSpaceLeft};
@@ -522,11 +520,16 @@ fn merge_paths(base: Component, new: []u8, aux_buf: *[]u8) error{NoSpaceLeft}!Co
 }
 
 /// scheme      = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
-fn isSchemeChar(c: u8) bool {
-    return switch (c) {
-        'A'...'Z', 'a'...'z', '0'...'9', '+', '-', '.' => true,
-        else => false,
-    };
+fn isValidScheme(scheme: []const u8) bool {
+    if (scheme.len == 0) return false;
+    if (!std.ascii.isAlphabetic(scheme[0])) return false;
+    for (scheme[1..]) |byte| {
+        switch (byte) {
+            'A'...'Z', 'a'...'z', '0'...'9', '+', '-', '.' => continue,
+            else => return false,
+        }
+    }
+    return true;
 }
 
 /// sub-delims  = "!" / "$" / "&" / "'" / "(" / ")"
@@ -620,6 +623,13 @@ test "scheme" {
     try std.testing.expectEqualStrings("ab+", (try parse("ab+:_")).scheme);
     try std.testing.expectEqualStrings("X+++", (try parse("X+++:_")).scheme);
     try std.testing.expectEqualStrings("Y+-.", (try parse("Y+-.:_")).scheme);
+
+    try std.testing.expectError(error.InvalidFormat, parse(""));
+    try std.testing.expectError(error.UnexpectedCharacter, parse(":"));
+    try std.testing.expectError(error.UnexpectedCharacter, parse("-:"));
+    try std.testing.expectError(error.UnexpectedCharacter, parse("+hTTp:"));
+    try std.testing.expectError(error.UnexpectedCharacter, parse("$:"));
+    try std.testing.expectError(error.UnexpectedCharacter, parse("h$:"));
 }
 
 test "authority" {

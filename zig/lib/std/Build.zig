@@ -86,10 +86,10 @@ libc_runtimes_dir: ?[]const u8 = null,
 
 dep_prefix: []const u8 = "",
 
-modules: std.StringArrayHashMap(*Module),
+modules: std.array_hash_map.String(*Module),
 
-named_writefiles: std.StringArrayHashMap(*Step.WriteFile),
-named_lazy_paths: std.StringArrayHashMap(LazyPath),
+named_writefiles: std.array_hash_map.String(*Step.WriteFile),
+named_lazy_paths: std.array_hash_map.String(LazyPath),
 /// The hash of this instance's package. `""` means that this is the root package.
 pkg_hash: []const u8,
 /// A mapping from dependency names to package hashes.
@@ -128,6 +128,9 @@ pub const Graph = struct {
     random_seed: u32 = 0,
     dependency_cache: InitializedDepMap = .empty,
     allow_so_scripts: ?bool = null,
+    /// Steps should use `io` to limit the number of jobs, however in the case of
+    /// a single step spawning a fixed number of processes this can be used.
+    max_jobs: ?u32 = null,
     time_report: bool,
     /// Similar to the `Io.Terminal.Mode` returned by `Io.lockStderr`, but also
     /// respects the '--color' flag.
@@ -309,9 +312,9 @@ pub fn create(
         },
         .install_path = undefined,
         .args = null,
-        .modules = .init(arena),
-        .named_writefiles = .init(arena),
-        .named_lazy_paths = .init(arena),
+        .modules = .empty,
+        .named_writefiles = .empty,
+        .named_lazy_paths = .empty,
         .pkg_hash = "",
         .available_deps = available_deps,
         .release_mode = .off,
@@ -402,9 +405,9 @@ fn createChildOnly(
         .enable_wine = parent.enable_wine,
         .libc_runtimes_dir = parent.libc_runtimes_dir,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
-        .modules = .init(allocator),
-        .named_writefiles = .init(allocator),
-        .named_lazy_paths = .init(allocator),
+        .modules = .empty,
+        .named_writefiles = .empty,
+        .named_lazy_paths = .empty,
         .pkg_hash = pkg_hash,
         .available_deps = pkg_deps,
         .release_mode = parent.release_mode,
@@ -905,7 +908,7 @@ pub const AssemblyOptions = struct {
 /// `createModule` can be used instead to create a private module.
 pub fn addModule(b: *Build, name: []const u8, options: Module.CreateOptions) *Module {
     const module = Module.create(b, options);
-    b.modules.put(b.dupe(name), module) catch @panic("OOM");
+    b.modules.put(b.graph.arena, b.dupe(name), module) catch @panic("OOM");
     return module;
 }
 
@@ -1053,12 +1056,12 @@ pub fn addWriteFile(b: *Build, file_path: []const u8, data: []const u8) *Step.Wr
 
 pub fn addNamedWriteFiles(b: *Build, name: []const u8) *Step.WriteFile {
     const wf = Step.WriteFile.create(b);
-    b.named_writefiles.put(b.dupe(name), wf) catch @panic("OOM");
+    b.named_writefiles.put(b.graph.arena, b.dupe(name), wf) catch @panic("OOM");
     return wf;
 }
 
 pub fn addNamedLazyPath(b: *Build, name: []const u8, lp: LazyPath) void {
-    b.named_lazy_paths.put(b.dupe(name), lp.dupe(b)) catch @panic("OOM");
+    b.named_lazy_paths.put(b.graph.arena, b.dupe(name), lp.dupe(b)) catch @panic("OOM");
 }
 
 /// Creates a step for mutating files inside a temporary directory created lazily
@@ -1896,11 +1899,11 @@ pub fn runAllowFail(
             }
             return stdout;
         },
-        .signal => |sig| {
+        .signal, .stopped => |sig| {
             out_code.* = @as(u8, @truncate(@intFromEnum(sig)));
             return error.ProcessTerminated;
         },
-        .stopped, .unknown => |code| {
+        .unknown => |code| {
             out_code.* = @as(u8, @truncate(code));
             return error.ProcessTerminated;
         },

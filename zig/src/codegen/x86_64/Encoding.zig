@@ -649,15 +649,7 @@ pub const Op = enum {
             },
 
             .imm => |imm| switch (imm) {
-                .signed => |x| if (x == 1)
-                    .unity
-                else if (math.cast(i8, x)) |_|
-                    .imm8s
-                else if (math.cast(i16, x)) |_|
-                    .imm16s
-                else
-                    .imm32s,
-                .unsigned => |x| if (x == 1)
+                inline .signed, .unsigned => |x| if (x == 1)
                     .unity
                 else if (math.cast(i8, x)) |_|
                     .imm8s

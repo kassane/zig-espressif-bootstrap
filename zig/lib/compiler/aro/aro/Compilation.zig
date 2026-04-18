@@ -71,32 +71,21 @@ pub const Environment = struct {
         /// used for __DATE__, __TIME__, and __TIMESTAMP__
         provided: u64,
 
-        pub const default: @This() = .{ .provided = 0 };
+        pub const default: SourceEpoch = .{ .provided = 0 };
     };
 
-    pub fn loadAll(allocator: std.mem.Allocator, environ_map: *const std.process.Environ.Map) !Environment {
+    /// Load all of the environment variables from an environ map. Does not copy values.
+    pub fn loadAll(environ_map: *const std.process.Environ.Map) Environment {
         var env: Environment = .{};
-        errdefer env.deinit(allocator);
 
         inline for (@typeInfo(@TypeOf(env)).@"struct".fields) |field| {
             std.debug.assert(@field(env, field.name) == null);
 
             var env_var_buf: [field.name.len]u8 = undefined;
             const env_var_name = std.ascii.upperString(&env_var_buf, field.name);
-            const val: ?[]const u8 = if (environ_map.get(env_var_name)) |v| try allocator.dupe(u8, v) else null;
-            @field(env, field.name) = val;
+            @field(env, field.name) = environ_map.get(env_var_name);
         }
         return env;
-    }
-
-    /// Use this only if environment slices were allocated with `allocator` (such as via `loadAll`)
-    pub fn deinit(self: *Environment, allocator: std.mem.Allocator) void {
-        inline for (@typeInfo(@TypeOf(self.*)).@"struct".fields) |field| {
-            if (@field(self, field.name)) |slice| {
-                allocator.free(slice);
-            }
-        }
-        self.* = undefined;
     }
 
     pub fn sourceEpoch(self: *const Environment, io: Io) !SourceEpoch {
@@ -148,7 +137,7 @@ gpa: Allocator,
 /// Allocations in this arena live all the way until `Compilation.deinit`.
 arena: Allocator,
 io: Io,
-cwd: Io.Dir,
+cwd: std.Io.Dir,
 diagnostics: *Diagnostics,
 
 sources: std.StringArrayHashMapUnmanaged(Source) = .empty,
@@ -175,37 +164,48 @@ pragma_handlers: std.StringArrayHashMapUnmanaged(*Pragma) = .empty,
 /// Used by MS extensions which allow searching for includes relative to the directory of the main source file.
 ms_cwd_source_id: ?Source.Id = null,
 
-pub fn init(gpa: Allocator, arena: Allocator, io: Io, diagnostics: *Diagnostics, cwd: Io.Dir) Compilation {
-    return .{
-        .gpa = gpa,
-        .arena = arena,
-        .io = io,
-        .diagnostics = diagnostics,
-        .cwd = cwd,
-    };
-}
-
-/// Initialize Compilation with default environment,
-/// pragma handlers and emulation mode set to target.
-pub fn initDefault(
+pub const InitOptions = struct {
     gpa: Allocator,
     arena: Allocator,
     io: Io,
     diagnostics: *Diagnostics,
-    cwd: Io.Dir,
-    environ_map: *const std.process.Environ.Map,
-) !Compilation {
+
+    /// Used to initiate `Compilation.Environment`, values are not copied.
+    environ_map: ?*const std.process.Environ.Map,
+    /// Defaults to `std.Io.Dir.cwd()`
+    cwd: ?std.Io.Dir = null,
+
+    add_default_pragma_handlers: bool = true,
+
+    pub const testing: InitOptions = .{
+        .gpa = std.testing.allocator,
+        .arena = undefined,
+        .io = std.testing.io,
+        .diagnostics = undefined,
+        .environ_map = null,
+        .add_default_pragma_handlers = false,
+    };
+};
+
+/// Initialize Compilation with default environment,
+/// pragma handlers and emulation mode set to target.
+pub fn init(options: InitOptions) !Compilation {
     var comp: Compilation = .{
-        .gpa = gpa,
-        .arena = arena,
-        .io = io,
-        .diagnostics = diagnostics,
-        .environment = try Environment.loadAll(gpa, environ_map),
-        .cwd = cwd,
+        .gpa = options.gpa,
+        .arena = options.arena,
+        .io = options.io,
+        .diagnostics = options.diagnostics,
+        .cwd = options.cwd orelse .cwd(),
     };
     errdefer comp.deinit();
-    try comp.addDefaultPragmaHandlers();
-    comp.langopts.setEmulatedCompiler(comp.target.systemCompiler());
+
+    if (options.environ_map) |map| {
+        comp.environment = .loadAll(map);
+    }
+
+    if (options.add_default_pragma_handlers) {
+        try comp.addDefaultPragmaHandlers();
+    }
     return comp;
 }
 
@@ -228,7 +228,6 @@ pub fn deinit(comp: *Compilation) void {
     comp.builtins.deinit(gpa);
     comp.string_interner.deinit(gpa);
     comp.interner.deinit(gpa);
-    comp.environment.deinit(gpa);
     comp.type_store.deinit(gpa);
     comp.* = undefined;
 }
@@ -275,17 +274,18 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
     }
 
     try w.writeAll(
+        \\#define __ARO_EMULATE_NO__ 0
         \\#define __ARO_EMULATE_CLANG__ 1
         \\#define __ARO_EMULATE_GCC__ 2
         \\#define __ARO_EMULATE_MSVC__ 3
         \\
     );
-    const emulated = switch (comp.langopts.emulate) {
+    try w.print("#define __ARO_EMULATE__ {s}\n", .{switch (comp.langopts.emulate) {
+        .no => "__ARO_EMULATE_NO__",
         .clang => "__ARO_EMULATE_CLANG__",
         .gcc => "__ARO_EMULATE_GCC__",
         .msvc => "__ARO_EMULATE_MSVC__",
-    };
-    try w.print("#define __ARO_EMULATE__ {s}\n", .{emulated});
+    }});
 
     if (comp.langopts.emulate == .msvc) {
         try w.writeAll("#define _MSC_VER 1933\n");
@@ -375,6 +375,7 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
         .watchos,
         => {
             try define(w, "__APPLE__");
+            try w.writeAll("#define __APPLE_CC__ 6000\n");
 
             const version = target.os.version_range.semver.min;
             var version_buf: [8]u8 = undefined;
@@ -647,6 +648,7 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
             try define(w, "__ppc__");
             try define(w, "__PPC__");
             try define(w, "_ARCH_PPC");
+            try w.print("#define _CALL_ELF {d}\n", .{target.ppcElfVersion()});
         },
         .powerpc64,
         .powerpc64le,
@@ -661,7 +663,7 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
             try define(w, "__PPC64__");
             try define(w, "_ARCH_PPC");
             try define(w, "_ARCH_PPC64");
-            try w.writeAll("#define _CALL_ELF 2\n");
+            try w.print("#define _CALL_ELF {d}\n", .{target.ppcElfVersion()});
         },
         .sparc64 => {
             try defineStd(w, "sparc", is_gnu);
@@ -686,8 +688,19 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
                 try define(w, "__thumb__");
             }
         },
-        .aarch64, .aarch64_be => {
+        .aarch64, .aarch64_be => |arch| {
             try define(w, "__aarch64__");
+            switch (arch) {
+                .aarch64 => {
+                    try define(w, "__AARCH64EL__");
+                },
+                .aarch64_be => {
+                    try define(w, "__AARCH64EB__");
+                    try define(w, "__AARCH_BIG_ENDIAN");
+                    try define(w, "__ARM_BIG_ENDIAN");
+                },
+                else => unreachable,
+            }
             if (target.os.tag.isDarwin()) {
                 try define(w, "__AARCH64_SIMD__");
                 if (ptr_width == 32) {
@@ -839,6 +852,7 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
             }
         },
         .riscv32, .riscv32be, .riscv64, .riscv64be => {
+            try define(w, "__riscv");
             try w.print("#define __riscv_xlen {d}\n", .{ptr_width});
         },
         else => {},
@@ -910,6 +924,7 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
         \\#define __ATOMIC_CHAR16_T_LOCK_FREE 1
         \\#define __ATOMIC_CHAR32_T_LOCK_FREE 1
         \\#define __ATOMIC_WCHAR_T_LOCK_FREE 1
+        \\#define __ATOMIC_WINT_T_LOCK_FREE 1
         \\#define __ATOMIC_SHORT_LOCK_FREE 1
         \\#define __ATOMIC_INT_LOCK_FREE 1
         \\#define __ATOMIC_LONG_LOCK_FREE 1
@@ -922,7 +937,15 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
     }
 
     // types
-    if (comp.getCharSignedness() == .unsigned) try w.writeAll("#define __CHAR_UNSIGNED__ 1\n");
+    if (comp.getCharSignedness() == .unsigned) {
+        try w.writeAll("#define __CHAR_UNSIGNED__ 1\n");
+    }
+    if (comp.type_store.wchar.signedness(comp) == .unsigned) {
+        try w.writeAll("#define __WCHAR_UNSIGNED__ 1\n");
+    }
+    if (comp.type_store.wint.signedness(comp) == .unsigned) {
+        try w.writeAll("#define __WINT_UNSIGNED__ 1\n");
+    }
     try w.writeAll("#define __CHAR_BIT__ 8\n");
 
     // int maxs
@@ -933,7 +956,7 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
     try comp.generateIntMaxAndWidth(w, "LONG", .long);
     try comp.generateIntMaxAndWidth(w, "LONG_LONG", .long_long);
     try comp.generateIntMaxAndWidth(w, "WCHAR", comp.type_store.wchar);
-    // try comp.generateIntMax(w, "WINT", comp.type_store.wchar);
+    try comp.generateIntMaxAndWidth(w, "WINT", comp.type_store.wint);
     try comp.generateIntMaxAndWidth(w, "INTMAX", comp.type_store.intmax);
     try comp.generateIntMaxAndWidth(w, "SIZE", comp.type_store.size);
     try comp.generateIntMaxAndWidth(w, "UINTMAX", try comp.type_store.intmax.makeIntUnsigned(comp));
@@ -957,7 +980,7 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
     try comp.generateSizeofType(w, "__SIZEOF_PTRDIFF_T__", comp.type_store.ptrdiff);
     try comp.generateSizeofType(w, "__SIZEOF_SIZE_T__", comp.type_store.size);
     try comp.generateSizeofType(w, "__SIZEOF_WCHAR_T__", comp.type_store.wchar);
-    // try comp.generateSizeofType(w, "__SIZEOF_WINT_T__", .void_pointer);
+    try comp.generateSizeofType(w, "__SIZEOF_WINT_T__", comp.type_store.wint);
 
     if (target.hasInt128()) {
         try comp.generateSizeofType(w, "__SIZEOF_INT128__", .int128);
@@ -968,14 +991,15 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
     try comp.generateTypeMacro(w, "__UINTPTR_TYPE__", try comp.type_store.intptr.makeIntUnsigned(comp));
 
     try comp.generateTypeMacro(w, "__INTMAX_TYPE__", comp.type_store.intmax);
-    try comp.generateSuffixMacro("__INTMAX", w, comp.type_store.intptr);
+    try comp.generateIntLiteralMacros("__INTMAX", w, comp.type_store.intptr);
 
     try comp.generateTypeMacro(w, "__UINTMAX_TYPE__", try comp.type_store.intmax.makeIntUnsigned(comp));
-    try comp.generateSuffixMacro("__UINTMAX", w, try comp.type_store.intptr.makeIntUnsigned(comp));
+    try comp.generateIntLiteralMacros("__UINTMAX", w, try comp.type_store.intptr.makeIntUnsigned(comp));
 
     try comp.generateTypeMacro(w, "__PTRDIFF_TYPE__", comp.type_store.ptrdiff);
     try comp.generateTypeMacro(w, "__SIZE_TYPE__", comp.type_store.size);
     try comp.generateTypeMacro(w, "__WCHAR_TYPE__", comp.type_store.wchar);
+    try comp.generateTypeMacro(w, "__WINT_TYPE__", comp.type_store.wint);
     try comp.generateTypeMacro(w, "__CHAR16_TYPE__", comp.type_store.uint_least16_t);
     try comp.generateTypeMacro(w, "__CHAR32_TYPE__", comp.type_store.uint_least32_t);
 
@@ -1167,8 +1191,10 @@ fn generateTypeMacro(comp: *const Compilation, w: *Io.Writer, name: []const u8, 
 }
 
 pub fn float80Type(comp: *const Compilation) ?QualType {
-    if (comp.langopts.emulate != .gcc) return null;
-    return comp.target.float80Type();
+    return switch (comp.langopts.emulate) {
+        .no, .gcc => comp.target.float80Type(),
+        .msvc, .clang => null,
+    };
 }
 
 /// Smallest integer type with at least N bits
@@ -1292,8 +1318,14 @@ fn generateFmt(comp: *const Compilation, prefix: []const u8, w: *Io.Writer, qt: 
     }
 }
 
-fn generateSuffixMacro(comp: *const Compilation, prefix: []const u8, w: *Io.Writer, qt: QualType) !void {
-    return w.print("#define {s}_C_SUFFIX__ {s}\n", .{ prefix, qt.intValueSuffix(comp) });
+fn generateIntLiteralMacros(comp: *const Compilation, prefix: []const u8, w: *Io.Writer, qt: QualType) !void {
+    const suffix = qt.intValueSuffix(comp);
+    try w.print("#define {s}_C_SUFFIX__ {s}\n", .{ prefix, suffix });
+    if (suffix.len == 0) {
+        try w.print("#define {s}_C(c) c\n", .{prefix});
+    } else {
+        try w.print("#define {s}_C(c) c##{s}\n", .{ prefix, suffix });
+    }
 }
 
 /// Generate the following for a type:
@@ -1322,7 +1354,7 @@ fn generateExactWidthType(comp: *Compilation, w: *Io.Writer, original_qt: QualTy
     const prefix = full[0 .. full.len - suffix.len]; // remove "_TYPE__"
 
     try comp.generateFmt(prefix, w, qt);
-    try comp.generateSuffixMacro(prefix, w, qt);
+    try comp.generateIntLiteralMacros(prefix, w, qt);
 }
 
 pub fn hasFloat128(comp: *const Compilation) bool {
@@ -1414,7 +1446,7 @@ pub fn maxArrayBytes(comp: *const Compilation) u64 {
 pub fn fixedEnumTagType(comp: *const Compilation) ?QualType {
     switch (comp.langopts.emulate) {
         .msvc => return .int,
-        .clang => if (comp.target.os.tag == .windows and comp.target.abi == .msvc) return .int,
+        .no, .clang => if (comp.target.os.tag == .windows and comp.target.abi == .msvc) return .int,
         .gcc => {},
     }
     return null;
@@ -1422,6 +1454,10 @@ pub fn fixedEnumTagType(comp: *const Compilation) ?QualType {
 
 pub fn getCharSignedness(comp: *const Compilation) std.builtin.Signedness {
     return comp.langopts.char_signedness_override orelse comp.target.cCharSignedness();
+}
+
+pub fn hasClangStyleBoundsSafety(comp: *const Compilation) bool {
+    return comp.langopts.bounds_safety == .clang;
 }
 
 pub fn getSource(comp: *const Compilation, id: Source.Id) Source {
@@ -1643,14 +1679,12 @@ fn addSourceFromPathExtra(comp: *Compilation, path: []const u8, kind: Source.Kin
         return error.FileNotFound;
     }
 
-    const io = comp.io;
-
-    const file = try comp.cwd.openFile(io, path, .{});
-    defer file.close(io);
+    const file = try comp.cwd.openFile(comp.io, path, .{});
+    defer file.close(comp.io);
     return comp.addSourceFromFile(file, path, kind);
 }
 
-pub fn addSourceFromFile(comp: *Compilation, file: Io.File, path: []const u8, kind: Source.Kind) !Source {
+pub fn addSourceFromFile(comp: *Compilation, file: std.Io.File, path: []const u8, kind: Source.Kind) !Source {
     const contents = try comp.getFileContents(file, .unlimited);
     errdefer comp.gpa.free(contents);
     return comp.addSourceFromOwnedBuffer(path, contents, kind);
@@ -1718,8 +1752,7 @@ pub fn initSearchPath(comp: *Compilation, includes: []const Include, verbose: bo
     }
 }
 fn addToSearchPath(comp: *Compilation, include: Include, verbose: bool) !void {
-    const io = comp.io;
-    comp.cwd.access(io, include.path, .{}) catch {
+    comp.cwd.access(comp.io, include.path, .{}) catch {
         if (verbose) {
             std.debug.print("ignoring nonexistent directory \"{s}\"\n", .{include.path});
             return;
@@ -1979,14 +2012,12 @@ fn getPathContents(comp: *Compilation, path: []const u8, limit: Io.Limit) ![]u8 
         return error.FileNotFound;
     }
 
-    const io = comp.io;
-
-    const file = try comp.cwd.openFile(io, path, .{});
-    defer file.close(io);
+    const file = try comp.cwd.openFile(comp.io, path, .{});
+    defer file.close(comp.io);
     return comp.getFileContents(file, limit);
 }
 
-fn getFileContents(comp: *Compilation, file: Io.File, limit: Io.Limit) ![]u8 {
+fn getFileContents(comp: *Compilation, file: std.Io.File, limit: Io.Limit) ![]u8 {
     var file_buf: [4096]u8 = undefined;
     var file_reader = file.reader(comp.io, &file_buf);
 
@@ -2168,9 +2199,8 @@ pub fn locSlice(comp: *const Compilation, loc: Source.Location) []const u8 {
 }
 
 pub fn getSourceMTimeUncached(comp: *const Compilation, source_id: Source.Id) ?u64 {
-    const io = comp.io;
     const source = comp.getSource(source_id);
-    if (comp.cwd.statFile(io, source.path, .{})) |stat| {
+    if (comp.cwd.statFile(comp.io, source.path, .{})) |stat| {
         return std.math.cast(u64, stat.mtime.toSeconds());
     } else |_| {
         return null;
@@ -2257,10 +2287,9 @@ pub const Diagnostic = struct {
 test "addSourceFromBuffer" {
     const Test = struct {
         fn addSourceFromBuffer(str: []const u8, expected: []const u8, warning_count: u32, splices: []const u32) !void {
-            var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
-            defer arena.deinit();
             var diagnostics: Diagnostics = .{ .output = .ignore };
-            var comp = Compilation.init(std.testing.allocator, arena.allocator(), std.testing.io, &diagnostics, Io.Dir.cwd());
+            var comp = try Compilation.init(.testing);
+            comp.diagnostics = &diagnostics;
             defer comp.deinit();
 
             const source = try comp.addSourceFromBuffer("path", str);
@@ -2271,10 +2300,8 @@ test "addSourceFromBuffer" {
         }
 
         fn withAllocationFailures(allocator: std.mem.Allocator) !void {
-            var arena: std.heap.ArenaAllocator = .init(allocator);
-            defer arena.deinit();
-            var diagnostics: Diagnostics = .{ .output = .ignore };
-            var comp = Compilation.init(allocator, arena.allocator(), std.testing.io, &diagnostics, Io.Dir.cwd());
+            var comp = try Compilation.init(.testing);
+            comp.gpa = allocator;
             defer comp.deinit();
 
             _ = try comp.addSourceFromBuffer("path", "spliced\\\nbuffer\n");
@@ -2320,7 +2347,8 @@ test "addSourceFromBuffer - exhaustive check for carriage return elimination" {
     var buf: [alphabet.len]u8 = @splat(alphabet[0]);
 
     var diagnostics: Diagnostics = .{ .output = .ignore };
-    var comp = Compilation.init(std.testing.allocator, arena.allocator(), std.testing.io, &diagnostics, Io.Dir.cwd());
+    var comp = try Compilation.init(.testing);
+    comp.diagnostics = &diagnostics;
     defer comp.deinit();
 
     var source_count: u32 = 0;
@@ -2346,9 +2374,8 @@ test "addSourceFromBuffer - exhaustive check for carriage return elimination" {
 test "ignore BOM at beginning of file" {
     const BOM = "\xEF\xBB\xBF";
     const Test = struct {
-        fn run(arena: Allocator, buf: []const u8) !void {
-            var diagnostics: Diagnostics = .{ .output = .ignore };
-            var comp = Compilation.init(std.testing.allocator, arena, std.testing.io, &diagnostics, Io.Dir.cwd());
+        fn run(buf: []const u8) !void {
+            var comp = try Compilation.init(.testing);
             defer comp.deinit();
 
             const source = try comp.addSourceFromBuffer("file.c", buf);
@@ -2357,19 +2384,15 @@ test "ignore BOM at beginning of file" {
         }
     };
 
-    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
+    try Test.run(BOM);
+    try Test.run(BOM ++ "x");
+    try Test.run("x" ++ BOM);
+    try Test.run(BOM ++ " ");
+    try Test.run(BOM ++ "\n");
+    try Test.run(BOM ++ "\\");
 
-    try Test.run(arena, BOM);
-    try Test.run(arena, BOM ++ "x");
-    try Test.run(arena, "x" ++ BOM);
-    try Test.run(arena, BOM ++ " ");
-    try Test.run(arena, BOM ++ "\n");
-    try Test.run(arena, BOM ++ "\\");
-
-    try Test.run(arena, BOM[0..1] ++ "x");
-    try Test.run(arena, BOM[0..2] ++ "x");
-    try Test.run(arena, BOM[1..] ++ "x");
-    try Test.run(arena, BOM[2..] ++ "x");
+    try Test.run(BOM[0..1] ++ "x");
+    try Test.run(BOM[0..2] ++ "x");
+    try Test.run(BOM[1..] ++ "x");
+    try Test.run(BOM[2..] ++ "x");
 }

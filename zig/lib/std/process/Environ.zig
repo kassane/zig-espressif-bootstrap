@@ -24,7 +24,7 @@ pub const empty: Environ = .{ .block = .empty };
 /// operating system `void` is also used.
 pub const Block = switch (native_os) {
     .windows => GlobalBlock,
-    .wasi => switch (builtin.link_libc) {
+    .wasi, .emscripten => switch (builtin.link_libc) {
         false => GlobalBlock,
         true => PosixBlock,
     },

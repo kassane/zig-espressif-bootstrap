@@ -1473,18 +1473,18 @@ xpc_array_set_date(xpc_object_t xarray, size_t index, int64_t value);
  * undefined.
  *
  * @param bytes
- * The raw data to insert. After calling this method, the XPC object
- * corresponding to the primitive value inserted may be safely retrieved with
- * {@link xpc_array_get_value()}.
+ * The raw data to insert. May be NULL if length is zero. After calling this
+ * method, the XPC object corresponding to the primitive value inserted may be
+ * safely retrieved with {@link xpc_array_get_value()}.
  *
  * @param length
  * The length of the data.
  */
 __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
-XPC_EXPORT XPC_NONNULL1 XPC_NONNULL3
+XPC_EXPORT XPC_NONNULL1
 void
 xpc_array_set_data(xpc_object_t xarray, size_t index,
-	const void *XPC_SIZEDBY(length) bytes, size_t length);
+	const void *XPC_SIZEDBY(length) _Nullable bytes, size_t length);
 
 /*!
  * @function xpc_array_set_string
@@ -2231,18 +2231,18 @@ xpc_dictionary_set_date(xpc_object_t xdict, const char *key, int64_t value);
  * The key for which the primitive value shall be set.
  *
  * @param bytes
- * The bytes to insert. After calling this method, the XPC object corresponding
- * to the primitive value inserted may be safely retrieved with
- * {@link xpc_dictionary_get_value()}.
+ * The bytes to insert. May be NULL if length is zero. After calling this method,
+ * the XPC object corresponding to the primitive value inserted may be safely
+ * retrieved with {@link xpc_dictionary_get_value()}.
  *
  * @param length
  * The length of the data.
  */
 __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
-XPC_EXPORT XPC_NONNULL1 XPC_NONNULL2 XPC_NONNULL3
+XPC_EXPORT XPC_NONNULL1 XPC_NONNULL2
 void
 xpc_dictionary_set_data(xpc_object_t xdict, const char *key,
-	const void *XPC_SIZEDBY(length) bytes, size_t length);
+	const void *XPC_SIZEDBY(length) _Nullable bytes, size_t length);
 
 /*!
  * @function xpc_dictionary_set_string
@@ -2692,7 +2692,7 @@ xpc_dictionary_copy_mach_send(xpc_object_t xdict, const char *key);
  * state, potentially causing resource leaks or transaction issues.
  */
 API_AVAILABLE(macos(10.7), macCatalyst(5.0))
-API_UNAVAILABLE(ios)
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_NORETURN XPC_NONNULL1
 void
 xpc_main(xpc_connection_handler_t handler);
@@ -2729,7 +2729,7 @@ xpc_main(xpc_connection_handler_t handler);
  * connection.
  */
 API_AVAILABLE(macos(10.7))
-API_UNAVAILABLE(ios)
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_TRANSACTION_DEPRECATED
 XPC_EXPORT
 void
@@ -2747,7 +2747,7 @@ xpc_transaction_begin(void);
  * the XPC runtime's idle-exit policy.
  */
 API_AVAILABLE(macos(10.7))
-API_UNAVAILABLE(ios)
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_TRANSACTION_DEPRECATED
 XPC_EXPORT
 void
@@ -2783,7 +2783,7 @@ xpc_transaction_end(void);
  */
 #if __BLOCKS__
 API_AVAILABLE(macos(10.7))
-API_UNAVAILABLE(ios)
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_NONNULL1 XPC_NONNULL3
 void
 xpc_set_event_stream_handler(const char *stream,

@@ -3731,7 +3731,9 @@ pub fn resetUnit(zcu: *Zcu, unit: AnalUnit) void {
         };
         for (zcu.all_exports.items[base..][0..len], base..) |exp, exp_index_usize| {
             const exp_index: Export.Index = @enumFromInt(exp_index_usize);
-            if (zcu.comp.bin_file) |lf| {
+            if (zcu.llvm_object) |llvm_object| {
+                _ = llvm_object; // TODO: delete exports from LLVM
+            } else if (zcu.comp.bin_file) |lf| {
                 lf.deleteExport(exp.exported, exp.opts.name);
             }
             if (zcu.failed_exports.fetchSwapRemove(exp_index)) |failed_kv| {

@@ -41,6 +41,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         /// Free memory used by the queue.
         pub fn deinit(self: *Self, allocator: Allocator) void {
             allocator.free(self.allocatedSlice());
+            self.* = undefined;
         }
 
         /// Insert a new element, maintaining priority.
@@ -78,7 +79,7 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
 
         /// Look at the highest priority element in the queue. Returns
         /// `null` if empty.
-        pub fn peek(self: *Self) ?T {
+        pub fn peek(self: *const Self) ?T {
             return if (self.items.len > 0) self.items[0] else null;
         }
 
@@ -117,19 +118,19 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
 
         /// Return the number of elements remaining in the priority
         /// queue.
-        pub fn count(self: Self) usize {
+        pub fn count(self: *const Self) usize {
             return self.items.len;
         }
 
         /// Return the number of elements that can be added to the
         /// queue before more memory is allocated.
-        pub fn capacity(self: Self) usize {
+        pub fn capacity(self: *const Self) usize {
             return self.cap;
         }
 
         /// Returns a slice of all the items plus the extra capacity, whose memory
         /// contents are `undefined`.
-        fn allocatedSlice(self: Self) []T {
+        fn allocatedSlice(self: *const Self) []T {
             // `items.len` is the length, not the capacity.
             return self.items.ptr[0..self.cap];
         }

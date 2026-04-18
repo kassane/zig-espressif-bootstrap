@@ -1779,8 +1779,8 @@ fn structInitExpr(
         var sfba = std.heap.stackFallback(256, astgen.arena);
         const sfba_allocator = sfba.get();
 
-        var duplicate_names = std.AutoArrayHashMap(Zir.NullTerminatedString, ArrayList(Ast.TokenIndex)).init(sfba_allocator);
-        try duplicate_names.ensureTotalCapacity(@intCast(struct_init.ast.fields.len));
+        var duplicate_names: std.array_hash_map.Auto(Zir.NullTerminatedString, ArrayList(Ast.TokenIndex)) = .empty;
+        try duplicate_names.ensureTotalCapacity(sfba_allocator, @intCast(struct_init.ast.fields.len));
 
         // When there aren't errors, use this to avoid a second iteration.
         var any_duplicate = false;
@@ -1789,7 +1789,7 @@ fn structInitExpr(
             const name_token = tree.firstToken(field) - 2;
             const name_index = try astgen.identAsString(name_token);
 
-            const gop = try duplicate_names.getOrPut(name_index);
+            const gop = try duplicate_names.getOrPut(sfba_allocator, name_index);
 
             if (gop.found_existing) {
                 try gop.value_ptr.append(sfba_allocator, name_token);
@@ -9266,10 +9266,10 @@ fn builtinCall(
         .log   => return floatUnOp(gz, scope, ri, node, params[0], .log),
         .log2  => return floatUnOp(gz, scope, ri, node, params[0], .log2),
         .log10 => return floatUnOp(gz, scope, ri, node, params[0], .log10),
-        .floor => return floatUnOp(gz, scope, ri, node, params[0], .floor),
-        .ceil  => return floatUnOp(gz, scope, ri, node, params[0], .ceil),
-        .trunc => return floatUnOp(gz, scope, ri, node, params[0], .trunc),
-        .round => return floatUnOp(gz, scope, ri, node, params[0], .round),
+        .floor => return floatRoundOp(gz, scope, ri, node, params[0], .floor),
+        .ceil  => return floatRoundOp(gz, scope, ri, node, params[0], .ceil),
+        .trunc => return floatRoundOp(gz, scope, ri, node, params[0], .trunc),
+        .round => return floatRoundOp(gz, scope, ri, node, params[0], .round),
 
         .int_from_float => return typeCast(gz, scope, ri, node, params[0], .int_from_float, builtin_name),
         .float_from_int => return typeCast(gz, scope, ri, node, params[0], .float_from_int, builtin_name),
@@ -9817,6 +9817,43 @@ fn simpleUnOp(
     }
     const result = try gz.addUnNode(tag, operand, node);
     return rvalue(gz, ri, result, node);
+}
+
+fn floatRoundOp(
+    gz: *GenZir,
+    scope: *Scope,
+    ri: ResultInfo,
+    node: Ast.Node.Index,
+    operand_node: Ast.Node.Index,
+    float_tag: Zir.Inst.Tag,
+) InnerError!Zir.Inst.Ref {
+    if (try ri.rl.resultType(gz, node)) |dest_type| {
+        const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+
+        const operand_ty_inst = try gz.addExtendedPayload(.round_op_ty, Zir.Inst.UnNode{
+            .node = gz.nodeIndexToRelative(node),
+            .operand = dest_type,
+        });
+
+        const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = operand_ty_inst } }, operand_node);
+
+        try emitDbgStmt(gz, cursor);
+        const round_op: Zir.Inst.RoundOp = switch (float_tag) {
+            .round => .round,
+            .floor => .floor,
+            .ceil => .ceil,
+            .trunc => .trunc,
+            else => unreachable,
+        };
+        const result = try gz.addExtendedPayloadSmall(.round_op, @intFromEnum(round_op), Zir.Inst.BinNode{
+            .node = gz.nodeIndexToRelative(node),
+            .lhs = dest_type,
+            .rhs = operand,
+        });
+        return rvalue(gz, ri, result, node);
+    } else {
+        return floatUnOp(gz, scope, ri, node, operand_node, float_tag);
+    }
 }
 
 fn floatUnOp(

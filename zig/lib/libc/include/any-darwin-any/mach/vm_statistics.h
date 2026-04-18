@@ -226,20 +226,36 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
 
 /* included for the vm_map_page_query call */
 
-#define VM_PAGE_QUERY_PAGE_PRESENT      0x1
-#define VM_PAGE_QUERY_PAGE_FICTITIOUS   0x2
-#define VM_PAGE_QUERY_PAGE_REF          0x4
-#define VM_PAGE_QUERY_PAGE_DIRTY        0x8
-#define VM_PAGE_QUERY_PAGE_PAGED_OUT    0x10
-#define VM_PAGE_QUERY_PAGE_COPIED       0x20
-#define VM_PAGE_QUERY_PAGE_SPECULATIVE  0x40
-#define VM_PAGE_QUERY_PAGE_EXTERNAL     0x80
+typedef int32_t vm_page_disposition_t;
+
+#define VM_PAGE_QUERY_PAGE_PRESENT      0x001
+#define VM_PAGE_QUERY_PAGE_FICTITIOUS   0x002
+#define VM_PAGE_QUERY_PAGE_REF          0x004
+#define VM_PAGE_QUERY_PAGE_DIRTY        0x008
+#define VM_PAGE_QUERY_PAGE_PAGED_OUT    0x010
+#define VM_PAGE_QUERY_PAGE_COPIED       0x020
+#define VM_PAGE_QUERY_PAGE_SPECULATIVE  0x040
+#define VM_PAGE_QUERY_PAGE_EXTERNAL     0x080
 #define VM_PAGE_QUERY_PAGE_CS_VALIDATED 0x100
 #define VM_PAGE_QUERY_PAGE_CS_TAINTED   0x200
 #define VM_PAGE_QUERY_PAGE_CS_NX        0x400
 #define VM_PAGE_QUERY_PAGE_REUSABLE     0x800
 
 #pragma mark User Flags
+
+/*
+ * Options for vm_reallocate:
+ *
+ * VM_REALLOCATE_DEALLOCATE_SOURCE
+ *  When the source is relocated, the VA it previously occupied will be unmapped.
+ *
+ * VM_REALLOCATE_ZERO_FILL_SOURCE
+ *  When the source is relocated, the VA it previously occupied will be mapped
+ *  by new entries with equivalent protections and inheritance, equivalent to a
+ *  fresh zero-filled allocation from vm_allocate().
+ */
+#define VM_REALLOCATE_DEALLOCATE_SOURCE 0x0
+#define VM_REALLOCATE_ZERO_FILL_SOURCE  0x1
 
 /*
  * VM allocation flags:
@@ -271,6 +287,10 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
  *	Pages brought in to this VM region are placed on the speculative
  *	queue instead of the active queue.  In other words, they are not
  *	cached so that they will be stolen first if memory runs low.
+ *
+ * VM_FLAGS_GUARD_OBJECT_OPTOUT
+ *	Opt out this allocation from the guard object allocation policy.
+ *	And memory will be allocated in typical first-fit allocation order.
  */
 
 #define VM_FLAGS_FIXED                  0x00000000
@@ -284,7 +304,7 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
 #define VM_FLAGS_PERMANENT              0x00000080
 #define VM_FLAGS_TPRO                   0x00001000
 #define VM_FLAGS_MTE                    0x00002000
-#define VM_FLAGS_OVERWRITE              0x00004000  /* delete any existing mappings first */
+#define VM_FLAGS_OVERWRITE              0x00004000 /* delete any existing mappings first */
 /*
  * VM_FLAGS_SUPERPAGE_MASK
  *	3 bits that specify whether large pages should be used instead of
@@ -292,6 +312,7 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
  */
 #define VM_FLAGS_SUPERPAGE_MASK         0x00070000 /* bits 0x10000, 0x20000, 0x40000 */
 #define VM_FLAGS_RETURN_DATA_ADDR       0x00100000 /* Return address of target data, rather than base of page */
+#define VM_FLAGS_GUARD_OBJECT_OPTOUT    0x00400000
 #define VM_FLAGS_RETURN_4K_DATA_ADDR    0x00800000 /* Return 4K aligned address of target data */
 #define VM_FLAGS_ALIAS_MASK             0xFF000000
 #define VM_GET_FLAGS_ALIAS(flags, alias)                        \
@@ -300,7 +321,8 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
 	        (flags) = (((flags) & ~VM_FLAGS_ALIAS_MASK) |   \
 	        (((alias) & ~VM_FLAGS_ALIAS_MASK) << 24))
 
-#define VM_FLAGS_HW     (VM_FLAGS_TPRO | VM_FLAGS_MTE)
+#define VM_FLAGS_HW             (VM_FLAGS_TPRO |                \
+	                         VM_FLAGS_MTE)
 
 /* These are the flags that we accept from user-space */
 #define VM_FLAGS_USER_ALLOCATE  (VM_FLAGS_FIXED |               \
@@ -311,6 +333,7 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
 	                         VM_FLAGS_NO_CACHE |            \
 	                         VM_FLAGS_PERMANENT |           \
 	                         VM_FLAGS_OVERWRITE |           \
+	                         VM_FLAGS_GUARD_OBJECT_OPTOUT | \
 	                         VM_FLAGS_SUPERPAGE_MASK |      \
 	                         VM_FLAGS_HW |                  \
 	                         VM_FLAGS_ALIAS_MASK)
@@ -350,6 +373,7 @@ __enum_decl(virtual_memory_guard_exception_code_t, uint32_t, {
 	kGUARD_EXC_SEC_IOPL_ON_EXEC_PAGE = 10,
 	kGUARD_EXC_SEC_EXEC_ON_IOPL_PAGE = 11,
 	kGUARD_EXC_SEC_UPL_WRITE_ON_EXEC_REGION = 12,
+	kGUARD_EXC_LARGE_ALLOCATION_TELEMETRY = 13,
 	/*
 	 * rdar://151450801 (Remove spurious kGUARD_EXC_SEC_ACCESS_FAULT and kGUARD_EXC_SEC_ASYNC_ACCESS_FAULT once CrashReporter is aligned)
 	 */
@@ -362,7 +386,9 @@ __enum_decl(virtual_memory_guard_exception_code_t, uint32_t, {
 	/* Fault-related exceptions. */
 	kGUARD_EXC_MTE_SYNC_FAULT = 200,
 	kGUARD_EXC_MTE_ASYNC_USER_FAULT = 201,
-	kGUARD_EXC_MTE_ASYNC_KERN_FAULT = 202
+	kGUARD_EXC_MTE_ASYNC_KERN_FAULT = 202,
+	kGUARD_EXC_GUARD_OBJECT_ASYNC_USER_FAULT = 203,
+	kGUARD_EXC_GUARD_OBJECT_ASYNC_KERN_FAULT = 204,
 });
 
 #define kGUARD_EXC_MTE_SOFT_MODE       0x100000
@@ -423,6 +449,8 @@ __enum_decl(virtual_memory_guard_exception_code_t, uint32_t, {
 
 #define VM_MEMORY_MACH_MSG 20
 #define VM_MEMORY_IOKIT 21
+#define VM_MEMORY_VM_RECLAIM 22
+
 #define VM_MEMORY_STACK  30
 #define VM_MEMORY_GUARD  31
 #define VM_MEMORY_SHARED_PMAP 32
@@ -634,7 +662,6 @@ __enum_decl(virtual_memory_guard_exception_code_t, uint32_t, {
 #define VM_MEMORY_COUNT 256
 
 #define VM_MAKE_TAG(tag) ((tag) << 24)
-
 
 
 __END_DECLS

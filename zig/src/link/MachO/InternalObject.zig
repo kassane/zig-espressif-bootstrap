@@ -164,8 +164,8 @@ pub fn resolveBoundarySymbols(self: *InternalObject, macho_file: *MachO) !void {
     defer tracy.end();
 
     const gpa = macho_file.base.comp.gpa;
-    var boundary_symbols = std.StringArrayHashMap(MachO.Ref).init(gpa);
-    defer boundary_symbols.deinit();
+    var boundary_symbols: std.array_hash_map.String(MachO.Ref) = .empty;
+    defer boundary_symbols.deinit(gpa);
 
     for (macho_file.objects.items) |index| {
         const object = macho_file.getFile(index).?.object;
@@ -180,7 +180,7 @@ pub fn resolveBoundarySymbols(self: *InternalObject, macho_file: *MachO) !void {
                 mem.startsWith(u8, name, "section$start$") or
                 mem.startsWith(u8, name, "section$end$"))
             {
-                const gop = try boundary_symbols.getOrPut(name);
+                const gop = try boundary_symbols.getOrPut(gpa, name);
                 if (!gop.found_existing) {
                     gop.value_ptr.* = .{ .index = @intCast(i), .file = index };
                 }
@@ -344,8 +344,8 @@ pub fn resolveObjcMsgSendSymbols(self: *InternalObject, macho_file: *MachO) !voi
 
     const gpa = macho_file.base.comp.gpa;
 
-    var objc_msgsend_syms = std.StringArrayHashMap(MachO.Ref).init(gpa);
-    defer objc_msgsend_syms.deinit();
+    var objc_msgsend_syms: std.array_hash_map.String(MachO.Ref) = .empty;
+    defer objc_msgsend_syms.deinit(gpa);
 
     for (macho_file.objects.items) |index| {
         const object = macho_file.getFile(index).?.object;
@@ -360,7 +360,7 @@ pub fn resolveObjcMsgSendSymbols(self: *InternalObject, macho_file: *MachO) !voi
 
             const name = sym.getName(macho_file);
             if (mem.startsWith(u8, name, "_objc_msgSend$")) {
-                const gop = try objc_msgsend_syms.getOrPut(name);
+                const gop = try objc_msgsend_syms.getOrPut(gpa, name);
                 if (!gop.found_existing) {
                     gop.value_ptr.* = .{ .index = @intCast(i), .file = index };
                 }

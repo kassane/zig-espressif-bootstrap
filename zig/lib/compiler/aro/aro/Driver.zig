@@ -1,5 +1,4 @@
 const std = @import("std");
-const Io = std.Io;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const process = std.process;
@@ -9,6 +8,7 @@ const Assembly = backend.Assembly;
 const Ir = backend.Ir;
 const Object = backend.Object;
 
+const Attribute = @import("Attribute.zig");
 const Compilation = @import("Compilation.zig");
 const Diagnostics = @import("Diagnostics.zig");
 const DepFile = @import("DepFile.zig");
@@ -52,6 +52,7 @@ implicit_includes: std.ArrayList(Source) = .empty,
 /// List of includes that will be used to construct the compilation's search path
 includes: std.ArrayList(Compilation.Include) = .empty,
 link_objects: std.ArrayList([]const u8) = .empty,
+macro_prefix_map: std.ArrayList(struct { []const u8, []const u8 }) = .empty,
 output_name: ?[]const u8 = null,
 sysroot: ?[]const u8 = null,
 resource_dir: ?[]const u8 = null,
@@ -134,9 +135,8 @@ strip: bool = false,
 unwindlib: ?[]const u8 = null,
 
 pub fn deinit(d: *Driver) void {
-    const io = d.comp.io;
     for (d.link_objects.items[d.link_objects.items.len - d.temp_file_count ..]) |obj| {
-        Io.Dir.deleteFileAbsolute(io, obj) catch {};
+        std.Io.Dir.deleteFileAbsolute(d.comp.io, obj) catch {};
         d.comp.gpa.free(obj);
     }
     d.inputs.deinit(d.comp.gpa);
@@ -144,6 +144,7 @@ pub fn deinit(d: *Driver) void {
     d.implicit_includes.deinit(d.comp.gpa);
     d.includes.deinit(d.comp.gpa);
     d.link_objects.deinit(d.comp.gpa);
+    d.macro_prefix_map.deinit(d.comp.gpa);
     d.* = undefined;
 }
 
@@ -177,6 +178,10 @@ pub const usage =
     \\  -darwin-target-variant-triple
     \\                          Specify the darwin target variant triple
     \\  -fapple-kext            Use Apple's kernel extensions ABI
+    \\  -fexperimental-bounds-safety
+    \\                          Enable experimental clang-style bounds safety attributes (INCOMPLETE)
+    \\  -fno-experimental-bounds-safety
+    \\                          Disable experimental clang-style bounds safety attributes
     \\  -fchar8_t               Enable char8_t (enabled by default in C23 and later)
     \\  -fno-char8_t            Disable char8_t (disabled by default for pre-C23)
     \\  -fcolor-diagnostics     Enable colors in diagnostics
@@ -218,6 +223,8 @@ pub const usage =
     \\  -fuse-line-directives   Use `#line <num>` linemarkers in preprocessed output
     \\  -fno-use-line-directives
     \\                          Use `# <num>` linemarkers in preprocessed output
+    \\  -fvisibility=[default|hidden|internal|protected]
+    \\                          Set the default ELF image symbol visibility to the specified option—all symbols are marked with this unless overridden within the code
     \\  -iquote <dir>           Add directory to QUOTE include search path
     \\  -I <dir>                Add directory to include search path
     \\  -idirafter <dir>        Add directory to AFTER include search path
@@ -375,6 +382,17 @@ pub fn parseArgs(
                 d.use_line_directives = false;
             } else if (mem.eql(u8, arg, "-fapple-kext")) {
                 d.apple_kext = true;
+            } else if (option(arg, "-fvisibility=")) |visibility| {
+                d.comp.langopts.default_symbol_visibility = Attribute.visibilityFromString(visibility) orelse
+                    return d.fatal("unsupported value '{s}'' in '{s}'", .{ visibility, arg });
+            } else if (option(arg, "-frandom-seed=")) |_| {
+                // Ignore
+            } else if (option(arg, "-fmacro-prefix-map=")) |kv| {
+                const pair = mem.cutScalar(u8, kv, '=') orelse {
+                    try d.err("invalid argument '{s}' to '-fmacro-prefix-map=", .{kv});
+                    continue;
+                };
+                try d.macro_prefix_map.append(gpa, pair);
             } else if (option(arg, "-mcmodel=")) |cmodel| {
                 d.comp.cmodel = std.meta.stringToEnum(std.builtin.CodeModel, cmodel) orelse
                     return d.fatal("unsupported machine code model: '{s}'", .{arg});
@@ -415,6 +433,10 @@ pub fn parseArgs(
                 d.dependencies.file = path;
             } else if (mem.eql(u8, arg, "-MV")) {
                 d.dependencies.format = .nmake;
+            } else if (mem.eql(u8, arg, "-fexperimental-bounds-safety")) {
+                d.comp.langopts.bounds_safety = .clang;
+            } else if (mem.eql(u8, arg, "-fno-experimental-bounds-safety")) {
+                d.comp.langopts.bounds_safety = .none;
             } else if (mem.eql(u8, arg, "-fchar8_t")) {
                 d.comp.langopts.has_char8_t_override = true;
             } else if (mem.eql(u8, arg, "-fno-char8_t")) {
@@ -635,6 +657,42 @@ pub fn parseArgs(
                 d.output_name = file;
             } else if (option(arg, "--sysroot=")) |sysroot| {
                 d.sysroot = sysroot;
+            } else if (mem.eql(u8, arg, "--sysroot")) {
+                i += 1;
+                if (i >= args.len) {
+                    try d.err("expected argument after --sysroot", .{});
+                    continue;
+                }
+                d.sysroot = args[i];
+            } else if (mem.startsWith(u8, arg, "-isysroot")) {
+                var path = arg["-isysroot".len..];
+                if (path.len == 0) {
+                    i += 1;
+                    if (i >= args.len) {
+                        try d.err("expected argument after -isysroot", .{});
+                        continue;
+                    }
+                    path = args[i];
+                }
+                d.sysroot = path;
+            } else if (mem.eql(u8, arg, "-rpath")) {
+                i += 1;
+                if (i >= args.len) {
+                    try d.err("expected argument after -rpath", .{});
+                    continue;
+                }
+                // ignore for now
+            } else if (mem.startsWith(u8, arg, "-L")) {
+                var path = arg["-L".len..];
+                if (path.len == 0) {
+                    i += 1;
+                    if (i >= args.len) {
+                        try d.err("expected argument after -L", .{});
+                        continue;
+                    }
+                    path = args[i];
+                }
+                // ignore for now
             } else if (mem.eql(u8, arg, "-Wp,-v")) {
                 // TODO this is not how this argument should work
                 d.verbose_search_path = true;
@@ -706,6 +764,10 @@ pub fn parseArgs(
                 d.comp.langopts.preserve_comments = true;
                 d.comp.langopts.preserve_comments_in_macros = true;
                 comment_arg = arg;
+            } else if (option(arg, "-fuse-ld=")) |linker_name| {
+                d.use_linker = linker_name;
+            } else if (mem.eql(u8, arg, "-fuse-ld=")) {
+                d.use_linker = null;
             } else if (option(arg, "--ld-path=")) |linker_path| {
                 d.linker_path = linker_path;
             } else if (mem.eql(u8, arg, "-r")) {
@@ -810,6 +872,7 @@ pub fn parseArgs(
             .clang => try d.diagnostics.set("clang", .off),
             .gcc => try d.diagnostics.set("gnu", .off),
             .msvc => try d.diagnostics.set("microsoft", .off),
+            .no => {},
         }
     }
     if (d.comp.langopts.preserve_comments and !d.only_preprocess) {
@@ -1063,20 +1126,22 @@ pub fn printDiagnosticsStats(d: *Driver) void {
     }
 }
 
-pub fn detectConfig(d: *Driver, file: Io.File) std.Io.tty.Config {
+pub fn detectMode(d: *Driver, file: std.Io.File) std.Io.Cancelable!std.Io.Terminal.Mode {
     if (d.diagnostics.color == false) return .no_color;
     const force_color = d.diagnostics.color == true;
 
-    if (file.supportsAnsiEscapeCodes()) return .escape_codes;
-    if (@import("builtin").os.tag == .windows and file.isTty()) {
-        var info: std.os.windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        if (std.os.windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) == std.os.windows.FALSE) {
-            return if (force_color) .escape_codes else .no_color;
+    const io = d.comp.io;
+    if (try file.supportsAnsiEscapeCodes(io)) return .escape_codes;
+    if (@import("builtin").os.tag == .windows and try file.isTty(io)) {
+        var get_console_info = std.os.windows.CONSOLE.USER_IO.GET_SCREEN_BUFFER_INFO;
+        switch (try get_console_info.operate(io, file)) {
+            .SUCCESS => return .{ .windows_api = .{
+                .io = io,
+                .file = file,
+                .reset_attributes = get_console_info.Data.wAttributes,
+            } },
+            else => {},
         }
-        return .{ .windows_api = .{
-            .handle = file.handle,
-            .reset_attributes = info.wAttributes,
-        } };
     }
 
     return if (force_color) .escape_codes else .no_color;
@@ -1105,13 +1170,13 @@ pub fn errorDescription(e: anyerror) []const u8 {
 
 /// The entry point of the Aro compiler.
 /// **MAY call `exit` if `fast_exit` is set.**
-pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_exit: bool, asm_gen_fn: ?AsmCodeGenFn) Compilation.Error!void {
+pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_exit: bool, asm_gen_fn: ?AsmCodeGenFn) (Compilation.Error || std.Io.Cancelable)!void {
     const user_macros = macros: {
         var macro_buf: std.ArrayList(u8) = .empty;
         defer macro_buf.deinit(d.comp.gpa);
 
         var stdout_buf: [256]u8 = undefined;
-        var stdout = Io.File.stdout().writer(&stdout_buf);
+        var stdout = std.Io.File.stdout().writer(d.comp.io, &stdout_buf);
         if (parseArgs(d, &stdout.interface, &macro_buf, args) catch |er| switch (er) {
             error.WriteFailed => return d.fatal("failed to write to stdout: {s}", .{errorDescription(er)}),
             error.OutOfMemory => return error.OutOfMemory,
@@ -1217,14 +1282,13 @@ pub fn getDepFileName(d: *Driver, source: Source, buf: *[std.fs.max_name_bytes]u
 }
 
 fn getRandomFilename(d: *Driver, buf: *[std.fs.max_name_bytes]u8, extension: []const u8) ![]const u8 {
-    const io = d.comp.io;
     const random_bytes_count = 12;
-    const sub_path_len = comptime std.base64.url_safe.Encoder.calcSize(random_bytes_count);
+    const sub_path_len = comptime std.fs.base64_encoder.calcSize(random_bytes_count);
 
     var random_bytes: [random_bytes_count]u8 = undefined;
-    io.random(&random_bytes);
+    d.comp.io.random(&random_bytes);
     var random_name: [sub_path_len]u8 = undefined;
-    _ = std.base64.url_safe.Encoder.encode(&random_name, &random_bytes);
+    _ = std.fs.base64_encoder.encode(&random_name, &random_bytes);
 
     const fmt_template = "/tmp/{s}{s}";
     const fmt_args = .{
@@ -1251,12 +1315,11 @@ fn getOutFileName(d: *Driver, source: Source, buf: *[std.fs.max_name_bytes]u8) !
 }
 
 fn invokeAssembler(d: *Driver, tc: *Toolchain, input_path: []const u8, output_path: []const u8) !void {
-    const io = d.comp.io;
     var assembler_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const assembler_path = try tc.getAssemblerPath(&assembler_path_buf);
     const argv = [_][]const u8{ assembler_path, input_path, "-o", output_path };
 
-    var child = std.process.spawn(io, .{
+    var child = std.process.spawn(d.comp.io, .{
         .argv = &argv,
         // TODO handle better
         .stdin = .inherit,
@@ -1265,8 +1328,8 @@ fn invokeAssembler(d: *Driver, tc: *Toolchain, input_path: []const u8, output_pa
     }) catch |er| {
         return d.fatal("unable to spawn linker: {s}", .{errorDescription(er)});
     };
-    const term = child.wait(io) catch |er| {
-        return d.fatal("unable to wait linker: {s}", .{errorDescription(er)});
+    const term = child.wait(d.comp.io) catch |er| {
+        return d.fatal("error waiting for linker: {s}", .{errorDescription(er)});
     };
     switch (term) {
         .exited => |code| if (code != 0) {
@@ -1289,13 +1352,16 @@ fn processSource(
     comptime fast_exit: bool,
     asm_gen_fn: ?AsmCodeGenFn,
 ) !void {
-    const gpa = d.comp.gpa;
-    d.comp.generated_buf.items.len = 0;
+    const comp = d.comp;
+    const io = comp.io;
+    const gpa = comp.gpa;
+    comp.generated_buf.items.len = 0;
     const prev_total = d.diagnostics.errors;
 
-    const io = d.comp.io;
-
-    var pp = try Preprocessor.initDefault(d.comp);
+    var pp = try Preprocessor.init(comp, .{
+        .base_file = source.id,
+        .path_replacements = d.macro_prefix_map.items,
+    });
     defer pp.deinit();
 
     var name_buf: [std.fs.max_name_bytes]u8 = undefined;
@@ -1304,8 +1370,8 @@ fn processSource(
 
     if (opt_dep_file) |*dep_file| pp.dep_file = dep_file;
 
-    if (d.comp.langopts.ms_extensions) {
-        d.comp.ms_cwd_source_id = source.id;
+    if (comp.langopts.ms_extensions) {
+        comp.ms_cwd_source_id = source.id;
     }
     const dump_mode = d.debug_dump_letters.getPreprocessorDumpMode();
     if (d.verbose_pp) pp.verbose = true;
@@ -1333,10 +1399,10 @@ fn processSource(
         const dep_file_name = try d.getDepFileName(source, writer_buf[0..std.fs.max_name_bytes]);
 
         const file = if (dep_file_name) |path|
-            d.comp.cwd.createFile(io, path, .{}) catch |er|
+            comp.cwd.createFile(io, path, .{}) catch |er|
                 return d.fatal("unable to create dependency file '{s}': {s}", .{ path, errorDescription(er) })
         else
-            Io.File.stdout();
+            std.Io.File.stdout();
         defer if (dep_file_name != null) file.close(io);
 
         var file_writer = file.writer(io, &writer_buf);
@@ -1358,10 +1424,10 @@ fn processSource(
         }
 
         const file = if (d.output_name) |some|
-            d.comp.cwd.createFile(io, some, .{}) catch |er|
+            comp.cwd.createFile(io, some, .{}) catch |er|
                 return d.fatal("unable to create output file '{s}': {s}", .{ some, errorDescription(er) })
         else
-            Io.File.stdout();
+            std.Io.File.stdout();
         defer if (d.output_name != null) file.close(io);
 
         var file_writer = file.writer(io, &writer_buf);
@@ -1376,8 +1442,11 @@ fn processSource(
     defer tree.deinit();
 
     if (d.verbose_ast) {
-        var stdout = Io.File.stdout().writer(&writer_buf);
-        tree.dump(d.detectConfig(stdout.file), &stdout.interface) catch {};
+        var stdout = std.Io.File.stdout().writer(io, &writer_buf);
+        tree.dump(.{
+            .mode = try d.detectMode(stdout.file),
+            .writer = &stdout.interface,
+        }) catch {};
     }
 
     d.printDiagnosticsStats();
@@ -1392,10 +1461,10 @@ fn processSource(
         return;
     }
 
-    if (d.comp.target.ofmt != .elf or d.comp.target.cpu.arch != .x86_64) {
+    if (comp.target.ofmt != .elf or comp.target.cpu.arch != .x86_64) {
         return d.fatal(
             "unsupported target {s}-{s}-{s}, currently only x86-64 elf is supported",
-            .{ @tagName(d.comp.target.cpu.arch), @tagName(d.comp.target.os.tag), @tagName(d.comp.target.abi) },
+            .{ @tagName(comp.target.cpu.arch), @tagName(comp.target.os.tag), @tagName(comp.target.abi) },
         );
     }
 
@@ -1407,15 +1476,15 @@ fn processSource(
             .{},
         );
 
-        const assembly = try asm_fn(d.comp.target.toZigTarget(), &tree);
+        const assembly = try asm_fn(comp.target.toZigTarget(), &tree);
         defer assembly.deinit(gpa);
 
         if (d.only_preprocess_and_compile) {
-            const out_file = d.comp.cwd.createFile(io, out_file_name, .{}) catch |er|
+            const out_file = comp.cwd.createFile(io, out_file_name, .{}) catch |er|
                 return d.fatal("unable to create output file '{s}': {s}", .{ out_file_name, errorDescription(er) });
             defer out_file.close(io);
 
-            assembly.writeToFile(out_file) catch |er|
+            assembly.writeToFile(io, out_file) catch |er|
                 return d.fatal("unable to write to output file '{s}': {s}", .{ out_file_name, errorDescription(er) });
             if (fast_exit) std.process.exit(0); // Not linking, no need for cleanup.
             return;
@@ -1425,10 +1494,10 @@ fn processSource(
         // then assemble to out_file_name
         var assembly_name_buf: [std.fs.max_name_bytes]u8 = undefined;
         const assembly_out_file_name = try d.getRandomFilename(&assembly_name_buf, ".s");
-        const out_file = d.comp.cwd.createFile(io, assembly_out_file_name, .{}) catch |er|
+        const out_file = comp.cwd.createFile(io, assembly_out_file_name, .{}) catch |er|
             return d.fatal("unable to create output file '{s}': {s}", .{ assembly_out_file_name, errorDescription(er) });
         defer out_file.close(io);
-        assembly.writeToFile(out_file) catch |er|
+        assembly.writeToFile(io, out_file) catch |er|
             return d.fatal("unable to write to output file '{s}': {s}", .{ assembly_out_file_name, errorDescription(er) });
         try d.invokeAssembler(tc, assembly_out_file_name, out_file_name);
         if (d.only_compile) {
@@ -1440,8 +1509,11 @@ fn processSource(
         defer ir.deinit(gpa);
 
         if (d.verbose_ir) {
-            var stdout = Io.File.stdout().writer(&writer_buf);
-            ir.dump(gpa, d.detectConfig(stdout.file), &stdout.interface) catch {};
+            var stdout = std.Io.File.stdout().writer(io, &writer_buf);
+            ir.dump(gpa, .{
+                .mode = try d.detectMode(stdout.file),
+                .writer = &stdout.interface,
+            }) catch {};
         }
 
         var render_errors: Ir.Renderer.ErrorList = .{};
@@ -1494,8 +1566,9 @@ fn dumpLinkerArgs(w: *std.Io.Writer, items: []const []const u8) !void {
 /// The entry point of the Aro compiler.
 /// **MAY call `exit` if `fast_exit` is set.**
 pub fn invokeLinker(d: *Driver, tc: *Toolchain, comptime fast_exit: bool) Compilation.Error!void {
-    const gpa = d.comp.gpa;
-    const io = d.comp.io;
+    const comp = d.comp;
+    const io = comp.io;
+    const gpa = comp.gpa;
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(gpa);
 
@@ -1507,7 +1580,7 @@ pub fn invokeLinker(d: *Driver, tc: *Toolchain, comptime fast_exit: bool) Compil
 
     if (d.verbose_linker_args) {
         var stdout_buf: [4096]u8 = undefined;
-        var stdout = Io.File.stdout().writer(&stdout_buf);
+        var stdout = std.Io.File.stdout().writer(io, &stdout_buf);
         dumpLinkerArgs(&stdout.interface, argv.items) catch {
             return d.fatal("unable to dump linker args: {s}", .{errorDescription(stdout.err.?)});
         };
@@ -1521,8 +1594,9 @@ pub fn invokeLinker(d: *Driver, tc: *Toolchain, comptime fast_exit: bool) Compil
     }) catch |er| {
         return d.fatal("unable to spawn linker: {s}", .{errorDescription(er)});
     };
+
     const term = child.wait(io) catch |er| {
-        return d.fatal("unable to wait linker: {s}", .{errorDescription(er)});
+        return d.fatal("error waiting for linker: {s}", .{errorDescription(er)});
     };
     switch (term) {
         .exited => |code| if (code != 0) {
@@ -1541,7 +1615,7 @@ pub fn invokeLinker(d: *Driver, tc: *Toolchain, comptime fast_exit: bool) Compil
 
 fn exitWithCleanup(d: *Driver, code: u8) noreturn {
     for (d.link_objects.items[d.link_objects.items.len - d.temp_file_count ..]) |obj| {
-        std.fs.deleteFileAbsolute(obj) catch {};
+        std.Io.Dir.deleteFileAbsolute(d.comp.io, obj) catch {};
     }
     std.process.exit(code);
 }

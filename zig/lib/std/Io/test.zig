@@ -85,6 +85,28 @@ test "File.Writer.seekTo" {
     try expect(fw.logicalPos() == 1234);
 }
 
+test "file discard" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const io = testing.io;
+
+    const tmp_file_name = "temp_test_file.txt";
+    var file = try tmp.dir.createFile(io, tmp_file_name, .{ .read = true });
+    defer file.close(io);
+
+    var fw = file.writerStreaming(io, &.{});
+
+    try fw.interface.writeAll("test");
+
+    var fr = file.reader(io, &.{});
+    const r = &fr.interface;
+
+    try std.testing.expectEqual(error.EndOfStream, r.discardAll(1024));
+    try fr.seekTo(0);
+    try std.testing.expectEqual(4, fr.interface.discardRemaining());
+}
+
 test "File.setLength" {
     const io = testing.io;
 
@@ -692,14 +714,15 @@ test "read from a file using Batch.awaitAsync API" {
     var storage: [2]Io.Operation.Storage = undefined;
     var batch: Io.Batch = .init(&storage);
 
-    batch.addAt(0, .{ .file_read_streaming = .{
+    // Tests add API because this provides coverage for both add and addAt.
+    try testing.expectEqual(0, batch.add(.{ .file_read_streaming = .{
         .file = eyes_file,
         .data = &.{&eyes_buf},
-    } });
-    batch.addAt(1, .{ .file_read_streaming = .{
+    } }));
+    try testing.expectEqual(1, batch.add(.{ .file_read_streaming = .{
         .file = saviour_file,
         .data = &.{&saviour_buf},
-    } });
+    } }));
 
     // This API is supposed to *always* work even if the target has no
     // concurrency primitives available.

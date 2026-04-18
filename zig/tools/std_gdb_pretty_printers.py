@@ -1,5 +1,5 @@
 # pretty printing for the standard library.
-# put "source /path/to/stage2_gdb_pretty_printers.py" in ~/.gdbinit to load it automatically.
+# put "source /path/to/std_gdb_pretty_printers.py" in ~/.gdbinit to load it automatically.
 import re
 import gdb.printing
 

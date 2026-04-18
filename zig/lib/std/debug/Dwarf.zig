@@ -22,7 +22,9 @@ const cast = std.math.cast;
 const maxInt = std.math.maxInt;
 const ArrayList = std.ArrayList;
 const Endian = std.builtin.Endian;
-const Reader = std.Io.Reader;
+const Io = std.Io;
+const Reader = Io.Reader;
+const Error = std.debug.SelfInfoError;
 
 const Dwarf = @This();
 
@@ -1218,6 +1220,7 @@ pub fn populateSrcLocCache(d: *Dwarf, gpa: Allocator, endian: Endian, cu: *Compi
 pub fn getLineNumberInfo(
     d: *Dwarf,
     gpa: Allocator,
+    text_arena: Allocator,
     endian: Endian,
     compile_unit: *CompileUnit,
     target_address: u64,
@@ -1230,7 +1233,7 @@ pub fn getLineNumberInfo(
     const file_entry = &slc.files[file_index];
     if (file_entry.dir_index >= slc.directories.len) return bad();
     const dir_name = slc.directories[file_entry.dir_index].path;
-    const file_name = try std.fs.path.join(gpa, &.{ dir_name, file_entry.path });
+    const file_name = try std.fs.path.join(text_arena, &.{ dir_name, file_entry.path });
     return .{
         .line = entry.line,
         .column = entry.column,
@@ -1543,21 +1546,38 @@ fn getStringGeneric(opt_str: ?[]const u8, offset: u64) ![:0]const u8 {
     return str[casted_offset..last :0];
 }
 
-pub fn getSymbol(di: *Dwarf, gpa: Allocator, endian: Endian, address: u64) !std.debug.Symbol {
+pub fn getSymbols(
+    di: *Dwarf,
+    symbol_allocator: Allocator,
+    text_arena: Allocator,
+    endian: Endian,
+    address: u64,
+    resolve_inline_callers: bool,
+    symbols: *std.ArrayList(std.debug.Symbol),
+) std.debug.SelfInfoError!void {
+    _ = resolve_inline_callers;
+    const gpa = std.debug.getDebugInfoAllocator();
+
     const compile_unit = di.findCompileUnit(endian, address) catch |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => return .unknown,
-        else => return err,
+        error.EndOfStream => return error.MissingDebugInfo,
+        error.Overflow => return error.InvalidDebugInfo,
+        error.ReadFailed, error.InvalidDebugInfo, error.MissingDebugInfo => |e| return e,
     };
-    return .{
+    try symbols.append(symbol_allocator, .{
         .name = di.getSymbolName(address),
         .compile_unit_name = compile_unit.die.getAttrString(di, endian, std.dwarf.AT.name, di.section(.debug_str), compile_unit) catch |err| switch (err) {
             error.MissingDebugInfo, error.InvalidDebugInfo => null,
         },
-        .source_location = di.getLineNumberInfo(gpa, endian, compile_unit, address) catch |err| switch (err) {
+        .source_location = di.getLineNumberInfo(gpa, text_arena, endian, compile_unit, address) catch |err| switch (err) {
             error.MissingDebugInfo, error.InvalidDebugInfo => null,
-            else => return err,
+            error.ReadFailed,
+            error.EndOfStream,
+            error.Overflow,
+            error.StreamTooLong,
+            => return error.InvalidDebugInfo,
+            else => |e| return e,
         },
-    };
+    });
 }
 
 /// DWARF5 7.4: "In the 32-bit DWARF format, all values that represent lengths of DWARF sections and

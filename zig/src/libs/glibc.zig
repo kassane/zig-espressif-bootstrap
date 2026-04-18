@@ -795,7 +795,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         //
         // If we don't handle this, we end up writing the default `lgammal` symbol for version 2.33
         // twice, which causes a "duplicate symbol" assembler error.
-        var versions_written = std.AutoArrayHashMap(Version, void).init(arena);
+        var versions_written: std.array_hash_map.Auto(Version, void) = .empty;
 
         var inc_reader: Io.Reader = .fixed(metadata.inclusions);
 
@@ -859,7 +859,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             }
 
             versions_written.clearRetainingCapacity();
-            try versions_written.ensureTotalCapacity(versions_len);
+            try versions_written.ensureTotalCapacity(arena, versions_len);
 
             {
                 var ver_buf_i: u8 = 0;
@@ -1035,7 +1035,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             }
 
             versions_written.clearRetainingCapacity();
-            try versions_written.ensureTotalCapacity(versions_len);
+            try versions_written.ensureTotalCapacity(arena, versions_len);
 
             {
                 var ver_buf_i: u8 = 0;

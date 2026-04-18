@@ -6,7 +6,7 @@ root_prog_node: std.Progress.Node,
 watch: bool,
 
 tcp_server: ?net.Server,
-serve_thread: ?std.Thread,
+serve_task: ?Io.Future(Io.Cancelable!void),
 
 /// Uses `Io.Clock.awake`.
 base_timestamp: Io.Timestamp,
@@ -103,7 +103,7 @@ pub fn init(opts: Options) WebServer {
         .watch = opts.watch,
 
         .tcp_server = null,
-        .serve_thread = null,
+        .serve_task = null,
 
         .base_timestamp = opts.base_timestamp.raw,
         .step_names_trailing = step_names_trailing,
@@ -136,9 +136,9 @@ pub fn deinit(ws: *WebServer) void {
     gpa.free(ws.time_report_msgs);
     gpa.free(ws.time_report_update_times);
 
-    if (ws.serve_thread) |t| {
+    if (ws.serve_task) |t| {
         if (ws.tcp_server) |*s| s.stream.close(io);
-        t.join();
+        t.await();
     }
     if (ws.tcp_server) |*s| s.deinit();
 
@@ -146,15 +146,15 @@ pub fn deinit(ws: *WebServer) void {
 }
 pub fn start(ws: *WebServer) error{AlreadyReported}!void {
     assert(ws.tcp_server == null);
-    assert(ws.serve_thread == null);
+    assert(ws.serve_task == null);
     const io = ws.graph.io;
 
     ws.tcp_server = ws.listen_address.listen(io, .{ .reuse_address = true }) catch |err| {
-        log.err("failed to listen to port {d}: {s}", .{ ws.listen_address.getPort(), @errorName(err) });
+        log.err("failed to listen to port {d}: {t}", .{ ws.listen_address.getPort(), err });
         return error.AlreadyReported;
     };
-    ws.serve_thread = std.Thread.spawn(.{}, serve, .{ws}) catch |err| {
-        log.err("unable to spawn web server thread: {s}", .{@errorName(err)});
+    ws.serve_task = io.concurrent(serve, .{ws}) catch |err| {
+        log.err("unable to spawn web server thread: {t}", .{err});
         ws.tcp_server.?.deinit(io);
         ws.tcp_server = null;
         return error.AlreadyReported;
@@ -165,15 +165,20 @@ pub fn start(ws: *WebServer) error{AlreadyReported}!void {
         log.info("hint: pass '--webui={f}' to use the same port next time", .{ws.tcp_server.?.socket.address});
     }
 }
-fn serve(ws: *WebServer) void {
+fn serve(ws: *WebServer) Io.Cancelable!void {
     const io = ws.graph.io;
+    var group: Io.Group = .init;
+    defer group.cancel(io);
     while (true) {
-        var stream = ws.tcp_server.?.accept(io) catch |err| {
-            log.err("failed to accept connection: {s}", .{@errorName(err)});
-            return;
+        var stream = ws.tcp_server.?.accept(io) catch |err| switch (err) {
+            error.Canceled => |e| return e,
+            else => |e| {
+                log.err("failed to accept connection: {t}", .{e});
+                return;
+            },
         };
-        _ = std.Thread.spawn(.{}, accept, .{ ws, stream }) catch |err| {
-            log.err("unable to spawn connection thread: {s}", .{@errorName(err)});
+        group.concurrent(io, accept, .{ ws, stream }) catch |err| {
+            log.err("unable to spawn connection thread: {t}", .{err});
             stream.close(io);
             continue;
         };
@@ -303,8 +308,8 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
         copy.* = @atomicLoad(u8, shared, .monotonic);
     }
 
-    const recv_thread = try std.Thread.spawn(.{}, recvWebSocketMessages, .{ ws, sock });
-    defer recv_thread.join();
+    var recv_thread = try io.concurrent(recvWebSocketMessages, .{ ws, sock });
+    defer recv_thread.cancel(io);
 
     {
         const hello_header: abi.Hello = .{
@@ -676,7 +681,14 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
             );
             return error.WasmCompilationFailed;
         },
-        .stopped, .unknown => {
+        .stopped => |sig| {
+            log.err(
+                "the following command stopped unexpectedly with signal {t}:\n{s}",
+                .{ sig, try Build.Step.allocPrintCmd(arena, .inherit, null, argv.items) },
+            );
+            return error.WasmCompilationFailed;
+        },
+        .unknown => {
             log.err(
                 "the following command terminated unexpectedly:\n{s}",
                 .{try Build.Step.allocPrintCmd(arena, .inherit, null, argv.items)},

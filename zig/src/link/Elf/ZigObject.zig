@@ -710,6 +710,8 @@ pub fn markImportsExports(self: *ZigObject, elf_file: *Elf) void {
 }
 
 pub fn checkDuplicates(self: *ZigObject, dupes: anytype, elf_file: *Elf) error{OutOfMemory}!void {
+    const gpa = elf_file.base.comp.gpa;
+
     for (self.global_symbols.items, 0..) |index, i| {
         const esym = self.symtab.items(.elf_sym)[index];
         const shndx = self.symtab.items(.shndx)[index];
@@ -727,7 +729,7 @@ pub fn checkDuplicates(self: *ZigObject, dupes: anytype, elf_file: *Elf) error{O
             if (!atom_ptr.alive) continue;
         }
 
-        const gop = try dupes.getOrPut(self.symbols_resolver.items[i]);
+        const gop = try dupes.getOrPut(gpa, self.symbols_resolver.items[i]);
         if (!gop.found_existing) {
             gop.value_ptr.* = .empty;
         }

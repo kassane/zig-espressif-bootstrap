@@ -53,9 +53,8 @@ pub fn libCxxNeedsLibUnwind(target: *const std.Target) bool {
 }
 
 /// This function returns whether non-pic code is completely invalid on the given target.
-pub fn requiresPIC(target: *const std.Target, linking_libc: bool) bool {
-    return target.abi.isAndroid() or
-        ((target.os.tag == .windows or target.os.tag == .uefi) and (target.cpu.arch == .aarch64 or target.cpu.arch == .x86_64)) or
+pub fn requiresPic(target: *const std.Target, linking_libc: bool) bool {
+    return ((target.os.tag == .windows or target.os.tag == .uefi) and (target.cpu.arch == .aarch64 or target.cpu.arch == .x86_64)) or
         target.requiresLibC() or
         (linking_libc and target.isGnuLibC());
 }
@@ -81,6 +80,13 @@ pub fn supports_fpic(target: *const std.Target) bool {
     return switch (target.os.tag) {
         .windows, .uefi => false, // Technically allowed for `Abi.gnu`, but completely ignored by Clang (by design) anyway.
         else => true,
+    };
+}
+
+pub fn defaultPie(target: *const std.Target) bool {
+    return switch (target.os.tag) {
+        .openbsd => true,
+        else => target.os.tag.isDarwin(),
     };
 }
 
@@ -904,6 +910,7 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             .stage2_llvm,
             .stage2_x86_64,
             .stage2_riscv64,
+            .stage2_wasm,
             => true,
             else => false,
         },

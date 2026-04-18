@@ -266,7 +266,8 @@ fn parseCNumLit(mt: *MacroTranslator) ParseError!ZigNode {
     const lit_bytes = mt.tokSlice();
     mt.i += 1;
 
-    var bytes = try std.ArrayList(u8).initCapacity(arena, lit_bytes.len + 3);
+    // +3 for prefix and +2 for suffix
+    var bytes = try std.ArrayList(u8).initCapacity(arena, lit_bytes.len + 3 + 2);
 
     const prefix = aro.Tree.Token.NumberPrefix.fromString(lit_bytes);
     switch (prefix) {
@@ -350,13 +351,21 @@ fn parseCNumLit(mt: *MacroTranslator) ParseError!ZigNode {
     if (is_float) {
         const type_node = try ZigTag.type.create(arena, switch (suffix) {
             .F16 => "f16",
-            .F => "f32",
-            .None => "f64",
-            .L => "c_longdouble",
+            .F, .F32 => "f32",
+            .None, .F32x, .F64 => "f64",
+            .L, .F64x => "c_longdouble",
             .W => "f80",
             .Q, .F128 => "f128",
-            else => unreachable,
+            else => {
+                try mt.fail("TODO: float literal suffix: '{s}'", .{suffix_str});
+                return error.ParseError;
+            },
         });
+        if (bytes.getLast() == '.') {
+            bytes.appendAssumeCapacity('0');
+        } else if (mem.findAny(u8, bytes.items, ".eEpP") == null) {
+            bytes.appendSliceAssumeCapacity(".0");
+        }
         const rhs = try ZigTag.float_literal.create(arena, bytes.items);
         return ZigTag.as.create(arena, .{ .lhs = type_node, .rhs = rhs });
     } else {
@@ -582,6 +591,7 @@ fn escapeUnprintables(mt: *MacroTranslator) ![]const u8 {
 
 fn parseCPrimaryExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
     const arena = mt.t.arena;
+    const gpa = mt.t.gpa;
     const tok = mt.peek();
     switch (tok) {
         .char_literal,
@@ -646,6 +656,51 @@ fn parseCPrimaryExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
             }
             return identifier;
         },
+        .keyword_generic => {
+            mt.i += 1;
+
+            try mt.expect(.l_paren);
+            const param = try mt.parseCCondExpr(scope);
+            const typeof_param = try ZigTag.typeof.create(arena, param);
+            try mt.expect(.comma);
+
+            var cases: std.ArrayList(ZigNode) = .empty;
+            defer cases.deinit(gpa);
+            var has_default = false;
+            while (true) {
+                const case = if (mt.eat(.keyword_default)) blk: {
+                    has_default = true;
+                    try mt.expect(.colon);
+                    const expr = try mt.parseCCondExpr(scope);
+                    break :blk try ZigTag.switch_else.create(arena, expr);
+                } else blk: {
+                    const case_type = try mt.parseCTypeName(scope) orelse {
+                        try mt.fail("unable to translate C expr: expected type instead got '{s}'", .{mt.peek().symbol()});
+                        return error.ParseError;
+                    };
+                    try mt.expect(.colon);
+                    const expr = try mt.parseCCondExpr(scope);
+                    break :blk try ZigTag.switch_prong.create(arena, .{
+                        .cases = try arena.dupe(ZigNode, &.{case_type}),
+                        .cond = expr,
+                    });
+                };
+                try cases.append(gpa, case);
+                if (!mt.eat(.comma)) break;
+            }
+            try mt.expect(.r_paren);
+
+            if (!has_default) try cases.append(gpa, try ZigTag.switch_else.create(
+                arena,
+                try ZigTag.@"comptime".create(arena, ZigTag.@"unreachable".init()),
+            ));
+
+            const sw = try ZigTag.@"switch".create(arena, .{
+                .cond = typeof_param,
+                .cases = try arena.dupe(ZigNode, cases.items),
+            });
+            return sw;
+        },
         else => {},
     }
 
@@ -678,8 +733,10 @@ fn macroIntToBool(mt: *MacroTranslator, node: ZigNode) !ZigNode {
 }
 
 fn parseCCondExpr(mt: *MacroTranslator, scope: *Scope) ParseError!ZigNode {
-    const node = try mt.parseCOrExpr(scope);
-    if (!mt.eat(.question_mark)) return node;
+    const condition = try mt.parseCOrExpr(scope);
+    if (!mt.eat(.question_mark)) return condition;
+    const bool_ty = try ZigTag.type.create(mt.t.arena, "bool");
+    const node = try mt.t.createHelperCallNode(.cast, &.{ bool_ty, condition });
 
     const then_body = try mt.parseCOrExpr(scope);
     try mt.expect(.colon);
@@ -1135,6 +1192,8 @@ fn parseCPostfixExpr(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNode) P
             .string_literal_utf_8,
             .string_literal_utf_32,
             .string_literal_wide,
+            .macro_param,
+            .macro_param_no_expand,
             => {},
             .identifier, .extended_identifier => {
                 if (mt.t.global_scope.blank_macros.contains(mt.tokSlice())) {
@@ -1160,8 +1219,13 @@ fn parseCPostfixExprInner(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNo
                 mt.i += 1;
                 const tok = mt.tokens[mt.i];
                 if (tok.id == .macro_param or tok.id == .macro_param_no_expand) {
-                    try mt.fail("unable to translate C expr: field access using macro parameter", .{});
-                    return error.ParseError;
+                    const param = mt.macro.params[tok.end];
+                    mt.i += 1;
+
+                    const mangled_name = scope.getAlias(param) orelse param;
+                    const field_name = try ZigTag.identifier.create(arena, mangled_name);
+                    node = try ZigTag.field_builtin.create(arena, .{ .lhs = node, .rhs = field_name });
+                    continue;
                 }
                 const field_name = mt.tokSlice();
                 try mt.expect(.identifier);
@@ -1172,8 +1236,13 @@ fn parseCPostfixExprInner(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNo
                 mt.i += 1;
                 const tok = mt.tokens[mt.i];
                 if (tok.id == .macro_param or tok.id == .macro_param_no_expand) {
-                    try mt.fail("unable to translate C expr: field access using macro parameter", .{});
-                    return error.ParseError;
+                    const param = mt.macro.params[tok.end];
+                    mt.i += 1;
+
+                    const mangled_name = scope.getAlias(param) orelse param;
+                    const field_name = try ZigTag.identifier.create(arena, mangled_name);
+                    node = try ZigTag.field_builtin.create(arena, .{ .lhs = node, .rhs = field_name });
+                    continue;
                 }
                 const field_name = mt.tokSlice();
                 try mt.expect(.identifier);

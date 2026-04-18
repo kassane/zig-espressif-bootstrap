@@ -753,6 +753,8 @@ pub fn markImportsExports(self: *Object, elf_file: *Elf) void {
 }
 
 pub fn checkDuplicates(self: *Object, dupes: anytype, elf_file: *Elf) error{OutOfMemory}!void {
+    const gpa = elf_file.base.comp.gpa;
+
     const first_global = self.first_global orelse return;
     for (0..self.globals().len) |i| {
         const esym_idx = first_global + i;
@@ -772,11 +774,11 @@ pub fn checkDuplicates(self: *Object, dupes: anytype, elf_file: *Elf) error{OutO
             if (!atom_ptr.alive) continue;
         }
 
-        const gop = try dupes.getOrPut(self.symbols_resolver.items[i]);
+        const gop = try dupes.getOrPut(gpa, self.symbols_resolver.items[i]);
         if (!gop.found_existing) {
             gop.value_ptr.* = .empty;
         }
-        try gop.value_ptr.append(elf_file.base.comp.gpa, self.index);
+        try gop.value_ptr.append(gpa, self.index);
     }
 }
 

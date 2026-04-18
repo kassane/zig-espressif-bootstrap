@@ -10552,7 +10552,7 @@ fn dumpStatsFallible(ip: *const InternPool, w: *Io.Writer, arena: Allocator) !vo
         count: usize = 0,
         bytes: usize = 0,
     };
-    var counts = std.AutoArrayHashMap(Tag, TagStats).init(arena);
+    var counts: std.array_hash_map.Auto(Tag, TagStats) = .empty;
     for (ip.locals) |*local| {
         // Early check for length 0, because `view()` is invalid if capacity is 0
         if (local.mutate.items.len == 0) continue;
@@ -10563,7 +10563,7 @@ fn dumpStatsFallible(ip: *const InternPool, w: *Io.Writer, arena: Allocator) !vo
             items.items(.tag)[0..local.mutate.items.len],
             items.items(.data)[0..local.mutate.items.len],
         ) |tag, data| {
-            const gop = try counts.getOrPut(tag);
+            const gop = try counts.getOrPut(arena, tag);
             if (!gop.found_existing) gop.value_ptr.* = .{};
             gop.value_ptr.count += 1;
             gop.value_ptr.bytes += 1 + 4 + @as(usize, switch (tag) {
@@ -10799,7 +10799,7 @@ fn dumpStatsFallible(ip: *const InternPool, w: *Io.Writer, arena: Allocator) !vo
         }
     }
     const SortContext = struct {
-        map: *std.AutoArrayHashMap(Tag, TagStats),
+        map: *std.array_hash_map.Auto(Tag, TagStats),
         pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
             const values = ctx.map.values();
             return values[a_index].bytes > values[b_index].bytes;

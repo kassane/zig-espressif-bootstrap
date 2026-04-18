@@ -1584,6 +1584,11 @@ pub fn clone2(flags: u32, child_stack_ptr: usize) usize {
     return syscall2(.clone, flags, child_stack_ptr);
 }
 
+/// This call cannot fail, and the return value is the caller's thread id
+pub fn set_tid_address(tidptr: ?*pid_t) pid_t {
+    return @intCast(@as(u32, @truncate(syscall1(.set_tid_address, @intFromPtr(tidptr)))));
+}
+
 pub fn close(fd: fd_t) usize {
     return syscall1(.close, @as(usize, @bitCast(@as(isize, fd))));
 }
@@ -3878,8 +3883,8 @@ pub const W = struct {
     pub fn TERMSIG(s: u32) SIG {
         return @enumFromInt(s & 0x7f);
     }
-    pub fn STOPSIG(s: u32) u32 {
-        return EXITSTATUS(s);
+    pub fn STOPSIG(s: u32) SIG {
+        return @enumFromInt(EXITSTATUS(s));
     }
     pub fn IFEXITED(s: u32) bool {
         return (s & 0x7f) == 0;
@@ -5948,11 +5953,6 @@ pub const S = struct {
     pub fn ISSOCK(m: mode_t) bool {
         return m & IFMT == IFSOCK;
     }
-};
-
-pub const UTIME = struct {
-    pub const NOW = 0x3fffffff;
-    pub const OMIT = 0x3ffffffe;
 };
 
 const TFD_TIMER = packed struct(u32) {
@@ -8705,22 +8705,16 @@ pub const kernel_timespec = extern struct {
     };
 };
 
+/// For use with `utimensat` and `futimens`.
+pub const UTIME = struct {
+    pub const NOW: timespec = .{ .sec = 0, .nsec = 0x3fffffff };
+    pub const OMIT: timespec = .{ .sec = 0, .nsec = 0x3ffffffe };
+};
+
 // https://github.com/ziglang/zig/issues/4726#issuecomment-2190337877
 pub const timespec = if (native_arch == .hexagon or native_arch == .riscv32) kernel_timespec else extern struct {
     sec: isize,
     nsec: isize,
-
-    /// For use with `utimensat` and `futimens`.
-    pub const NOW: timespec = .{
-        .sec = 0,
-        .nsec = 0x3fffffff,
-    };
-
-    /// For use with `utimensat` and `futimens`.
-    pub const OMIT: timespec = .{
-        .sec = 0,
-        .nsec = 0x3ffffffe,
-    };
 };
 
 pub const XDP = struct {

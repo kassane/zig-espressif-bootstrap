@@ -337,27 +337,9 @@
 #endif
 
 /*
- *   __is_target_arch based defines
+ *   GCC and clang
  */
-#if defined(__has_builtin) && __has_builtin(__is_target_arch)
-    #if __is_target_arch(arm64)  || __is_target_arch(arm64e) || __is_target_arch(arm64_32)
-        #define TARGET_CPU_ARM64        1
-    #elif __is_target_arch(arm)
-        #define TARGET_CPU_ARM          1
-    #elif __is_target_arch(x86_64)
-        #define TARGET_CPU_X86_64       1
-    #elif __is_target_arch(i386)
-        #define TARGET_CPU_X86          1
-    #else
-
-            #error unrecognized arch using compiler with __is_target_arch support
-
-    #endif
-
-/*
- *   GCC and older clang fallback
- */
-#elif defined(__GNUC__) && ( defined(__APPLE_CPP__) || defined(__APPLE_CC__) || defined(__MACOS_CLASSIC__) )
+#if defined(__GNUC__) && ( defined(__APPLE_CPP__) || defined(__APPLE_CC__) || defined(__MACOS_CLASSIC__) )
     #if defined(__ppc__)
         #define TARGET_CPU_PPC          1
     #elif defined(__ppc64__)
@@ -371,7 +353,9 @@
     #elif defined(__arm64__)
         #define TARGET_CPU_ARM64        1
     #else
-        #error unrecognized GNU C compiler
+
+            #error unrecognized GNU C compiler
+
     #endif
 
 /*

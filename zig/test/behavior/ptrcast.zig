@@ -562,3 +562,11 @@ test "@ptrCast array pointer removing sentinel" {
     comptime assert(out[2] == 3);
     comptime assert(out[3] == 4);
 }
+
+test "@ptrcast larger type to smaller one" {
+    const T = packed struct { x: u17 };
+    const a: u32 = 0;
+    const b: *const T = @ptrCast(&a);
+    const c = b.x;
+    _ = c;
+}

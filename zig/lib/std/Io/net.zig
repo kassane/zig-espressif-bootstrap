@@ -282,6 +282,10 @@ pub const IpAddress = union(enum) {
         /// In this case, an IPv4 and an IPv6 application can bind to a single port
         /// at the same time.
         ip6_only: bool = false,
+        /// Allow the socket to send datagrams to broadcast addresses.
+        /// When not enabled any attempt to send datagrams to a broadcast address
+        /// will fail with `error.AccessDenied`
+        allow_broadcast: bool = false,
         mode: Socket.Mode,
         protocol: ?Protocol = null,
     };

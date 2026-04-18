@@ -340,6 +340,7 @@
 
 #define F_ADDSIGS_MAIN_BINARY   113             /* add detached signatures for main binary -- development only */
 
+
 // FS-specific fcntl()'s numbers begin at 0x00010000 and go up
 #define FCNTL_FS_SPECIFIC_BASE  0x00010000
 
@@ -531,6 +532,7 @@ typedef struct fattributiontag {
 #define F_CREATE_TAG  0x00000001
 #define F_DELETE_TAG  0x00000002
 #define F_QUERY_TAG   0x00000004
+
 
 /*
  * For F_LOG2PHYS this information is passed back to user

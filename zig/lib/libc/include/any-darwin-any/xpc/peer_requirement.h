@@ -28,7 +28,7 @@ XPC_SWIFT_NOEXPORT
  * xpc_peer_requirement_t can be shared among multiple connections, sessions
  * or listeners.
  */
-OS_OBJECT_DECL_CLASS(xpc_peer_requirement);
+OS_OBJECT_DECL_SENDABLE_CLASS(xpc_peer_requirement);
 
 #pragma mark Constructors
 
@@ -53,8 +53,8 @@ OS_OBJECT_DECL_CLASS(xpc_peer_requirement);
  * This function will return NULL promptly if the entitlement requirement is
  * invalid.
  */
-API_AVAILABLE(macos(26.0), ios(26.0))
-API_UNAVAILABLE(tvos, watchos)
+API_AVAILABLE(macos(26.0), ios(26.0), tvos(26.0), watchos(26.0))
+
 XPC_EXPORT XPC_SWIFT_NOEXPORT XPC_RETURNS_RETAINED
 xpc_peer_requirement_t _Nullable
 xpc_peer_requirement_create_entitlement_exists(const char *entitlement,
@@ -86,8 +86,8 @@ xpc_peer_requirement_create_entitlement_exists(const char *entitlement,
  * This function will return NULL promptly if the entitlement requirement is
  * invalid.
  */
-API_AVAILABLE(macos(26.0), ios(26.0))
-API_UNAVAILABLE(tvos, watchos)
+API_AVAILABLE(macos(26.0), ios(26.0), tvos(26.0), watchos(26.0))
+
 XPC_EXPORT XPC_SWIFT_NOEXPORT XPC_RETURNS_RETAINED
 xpc_peer_requirement_t _Nullable
 xpc_peer_requirement_create_entitlement_matches_value(const char *entitlement,
@@ -121,8 +121,8 @@ xpc_peer_requirement_create_entitlement_matches_value(const char *entitlement,
  * distributed certificate (embedded only), or a Developer ID certificate (macOS
  * only)
  */
-API_AVAILABLE(macos(26.0), ios(26.0))
-API_UNAVAILABLE(tvos, watchos)
+API_AVAILABLE(macos(26.0), ios(26.0), tvos(26.0), watchos(26.0))
+
 XPC_EXPORT XPC_SWIFT_NOEXPORT XPC_RETURNS_RETAINED
 xpc_peer_requirement_t _Nullable
 xpc_peer_requirement_create_team_identity(
@@ -153,8 +153,8 @@ xpc_peer_requirement_create_team_identity(
  * This function will return NULL promptly if the identity requirement is
  * invalid.
  */
-API_AVAILABLE(macos(26.0), ios(26.0))
-API_UNAVAILABLE(tvos, watchos)
+API_AVAILABLE(macos(26.0), ios(26.0), tvos(26.0), watchos(26.0))
+
 XPC_EXPORT XPC_SWIFT_NOEXPORT XPC_RETURNS_RETAINED
 xpc_peer_requirement_t _Nullable
 xpc_peer_requirement_create_platform_identity(
@@ -201,8 +201,8 @@ xpc_peer_requirement_create_platform_identity(
  * xpc_peer_requirement_t req = xpc_peer_requirement_create_lwcr(lwcr, NULL);
  * ```
  */
-API_AVAILABLE(macos(26.0), ios(26.0))
-API_UNAVAILABLE(tvos, watchos)
+API_AVAILABLE(macos(26.0), ios(26.0), tvos(26.0), watchos(26.0))
+
 XPC_EXPORT XPC_SWIFT_NOEXPORT XPC_RETURNS_RETAINED
 xpc_peer_requirement_t _Nullable
 xpc_peer_requirement_create_lwcr(xpc_object_t lwcr, 
@@ -228,8 +228,8 @@ xpc_peer_requirement_create_lwcr(xpc_object_t lwcr,
  * On match this returns true. On mismatch or failure this will return false and
  * if set, error_out will be set to an error describing the failure.
  */
-API_AVAILABLE(macos(26.0), ios(26.0))
-API_UNAVAILABLE(tvos, watchos)
+API_AVAILABLE(macos(26.0), ios(26.0), tvos(26.0), watchos(26.0))
+
 XPC_EXPORT XPC_SWIFT_NOEXPORT
 bool
 xpc_peer_requirement_match_received_message(xpc_peer_requirement_t peer_requirement,

@@ -7,14 +7,20 @@ pub const Compiler = enum {
     clang,
     gcc,
     msvc,
+    no,
 
     pub fn defaultGccVersion(self: Compiler) u32 {
         return switch (self) {
             .clang => 4 * 10_000 + 2 * 100 + 1,
-            .gcc => 7 * 10_000 + 1 * 100 + 0,
+            .no, .gcc => 7 * 10_000 + 1 * 100 + 0,
             .msvc => 0,
         };
     }
+};
+
+pub const BoundsSafety = enum {
+    none,
+    clang,
 };
 
 /// The floating-point evaluation method for intermediate results within a single expression
@@ -116,7 +122,7 @@ pub const Standard = enum {
 
 const LangOpts = @This();
 
-emulate: Compiler = .clang,
+emulate: Compiler = .no,
 standard: Standard = .default,
 /// -fshort-enums option, makes enums only take up as much space as they need to hold all the values.
 short_enums: bool = false,
@@ -148,6 +154,10 @@ preserve_comments_in_macros: bool = false,
 /// Encoded as major * 10,000 + minor * 100 + patch
 /// e.g. 4.2.1 == 40201
 gnuc_version: ?u32 = null,
+
+bounds_safety: BoundsSafety = .none,
+
+default_symbol_visibility: std.builtin.SymbolVisibility = .default,
 
 pub fn setStandard(self: *LangOpts, name: []const u8) error{InvalidStandard}!void {
     self.standard = Standard.NameMap.get(name) orelse return error.InvalidStandard;

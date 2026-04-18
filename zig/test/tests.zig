@@ -36,6 +36,25 @@ const TestTarget = struct {
     // invocation. This could be because of a slow backend, requiring a newer LLVM version, being
     // too niche, etc.
     extra_target: bool = false,
+
+    pub fn supportsModule(
+        self: *const TestTarget,
+        target: *const std.Build.ResolvedTarget,
+        name: []const u8,
+    ) bool {
+        if (mem.eql(u8, name, "zigc")) {
+            if (target.result.isMuslLibC()) return self.linkage == .static or (self.linkage == null and !target.query.isNative());
+            if (target.result.isMinGW()) return true;
+            if (target.result.isWasiLibC()) return true;
+            return false;
+        }
+        if (mem.eql(u8, name, "std")) {
+            if (target.result.cpu.arch.isSpirV()) return false;
+            return true;
+        }
+
+        return true;
+    }
 };
 
 const test_targets = blk: {
@@ -1463,7 +1482,6 @@ const test_targets = blk: {
         //    }) catch unreachable,
         //    .use_llvm = false,
         //    .use_lld = false,
-        //    .skip_modules = &.{ "c-import", "zigc", "std" },
         //},
 
         // WASI Targets
@@ -1971,37 +1989,76 @@ const c_abi_targets = blk: {
     };
 };
 
-/// For stack trace tests, we only test native, because external executors are pretty unreliable at
-/// stack tracing. However, if there's a 32-bit equivalent target which the host can trivially run,
-/// we may as well at least test that!
-fn nativeAndCompatible32bit(b: *std.Build, skip_non_native: bool) []const std.Build.ResolvedTarget {
+fn compatible32bitArch(b: *std.Build) ?std.Target.Cpu.Arch {
     const host = b.graph.host.result;
-    const only_native = (&b.graph.host)[0..1];
-    if (skip_non_native) return only_native;
-    const arch32: std.Target.Cpu.Arch = switch (host.os.tag) {
+    return switch (host.os.tag) {
         .windows => switch (host.cpu.arch) {
             .x86_64 => .x86,
             .aarch64 => .thumb,
             .aarch64_be => .thumbeb,
-            else => return only_native,
+            else => null,
         },
         .freebsd => switch (host.cpu.arch) {
             .aarch64 => .arm,
             .aarch64_be => .armeb,
-            else => return only_native,
+            else => null,
         },
         .linux, .netbsd => switch (host.cpu.arch) {
             .x86_64 => .x86,
             .aarch64 => .arm,
             .aarch64_be => .armeb,
-            else => return only_native,
+            else => null,
         },
-        else => return only_native,
+        else => null,
     };
+}
+
+/// For stack trace tests, we only test native by default, because external executors are pretty
+/// unreliable at stack tracing. However, if there's a 32-bit equivalent target which the host can
+/// trivially run, we may as well at least test that!
+fn nativeAndCompatible32bit(b: *std.Build, skip_non_native: bool) []const std.Build.ResolvedTarget {
+    const host = b.graph.host.result;
+    const only_native = (&b.graph.host)[0..1];
+    if (skip_non_native) return only_native;
+    const arch32 = compatible32bitArch(b) orelse return only_native;
     return b.graph.arena.dupe(std.Build.ResolvedTarget, &.{
         b.graph.host,
         b.resolveTargetQuery(.{ .cpu_arch = arch32, .os_tag = host.os.tag }),
     }) catch @panic("OOM");
+}
+
+fn wineAndCompatible32bit(b: *std.Build, skip_non_native: bool) []const std.Build.ResolvedTarget {
+    var targets: std.ArrayList(std.Build.ResolvedTarget) = .empty;
+
+    const host = b.graph.host.result;
+
+    targets.append(b.graph.arena, b.resolveTargetQuery(.{
+        .cpu_arch = host.cpu.arch,
+        .os_tag = .windows,
+    })) catch @panic("OOM");
+    if (!skip_non_native) {
+        if (compatible32bitArch(b)) |arch| {
+            targets.append(b.graph.arena, b.resolveTargetQuery(.{
+                .cpu_arch = arch,
+                .os_tag = .windows,
+            })) catch @panic("OOM");
+        }
+    }
+
+    return targets.toOwnedSlice(b.graph.arena) catch @panic("OOM");
+}
+
+fn darlingTargets(b: *std.Build) []const std.Build.ResolvedTarget {
+    var targets: std.ArrayList(std.Build.ResolvedTarget) = .empty;
+
+    const host = b.graph.host.result;
+
+    targets.append(b.graph.arena, b.resolveTargetQuery(.{
+        .cpu_arch = host.cpu.arch,
+        .os_tag = .macos,
+    })) catch @panic("OOM");
+
+    return targets.toOwnedSlice(b.graph.arena) catch @panic("OOM");
 }
 
 pub fn addStackTraceTests(
@@ -2009,6 +2066,8 @@ pub fn addStackTraceTests(
     test_filters: []const []const u8,
     skip_non_native: bool,
 ) *Step {
+    const step = b.step("test-stack-traces", "Run the stack trace tests");
+
     const convert_exe = b.addExecutable(.{
         .name = "convert-stack-trace",
         .root_module = b.createModule(.{
@@ -2018,19 +2077,41 @@ pub fn addStackTraceTests(
         }),
     });
 
-    const cases = b.allocator.create(StackTracesContext) catch @panic("OOM");
-
-    cases.* = .{
+    const host_cases = b.allocator.create(StackTracesContext) catch @panic("OOM");
+    host_cases.* = .{
         .b = b,
-        .step = b.step("test-stack-traces", "Run the stack trace tests"),
+        .step = step,
         .test_filters = test_filters,
         .targets = nativeAndCompatible32bit(b, skip_non_native),
         .convert_exe = convert_exe,
     };
+    stack_traces.addCases(host_cases, b.graph.host.result.os.tag);
 
-    stack_traces.addCases(cases);
+    if (b.enable_wine) {
+        const wine_cases = b.allocator.create(StackTracesContext) catch @panic("OOM");
+        wine_cases.* = .{
+            .b = b,
+            .step = step,
+            .test_filters = test_filters,
+            .targets = wineAndCompatible32bit(b, skip_non_native),
+            .convert_exe = convert_exe,
+        };
+        stack_traces.addCases(wine_cases, .windows);
+    }
 
-    return cases.step;
+    if (b.enable_darling) {
+        const darling_cases = b.allocator.create(StackTracesContext) catch @panic("OOM");
+        darling_cases.* = .{
+            .b = b,
+            .step = step,
+            .test_filters = test_filters,
+            .targets = darlingTargets(b),
+            .convert_exe = convert_exe,
+        };
+        stack_traces.addCases(darling_cases, .macos);
+    }
+
+    return step;
 }
 
 pub fn addErrorTraceTests(
@@ -2039,6 +2120,8 @@ pub fn addErrorTraceTests(
     optimize_modes: []const OptimizeMode,
     skip_non_native: bool,
 ) *Step {
+    const step = b.step("test-error-traces", "Run the error trace tests");
+
     const convert_exe = b.addExecutable(.{
         .name = "convert-stack-trace",
         .root_module = b.createModule(.{
@@ -2048,19 +2131,44 @@ pub fn addErrorTraceTests(
         }),
     });
 
-    const cases = b.allocator.create(ErrorTracesContext) catch @panic("OOM");
-    cases.* = .{
+    const host_cases = b.allocator.create(ErrorTracesContext) catch @panic("OOM");
+    host_cases.* = .{
         .b = b,
-        .step = b.step("test-error-traces", "Run the error trace tests"),
+        .step = step,
         .test_filters = test_filters,
         .targets = nativeAndCompatible32bit(b, skip_non_native),
         .optimize_modes = optimize_modes,
         .convert_exe = convert_exe,
     };
+    error_traces.addCases(host_cases, b.graph.host.result.os.tag);
 
-    error_traces.addCases(cases);
+    if (b.enable_wine) {
+        const wine_cases = b.allocator.create(ErrorTracesContext) catch @panic("OOM");
+        wine_cases.* = .{
+            .b = b,
+            .step = step,
+            .test_filters = test_filters,
+            .targets = wineAndCompatible32bit(b, skip_non_native),
+            .optimize_modes = optimize_modes,
+            .convert_exe = convert_exe,
+        };
+        error_traces.addCases(wine_cases, .windows);
+    }
 
-    return cases.step;
+    if (b.enable_darling) {
+        const darling_cases = b.allocator.create(ErrorTracesContext) catch @panic("OOM");
+        darling_cases.* = .{
+            .b = b,
+            .step = step,
+            .test_filters = test_filters,
+            .targets = darlingTargets(b),
+            .optimize_modes = optimize_modes,
+            .convert_exe = convert_exe,
+        };
+        error_traces.addCases(darling_cases, .macos);
+    }
+
+    return step;
 }
 
 fn compilerHasPackageManager(b: *std.Build) bool {
@@ -2355,8 +2463,12 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             },
         };
         const resolved_target = b.resolveTargetQuery(test_target.target);
-        const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
-        addOneModuleTest(b, step, test_target, &resolved_target, triple_txt, options);
+
+        if (test_target.supportsModule(&resolved_target, options.name)) {
+            const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
+            addOneModuleTest(b, step, test_target, &resolved_target, triple_txt, options);
+        }
+
         return step;
     }
 
@@ -2368,23 +2480,15 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         }
 
         const resolved_target = b.resolveTargetQuery(test_target.target);
-        const target = &resolved_target.result;
 
-        if (test_target.link_libc == false and target.requiresLibC()) continue;
-        // If the target requires libc, there's no point building the cases that
-        // don't explicitly link libc as they'll just end up actually linking
-        // libc anyway, thus creating duplicate work and making -Dskip-libc not
-        // work as expected.
-        if (test_target.link_libc == null and target.requiresLibC()) continue;
-        // These targets don't strictly require libc, but we don't yet have a
-        // syscall layer for them, so the compiler links libc by default. They
-        // therefore get the same treatment here.
-        if (test_target.link_libc == null and (target.os.tag == .freebsd or target.os.tag == .netbsd)) continue;
+        if (!test_target.supportsModule(&resolved_target, options.name)) continue;
 
         if (!options.test_extra_targets and test_target.extra_target) continue;
 
         if (options.skip_non_native and !test_target.target.isNative())
             continue;
+
+        const target = &resolved_target.result;
 
         if (options.skip_spirv and target.cpu.arch.isSpirV()) continue;
         if (options.skip_wasm and target.cpu.arch.isWasm()) continue;
@@ -2398,6 +2502,19 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         const would_use_llvm = wouldUseLlvm(test_target.use_llvm, test_target.target, test_target.optimize_mode);
         if (options.skip_llvm and would_use_llvm) continue;
+
+        if (would_use_llvm and (mem.eql(u8, options.name, "compiler-rt") or mem.eql(u8, options.name, "zigc"))) {
+            switch (test_target.optimize_mode) {
+                .Debug, .ReleaseSafe => {
+                    // LLVM 21 is affected by multiple bugs in safe builds of compiler-rt:
+                    // * https://codeberg.org/ziglang/zig/issues/31701
+                    // * https://codeberg.org/ziglang/zig/issues/31702
+                    // ...so for now, skip these tests.
+                    continue;
+                },
+                .ReleaseSmall, .ReleaseFast => {},
+            }
+        }
 
         const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
 
@@ -2473,7 +2590,7 @@ fn addOneModuleTest(
         .zig_lib_dir = b.path("lib"),
     });
     these_tests.linkage = test_target.linkage;
-    if (options.no_builtin) these_tests.root_module.no_builtin = false;
+    if (options.no_builtin) these_tests.root_module.no_builtin = true;
     if (options.build_options) |build_options| {
         these_tests.root_module.addOptions("build_options", build_options);
     }
@@ -2620,12 +2737,19 @@ pub fn wouldUseLlvm(use_llvm: ?bool, query: std.Target.Query, optimize_mode: Opt
     }
     const cpu_arch = query.cpu_arch orelse builtin.cpu.arch;
     const os_tag = query.os_tag orelse builtin.os.tag;
+    const ofmt: std.Target.ObjectFormat = query.ofmt orelse .default(os_tag, cpu_arch);
     switch (cpu_arch) {
-        .x86_64 => if (os_tag.isBSD() or os_tag == .illumos or std.Target.ptrBitWidth_arch_abi(cpu_arch, query.abi orelse .none) != 64) return true,
+        .x86_64 => {
+            if (std.Target.ptrBitWidth_arch_abi(cpu_arch, query.abi orelse .none) != 64) return true;
+            if (os_tag.isBSD() or os_tag == .illumos) return true;
+            return switch (ofmt) {
+                .elf, .macho => return false,
+                else => return true,
+            };
+        },
         .spirv32, .spirv64 => return false,
         else => return true,
     }
-    return false;
 }
 
 const CAbiTestOptions = struct {

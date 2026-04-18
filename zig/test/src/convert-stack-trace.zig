@@ -52,24 +52,24 @@ pub fn main(init: std.process.Init) !void {
             continue;
         }
 
-        const src_col_end = std.mem.indexOf(u8, in_line, ": 0x") orelse {
+        const src_pos_end = std.mem.indexOf(u8, in_line, ": 0x") orelse {
             try w.writeAll(in_line);
             continue;
         };
-        const src_row_end = std.mem.lastIndexOfScalar(u8, in_line[0..src_col_end], ':') orelse {
-            try w.writeAll(in_line);
-            continue;
-        };
-        const src_path_end = std.mem.lastIndexOfScalar(u8, in_line[0..src_row_end], ':') orelse {
-            try w.writeAll(in_line);
-            continue;
+        const src_pos_start = b: {
+            const postfix = ".zig:";
+            const postfix_index = std.mem.lastIndexOf(u8, in_line[0..src_pos_end], postfix) orelse {
+                try w.writeAll(in_line);
+                continue;
+            };
+            break :b postfix_index + postfix.len;
         };
 
-        const addr_end = std.mem.indexOfPos(u8, in_line, src_col_end, " in ") orelse {
+        const addr_end = std.mem.findPos(u8, in_line, src_pos_end, " in ") orelse {
             try w.writeAll(in_line);
             continue;
         };
-        const symbol_end = std.mem.indexOfPos(u8, in_line, addr_end, " (") orelse {
+        const symbol_end = std.mem.findPos(u8, in_line, addr_end, " (") orelse {
             try w.writeAll(in_line);
             continue;
         };
@@ -88,10 +88,10 @@ pub fn main(init: std.process.Init) !void {
         //
         // ...with that first '_' being replaced by its basename.
 
-        const src_path = in_line[0..src_path_end];
+        const src_path = in_line[0..src_pos_start];
         const basename_start = if (std.mem.lastIndexOfAny(u8, src_path, "/\\")) |i| i + 1 else 0;
         const symbol_start = addr_end + " in ".len;
-        try w.writeAll(in_line[basename_start..src_col_end]);
+        try w.writeAll(in_line[basename_start..src_pos_end]);
         try w.writeAll(": [address] in ");
         try w.writeAll(in_line[symbol_start..symbol_end]);
         try w.writeByte('\n');

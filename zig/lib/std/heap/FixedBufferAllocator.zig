@@ -137,7 +137,14 @@ fn threadSafeAlloc(ctx: *anyopaque, n: usize, alignment: mem.Alignment, ret_addr
         const adjusted_index = cur_end_index + adjust_off;
         const new_end_index = adjusted_index + n;
         if (new_end_index > self.buffer.len) return null;
-        cur_end_index = @cmpxchgWeak(usize, &self.end_index, cur_end_index, new_end_index, .monotonic, .monotonic) orelse
+        cur_end_index = @cmpxchgWeak(
+            usize,
+            &self.end_index,
+            cur_end_index,
+            new_end_index,
+            .acquire, // acquire any memory that may have been freed
+            .monotonic,
+        ) orelse
             return self.buffer[adjusted_index..new_end_index].ptr;
     }
 }
@@ -154,26 +161,36 @@ fn threadSafeResize(ctx: *anyopaque, memory: []u8, alignment: mem.Alignment, new
         return new_len <= memory.len;
     }
 
-    const new_end_index: usize = new_end_index: {
-        if (memory.len >= new_len) {
-            break :new_end_index cur_end_index - (memory.len - new_len);
-        }
-        if (fba.buffer.len - cur_end_index >= new_len - memory.len) {
-            break :new_end_index cur_end_index + (new_len - memory.len);
-        }
-        return false;
-    };
-    assert(fba.buffer.ptr + new_end_index == memory.ptr + new_len);
+    if (new_len <= memory.len) {
+        const new_end_index = cur_end_index - (memory.len - new_len);
+        assert(fba.buffer.ptr + new_end_index == memory.ptr + new_len);
 
-    return null == @cmpxchgStrong(
-        usize,
-        &fba.end_index,
-        cur_end_index,
-        new_end_index,
-        .monotonic,
-        .monotonic,
-    ) or
-        new_len <= memory.len; // Shrinking allocations should always succeed.
+        _ = @cmpxchgStrong(
+            usize,
+            &fba.end_index,
+            cur_end_index,
+            new_end_index,
+            .release, // release freed memory
+            .monotonic,
+        );
+        return true; // Shrinking allocations should always succeed.
+    }
+
+    if (fba.buffer.len - cur_end_index >= new_len - memory.len) {
+        const new_end_index = cur_end_index + (new_len - memory.len);
+        assert(fba.buffer.ptr + new_end_index == memory.ptr + new_len);
+
+        return null == @cmpxchgStrong(
+            usize,
+            &fba.end_index,
+            cur_end_index,
+            new_end_index,
+            .acquire, // acquire any memory that may have been freed
+            .monotonic,
+        );
+    }
+
+    return false;
 }
 
 fn threadSafeRemap(ctx: *anyopaque, memory: []u8, alignment: mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
@@ -201,7 +218,7 @@ fn threadSafeFree(ctx: *anyopaque, memory: []u8, alignment: mem.Alignment, ret_a
         &fba.end_index,
         cur_end_index,
         new_end_index,
-        .monotonic,
+        .release, // release freed memory
         .monotonic,
     );
 }

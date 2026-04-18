@@ -1,6 +1,6 @@
 const std = @import("std");
-const Io = std.Io;
 const mem = std.mem;
+const path = std.Io.Dir.path;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 
@@ -79,12 +79,15 @@ pub const Macro = struct {
         });
 
         const Object = enum {
+            base_file,
             file,
+            file_basename,
             line,
             counter,
             date,
             time,
             timestamp,
+            include_level,
         };
 
         const Func = enum {
@@ -216,8 +219,6 @@ pub const Macro = struct {
     }
 };
 
-const Preprocessor = @This();
-
 const ExpansionEntry = struct {
     idx: Tree.TokenIndex,
     locs: [*]Source.Location,
@@ -227,6 +228,8 @@ const TokenState = struct {
     tokens_len: usize,
     expansion_entries_len: usize,
 };
+
+const Preprocessor = @This();
 
 comp: *Compilation,
 diagnostics: *Diagnostics,
@@ -275,6 +278,12 @@ m_times: std.AutoHashMapUnmanaged(Source.Id, u64) = .empty,
 /// The dependency file tracking all includes and embeds.
 dep_file: ?*DepFile = null,
 
+/// Path prefixes to replace when expanding __FILE__
+path_replacements: []const struct { []const u8, []const u8 } = &.{},
+
+/// File used for __BASE_FILE__ macro.
+base_file: Source.Id,
+
 pub const parse = Parser.parse;
 
 pub const Linemarkers = enum {
@@ -286,21 +295,22 @@ pub const Linemarkers = enum {
     numeric_directives,
 };
 
-pub fn init(comp: *Compilation, source_epoch: SourceEpoch) Preprocessor {
-    const pp: Preprocessor = .{
-        .comp = comp,
-        .diagnostics = comp.diagnostics,
-        .arena = .init(comp.gpa),
-        .hideset = .{ .comp = comp },
-        .source_epoch = source_epoch,
-    };
-    comp.pragmaEvent(.before_preprocess);
-    return pp;
-}
+pub const InitOptions = struct {
+    base_file: Source.Id,
 
-/// Initialize Preprocessor with builtin macros.
-pub fn initDefault(comp: *Compilation) !Preprocessor {
-    const source_epoch: SourceEpoch = comp.environment.sourceEpoch(comp.io) catch |er| switch (er) {
+    source_epoch: ?SourceEpoch = null,
+    add_builtin_macros: bool = true,
+    path_replacements: []const struct { []const u8, []const u8 } = &.{},
+
+    pub const testing: InitOptions = .{
+        .base_file = undefined,
+        .source_epoch = .default,
+        .add_builtin_macros = false,
+    };
+};
+
+pub fn init(comp: *Compilation, options: InitOptions) !Preprocessor {
+    const source_epoch: SourceEpoch = options.source_epoch orelse comp.environment.sourceEpoch(comp.io) catch |er| switch (er) {
         error.InvalidEpoch => blk: {
             const diagnostic: Diagnostic = .invalid_source_epoch;
             try comp.diagnostics.add(.{ .text = diagnostic.fmt, .kind = diagnostic.kind, .opt = diagnostic.opt, .location = null });
@@ -308,9 +318,18 @@ pub fn initDefault(comp: *Compilation) !Preprocessor {
         },
     };
 
-    var pp = init(comp, source_epoch);
+    var pp: Preprocessor = .{
+        .comp = comp,
+        .diagnostics = comp.diagnostics,
+        .arena = .init(comp.gpa),
+        .hideset = .{ .comp = comp },
+        .source_epoch = source_epoch,
+        .base_file = options.base_file,
+        .path_replacements = options.path_replacements,
+    };
     errdefer pp.deinit();
-    try pp.addBuiltinMacros();
+    comp.pragmaEvent(.before_preprocess);
+    if (options.add_builtin_macros) try pp.addBuiltinMacros();
     return pp;
 }
 
@@ -339,7 +358,7 @@ pub fn addBuiltinMacros(pp: *Preprocessor) !void {
     try pp.addBuiltinMacro("__is_identifier", .{ .func = .is_identifier });
     try pp.addBuiltinMacro("_Pragma", .{ .func = .pragma_operator });
 
-    if (pp.comp.langopts.emulate == .clang) {
+    if (pp.comp.langopts.emulate == .no or pp.comp.langopts.emulate == .clang) {
         try pp.addBuiltinMacro("__is_target_arch", .{ .func = .is_target_arch });
         try pp.addBuiltinMacro("__is_target_vendor", .{ .func = .is_target_vendor });
         try pp.addBuiltinMacro("__is_target_os", .{ .func = .is_target_os });
@@ -359,6 +378,12 @@ pub fn addBuiltinMacros(pp: *Preprocessor) !void {
     try pp.addBuiltinMacro("__DATE__", .{ .obj = .date });
     try pp.addBuiltinMacro("__TIME__", .{ .obj = .time });
     try pp.addBuiltinMacro("__TIMESTAMP__", .{ .obj = .timestamp });
+
+    if (pp.comp.langopts.emulate == .no or pp.comp.langopts.emulate == .clang) {
+        try pp.addBuiltinMacro("__BASE_FILE__", .{ .obj = .base_file });
+        try pp.addBuiltinMacro("__FILE_NAME__", .{ .obj = .file_basename });
+        try pp.addBuiltinMacro("__INCLUDE_LEVEL__", .{ .obj = .include_level });
+    }
 }
 
 pub fn deinit(pp: *Preprocessor) void {
@@ -395,7 +420,7 @@ fn mTime(pp: *Preprocessor, source_id: Source.Id) !u64 {
     return gop.value_ptr.*;
 }
 
-pub fn expansionSlice(pp: *Preprocessor, tok: Tree.TokenIndex) []Source.Location {
+pub fn expansionSlice(pp: *const Preprocessor, tok: Tree.TokenIndex) []Source.Location {
     const S = struct {
         fn orderTokenIndex(context: Tree.TokenIndex, item: Tree.TokenIndex) std.math.Order {
             return std.math.order(context, item);
@@ -1065,13 +1090,11 @@ fn fatalNotFound(pp: *Preprocessor, tok: TokenWithExpansionLocs, filename: []con
 
 fn verboseLog(pp: *Preprocessor, raw: RawToken, comptime fmt: []const u8, args: anytype) void {
     @branchHint(.cold);
-    const comp = pp.comp;
-    const io = comp.io;
-    const source = comp.getSource(raw.source);
+    const source = pp.comp.getSource(raw.source);
     const line_col = source.lineCol(.{ .id = raw.source, .line = raw.line, .byte_offset = raw.start });
 
     var stderr_buf: [4096]u8 = undefined;
-    var stderr = Io.File.stderr().writer(io, &stderr_buf);
+    var stderr = std.Io.File.stderr().writer(pp.comp.io, &stderr_buf);
     const w = &stderr.interface;
 
     w.print("{s}:{d}:{d}: ", .{ source.path, line_col.line_no, line_col.col }) catch return;
@@ -1435,7 +1458,37 @@ fn expandObjMacro(pp: *Preprocessor, simple_macro: *const Macro) Error!ExpandBuf
                 .file => {
                     const start = pp.comp.generated_buf.items.len;
                     const source = pp.comp.getSource(pp.expansion_source_loc.id);
-                    try pp.comp.generated_buf.print(gpa, "\"{f}\"\n", .{fmtEscapes(source.path)});
+                    for (pp.path_replacements) |replacement| {
+                        if (mem.cutPrefix(u8, source.path, replacement[0])) |rest| {
+                            try pp.comp.generated_buf.print(gpa, "\"{f}{f}\"", .{ fmtEscapes(replacement[1]), fmtEscapes(rest) });
+                            break;
+                        }
+                    } else {
+                        try pp.comp.generated_buf.print(gpa, "\"{f}\"\n", .{fmtEscapes(source.path)});
+                    }
+
+                    buf.appendAssumeCapacity(try pp.makeGeneratedToken(start, .string_literal, tok));
+                },
+                .base_file => {
+                    try pp.err(pp.expansion_source_loc, .base_file_is_clang_extension, .{});
+                    const start = pp.comp.generated_buf.items.len;
+                    const base_file = pp.comp.getSource(pp.base_file);
+                    for (pp.path_replacements) |replacement| {
+                        if (mem.cutPrefix(u8, base_file.path, replacement[0])) |rest| {
+                            try pp.comp.generated_buf.print(gpa, "\"{f}{f}\"", .{ fmtEscapes(replacement[1]), fmtEscapes(rest) });
+                        }
+                    } else {
+                        try pp.comp.generated_buf.print(gpa, "\"{f}\"", .{fmtEscapes(base_file.path)});
+                    }
+
+                    buf.appendAssumeCapacity(try pp.makeGeneratedToken(start, .string_literal, tok));
+                },
+                .file_basename => {
+                    try pp.err(pp.expansion_source_loc, .file_name_is_clang_extension, .{});
+                    const start = pp.comp.generated_buf.items.len;
+                    const source = pp.comp.getSource(pp.expansion_source_loc.id);
+                    const basename = path.basename(source.path);
+                    try pp.comp.generated_buf.print(gpa, "\"{f}\"", .{fmtEscapes(basename)});
 
                     buf.appendAssumeCapacity(try pp.makeGeneratedToken(start, .string_literal, tok));
                 },
@@ -1471,6 +1524,13 @@ fn expandObjMacro(pp: *Preprocessor, simple_macro: *const Macro) Error!ExpandBuf
 
                     try pp.writeDateTimeStamp(.fromBuiltin(builtin_kind), timestamp);
                     buf.appendAssumeCapacity(try pp.makeGeneratedToken(start, .string_literal, tok));
+                },
+                .include_level => {
+                    try pp.err(pp.expansion_source_loc, .include_level_is_clang_extension, .{});
+                    const start = pp.comp.generated_buf.items.len;
+                    try pp.comp.generated_buf.print(gpa, "{d}\n", .{pp.include_depth});
+
+                    buf.appendAssumeCapacity(try pp.makeGeneratedToken(start, .pp_num, tok));
                 },
             },
             else => buf.appendAssumeCapacity(tok),
@@ -1828,7 +1888,11 @@ fn handleBuiltinMacro(pp: *Preprocessor, builtin: Macro.Builtin.Func, param_toks
                     features.hasFeature(pp.comp, ident_str)
                 else
                     features.hasExtension(pp.comp, ident_str),
-                .has_builtin => Builtins.fromName(pp.comp, ident_str) != null or (pp.comp.langopts.emulate == .clang and Macro.Builtin.has_builtin_special_cases.has(ident_str)),
+
+                .has_builtin => Builtins.fromName(pp.comp, ident_str) != null or
+                    ((pp.comp.langopts.emulate == .no or pp.comp.langopts.emulate == .clang) and
+                        Macro.Builtin.has_builtin_special_cases.has(ident_str)),
+
                 .is_target_arch => pp.comp.isTargetArch(ident_str),
                 .is_target_os => pp.comp.isTargetOs(ident_str),
                 .is_target_vendor => pp.comp.isTargetVendor(ident_str),
@@ -1972,7 +2036,7 @@ fn expandFuncMacro(
             },
             .macro_param_no_expand => {
                 if (tok_i + 1 < func_macro.tokens.len and func_macro.tokens[tok_i + 1].id == .hash_hash) {
-                    hideset = pp.hideset.get(tokFromRaw(func_macro.tokens[tok_i + 1]).loc);
+                    hideset = .none;
                 }
                 const slice = getPasteArgs(args.items[raw.end]);
                 const raw_loc = Source.Location{ .id = raw.source, .byte_offset = raw.start, .line = raw.line };
@@ -1980,7 +2044,7 @@ fn expandFuncMacro(
             },
             .macro_param => {
                 if (tok_i + 1 < func_macro.tokens.len and func_macro.tokens[tok_i + 1].id == .hash_hash) {
-                    hideset = pp.hideset.get(tokFromRaw(func_macro.tokens[tok_i + 1]).loc);
+                    hideset = .none;
                 }
                 const arg = expanded_args.items[raw.end];
                 const raw_loc = Source.Location{ .id = raw.source, .byte_offset = raw.start, .line = raw.line };
@@ -2330,9 +2394,10 @@ fn expandFuncMacro(
     for (buf.items) |*tok| {
         try tok.addExpansionLocation(gpa, &.{macro_tok.loc});
         try tok.addExpansionLocation(gpa, macro_expansion_locs);
-        const tok_hidelist = pp.hideset.get(tok.loc);
-        const new_hidelist = try pp.hideset.@"union"(tok_hidelist, hideset);
-        try pp.hideset.put(tok.loc, new_hidelist);
+        if (tok.id.shouldTrackHideset(.func)) {
+            const new_hideset = try pp.hideset.@"union"(pp.hideset.get(tok.loc), hideset);
+            try pp.hideset.put(tok.loc, new_hideset);
+        }
     }
 
     return buf;
@@ -2698,9 +2763,10 @@ fn expandMacroExhaustive(
                         try tok.addExpansionLocation(gpa, &.{macro_tok.loc});
                         try tok.addExpansionLocation(gpa, macro_expansion_locs);
 
-                        const tok_hidelist = pp.hideset.get(tok.loc);
-                        const new_hidelist = try pp.hideset.@"union"(tok_hidelist, hs);
-                        try pp.hideset.put(tok.loc, new_hidelist);
+                        if (tok.id.shouldTrackHideset(.obj)) {
+                            const new_hideset = try pp.hideset.@"union"(pp.hideset.get(tok.loc), hs);
+                            try pp.hideset.put(tok.loc, new_hideset);
+                        }
 
                         if (tok.id == .keyword_defined and eval_ctx == .expr) {
                             if (macro.is_func) {
@@ -2914,7 +2980,10 @@ fn pasteTokens(pp: *Preprocessor, lhs_toks: *ExpandBuf, rhs_toks: []const TokenW
         .placemarker
     else
         pasted_token.id;
-    try lhs_toks.append(gpa, try pp.makeGeneratedToken(start, pasted_id, lhs));
+
+    const hideset = try pp.hideset.intersection(pp.hideset.get(lhs.loc), pp.hideset.get(rhs.loc));
+    const generated_token = try pp.makeGeneratedTokenExtra(start, pasted_id, lhs, hideset);
+    try lhs_toks.append(gpa, generated_token);
 
     if (next.id != .nl and next.id != .eof) {
         try pp.err(lhs, .pasting_formed_invalid, .{pp.comp.generated_buf.items[start..end]});
@@ -2924,7 +2993,7 @@ fn pasteTokens(pp: *Preprocessor, lhs_toks: *ExpandBuf, rhs_toks: []const TokenW
     try bufCopyTokens(gpa, lhs_toks, rhs_toks[rhs_rest..], &.{});
 }
 
-fn makeGeneratedToken(pp: *Preprocessor, start: usize, id: Token.Id, source: TokenWithExpansionLocs) !TokenWithExpansionLocs {
+fn makeGeneratedTokenExtra(pp: *Preprocessor, start: usize, id: Token.Id, source: TokenWithExpansionLocs, hideset: Hideset.Index) !TokenWithExpansionLocs {
     const gpa = pp.comp.gpa;
     var pasted_token = TokenWithExpansionLocs{ .id = id, .loc = .{
         .id = .generated,
@@ -2934,7 +3003,13 @@ fn makeGeneratedToken(pp: *Preprocessor, start: usize, id: Token.Id, source: Tok
     pp.generated_line += 1;
     try pasted_token.addExpansionLocation(gpa, &.{source.loc});
     try pasted_token.addExpansionLocation(gpa, source.expansionSlice());
+    try pp.hideset.put(pasted_token.loc, hideset);
+
     return pasted_token;
+}
+
+fn makeGeneratedToken(pp: *Preprocessor, start: usize, id: Token.Id, source: TokenWithExpansionLocs) !TokenWithExpansionLocs {
+    return pp.makeGeneratedTokenExtra(start, id, source, pp.hideset.get(source.loc));
 }
 
 /// Defines a new macro and warns if it is a duplicate
@@ -3898,16 +3973,14 @@ test "Preserve pragma tokens sometimes" {
     const gpa = std.testing.allocator;
     const Test = struct {
         fn runPreprocessor(source_text: []const u8) ![]const u8 {
-            var arena: std.heap.ArenaAllocator = .init(gpa);
-            defer arena.deinit();
-
             var diagnostics: Diagnostics = .{ .output = .ignore };
-            var comp = Compilation.init(gpa, arena.allocator(), std.testing.io, &diagnostics, Io.Dir.cwd());
+            var comp = try Compilation.init(.testing);
+            comp.diagnostics = &diagnostics;
             defer comp.deinit();
 
             try comp.addDefaultPragmaHandlers();
 
-            var pp = Preprocessor.init(&comp, .default);
+            var pp = try Preprocessor.init(&comp, .testing);
             defer pp.deinit();
 
             pp.preserve_whitespace = true;
@@ -3966,12 +4039,10 @@ test "destringify" {
             try std.testing.expectEqualStrings(destringified, pp.char_buf.items);
         }
     };
-    var arena: std.heap.ArenaAllocator = .init(gpa);
-    defer arena.deinit();
-    var diagnostics: Diagnostics = .{ .output = .ignore };
-    var comp = Compilation.init(gpa, arena.allocator(), std.testing.io, &diagnostics, Io.Dir.cwd());
+    var comp = try Compilation.init(.testing);
     defer comp.deinit();
-    var pp = Preprocessor.init(&comp, .default);
+
+    var pp = try Preprocessor.init(&comp, .testing);
     defer pp.deinit();
 
     try Test.testDestringify(&pp, "hello\tworld\n", "hello\tworld\n");
@@ -4026,20 +4097,20 @@ test "Include guards" {
             };
         }
 
-        fn testIncludeGuard(gpa: std.mem.Allocator, comptime template: []const u8, tok_id: RawToken.Id, expected_guards: u32) !void {
-            var arena_state: std.heap.ArenaAllocator = .init(gpa);
-            defer arena_state.deinit();
-            const arena = arena_state.allocator();
+        fn testIncludeGuard(comptime template: []const u8, tok_id: RawToken.Id, expected_guards: u32) !void {
+            const gpa = std.testing.allocator;
 
             var diagnostics: Diagnostics = .{ .output = .ignore };
-            var comp = Compilation.init(gpa, arena, std.testing.io, &diagnostics, Io.Dir.cwd());
+            var comp = try Compilation.init(.testing);
+            comp.diagnostics = &diagnostics;
             defer comp.deinit();
-            var pp = Preprocessor.init(&comp, .default);
+            var pp = try Preprocessor.init(&comp, .testing);
             defer pp.deinit();
 
-            const path = try std.fs.path.join(arena, &.{ ".", "bar.h" });
+            const file_path = try path.join(gpa, &.{ ".", "bar.h" });
+            defer gpa.free(file_path);
 
-            _ = try comp.addSourceFromBuffer(path, "int bar = 5;\n");
+            _ = try comp.addSourceFromBuffer(file_path, "int bar = 5;\n");
 
             var buf: std.ArrayList(u8) = .empty;
             defer buf.deinit(gpa);
@@ -4074,14 +4145,14 @@ test "Include guards" {
                 \\#endif
             ;
             const expected_guards: u32 = if (Test.pairsWithIfndef(tag)) 0 else 1;
-            try Test.testIncludeGuard(std.testing.allocator, inside_ifndef_template, tag, expected_guards);
+            try Test.testIncludeGuard(inside_ifndef_template, tag, expected_guards);
 
             const outside_ifndef_template =
                 \\#ifndef FOO
                 \\#endif
                 \\#{s}{s}
             ;
-            try Test.testIncludeGuard(std.testing.allocator, outside_ifndef_template, tag, 0);
+            try Test.testIncludeGuard(outside_ifndef_template, tag, 0);
         }
     }
 }

@@ -302,7 +302,7 @@ const xpc_object_t XPC_ACTIVITY_CHECK_IN;
  * dispatch queue with an appropriate priority to perform the activity.
  */
 API_AVAILABLE(macos(10.9))
-API_UNAVAILABLE(ios)
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_NONNULL1 XPC_NONNULL2 XPC_NONNULL3
 void
 xpc_activity_register(const char *identifier, xpc_object_t criteria,
@@ -317,7 +317,7 @@ xpc_activity_register(const char *identifier, xpc_object_t criteria,
  * when checking in to an event that finished and was not rescheduled.
  */
 API_AVAILABLE(macos(10.9))
-API_UNAVAILABLE(ios)
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_WARN_RESULT XPC_RETURNS_RETAINED XPC_NONNULL1
 xpc_object_t _Nullable
 xpc_activity_copy_criteria(xpc_activity_t activity);
@@ -329,7 +329,7 @@ xpc_activity_copy_criteria(xpc_activity_t activity);
  * Modifies the execution criteria of an activity.
  */
 API_AVAILABLE(macos(10.9))
-API_UNAVAILABLE(ios)
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_NONNULL1 XPC_NONNULL2
 void
 xpc_activity_set_criteria(xpc_activity_t activity, xpc_object_t criteria);
@@ -411,7 +411,7 @@ typedef long xpc_activity_state_t;
  * Returns the current state of an activity.
  */
 API_AVAILABLE(macos(10.9))
-API_UNAVAILABLE(ios)
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_WARN_RESULT XPC_NONNULL1
 xpc_activity_state_t
 xpc_activity_get_state(xpc_activity_t activity);
@@ -427,7 +427,7 @@ xpc_activity_get_state(xpc_activity_t activity);
  * false if the requested state transition is not valid.
  */
 API_AVAILABLE(macos(10.9))
-API_UNAVAILABLE(ios)
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_WARN_RESULT XPC_NONNULL1
 bool
 xpc_activity_set_state(xpc_activity_t activity, xpc_activity_state_t state);
@@ -451,7 +451,7 @@ xpc_activity_set_state(xpc_activity_t activity, xpc_activity_state_t state);
  * Returns true if the activity should be deferred.
  */
 API_AVAILABLE(macos(10.9))
-API_UNAVAILABLE(ios)
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_WARN_RESULT XPC_NONNULL1
 bool
 xpc_activity_should_defer(xpc_activity_t activity);
@@ -475,7 +475,7 @@ xpc_activity_should_defer(xpc_activity_t activity);
  * The identifier of the activity to unregister.
  */
 API_AVAILABLE(macos(10.9))
-API_UNAVAILABLE(ios)
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_NONNULL1
 void
 xpc_activity_unregister(const char *identifier);

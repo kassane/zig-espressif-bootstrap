@@ -173,18 +173,18 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
             }
         };
 
-        var common_encodings_counts = std.ArrayHashMap(
+        var common_encodings_counts: std.array_hash_map.Custom(
             Encoding,
             CommonEncWithCount,
             Context,
             false,
-        ).init(gpa);
-        defer common_encodings_counts.deinit();
+        ) = .empty;
+        defer common_encodings_counts.deinit(gpa);
 
         for (info.records.items) |ref| {
             const rec = ref.getUnwindRecord(macho_file);
             if (rec.enc.isDwarf(macho_file)) continue;
-            const gop = try common_encodings_counts.getOrPut(rec.enc);
+            const gop = try common_encodings_counts.getOrPut(gpa, rec.enc);
             if (!gop.found_existing) {
                 gop.value_ptr.* = .{
                     .enc = rec.enc,

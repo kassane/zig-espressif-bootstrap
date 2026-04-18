@@ -49,6 +49,7 @@ pub const Feature = enum {
     noabicalls,
     nomadd4,
     nooddspreg,
+    notraps,
     p5600,
     ptr64,
     single_float,
@@ -353,6 +354,11 @@ pub const all_features = blk: {
         .description = "Disable odd numbered single-precision registers",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.notraps)] = .{
+        .llvm_name = null,
+        .description = "Disable trap instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.p5600)] = .{
         .llvm_name = "p5600",
         .description = "The P5600 Processor",
@@ -419,6 +425,15 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
+    pub const allegrex: CpuModel = .{
+        .name = "allegrex",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .mips2,
+            .notraps,
+            .single_float,
+        }),
+    };
     pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",

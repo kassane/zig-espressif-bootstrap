@@ -1,7 +1,7 @@
 const std = @import("std");
 const debug = std.debug;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const StringArrayHashMap = std.StringArrayHashMap;
+const StringArrayHashMap = std.array_hash_map.String;
 const Allocator = std.mem.Allocator;
 const json = std.json;
 
@@ -103,10 +103,10 @@ pub const Value = union(enum) {
 
                 .object_begin => {
                     switch (try source.nextAllocMax(allocator, .alloc_always, options.max_value_len.?)) {
-                        .object_end => return try handleCompleteValue(&stack, allocator, source, Value{ .object = ObjectMap.init(allocator) }, options) orelse continue,
+                        .object_end => return try handleCompleteValue(&stack, allocator, source, Value{ .object = .empty }, options) orelse continue,
                         .allocated_string => |key| {
                             try stack.appendSlice(&[_]Value{
-                                Value{ .object = ObjectMap.init(allocator) },
+                                Value{ .object = .empty },
                                 Value{ .string = key },
                             });
                         },
@@ -145,7 +145,7 @@ fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, val
                 // stack: [..., .object]
                 var object = &stack.items[stack.items.len - 1].object;
 
-                const gop = try object.getOrPut(key);
+                const gop = try object.getOrPut(allocator, key);
                 if (gop.found_existing) {
                     switch (options.duplicate_field_behavior) {
                         .use_first => {},

@@ -1910,14 +1910,7 @@ fn analyzeNavVal(
 
     try sema.flushExports();
 
-    queue_codegen: {
-        if (!queue_linker_work) break :queue_codegen;
-
-        if (!nav_ty.hasRuntimeBits(zcu)) {
-            if (comp.config.use_llvm) break :queue_codegen;
-            if (file.mod.?.strip) break :queue_codegen;
-        }
-
+    if (queue_linker_work) {
         comp.link_prog_node.increaseEstimatedTotalItems(1);
         try comp.link_queue.enqueueZcu(comp, pt.tid, .{ .link_nav = nav_id });
     }
@@ -3751,7 +3744,7 @@ fn processExportsInner(
     if (skip_linker_work) return;
 
     if (zcu.llvm_object) |llvm_object| {
-        try zcu.handleUpdateExports(export_indices, llvm_object.updateExports(pt, exported, export_indices));
+        try zcu.handleUpdateExports(export_indices, llvm_object.updateExports(exported, export_indices));
     } else if (zcu.comp.bin_file) |lf| {
         try zcu.handleUpdateExports(export_indices, lf.updateExports(pt, exported, export_indices));
     }

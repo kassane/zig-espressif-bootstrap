@@ -1126,14 +1126,23 @@ pub const Request = struct {
     /// `redirect_buffer` must outlive accesses to `Request.uri`. If this
     /// buffer capacity would be exceeded, `error.HttpRedirectLocationOversize`
     /// is returned instead. This buffer may be empty if no redirects are to be
-    /// handled.
+    /// handled. RFC 9110 recommends making this at least 8000 bytes.
     ///
     /// If this fails with `error.ReadFailed` then the `Connection.getReadError`
     /// method of `r.connection` can be used to get more detailed information.
     pub fn receiveHead(r: *Request, redirect_buffer: []u8) ReceiveHeadError!Response {
         var aux_buf = redirect_buffer;
         while (true) {
-            const head_buffer = try r.reader.receiveHead();
+            // This while loop is for handling redirects, which means the request's
+            // connection may be different than the previous iteration. However, it
+            // is still guaranteed to be non-null with each iteration of this loop.
+            const connection = r.connection.?;
+
+            const head_buffer = r.reader.receiveHead() catch |err| {
+                // Failure here means the connection can no longer be reused.
+                connection.closing = true;
+                return err;
+            };
             const response: Response = .{
                 .request = r,
                 .head = Response.Head.parse(head_buffer) catch return error.HttpHeadersInvalid,
@@ -1146,11 +1155,6 @@ pub const Request = struct {
                 r.response_content_length = head.content_length;
                 return response; // we're not handling the 100-continue
             }
-
-            // This while loop is for handling redirects, which means the request's
-            // connection may be different than the previous iteration. However, it
-            // is still guaranteed to be non-null with each iteration of this loop.
-            const connection = r.connection.?;
 
             if (r.method == .CONNECT and head.status.class() == .success) {
                 // This connection is no longer doing HTTP.
@@ -1748,7 +1752,8 @@ pub fn request(
 }
 
 pub const FetchOptions = struct {
-    /// `null` means it will be heap-allocated.
+    /// `null` means it will be heap-allocated. RFC 9110 recommends at least
+    /// 8000 bytes.
     redirect_buffer: ?[]u8 = null,
     /// `null` means it will be heap-allocated.
     decompress_buffer: ?[]u8 = null,

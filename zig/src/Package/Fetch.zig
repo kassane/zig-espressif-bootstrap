@@ -383,7 +383,7 @@ pub const JobQueue = struct {
         // However, if we want Zig users to be able to share cached package
         // data with each other via peer-to-peer protocols, we benefit greatly
         // from the data being identical on everyone's computers.
-        var scanned_files: std.ArrayList([]const u8) = .empty;
+        var scanned_files: std.ArrayList(ScannedFile) = .empty;
         defer scanned_files.deinit(gpa);
 
         var pkg_dir = try jq.root_pkg_path.openDir(io, pkg_hash_slice, .{ .iterate = true });
@@ -394,22 +394,25 @@ pub const JobQueue = struct {
             defer walker.deinit();
 
             while (try walker.next(io)) |entry| {
-                switch (entry.kind) {
+                const symlink = switch (entry.kind) {
                     .directory => continue,
-                    .file, .sym_link => {},
-                    else => {
-                        return error.IllegalFileType;
-                    },
-                }
+                    .file => false,
+                    .sym_link => true,
+                    else => return error.IllegalFileType,
+                };
                 const entry_path = try arena.dupe(u8, entry.path);
                 // If necessary, normalize path separators to POSIX-style since the tar format requires that.
-                if (comptime std.fs.path.sep != std.fs.path.sep_posix) {
+                if (comptime (std.fs.path.sep != std.fs.path.sep_posix)) {
                     std.mem.replaceScalar(u8, entry_path, std.fs.path.sep, std.fs.path.sep_posix);
                 }
-                try scanned_files.append(gpa, entry_path);
+                try scanned_files.append(gpa, .{
+                    .ptr = entry_path.ptr,
+                    .len = @intCast(entry_path.len),
+                    .symlink = symlink,
+                });
             }
 
-            std.mem.sortUnstable([]const u8, scanned_files.items, {}, stringCmp);
+            std.mem.sortUnstable(ScannedFile, scanned_files.items, {}, stringCmp);
         }
 
         prog_node.setEstimatedTotalItems(scanned_files.items.len);
@@ -432,16 +435,26 @@ pub const JobQueue = struct {
         archiver.prefix = pkg_hash_slice;
 
         var file_read_buffer: [4096]u8 = undefined;
+        var link_buf: [fs.max_path_bytes]u8 = undefined;
 
-        for (scanned_files.items) |entry_path| {
-            var file = try pkg_dir.openFile(io, entry_path, .{});
-            defer file.close(io);
-            var file_reader: Io.File.Reader = .init(file, io, &file_read_buffer);
-            archiver.writeFile(entry_path, &file_reader, 0) catch |err| switch (err) {
-                error.ReadFailed => return file_reader.err.?,
-                error.WriteFailed => return file_writer.err.?,
-                else => |e| return e,
-            };
+        for (scanned_files.items) |scanned_file| {
+            const entry_path = scanned_file.ptr[0..scanned_file.len];
+            if (scanned_file.symlink) {
+                const link_name = link_buf[0..try pkg_dir.readLink(io, entry_path, &link_buf)];
+                archiver.writeLink(entry_path, link_name, .{}) catch |err| switch (err) {
+                    error.WriteFailed => return file_writer.err.?,
+                    else => |e| return e,
+                };
+            } else {
+                var file = try pkg_dir.openFile(io, entry_path, .{});
+                defer file.close(io);
+                var file_reader: Io.File.Reader = .init(file, io, &file_read_buffer);
+                archiver.writeFile(entry_path, &file_reader, 0) catch |err| switch (err) {
+                    error.ReadFailed => return file_reader.err.?,
+                    error.WriteFailed => return file_writer.err.?,
+                    else => |e| return e,
+                };
+            }
             prog_node.completeOne();
         }
 
@@ -455,8 +468,14 @@ pub const JobQueue = struct {
     }
 };
 
-fn stringCmp(_: void, lhs: []const u8, rhs: []const u8) bool {
-    return std.mem.lessThan(u8, lhs, rhs);
+const ScannedFile = struct {
+    ptr: [*]const u8,
+    len: u32,
+    symlink: bool,
+};
+
+fn stringCmp(_: void, lhs: ScannedFile, rhs: ScannedFile) bool {
+    return std.mem.lessThan(u8, lhs.ptr[0..lhs.len], rhs.ptr[0..rhs.len]);
 }
 
 pub const Location = union(enum) {
@@ -783,7 +802,7 @@ fn runResource(
         const hash_tok = f.hash_tok.unwrap().?;
         if (!computed_package_hash.eql(&declared_hash)) {
             return f.fail(hash_tok, try eb.printString(
-                "hash mismatch: manifest declares '{s}' but the fetched package has '{s}'",
+                "hash mismatch: manifest declares {s} but the fetched package has {s}",
                 .{ declared_hash.toSlice(), computed_package_hash.toSlice() },
             ));
         }
@@ -1193,7 +1212,7 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
         request.sendBodiless() catch |err|
             return f.fail(f.location_tok, try eb.printString("HTTP request failed: {t}", .{err}));
 
-        var redirect_buffer: [1024]u8 = undefined;
+        var redirect_buffer: [8000]u8 = undefined;
         const response = &resource.http_request.response;
         response.* = request.receiveHead(&redirect_buffer) catch |err| switch (err) {
             error.ReadFailed => {
@@ -1819,10 +1838,8 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
         assert(!f.job_queue.recursive);
         // Print something to stdout that can be text diffed to figure out why
         // the package hash is different.
-        dumpHashInfo(io, all_files.items) catch |err| {
-            std.debug.print("unable to write to stdout: {s}\n", .{@errorName(err)});
-            std.process.exit(1);
-        };
+        dumpHashInfo(io, all_files.items) catch |err|
+            std.process.fatal("unable to write to stdout: {t}", .{err});
     }
 
     return .{
@@ -1834,11 +1851,16 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
 fn dumpHashInfo(io: Io, all_files: []const *const HashedFile) !void {
     var stdout_buffer: [1024]u8 = undefined;
     var stdout_writer: Io.File.Writer = .initStreaming(.stdout(), io, &stdout_buffer);
-    const w = &stdout_writer.interface;
+    dumpHashInfoWriter(&stdout_writer.interface, all_files) catch |err| switch (err) {
+        error.WriteFailed => return stdout_writer.err.?,
+    };
+    try stdout_writer.flush();
+}
+
+fn dumpHashInfoWriter(w: *Io.Writer, all_files: []const *const HashedFile) Io.Writer.Error!void {
     for (all_files) |hashed_file| {
         try w.print("{t}: {x}: {s}\n", .{ hashed_file.kind, &hashed_file.hash, hashed_file.normalized_path });
     }
-    try w.flush();
 }
 
 fn workerHashFile(io: Io, dir: Io.Dir, hashed_file: *HashedFile) void {

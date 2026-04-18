@@ -931,8 +931,7 @@ pub const ZcuFunc = union {
             const ip = &zcu.intern_pool;
             switch (ip.indexToKey(i.key(wasm).*)) {
                 .func => |func| {
-                    const fn_ty = zcu.navValue(func.owner_nav).typeOf(zcu);
-                    const fn_info = zcu.typeToFunc(fn_ty).?;
+                    const fn_info = zcu.typeToFunc(.fromInterned(func.ty)).?;
                     return wasm.getExistingFunctionType(fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), target).?;
                 },
                 .enum_type => {
@@ -3089,11 +3088,11 @@ fn parseArchive(wasm: *Wasm, obj: link.Input.Object) !void {
     // In this case we must force link all embedded object files within the archive
     // We loop over all symbols, and then group them by offset as the offset
     // notates where the object file starts.
-    var offsets = std.AutoArrayHashMap(u32, void).init(gpa);
-    defer offsets.deinit();
+    var offsets: std.array_hash_map.Auto(u32, void) = .empty;
+    defer offsets.deinit(gpa);
     for (archive.toc.values()) |symbol_offsets| {
         for (symbol_offsets.items) |sym_offset| {
-            try offsets.put(sym_offset, {});
+            try offsets.put(gpa, sym_offset, {});
         }
     }
 

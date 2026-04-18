@@ -90,10 +90,10 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             // Even a .s file can substitute for a .c file.
             const target = comp.getTarget();
             const arch_name = std.zig.target.muslArchName(target.cpu.arch, target.abi);
-            var source_table = std.StringArrayHashMap(Ext).init(comp.gpa);
-            defer source_table.deinit();
+            var source_table: std.array_hash_map.String(Ext) = .empty;
+            defer source_table.deinit(gpa);
 
-            try source_table.ensureTotalCapacity(compat_time32_files.len + src_files.len);
+            try source_table.ensureTotalCapacity(gpa, compat_time32_files.len + src_files.len);
 
             for (src_files) |src_file| {
                 try addSrcFile(arena, &source_table, src_file);
@@ -107,10 +107,10 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 }
             }
 
-            var c_source_files = std.array_list.Managed(Compilation.CSourceFile).init(comp.gpa);
+            var c_source_files = std.array_list.Managed(Compilation.CSourceFile).init(gpa);
             defer c_source_files.deinit();
 
-            var override_path = std.array_list.Managed(u8).init(comp.gpa);
+            var override_path = std.array_list.Managed(u8).init(gpa);
             defer override_path.deinit();
 
             const s = path.sep_str;
@@ -349,7 +349,7 @@ const Ext = enum {
     o3,
 };
 
-fn addSrcFile(arena: Allocator, source_table: *std.StringArrayHashMap(Ext), file_path: []const u8) !void {
+fn addSrcFile(arena: Allocator, source_table: *std.array_hash_map.String(Ext), file_path: []const u8) !void {
     const ext: Ext = ext: {
         if (mem.endsWith(u8, file_path, ".c")) {
             if (mem.startsWith(u8, file_path, "musl/src/string/") or
@@ -691,11 +691,9 @@ const src_files = [_][]const u8{
     "musl/src/legacy/getpagesize.c",
     "musl/src/legacy/getpass.c",
     "musl/src/legacy/getusershell.c",
-    "musl/src/legacy/isastream.c",
     "musl/src/legacy/lutimes.c",
     "musl/src/legacy/ulimit.c",
     "musl/src/legacy/utmpx.c",
-    "musl/src/legacy/valloc.c",
     "musl/src/linux/adjtime.c",
     "musl/src/linux/adjtimex.c",
     "musl/src/linux/arch_prctl.c",
@@ -788,13 +786,10 @@ const src_files = [_][]const u8{
     "musl/src/math/aarch64/llrintf.c",
     "musl/src/math/aarch64/llround.c",
     "musl/src/math/aarch64/llroundf.c",
-    "musl/src/math/aarch64/lrint.c",
-    "musl/src/math/aarch64/lrintf.c",
     "musl/src/math/aarch64/lround.c",
     "musl/src/math/aarch64/lroundf.c",
     "musl/src/math/aarch64/nearbyint.c",
     "musl/src/math/aarch64/nearbyintf.c",
-    "musl/src/math/aarch64/rintf.c",
     "musl/src/math/acosh.c",
     "musl/src/math/acoshl.c",
     "musl/src/math/acosl.c",
@@ -815,8 +810,6 @@ const src_files = [_][]const u8{
     "musl/src/math/__cos.c",
     "musl/src/math/__cosdf.c",
     "musl/src/math/coshl.c",
-    "musl/src/math/__cosl.c",
-    "musl/src/math/cosl.c",
     "musl/src/math/erf.c",
     "musl/src/math/erff.c",
     "musl/src/math/erfl.c",
@@ -830,20 +823,14 @@ const src_files = [_][]const u8{
     "musl/src/math/expm1l.c",
     "musl/src/math/__expo2.c",
     "musl/src/math/__expo2f.c",
-    "musl/src/math/fdim.c",
     "musl/src/math/fdimf.c",
     "musl/src/math/fdiml.c",
-    "musl/src/math/finite.c",
-    "musl/src/math/finitef.c",
     "musl/src/math/fma.c",
     "musl/src/math/fmaf.c",
     "musl/src/math/fmal.c",
     "musl/src/math/__fpclassify.c",
     "musl/src/math/__fpclassifyf.c",
     "musl/src/math/__fpclassifyl.c",
-    "musl/src/math/frexp.c",
-    "musl/src/math/frexpf.c",
-    "musl/src/math/frexpl.c",
     "musl/src/math/i386/acosl.s",
     "musl/src/math/i386/asinf.s",
     "musl/src/math/i386/asinl.s",
@@ -867,8 +854,6 @@ const src_files = [_][]const u8{
     "musl/src/math/i386/log1p.s",
     "musl/src/math/i386/log2l.s",
     "musl/src/math/i386/logl.s",
-    "musl/src/math/i386/lrint.c",
-    "musl/src/math/i386/lrintf.c",
     "musl/src/math/i386/lrintl.c",
     "musl/src/math/i386/remainder.c",
     "musl/src/math/i386/remainderf.c",
@@ -876,7 +861,6 @@ const src_files = [_][]const u8{
     "musl/src/math/i386/remquof.s",
     "musl/src/math/i386/remquol.s",
     "musl/src/math/i386/remquo.s",
-    "musl/src/math/i386/rintf.c",
     "musl/src/math/i386/rintl.c",
     "musl/src/math/i386/scalblnf.s",
     "musl/src/math/i386/scalblnl.s",
@@ -917,8 +901,6 @@ const src_files = [_][]const u8{
     "musl/src/math/logbf.c",
     "musl/src/math/logbl.c",
     "musl/src/math/logl.c",
-    "musl/src/math/lrint.c",
-    "musl/src/math/lrintf.c",
     "musl/src/math/lrintl.c",
     "musl/src/math/lround.c",
     "musl/src/math/lroundf.c",
@@ -944,11 +926,10 @@ const src_files = [_][]const u8{
     "musl/src/math/nexttowardf.c",
     "musl/src/math/nexttowardl.c",
     "musl/src/math/__polevll.c",
+    "musl/src/math/pow.c",
     "musl/src/math/pow_data.c",
     "musl/src/math/powerpc64/fma.c",
     "musl/src/math/powerpc64/fmaf.c",
-    "musl/src/math/powerpc64/lrint.c",
-    "musl/src/math/powerpc64/lrintf.c",
     "musl/src/math/powerpc64/lround.c",
     "musl/src/math/powerpc64/lroundf.c",
     "musl/src/math/powerpc/fma.c",
@@ -966,7 +947,6 @@ const src_files = [_][]const u8{
     "musl/src/math/remquo.c",
     "musl/src/math/remquof.c",
     "musl/src/math/remquol.c",
-    "musl/src/math/rintf.c",
     "musl/src/math/rintl.c",
     "musl/src/math/riscv32/fma.c",
     "musl/src/math/riscv32/fmaf.c",
@@ -977,7 +957,6 @@ const src_files = [_][]const u8{
     "musl/src/math/s390x/nearbyint.c",
     "musl/src/math/s390x/nearbyintf.c",
     "musl/src/math/s390x/nearbyintl.c",
-    "musl/src/math/s390x/rintf.c",
     "musl/src/math/s390x/rintl.c",
     "musl/src/math/scalb.c",
     "musl/src/math/scalbf.c",
@@ -994,18 +973,13 @@ const src_files = [_][]const u8{
     "musl/src/math/significand.c",
     "musl/src/math/significandf.c",
     "musl/src/math/__sin.c",
-    "musl/src/math/sincosl.c",
     "musl/src/math/__sindf.c",
     "musl/src/math/sinh.c",
     "musl/src/math/sinhf.c",
     "musl/src/math/sinhl.c",
-    "musl/src/math/__sinl.c",
-    "musl/src/math/sinl.c",
     "musl/src/math/__tan.c",
     "musl/src/math/__tandf.c",
     "musl/src/math/tanhl.c",
-    "musl/src/math/__tanl.c",
-    "musl/src/math/tanl.c",
     "musl/src/math/tgamma.c",
     "musl/src/math/tgammaf.c",
     "musl/src/math/tgammal.c",
@@ -1025,9 +999,7 @@ const src_files = [_][]const u8{
     "musl/src/math/x32/log1pl.s",
     "musl/src/math/x32/log2l.s",
     "musl/src/math/x32/logl.s",
-    "musl/src/math/x32/lrintf.s",
     "musl/src/math/x32/lrintl.s",
-    "musl/src/math/x32/lrint.s",
     "musl/src/math/x32/remainderl.s",
     "musl/src/math/x32/rintl.s",
     "musl/src/math/x86_64/acosl.s",
@@ -1046,8 +1018,6 @@ const src_files = [_][]const u8{
     "musl/src/math/x86_64/log1pl.s",
     "musl/src/math/x86_64/log2l.s",
     "musl/src/math/x86_64/logl.s",
-    "musl/src/math/x86_64/lrint.c",
-    "musl/src/math/x86_64/lrintf.c",
     "musl/src/math/x86_64/lrintl.c",
     "musl/src/math/x86_64/remainderl.c",
     "musl/src/math/x86_64/remquol.c",

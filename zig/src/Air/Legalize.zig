@@ -15,7 +15,7 @@ features: if (switch (dev.env) {
     }
     /// `inline` to propagate comptime-known result.
     inline fn hasAny(_: @This(), comptime features: []const Feature) bool {
-        return comptime !bootstrap_features.intersectWith(.initMany(features)).eql(.initEmpty());
+        return comptime !bootstrap_features.intersectWith(.initMany(features)).eql(.empty);
     }
 } else struct {
     features: *const Features,
@@ -28,7 +28,7 @@ features: if (switch (dev.env) {
         return rt.features.contains(feature);
     }
     fn hasAny(rt: @This(), comptime features: []const Feature) bool {
-        return !rt.features.intersectWith(comptime .initMany(features)).eql(comptime .initEmpty());
+        return !rt.features.intersectWith(comptime .initMany(features)).eql(.empty);
     }
 },
 
@@ -276,7 +276,7 @@ pub const Features = std.enums.EnumSet(Feature);
 pub const Error = std.mem.Allocator.Error;
 
 pub fn legalize(air: *Air, pt: Zcu.PerThread, features: *const Features) Error!void {
-    assert(!features.eql(comptime .initEmpty())); // backend asked to run legalize, but no features were enabled
+    assert(!features.eql(.empty)); // backend asked to run legalize, but no features were enabled
     var l: Legalize = .{
         .pt = pt,
         .air_instructions = air.instructions.toMultiArrayList(),
@@ -884,7 +884,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .field_parent_ptr,
             .wasm_memory_size,
             .wasm_memory_grow,
-            .cmp_lt_errors_len,
+            .cmp_lte_errors_len,
             .err_return_trace,
             .set_err_return_trace,
             .addrspace_cast,

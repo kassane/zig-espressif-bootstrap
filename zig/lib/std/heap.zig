@@ -805,6 +805,11 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
         .x86, .x86_64 => 16 << 10,
         else => null,
     },
+    .psp => switch (builtin.cpu.arch) {
+        // minimum block allocation by testing sceKernel
+        .mips, .mipsel => 1 << 8, // 256
+        else => null,
+    },
     // system/lib/libc/musl/arch/emscripten/bits/limits.h
     .emscripten => 64 << 10,
     .linux => switch (builtin.cpu.arch) {
@@ -961,6 +966,11 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
     .ps5 => switch (builtin.cpu.arch) {
         // https://github.com/PS5Dev/PS5SDK/blob/a2e03a2a0231a3a3397fa6cd087a01ca6d04f273/include/machine/param.h#L95
         .x86, .x86_64 => 16 << 10,
+        else => null,
+    },
+    .psp => switch (builtin.cpu.arch) {
+        // minimum block allocation by testing sceKernel
+        .mips, .mipsel => 1 << 8, // 256
         else => null,
     },
     // system/lib/libc/musl/arch/emscripten/bits/limits.h

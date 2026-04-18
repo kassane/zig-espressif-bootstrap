@@ -229,7 +229,7 @@ pub fn intMaxType(target: *const Target) QualType {
         => return .long,
 
         .x86_64 => switch (target.os.tag) {
-            .windows, .openbsd => {},
+            .windows, .openbsd, .uefi => {},
             else => switch (target.abi) {
                 .gnux32, .muslx32 => {},
                 else => return .long,
@@ -546,18 +546,10 @@ pub fn systemCompiler(target: *const Target) LangOpts.Compiler {
 }
 
 pub fn hasFloat128(target: *const Target) bool {
-    if (target.cpu.arch.isWasm()) return true;
     if (target.os.tag.isDarwin()) return false;
-    if (target.cpu.arch.isPowerPC()) return std.Target.powerpc.featureSetHas(target.cpu.features, .float128);
-    return switch (target.os.tag) {
-        .dragonfly,
-        .haiku,
-        .linux,
-        .openbsd,
-        .illumos,
-        => target.cpu.arch.isX86(),
-        else => false,
-    };
+    if (target.os.tag == .windows) return false;
+    if (target.cpu.arch.isX86()) return true;
+    return target.cTypeBitSize(.longdouble) == 128;
 }
 
 pub fn hasInt128(target: *const Target) bool {
@@ -1238,6 +1230,7 @@ pub fn toLLVMTriple(target: *const Target, buf: []u8) []const u8 {
         .other,
         .plan9,
         .vita,
+        .psp,
         => "unknown",
     };
     writer.writeAll(llvm_os) catch unreachable;
@@ -1353,6 +1346,18 @@ pub fn isPIEDefault(target: *const Target) DefaultPIStatus {
                 else => return .no,
             }
         },
+    };
+}
+
+pub fn ppcElfVersion(target: *const Target) u32 {
+    std.debug.assert(target.cpu.arch.isPowerPC());
+    return switch (target.cpu.arch) {
+        .powerpc64le => 2,
+        .powerpc64 => if ((target.os.isAtLeast(.freebsd, .{ .major = 13, .minor = 0, .patch = 0 }) orelse false) or target.os.tag == .openbsd or target.abi.isMusl())
+            2
+        else
+            1,
+        else => 1,
     };
 }
 

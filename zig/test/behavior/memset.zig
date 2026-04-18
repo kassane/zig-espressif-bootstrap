@@ -190,3 +190,11 @@ test "@memset a global array" {
     @memset(&S.buf, S.buf[0] + 333);
     try expect(S.buf[0] == 789);
 }
+
+test "@memset array of booleans" {
+    const S = struct {
+        var x: bool = false;
+        var y: [1]bool = undefined;
+    };
+    @memset(&S.y, S.x);
+}

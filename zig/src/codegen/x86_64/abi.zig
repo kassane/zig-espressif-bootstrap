@@ -575,22 +575,22 @@ pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, 
 const RegisterBitSet = RegisterManager.RegisterBitSet;
 pub const RegisterClass = struct {
     pub const gp: RegisterBitSet = blk: {
-        var set = RegisterBitSet.initEmpty();
+        var set = RegisterBitSet.empty;
         for (allocatable_regs, 0..) |reg, index| if (reg.isClass(.general_purpose)) set.set(index);
         break :blk set;
     };
     pub const gphi: RegisterBitSet = blk: {
-        var set = RegisterBitSet.initEmpty();
+        var set = RegisterBitSet.empty;
         for (allocatable_regs, 0..) |reg, index| if (reg.isClass(.gphi)) set.set(index);
         break :blk set;
     };
     pub const x87: RegisterBitSet = blk: {
-        var set = RegisterBitSet.initEmpty();
+        var set = RegisterBitSet.empty;
         for (allocatable_regs, 0..) |reg, index| if (reg.isClass(.x87)) set.set(index);
         break :blk set;
     };
     pub const sse: RegisterBitSet = blk: {
-        var set = RegisterBitSet.initEmpty();
+        var set = RegisterBitSet.empty;
         for (allocatable_regs, 0..) |reg, index| if (reg.isClass(.sse)) set.set(index);
         break :blk set;
     };

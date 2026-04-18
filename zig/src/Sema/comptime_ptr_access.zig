@@ -498,8 +498,18 @@ fn loadComptimePtrInner(
         return .{ .success = cur_val };
     }
 
+    var bitcast_src_val = try cur_val.intern(sema.pt, sema.arena);
+
+    if (host_bits != 0) {
+        const src_bit_size = bitcast_src_val.typeOf(zcu).bitSize(zcu);
+        if (src_bit_size > host_bits) {
+            const truncate_ty = try pt.intType(.unsigned, @intCast(host_bits));
+            bitcast_src_val = try pt.getCoerced(bitcast_src_val, truncate_ty);
+        }
+    }
+
     const result_val = try sema.bitCastVal(
-        try cur_val.intern(sema.pt, sema.arena),
+        bitcast_src_val,
         load_ty,
         cur_offset,
         host_bits,

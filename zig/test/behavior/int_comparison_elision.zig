@@ -14,7 +14,6 @@ test "int comparison elision" {
     testIntEdges(i4);
 
     // TODO: support int types > 128 bits wide in other backends
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 

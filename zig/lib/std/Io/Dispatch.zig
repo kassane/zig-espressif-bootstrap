@@ -2512,6 +2512,7 @@ fn dirCreateFile(
             .OPNOTSUPP => return error.FileLocksUnsupported,
             .AGAIN => return error.WouldBlock,
             .TXTBSY => return error.FileBusy,
+            .ROFS => return error.ReadOnlyFileSystem,
             .NXIO => return error.NoDevice,
             .ILSEQ => return error.BadPathName,
             else => |err| return unexpectedErrno(err),
@@ -2647,6 +2648,7 @@ fn dirOpenFile(
             .AGAIN => return error.WouldBlock,
             .TXTBSY => return error.FileBusy,
             .NXIO => return error.NoDevice,
+            .ROFS => return error.ReadOnlyFileSystem,
             .ILSEQ => return error.BadPathName,
             else => |err| return unexpectedErrno(err),
         }

@@ -9,11 +9,11 @@ pub fn main() !void {
 
     const captured_st = try foo(&stdout.interface, &st_buf);
     try std.debug.writeStackTrace(&captured_st, .{ .writer = &stdout.interface, .mode = .no_color });
-    try stdout.interface.print("stack trace index: {d}\n", .{captured_st.index});
+    try stdout.interface.print("stack trace index: {d}\n", .{captured_st.return_addresses.len});
 
     try stdout.interface.flush();
 }
-fn foo(w: *std.Io.Writer, st_buf: []usize) !std.builtin.StackTrace {
+fn foo(w: *std.Io.Writer, st_buf: []usize) !std.debug.StackTrace {
     try std.debug.writeCurrentStackTrace(.{}, .{ .writer = w, .mode = .no_color });
     return std.debug.captureCurrentStackTrace(.{}, st_buf);
 }

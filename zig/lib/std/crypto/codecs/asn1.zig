@@ -73,13 +73,13 @@ pub const Tag = struct {
         const tag1: FirstTag = @bitCast(try reader.takeByte());
         var number: u14 = tag1.number;
 
-        if (tag1.number == 15) {
+        if (tag1.number == 31) {
             const tag2: NextTag = @bitCast(try reader.takeByte());
             number = tag2.number;
             if (tag2.continues) {
                 const tag3: NextTag = @bitCast(try reader.takeByte());
                 number = (number << 7) + tag3.number;
-                if (tag3.continues) return error.InvalidLength;
+                if (tag3.continues) return error.EndOfStream;
             }
         }
 
@@ -183,7 +183,7 @@ pub const Element = struct {
         }
     };
 
-    pub const DecodeError = error{ InvalidLength, EndOfStream };
+    pub const DecodeError = error{EndOfStream};
 
     /// Safely decode a DER/BER/CER element at `index`:
     /// - Ensures length uses shortest form
@@ -192,26 +192,35 @@ pub const Element = struct {
     pub fn decode(bytes: []const u8, index: Index) DecodeError!Element {
         var reader: std.Io.Reader = .fixed(bytes[index..]);
 
-        const tag = try Tag.decode(&reader);
-        const size_or_len_size = try reader.takeByte();
+        const tag = Tag.decode(&reader) catch |err| switch (err) {
+            error.ReadFailed => unreachable, // it's all fixed buffers
+            else => |e| return e,
+        };
+        const size_or_len_size = reader.takeByte() catch |err| switch (err) {
+            error.ReadFailed => unreachable, // it's all fixed buffers
+            else => |e| return e,
+        };
 
-        var start = index + 2;
-        var end = start + size_or_len_size;
-        // short form between 0-127
-        if (size_or_len_size < 128) {
-            if (end > bytes.len) return error.InvalidLength;
-        } else {
+        const len = if (size_or_len_size < 128)
+            // short form between 0-127
+            size_or_len_size
+        else blk: {
             // long form between 0 and std.math.maxInt(u1024)
             const len_size: u7 = @truncate(size_or_len_size);
-            start += len_size;
-            if (len_size > @sizeOf(Index)) return error.InvalidLength;
+            if (len_size > @sizeOf(Index)) return error.EndOfStream;
 
-            const len = try reader.takeVarInt(Index, .big, len_size);
-            if (len < 128) return error.InvalidLength; // should have used short form
+            const len = reader.takeVarInt(Index, .big, len_size) catch |err| switch (err) {
+                error.ReadFailed => unreachable, // it's all fixed buffers
+                else => |e| return e,
+            };
+            if (len < 128) return error.EndOfStream; // should have used short form
 
-            end = std.math.add(Index, start, len) catch return error.InvalidLength;
-            if (end > bytes.len) return error.InvalidLength;
-        }
+            break :blk len;
+        };
+
+        const start = index + @as(Index, @intCast(reader.seek));
+        const end = std.math.add(Index, start, len) catch return error.EndOfStream;
+        if (end > bytes.len) return error.EndOfStream;
 
         return Element{ .tag = tag, .slice = Slice{ .start = start, .end = end } };
     }
@@ -229,6 +238,12 @@ test Element {
         .tag = Tag.universal(.sequence, true),
         .slice = Element.Slice{ .start = 3, .end = long_form.len },
     }, Element.decode(&long_form, 0));
+
+    const multi_byte_tag = [_]u8{ 0x1F, 0x20, 0x08, 0x30, 0x36, 0x3A, 0x32, 0x37, 0x3A, 0x31, 0x35 };
+    try std.testing.expectEqual(Element{
+        .tag = Tag.universal(.time_of_day, false),
+        .slice = Element.Slice{ .start = 3, .end = multi_byte_tag.len },
+    }, Element.decode(&multi_byte_tag, 0));
 }
 
 /// For decoding.

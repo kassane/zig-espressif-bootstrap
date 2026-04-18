@@ -344,7 +344,7 @@ pub const Registers = struct {
 };
 
 fn initRegBitSet(start: usize, length: usize) RegisterBitSet {
-    var set = RegisterBitSet.initEmpty();
+    var set = RegisterBitSet.empty;
     set.setRangeValue(.{
         .start = start,
         .end = start + length,

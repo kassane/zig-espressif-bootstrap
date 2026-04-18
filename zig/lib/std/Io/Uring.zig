@@ -4729,7 +4729,7 @@ fn childWait(userdata: ?*anyopaque, child: *process.Child) process.Child.WaitErr
                 return switch (code) {
                     .EXITED => .{ .exited = @truncate(status) },
                     .KILLED, .DUMPED => .{ .signal = @enumFromInt(status) },
-                    .TRAPPED, .STOPPED => .{ .stopped = status },
+                    .TRAPPED, .STOPPED => .{ .stopped = @enumFromInt(status) },
                     _, .CONTINUED => .{ .unknown = status },
                 };
             },
@@ -4991,6 +4991,7 @@ fn netBindIp(
     var storage: PosixAddress = undefined;
     var addr_len = addressToPosix(address, &storage);
     try ev.bind(&maybe_sync.cancel_region, socket_fd, &storage.any, addr_len);
+    if (options.allow_broadcast) try ev.setsockopt(&maybe_sync.cancel_region, socket_fd, linux.SOL.SOCKET, linux.SO.BROADCAST, 1);
     try ev.getsockname(try maybe_sync.enterSync(ev), socket_fd, &storage.any, &addr_len);
     return .{ .handle = socket_fd, .address = addressFromPosix(&storage) };
 }
@@ -5672,6 +5673,7 @@ fn openat(
             .AGAIN => return error.WouldBlock,
             .TXTBSY => return error.FileBusy,
             .NXIO => return error.NoDevice,
+            .ROFS => return error.ReadOnlyFileSystem,
             .ILSEQ => return error.BadPathName,
             else => |err| return unexpectedErrno(err),
         }

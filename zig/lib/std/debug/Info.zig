@@ -99,6 +99,10 @@ pub fn resolveAddresses(
             // due to split debug information. For now, we'll just resolve the addreses one by one.
             for (sorted_pc_addrs, output) |pc_addr, *src_loc| {
                 const dwarf, const dwarf_pc_addr = mf.getDwarfForAddress(gpa, io, pc_addr) catch |err| switch (err) {
+                    error.MissingDebugInfo => {
+                        src_loc.* = .invalid;
+                        continue;
+                    },
                     error.InvalidMachO, error.InvalidDwarf => return error.InvalidDebugInfo,
                     else => |e| return e,
                 };

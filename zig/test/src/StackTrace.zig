@@ -59,7 +59,7 @@ fn addCaseTarget(
         else => true,
     };
     const both_libc = switch (target.result.os.tag) {
-        .freebsd, .netbsd => false,
+        .freebsd, .netbsd, .openbsd => false,
         else => !target.result.requiresLibC(),
     };
 

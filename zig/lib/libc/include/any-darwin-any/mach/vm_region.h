@@ -50,6 +50,7 @@
 
 #include <sys/cdefs.h>
 
+
 #pragma pack(push, 4)
 
 // LP64todo: all the current tools are 32bit, obviously never worked for 64b
@@ -118,6 +119,13 @@ typedef struct vm_region_basic_info              vm_region_basic_info_data_t;
 #define VM_REGION_BASIC_INFO_COUNT ((mach_msg_type_number_t) \
 	(sizeof(vm_region_basic_info_data_t)/sizeof(int)))
 
+/*
+ * Clients should move away from using these codes for anything other than debugging
+ * or best-effort accounting.
+ * Each value is only loosely defined, and even within those definitions it is not
+ * always possible for the VM to return the correct value. This behavior is also
+ * subject to change as VM internals evolve.
+ */
 #define SM_COW             1
 #define SM_PRIVATE         2
 #define SM_EMPTY           3

@@ -1,10 +1,10 @@
-mutex: Io.Mutex,
+lock: Io.RwLock,
 ntdll_handle: ?if (load_dll_notification_procs) *anyopaque else noreturn,
 notification_cookie: ?LDR.DLL_NOTIFICATION.COOKIE,
 modules: std.ArrayList(Module),
 
 pub const init: SelfInfo = .{
-    .mutex = .init,
+    .lock = .init,
     .ntdll_handle = null,
     .notification_cookie = null,
     .modules = .empty,
@@ -25,18 +25,33 @@ pub fn deinit(si: *SelfInfo, io: Io) void {
     si.modules.deinit(gpa);
 }
 
-pub fn getSymbol(si: *SelfInfo, io: Io, address: usize) Error!std.debug.Symbol {
+pub fn getSymbols(
+    si: *SelfInfo,
+    io: Io,
+    symbol_allocator: Allocator,
+    text_arena: Allocator,
+    address: usize,
+    resolve_inline_callers: bool,
+    symbols: *std.ArrayList(std.debug.Symbol),
+) Error!void {
     const gpa = std.debug.getDebugInfoAllocator();
-    try si.mutex.lock(io);
-    defer si.mutex.unlock(io);
+    try si.lock.lockShared(io);
+    defer si.lock.unlockShared(io);
     const module = try si.findModule(gpa, address);
     const di = try module.getDebugInfo(gpa, io);
-    return di.getSymbol(gpa, address - @intFromPtr(module.entry.DllBase));
+    return di.getSymbols(
+        symbol_allocator,
+        text_arena,
+        address - @intFromPtr(module.entry.DllBase),
+        resolve_inline_callers,
+        symbols,
+    );
 }
+
 pub fn getModuleName(si: *SelfInfo, io: Io, address: usize) Error![]const u8 {
     const gpa = std.debug.getDebugInfoAllocator();
-    try si.mutex.lock(io);
-    defer si.mutex.unlock(io);
+    try si.lock.lockShared(io);
+    defer si.lock.unlockShared(io);
     const module = try si.findModule(gpa, address);
     return module.name orelse {
         const name = try std.unicode.wtf16LeToWtf8Alloc(gpa, module.entry.BaseDllName.slice());
@@ -46,8 +61,8 @@ pub fn getModuleName(si: *SelfInfo, io: Io, address: usize) Error![]const u8 {
 }
 pub fn getModuleSlide(si: *SelfInfo, io: Io, address: usize) Error!usize {
     const gpa = std.debug.getDebugInfoAllocator();
-    try si.mutex.lock(io);
-    defer si.mutex.unlock(io);
+    try si.lock.lockShared(io);
+    defer si.lock.unlockShared(io);
     const module = try si.findModule(gpa, address);
     return module.base_address;
 }
@@ -240,7 +255,14 @@ const Module = struct {
             arena.deinit();
         }
 
-        fn getSymbol(di: *DebugInfo, gpa: Allocator, vaddr: usize) Error!std.debug.Symbol {
+        fn getSymbols(
+            di: *DebugInfo,
+            symbol_allocator: Allocator,
+            text_arena: Allocator,
+            vaddr: usize,
+            resolve_inline_callers: bool,
+            symbols: *std.ArrayList(std.debug.Symbol),
+        ) Error!void {
             pdb: {
                 const pdb = &(di.pdb orelse break :pdb);
                 var coff_section: *align(1) const coff.SectionHeader = undefined;
@@ -270,32 +292,101 @@ const Module = struct {
                 } orelse {
                     return error.InvalidDebugInfo; // bad module index
                 };
-                return .{
-                    .name = pdb.getSymbolName(module, vaddr - coff_section.virtual_address),
-                    .compile_unit_name = fs.path.basename(module.obj_file_name),
-                    .source_location = pdb.getLineNumberInfo(
-                        module,
-                        vaddr - coff_section.virtual_address,
-                    ) catch null,
-                };
+
+                const addr = vaddr - coff_section.virtual_address;
+                const maybe_proc = pdb.getProcSym(module, addr);
+                const compile_unit_name = fs.path.basename(module.obj_file_name);
+                const symbols_top = symbols.items.len;
+                if (maybe_proc) |proc| {
+                    const offset_in_func = addr - proc.code_offset;
+                    var last_inlinee: ?u32 = null;
+                    var iter = pdb.getInlinees(module, proc);
+                    while (iter.next(module)) |inline_site| {
+                        // Filter out duplicate inline sites. Tools like llvm-addr2line output
+                        // duplicate sites in the same cases as us if we elide this check,
+                        // implying that they exist in the underlying data and are not indicative
+                        // of a parser bug. No useful information is lost here since an inline site
+                        // can't actually reference itself.
+                        if (inline_site.inlinee == last_inlinee) continue;
+
+                        // If our address points into this site, get the source location(s) it
+                        // points at
+                        for (pdb.getInlineeSourceLines(
+                            module,
+                            inline_site.inlinee,
+                        )) |inlinee_src_line| {
+                            const maybe_loc = pdb.getInlineSiteSourceLocation(
+                                text_arena,
+                                module,
+                                inline_site,
+                                inlinee_src_line.info,
+                                offset_in_func,
+                            ) catch continue;
+                            const loc = maybe_loc orelse continue;
+
+                            // If we aren't trying to resolve inline callers, and we've matched a
+                            // new inline site, we want to overwrite the previously appended
+                            // results.
+                            if (!resolve_inline_callers and inline_site.inlinee != last_inlinee) {
+                                symbols.items.len = symbols_top;
+                            }
+
+                            // Only resolve the name if we're resolving inline callers, otherwise
+                            // wait until we're done to avoid duplicated work.
+                            const name = if (resolve_inline_callers)
+                                pdb.findInlineeName(inline_site.inlinee)
+                            else
+                                null;
+
+                            try symbols.append(symbol_allocator, .{
+                                .name = name,
+                                .compile_unit_name = compile_unit_name,
+                                .source_location = loc,
+                            });
+
+                            last_inlinee = inline_site.inlinee;
+                        }
+                    }
+
+                    if (resolve_inline_callers) {
+                        // Inline sites are stored in the pdb in reverse order, so we reverse the
+                        // matching sites here. We could alternatively use the parent fields to
+                        // determine the order, but this would introduce seemingly unecessary
+                        // complexity.
+                        std.mem.reverse(std.debug.Symbol, symbols.items);
+                    } else if (last_inlinee) |inlinee| {
+                        // If we aren't resolving inline callers, then all results will have the
+                        // same inline site, and we resolve its name once at the end.
+                        const name = pdb.findInlineeName(inlinee);
+                        for (symbols.items) |*symbol| symbol.name = name;
+                    }
+                }
+
+                // If there's room for another symbol, add the actual proc
+                if (resolve_inline_callers or symbols.items.len == 0) {
+                    try symbols.append(symbol_allocator, .{
+                        .name = if (maybe_proc) |proc| pdb.getSymbolName(proc) else null,
+                        .compile_unit_name = compile_unit_name,
+                        .source_location = pdb.getLineNumberInfo(text_arena, module, addr) catch null,
+                    });
+                }
+
+                return;
             }
+
             dwarf: {
                 const dwarf = &(di.dwarf orelse break :dwarf);
-                const dwarf_address = vaddr + di.coff_image_base;
-                return dwarf.getSymbol(gpa, native_endian, dwarf_address) catch |err| switch (err) {
-                    error.MissingDebugInfo => break :dwarf,
-
-                    error.InvalidDebugInfo,
-                    error.OutOfMemory,
-                    => |e| return e,
-
-                    error.ReadFailed,
-                    error.EndOfStream,
-                    error.Overflow,
-                    error.StreamTooLong,
-                    => return error.InvalidDebugInfo,
-                };
+                const addr = vaddr + di.coff_image_base;
+                return dwarf.getSymbols(
+                    symbol_allocator,
+                    text_arena,
+                    native_endian,
+                    addr,
+                    resolve_inline_callers,
+                    symbols,
+                );
             }
+
             return error.MissingDebugInfo;
         }
     };
@@ -360,6 +451,7 @@ const Module = struct {
                 error.SystemFdQuotaExceeded,
                 error.FileLocksUnsupported,
                 error.FileBusy,
+                error.ReadOnlyFileSystem,
                 => return error.ReadFailed,
             };
             errdefer coff_file.close(io);
@@ -504,6 +596,16 @@ const Module = struct {
                 error.ReadFailed,
                 => |e| return e,
             };
+            pdb.parseIpiStream() catch |err| switch (err) {
+                error.UnknownPDBVersion => return error.UnsupportedDebugInfo,
+
+                error.EndOfStream,
+                => return error.InvalidDebugInfo,
+
+                error.OutOfMemory,
+                error.ReadFailed,
+                => |e| return e,
+            };
 
             if (!std.mem.eql(u8, &coff_obj.guid, &pdb.guid) or coff_obj.age != pdb.age)
                 return error.InvalidDebugInfo;
@@ -530,7 +632,7 @@ const Module = struct {
     }
 };
 
-/// Assumes we already hold `si.mutex`.
+/// Assumes we already hold `si.lock`.
 fn findModule(si: *SelfInfo, gpa: Allocator, address: usize) error{ MissingDebugInfo, OutOfMemory, Unexpected }!*Module {
     for (si.modules.items) |*mod| {
         const base = @intFromPtr(mod.entry.DllBase);
@@ -600,8 +702,8 @@ fn dllNotification(
         .LOADED => {},
         .UNLOADED => {
             const io = std.Options.debug_io;
-            si.mutex.lockUncancelable(io);
-            defer si.mutex.unlock(io);
+            si.lock.lockUncancelable(io);
+            defer si.lock.unlock(io);
             for (si.modules.items, 0..) |*mod, mod_index| {
                 if (mod.entry.DllBase != data.Unloaded.DllBase) continue;
                 mod.deinit(std.debug.getDebugInfoAllocator(), io);

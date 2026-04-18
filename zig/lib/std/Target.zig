@@ -53,6 +53,7 @@ pub const Os = struct {
         ps3,
         ps4,
         ps5,
+        psp,
         vita,
 
         emscripten,
@@ -194,6 +195,7 @@ pub const Os = struct {
 
                 .@"3ds",
 
+                .psp,
                 .vita,
 
                 .wasi,
@@ -612,6 +614,15 @@ pub const Os = struct {
                     },
                 },
 
+                .psp => .{
+                    .semver = .{
+                        // https://www.psdevwiki.com/psp/Official_Firmware_(OFW)#1.XX_Kernel
+                        // It appears that the kernel started with semver for 1.XX before later changing to MAJ.MINPATCH in later releases (e.g. 3.60, 6.61)
+                        .min = .{ .major = 1, .minor = 0, .patch = 3 },
+                        .max = .{ .major = 6, .minor = 61, .patch = 0 },
+                    },
+                },
+
                 .vita => .{
                     .semver = .{
                         // 1.3 is the first public release
@@ -901,6 +912,7 @@ pub const Abi = enum {
             .windows => .gnu,
             .uefi => .msvc,
             .@"3ds" => .eabihf,
+            .psp => .eabihf,
             .vita => .eabihf,
             .wasi, .emscripten => .musl,
 
@@ -2023,7 +2035,11 @@ pub const Cpu = struct {
                 .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
                 .loongarch64 => &loongarch.cpu.la64v1_0,
                 .m68k => &m68k.cpu.M68000,
-                .mips, .mipsel => &mips.cpu.mips32r2,
+                .mips => &mips.cpu.mips32r2,
+                .mipsel => switch (os.tag) {
+                    .psp => &mips.cpu.allegrex,
+                    else => &mips.cpu.mips32r2,
+                },
                 .mips64, .mips64el => &mips.cpu.mips64r2,
                 .msp430 => &msp430.cpu.msp430,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_52,
@@ -2180,7 +2196,6 @@ pub fn requiresLibC(target: *const Target) bool {
         .watchos,
         .visionos,
         .dragonfly,
-        .openbsd,
         .haiku,
         .serenity,
         => true,
@@ -2194,6 +2209,7 @@ pub fn requiresLibC(target: *const Target) bool {
         .windows,
         .freebsd,
         .netbsd,
+        .openbsd,
         .freestanding,
         .fuchsia,
         .managarm,
@@ -2204,6 +2220,7 @@ pub fn requiresLibC(target: *const Target) bool {
         .amdhsa,
         .ps4,
         .ps5,
+        .psp,
         .vita,
         .mesa3d,
         .contiki,
@@ -2379,6 +2396,7 @@ pub const DynamicLinker = struct {
             .ps3,
             .ps4,
             .ps5,
+            .psp,
             .vita,
             => .none,
         };
@@ -2783,6 +2801,7 @@ pub const DynamicLinker = struct {
 
             .@"3ds",
 
+            .psp,
             .vita,
 
             .emscripten,
@@ -3338,7 +3357,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
             .longlong, .ulonglong, .double => return 64,
             .longdouble => return 80,
         },
-        .vita => switch (c_type) {
+        .psp, .vita => switch (c_type) {
             .char => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,

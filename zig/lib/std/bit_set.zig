@@ -68,15 +68,23 @@ pub fn IntegerBitSet(comptime size: u16) type {
         /// The bit mask, as a single integer
         mask: MaskInt,
 
+        /// Deprecated: use `.empty`.
         /// Creates a bit set with no elements present.
         pub fn initEmpty() Self {
             return .{ .mask = 0 };
         }
 
+        /// Deprecated: use `.full`.
         /// Creates a bit set with all elements present.
         pub fn initFull() Self {
             return .{ .mask = ~@as(MaskInt, 0) };
         }
+
+        /// A bit set with no elements present.
+        pub const empty: Self = .{ .mask = 0 };
+
+        /// A bit set with all elements present.
+        pub const full: Self = .{ .mask = ~@as(MaskInt, 0) };
 
         /// Returns the number of bits in this bit set
         pub inline fn capacity(self: Self) usize {
@@ -387,11 +395,13 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// Padding bits at the end are undefined.
         masks: [num_masks]MaskInt,
 
+        /// Deprecated: use `.empty`.
         /// Creates a bit set with no elements present.
         pub fn initEmpty() Self {
             return .{ .masks = [_]MaskInt{0} ** num_masks };
         }
 
+        /// Deprecated: use `.full`.
         /// Creates a bit set with all elements present.
         pub fn initFull() Self {
             if (num_masks == 0) {
@@ -400,6 +410,12 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
                 return .{ .masks = [_]MaskInt{~@as(MaskInt, 0)} ** (num_masks - 1) ++ [_]MaskInt{last_item_mask} };
             }
         }
+
+        /// A bit set with no elements present.
+        pub const empty: Self = .{ .masks = @splat(0) };
+
+        /// A bit set with all elements present.
+        pub const full: Self = .{ .masks = if (num_masks == 0) .{} else ([_]MaskInt{~@as(MaskInt, 0)} ** (num_masks - 1) ++ [_]MaskInt{last_item_mask}) };
 
         /// Returns the number of bits in this bit set
         pub inline fn capacity(self: Self) usize {
@@ -1633,17 +1649,17 @@ fn fillOdd(set: anytype, len: usize) void {
 }
 
 fn testPureBitSet(comptime Set: type) !void {
-    const empty = Set.initEmpty();
-    const full = Set.initFull();
+    const empty = Set.empty;
+    const full = Set.full;
 
     const even = even: {
-        var bit_set = Set.initEmpty();
+        var bit_set = Set.empty;
         fillEven(&bit_set, Set.bit_length);
         break :even bit_set;
     };
 
     const odd = odd: {
-        var bit_set = Set.initEmpty();
+        var bit_set = Set.empty;
         fillOdd(&bit_set, Set.bit_length);
         break :odd bit_set;
     };
@@ -1686,8 +1702,8 @@ fn testPureBitSet(comptime Set: type) !void {
 }
 
 fn testStaticBitSet(comptime Set: type) !void {
-    var a = Set.initEmpty();
-    var b = Set.initFull();
+    var a = Set.empty;
+    var b = Set.full;
     try testing.expectEqual(@as(usize, 0), a.count());
     try testing.expectEqual(@as(usize, Set.bit_length), b.count());
 

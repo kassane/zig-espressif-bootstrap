@@ -101,7 +101,7 @@ test "simple variadic function" {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
     }
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
     if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
     if (builtin.cpu.arch.isRISCV() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25064
@@ -163,7 +163,7 @@ test "coerce reference to var arg" {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
     }
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
 
     const S = struct {
@@ -195,7 +195,7 @@ test "variadic functions" {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
     }
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
     if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
     if (builtin.cpu.arch.isRISCV() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25064
@@ -248,7 +248,7 @@ test "copy VaList" {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
     }
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
     if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
     if (builtin.cpu.arch.isRISCV() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25064
@@ -283,7 +283,7 @@ test "unused VaList arg" {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
     }
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) {
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows and builtin.zig_backend == .stage2_llvm) {
         // https://github.com/ziglang/zig/issues/16961
         return error.SkipZigTest; // TODO
     }
@@ -304,4 +304,52 @@ test "unused VaList arg" {
     };
     const x = S.thirdArg(0, @as(c_int, 1), @as(c_int, 2));
     try std.testing.expectEqual(@as(c_int, 2), x);
+}
+
+test "floating point VaList args" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/16961
+
+    // Float register arguments are handled specially on cc == .x86_64_win, so it's important that we test all 4 slots,
+    // and pre-C23 doesn't allow a variadic function without at least one non-variadic argument.
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    const S = struct {
+        fn proxy(...) callconv(.c) void {
+            var ap = @cVaStart();
+            defer @cVaEnd(&ap);
+
+            var out_f32: [3]f32 = undefined;
+            var out_f64: [3]f64 = undefined;
+            out_f32[0] = @cVaArg(&ap, f32);
+            out_f64[0] = @cVaArg(&ap, f64);
+            out_f32[1] = @cVaArg(&ap, f32);
+            out_f64[1] = @cVaArg(&ap, f64);
+            out_f32[2] = @cVaArg(&ap, f32);
+            out_f64[2] = @cVaArg(&ap, f64);
+            @cVaArg(&ap, *[3]f32).* = out_f32;
+            @cVaArg(&ap, *[3]f64).* = out_f64;
+        }
+    };
+
+    const expected_f32: []const f32 = &.{ 1000, std.math.floatMax(f32), std.math.floatMin(f32) };
+    const expected_f64: []const f64 = &.{ 2000, std.math.floatMax(f64), std.math.floatMin(f64) };
+    var actual_f32: [3]f32 = undefined;
+    var actual_f64: [3]f64 = undefined;
+    S.proxy(
+        expected_f32[0],
+        expected_f64[0],
+        expected_f32[1],
+        expected_f64[1],
+        expected_f32[2],
+        expected_f64[2],
+        &actual_f32,
+        &actual_f64,
+    );
+
+    try std.testing.expectEqualSlices(f32, expected_f32, &actual_f32);
+    try std.testing.expectEqualSlices(f64, expected_f64, &actual_f64);
 }

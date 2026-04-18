@@ -6439,7 +6439,7 @@ static inline SIMD_CFUNC simd_double4 __tg_fdim(simd_double4 x, simd_double4 y) 
 static inline SIMD_CFUNC simd_double8 __tg_fdim(simd_double8 x, simd_double8 y) { return simd_bitselect(x-y, 0, x<y); }
  
 static inline SIMD_CFUNC simd_float2 __tg_fma(simd_float2 x, simd_float2 y, simd_float2 z) {
-#if defined __arm64__ || defined __aarch64__ || defined __ARM_VFPV4__
+#if defined __arm64__ || defined __aarch64__ || defined __ARM_NEON
   return vfma_f32(z, x, y);
 #else
   return simd_make_float2(__tg_fma(simd_make_float4_undef(x), simd_make_float4_undef(y), simd_make_float4_undef(z)));
@@ -6454,7 +6454,7 @@ static inline SIMD_CFUNC simd_float3 __tg_fma(simd_float3 x, simd_float3 y, simd
 extern simd_float4 _simd_fma_f4(simd_float4 x, simd_float4 y, simd_float4 z);
 #endif
 static inline SIMD_CFUNC simd_float4 __tg_fma(simd_float4 x, simd_float4 y, simd_float4 z) {
-#if defined __arm64__ || defined __aarch64__ || defined __ARM_VFPV4__
+#if defined __arm64__ || defined __aarch64__ || defined __ARM_NEON
   return vfmaq_f32(z, x, y);
 #elif (defined __i386__ || defined __x86_64__) && defined __FMA__
   return _mm_fmadd_ps(x, y, z);

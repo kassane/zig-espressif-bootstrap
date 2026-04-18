@@ -23,7 +23,7 @@ to find and inspect the patch diffs.
  * LLVM, LLD, Clang 21.1.0 ([espressif fork](https://github.com/espressif/llvm-project))
  * zlib 1.3.1
  * zstd 1.5.2
- * zig 0.16.0-dev
+ * zig 0.16.0
 
 For other versions, check the git tags of this repository.
 

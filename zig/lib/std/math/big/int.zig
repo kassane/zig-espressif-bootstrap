@@ -628,12 +628,12 @@ pub const Mutable = struct {
 
         // Slice of the upper bits if they exist, these will be ignored and allows us to use addCarry to determine
         // if an overflow occurred.
-        const x = Const{
+        const x: Const = .{
             .positive = a.positive,
             .limbs = a.limbs[0..@min(req_limbs, a.limbs.len)],
         };
 
-        const y = Const{
+        const y: Const = .{
             .positive = b.positive,
             .limbs = b.limbs[0..@min(req_limbs, b.limbs.len)],
         };
@@ -647,9 +647,8 @@ pub const Mutable = struct {
             //   Note: after this we still might need to wrap.
             const msl = @max(a.limbs.len, b.limbs.len);
             if (msl < req_limbs) {
+                r.len = msl + 1;
                 r.limbs[msl] = 1;
-                r.len = req_limbs;
-                @memset(r.limbs[msl + 1 .. req_limbs], 0);
             } else {
                 carry_truncated = true;
             }
@@ -673,12 +672,12 @@ pub const Mutable = struct {
 
         // Slice of the upper bits if they exist, these will be ignored and allows us to use addCarry to determine
         // if an overflow occurred.
-        const x = Const{
+        const x: Const = .{
             .positive = a.positive,
             .limbs = a.limbs[0..@min(req_limbs, a.limbs.len)],
         };
 
-        const y = Const{
+        const y: Const = .{
             .positive = b.positive,
             .limbs = b.limbs[0..@min(req_limbs, b.limbs.len)],
         };
@@ -690,12 +689,12 @@ pub const Mutable = struct {
             //   Note: In this case, might _also_ need to saturate.
             const msl = @max(a.limbs.len, b.limbs.len);
             if (msl < req_limbs) {
+                r.len = msl + 1;
                 r.limbs[msl] = 1;
-                r.len = req_limbs;
                 // Note: Saturation may still be required if msl == req_limbs - 1
             } else {
                 // Overflowed req_limbs, definitely saturate.
-                r.setTwosCompIntLimit(if (r.positive) .max else .min, signedness, bit_count);
+                return r.setTwosCompIntLimit(if (r.positive) .max else .min, signedness, bit_count);
             }
         }
 
@@ -1374,7 +1373,7 @@ pub const Mutable = struct {
     /// r is `calcTwosCompLimbCount(bit_count)`.
     pub fn bitNotWrap(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
         r.copy(a.negate());
-        const negative_one = Const{ .limbs = &.{1}, .positive = false };
+        const negative_one: Const = .{ .limbs = &.{1}, .positive = false };
         _ = r.addWrap(r.toConst(), negative_one, signedness, bit_count);
     }
 
@@ -1740,13 +1739,13 @@ pub const Mutable = struct {
             r.positive = r_positive;
         } else {
             // Shrink x, y such that the trailing zero limbs shared between are removed.
-            var x0 = Mutable{
+            var x0: Mutable = .{
                 .limbs = x.limbs[xy_trailing..],
                 .len = x.len - xy_trailing,
                 .positive = true,
             };
 
-            var y0 = Mutable{
+            var y0: Mutable = .{
                 .limbs = y.limbs[xy_trailing..],
                 .len = y.len - xy_trailing,
                 .positive = true,
@@ -1809,7 +1808,7 @@ pub const Mutable = struct {
             // x >= y * b^(n - t) can be replaced by x/b^(n - t) >= y.
 
             // 'divide' x by b^(n - t)
-            var tmp = Mutable{
+            var tmp: Mutable = .{
                 .limbs = x.limbs[shift..],
                 .len = x.len - shift,
                 .positive = true,
@@ -2108,7 +2107,7 @@ pub const Const = struct {
     pub fn toManaged(self: Const, allocator: Allocator) Allocator.Error!Managed {
         const limbs = try allocator.alloc(Limb, @max(Managed.default_capacity, self.limbs.len));
         @memcpy(limbs[0..self.limbs.len], self.limbs);
-        return Managed{
+        return .{
             .allocator = allocator,
             .limbs = limbs,
             .metadata = if (self.positive)
@@ -2802,7 +2801,7 @@ pub const Managed = struct {
     /// default capacity will be used instead.
     /// The integer value after initializing is `0`.
     pub fn initCapacity(allocator: Allocator, capacity: usize) !Managed {
-        return Managed{
+        return .{
             .allocator = allocator,
             .metadata = 1,
             .limbs = block: {
@@ -2868,7 +2867,7 @@ pub const Managed = struct {
     }
 
     pub fn cloneWithDifferentAllocator(other: Managed, allocator: Allocator) !Managed {
-        return Managed{
+        return .{
             .allocator = allocator,
             .metadata = other.metadata,
             .limbs = block: {
@@ -3454,7 +3453,7 @@ pub const Managed = struct {
             const tmp = try rma.allocator.alloc(Limb, a_len);
             defer rma.allocator.free(tmp);
             @memcpy(tmp[0..a_len], a.limbs[0..a_len]);
-            const a_const = Const{ .limbs = tmp[0..a_len], .positive = a.isPositive() };
+            const a_const: Const = .{ .limbs = tmp[0..a_len], .positive = a.isPositive() };
             var rma_mut = rma.toMutable();
             rma_mut.sqrNoAlias(a_const, rma.allocator);
             rma.setMetadata(rma_mut.positive, rma_mut.len);
@@ -3479,7 +3478,7 @@ pub const Managed = struct {
             const tmp = try rma.allocator.alloc(Limb, a_len);
             defer rma.allocator.free(tmp);
             @memcpy(tmp[0..a_len], a.limbs[0..a_len]);
-            const a_const = Const{ .limbs = tmp[0..a_len], .positive = a.isPositive() };
+            const a_const: Const = .{ .limbs = tmp[0..a_len], .positive = a.isPositive() };
             var rma_mut = rma.toMutable();
             rma_mut.pow(a_const, b, limbs_buffer);
             rma.setMetadata(rma_mut.positive, rma_mut.len);

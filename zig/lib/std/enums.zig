@@ -252,7 +252,7 @@ pub fn EnumSet(comptime E: type) type {
         /// The maximum number of items in this set.
         pub const len = Indexer.count;
 
-        bits: BitSet = BitSet.initEmpty(),
+        bits: BitSet = .empty,
 
         /// Initializes the set using a struct of bools
         pub fn init(init_values: EnumFieldStruct(E, bool, false)) Self {
@@ -278,19 +278,27 @@ pub fn EnumSet(comptime E: type) type {
             return result;
         }
 
+        /// A set containing no keys.
+        pub const empty: Self = .{ .bits = .empty };
+
+        /// A set containing all possible keys.
+        pub const full: Self = .{ .bits = .full };
+
+        /// Deprecated: use `.empty`.
         /// Returns a set containing no keys.
         pub fn initEmpty() Self {
-            return .{ .bits = BitSet.initEmpty() };
+            return .empty;
         }
 
+        /// Deprecated: use `.full`.
         /// Returns a set containing all possible keys.
         pub fn initFull() Self {
-            return .{ .bits = BitSet.initFull() };
+            return .full;
         }
 
         /// Returns a set containing multiple keys.
         pub fn initMany(keys: []const Key) Self {
-            var set = initEmpty();
+            var set: Self = .empty;
             for (keys) |key| set.insert(key);
             return set;
         }
@@ -440,7 +448,7 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         const BitSet = std.StaticBitSet(Indexer.count);
 
         /// Bits determining whether items are in the map
-        bits: BitSet = BitSet.initEmpty(),
+        bits: BitSet = .empty,
         /// Values of items in the map.  If the associated
         /// bit is zero, the value is undefined.
         values: [Indexer.count]Value = undefined,
@@ -475,7 +483,7 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         /// Consider using EnumArray instead if the map will remain full.
         pub fn initFull(value: Value) Self {
             var result: Self = .{
-                .bits = Self.BitSet.initFull(),
+                .bits = .full,
                 .values = undefined,
             };
             @memset(&result.values, value);
@@ -493,7 +501,7 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         pub fn initFullWithDefault(comptime default: ?Value, init_values: EnumFieldStruct(E, Value, default)) Self {
             @setEvalBranchQuota(2 * @typeInfo(E).@"enum".fields.len);
             var result: Self = .{
-                .bits = Self.BitSet.initFull(),
+                .bits = .full,
                 .values = undefined,
             };
             inline for (0..Self.len) |i| {
@@ -687,16 +695,14 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
             return self;
         }
 
-        /// Initializes the multiset with a count of zero.
-        pub fn initEmpty() Self {
-            return initWithCount(0);
-        }
+        /// A multiset with a count of zero.
+        pub const empty: Self = .initWithCount(0);
 
         /// Initializes the multiset with all keys at the
         /// same count.
         pub fn initWithCount(comptime c: CountSize) Self {
             return .{
-                .counts = EnumArray(E, CountSize).initDefault(c, .{}),
+                .counts = .initDefault(c, .{}),
             };
         }
 
@@ -855,7 +861,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
 test EnumMultiset {
     const Ball = enum { red, green, blue };
 
-    const empty = EnumMultiset(Ball).initEmpty();
+    const empty = EnumMultiset(Ball).empty;
     const r0_g1_b2 = EnumMultiset(Ball).init(.{
         .red = 0,
         .green = 1,
@@ -1162,8 +1168,8 @@ pub fn EnumArray(comptime E: type, comptime V: type) type {
 test "pure EnumSet fns" {
     const Suit = enum { spades, hearts, clubs, diamonds };
 
-    const empty = EnumSet(Suit).initEmpty();
-    const full = EnumSet(Suit).initFull();
+    const empty = EnumSet(Suit).empty;
+    const full = EnumSet(Suit).full;
     const black = EnumSet(Suit).initMany(&[_]Suit{ .spades, .clubs });
     const red = EnumSet(Suit).initMany(&[_]Suit{ .hearts, .diamonds });
 
@@ -1224,8 +1230,8 @@ test "pure EnumSet fns" {
 
 test "EnumSet empty" {
     const E = enum {};
-    const empty = EnumSet(E).initEmpty();
-    const full = EnumSet(E).initFull();
+    const empty = EnumSet(E).empty;
+    const full = EnumSet(E).full;
 
     try std.testing.expect(empty.eql(full));
     try std.testing.expect(empty.complement().eql(full));
@@ -1236,13 +1242,13 @@ test "EnumSet empty" {
 test "EnumSet const iterator" {
     const Direction = enum { up, down, left, right };
     const diag_move = init: {
-        var move = EnumSet(Direction).initEmpty();
+        var move = EnumSet(Direction).empty;
         move.insert(.right);
         move.insert(.up);
         break :init move;
     };
 
-    var result = EnumSet(Direction).initEmpty();
+    var result = EnumSet(Direction).empty;
     var it = diag_move.iterator();
     while (it.next()) |dir| {
         result.insert(dir);

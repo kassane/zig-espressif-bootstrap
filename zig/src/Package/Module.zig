@@ -168,7 +168,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     };
 
     const pic = b: {
-        if (target_util.requiresPIC(target, options.global.link_libc)) {
+        if (target_util.requiresPic(target, options.global.link_libc)) {
             if (options.inherited.pic == false)
                 return error.TargetRequiresPic;
             break :b true;
@@ -185,7 +185,11 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         }
         if (options.inherited.pic) |x| break :b x;
         if (options.parent) |p| break :b p.pic;
-        break :b false;
+
+        // Default to PIC on targets where we default to producing PIEs to make
+        // the common case of linking objects and static libraries into an
+        // executable work out of the box.
+        break :b target_util.defaultPie(target);
     };
 
     const red_zone = b: {

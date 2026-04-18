@@ -79,9 +79,9 @@ pub const expected_integer_constant_expr: Diagnostic = .{
 };
 
 pub const missing_type_specifier: Diagnostic = .{
-    .fmt = "type specifier missing, defaults to 'int'",
+    .fmt = "type specifier missing, defaults to 'int'; ISO C99 and later do not support implicit int",
     .opt = .@"implicit-int",
-    .kind = .warning,
+    .kind = .@"error",
 };
 
 pub const missing_type_specifier_c23: Diagnostic = .{
@@ -90,9 +90,9 @@ pub const missing_type_specifier_c23: Diagnostic = .{
 };
 
 pub const param_not_declared: Diagnostic = .{
-    .fmt = "parameter '{s}' was not declared, defaults to 'int'",
+    .fmt = "parameter '{s}' was not declared, defaults to 'int'; ISO C99 and later do not support implicit int",
     .opt = .@"implicit-int",
-    .kind = .warning,
+    .kind = .@"error",
     .extension = true,
 };
 
@@ -216,8 +216,13 @@ pub const illegal_storage_on_func: Diagnostic = .{
     .kind = .@"error",
 };
 
-pub const illegal_storage_on_global: Diagnostic = .{
-    .fmt = "illegal storage class on global variable",
+pub const auto_on_global: Diagnostic = .{
+    .fmt = "'auto' specified on global variable",
+    .kind = .@"error",
+};
+
+pub const register_on_global: Diagnostic = .{
+    .fmt = "register name not specified for global variable",
     .kind = .@"error",
 };
 
@@ -1507,13 +1512,38 @@ pub const builtin_must_be_called: Diagnostic = .{
     .kind = .@"error",
 };
 
-pub const va_start_not_in_func: Diagnostic = .{
-    .fmt = "'va_start' cannot be used outside a function",
+pub const va_func_not_in_func: Diagnostic = .{
+    .fmt = "'{s}' cannot be used outside a function",
     .kind = .@"error",
 };
 
-pub const va_start_fixed_args: Diagnostic = .{
-    .fmt = "'va_start' used in a function with fixed args",
+pub const va_func_fixed_args: Diagnostic = .{
+    .fmt = "'{s}' used in a function with fixed args",
+    .kind = .@"error",
+};
+
+pub const va_func_not_always_inline: Diagnostic = .{
+    .fmt = "'{s}' used in a function that is not always inlined",
+    .kind = .@"error",
+};
+
+pub const va_pack_non_call: Diagnostic = .{
+    .fmt = "'__va_arg_pack' used outside a call",
+    .kind = .@"error",
+};
+
+pub const va_pack_non_variadic_call: Diagnostic = .{
+    .fmt = "'__va_arg_pack' passed to non-variadic function",
+    .kind = .@"error",
+};
+
+pub const va_pack_non_variadic_arg: Diagnostic = .{
+    .fmt = "'__va_arg_pack' passed as non-variadic argument",
+    .kind = .@"error",
+};
+
+pub const va_pack_non_final_arg: Diagnostic = .{
+    .fmt = "'__va_arg_pack' is not the final argument",
     .kind = .@"error",
 };
 
@@ -2258,11 +2288,11 @@ pub const unterminated_char_literal_error: Diagnostic = .{
     .kind = .@"error",
 };
 
-// pub const def_no_proto_deprecated: Diagnostic = .{
-//     .fmt = "a function definition without a prototype is deprecated in all versions of C and is not supported in C23",
-//     .kind = .warning,
-//     .opt = .@"deprecated-non-prototype",
-// };
+pub const def_no_proto_deprecated: Diagnostic = .{
+    .fmt = "a function definition without a prototype is deprecated in all versions of C and is not supported in C23",
+    .kind = .warning,
+    .opt = .@"deprecated-non-prototype",
+};
 
 pub const passing_args_to_kr: Diagnostic = .{
     .fmt = "passing arguments to a function without a prototype is deprecated in all versions of C and is not supported in C23",
@@ -2293,6 +2323,11 @@ pub const u8_char_lit: Diagnostic = .{
 
 pub const invalid_compound_literal_storage_class: Diagnostic = .{
     .fmt = "compound literal cannot have {s} storage class",
+    .kind = .@"error",
+};
+
+pub const register_on_global_compound_literal: Diagnostic = .{
+    .fmt = "file scope compound literal specifies 'register'",
     .kind = .@"error",
 };
 
@@ -2465,10 +2500,9 @@ pub const declared_const_here: Diagnostic = .{
     .kind = .note,
 };
 
-pub const nonnull_not_applicable: Diagnostic = .{
-    .fmt = "'nonnull' attribute only applies to functions, methods, and parameters",
-    .kind = .warning,
-    .opt = .@"ignored-attributes",
+pub const pointer_bounds_declared_here: Diagnostic = .{
+    .fmt = "pointer '{s}' declared {s} here",
+    .kind = .note,
 };
 
 pub const mixing_decimal_floats: Diagnostic = .{
@@ -2478,5 +2512,31 @@ pub const mixing_decimal_floats: Diagnostic = .{
 
 pub const invalid_attribute_location: Diagnostic = .{
     .fmt = "{s} cannot appear here",
+    .kind = .@"error",
+};
+
+pub const attribute_requires_pointer: Diagnostic = .{
+    .fmt = "'{s}' attribute only applies to pointer arguments",
+    .kind = .@"error",
+};
+
+pub const single_requires_zero_index: Diagnostic = .{
+    .fmt = "array subscript on single pointer must use a constant index of 0 to be in bounds",
+    .kind = .@"error",
+};
+
+pub const pointer_arith_single: Diagnostic = .{
+    .fmt = "pointer arithmetic on single pointer is out of bounds; consider adding '__counted_by'",
+    .kind = .@"error",
+};
+
+pub const redundant_bounds_annotation: Diagnostic = .{
+    .fmt = "pointer annotated with {s} multiple times. Annotate only once to remove this warning",
+    .kind = .warning,
+    .opt = .@"bounds-attributes-redundant",
+};
+
+pub const multiple_bounds_annotations: Diagnostic = .{
+    .fmt = "pointer cannot have more than one bound attribute",
     .kind = .@"error",
 };

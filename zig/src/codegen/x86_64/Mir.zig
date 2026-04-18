@@ -1371,7 +1371,7 @@ pub const Inst = struct {
         /// Register, memory, register operands.
         /// Uses `rrx` payload with extra data of type `Memory`.
         rmr,
-        /// Register, memory, immediate (word) operands.
+        /// Register, memory, immediate (signed word) operands.
         /// Uses `rix` payload with extra data of type `Memory`.
         rmi,
         /// Register, memory, immediate (signed) operands.
@@ -1404,7 +1404,7 @@ pub const Inst = struct {
         /// Memory, register, register operands.
         /// Uses `rrx` payload with extra data of type `Memory`.
         mrr,
-        /// Memory, register, immediate (word) operands.
+        /// Memory, register, immediate (signed word) operands.
         /// Uses `rix` payload with extra data of type `Memory`.
         mri,
         /// References another Mir instruction directly.
@@ -1685,7 +1685,7 @@ pub const Inst = struct {
         rix: struct {
             fixes: Fixes = ._,
             r1: Register,
-            i: u16,
+            i: i16,
             payload: u32,
         },
         /// Register, register, byte immediate, followed by Custom payload found in extra.
@@ -1780,7 +1780,7 @@ pub const RegisterList = struct {
     const BitSet = std.bit_set.IntegerBitSet(32);
     const Self = @This();
 
-    pub const empty: RegisterList = .{ .bitset = .initEmpty() };
+    pub const empty: RegisterList = .{ .bitset = .empty };
 
     fn getIndexForReg(registers: []const Register, reg: Register) BitSet.MaskInt {
         for (registers, 0..) |cpreg, i| {

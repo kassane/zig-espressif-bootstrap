@@ -65,10 +65,7 @@ const templates = [_]Template{
     .{ "CAST_OR_CALL(X, Y) ((X)(Y))", .CAST_OR_CALL },
 
     .{
-        \\wl_container_of(ptr, sample, member)                     \
-        \\(__typeof__(sample))((char *)(ptr) -                     \
-        \\     offsetof(__typeof__(*sample), member))
-        ,
+        "wl_container_of(ptr, sample, member) (__typeof__(sample))((char *)(ptr) - offsetof(__typeof__(*sample), member))",
         .WL_CONTAINER_OF,
     },
 
@@ -267,11 +264,6 @@ test "Macro matching" {
     try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## LL)", .LL_SUFFIX);
     try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## UL)", .UL_SUFFIX);
     try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## ULL)", .ULL_SUFFIX);
-    try helper.checkMacro(allocator, pattern_list,
-        \\container_of(a, b, c)                             \
-        \\(__typeof__(b))((char *)(a) -                     \
-        \\     offsetof(__typeof__(*b), c))
-    , .WL_CONTAINER_OF);
 
     try helper.checkMacro(allocator, pattern_list, "NO_MATCH(X, Y) (X + Y)", null);
     try helper.checkMacro(allocator, pattern_list, "CAST_OR_CALL(X, Y) (X)(Y)", .CAST_OR_CALL);

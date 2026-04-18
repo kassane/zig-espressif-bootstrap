@@ -7,7 +7,9 @@ const Diagnostics = @import("Diagnostics.zig");
 const Parser = @import("Parser.zig");
 const Tree = @import("Tree.zig");
 const TokenIndex = Tree.TokenIndex;
-const QualType = @import("TypeStore.zig").QualType;
+const TypeStore = @import("TypeStore.zig");
+const Type = TypeStore.Type;
+const QualType = TypeStore.QualType;
 const Value = @import("Value.zig");
 
 const Attribute = @This();
@@ -341,7 +343,6 @@ fn diagnoseField(
 
 pub fn diagnose(attr: Tag, arguments: *Arguments, arg_idx: u32, res: Parser.Result, arg_start: TokenIndex, node: Tree.Node, p: *Parser) !bool {
     switch (attr) {
-        .nonnull => return false,
         inline else => |tag| {
             const decl = @typeInfo(attributes).@"struct".decls[@intFromEnum(tag)];
             const max_arg_count = comptime maxArgCount(tag);
@@ -529,7 +530,10 @@ const attributes = struct {
     pub const @"noinline" = struct {};
     pub const noipa = struct {};
     // TODO: arbitrary number of arguments
-    pub const nonnull = struct {};
+    //    const nonnull = struct {
+    //    //            arg_index: []const u32,
+    //        };
+    //    };
     pub const nonstring = struct {};
     pub const noplt = struct {};
     pub const @"noreturn" = struct {};
@@ -577,6 +581,7 @@ const attributes = struct {
             };
         } = null,
     };
+    pub const single = struct {};
     pub const spectre = struct {
         arg: enum {
             nomitigation,
@@ -618,6 +623,7 @@ const attributes = struct {
         __name_tok: TokenIndex,
     };
     pub const uninitialized = struct {};
+    pub const unsafe_indexable = struct {};
     pub const unsequenced = struct {};
     pub const unused = struct {};
     pub const used = struct {};
@@ -723,6 +729,7 @@ pub const Arguments = blk: {
         name.* = decl.name;
         T.* = @field(attributes, decl.name);
     }
+
     break :blk @Union(.auto, null, &names, &types, &@splat(.{}));
 };
 
@@ -784,15 +791,8 @@ fn ignoredAttrErr(p: *Parser, tok: TokenIndex, attr: Attribute.Tag, context: []c
     try p.err(tok, .ignored_attribute, .{ @tagName(attr), context });
 }
 
-pub fn applyParameterAttributes(p: *Parser, qt: QualType, attr_buf_start: usize, diagnostic: ?Parser.Diagnostic) !QualType {
-    return applyVariableOrParameterAttributes(p, qt, attr_buf_start, diagnostic, .parameter);
-}
-
+pub const applyParameterAttributes = applyVariableAttributes;
 pub fn applyVariableAttributes(p: *Parser, qt: QualType, attr_buf_start: usize, diagnostic: ?Parser.Diagnostic) !QualType {
-    return applyVariableOrParameterAttributes(p, qt, attr_buf_start, diagnostic, .variable);
-}
-
-fn applyVariableOrParameterAttributes(p: *Parser, qt: QualType, attr_buf_start: usize, diagnostic: ?Parser.Diagnostic, context: enum { parameter, variable }) !QualType {
     const gpa = p.comp.gpa;
     const attrs = p.attr_buf.items(.attr)[attr_buf_start..];
     const toks = p.attr_buf.items(.tok)[attr_buf_start..];
@@ -804,6 +804,7 @@ fn applyVariableOrParameterAttributes(p: *Parser, qt: QualType, attr_buf_start: 
         // zig fmt: off
         .alias, .may_alias, .deprecated, .unavailable, .unused, .warn_if_not_aligned, .weak, .used,
         .noinit, .retain, .persistent, .section, .mode, .asm_label, .nullability, .unaligned, .selectany, .internal_linkage,
+        .visibility,
          => try p.attr_application_buf.append(gpa, attr),
         // zig fmt: on
         .common => if (nocommon) {
@@ -820,12 +821,6 @@ fn applyVariableOrParameterAttributes(p: *Parser, qt: QualType, attr_buf_start: 
         },
         .vector_size => try attr.applyVectorSize(p, tok, &base_qt),
         .aligned => try attr.applyAligned(p, base_qt, diagnostic),
-        .nonnull => {
-            switch (context) {
-                .parameter => try p.err(tok, .attribute_todo, .{ "nonnull", "parameters" }),
-                .variable => try p.err(tok, .nonnull_not_applicable, .{}),
-            }
-        },
         .nonstring => {
             if (base_qt.get(p.comp, .array)) |array_ty| {
                 if (array_ty.elem.get(p.comp, .int)) |int_ty| switch (int_ty) {
@@ -848,11 +843,28 @@ fn applyVariableOrParameterAttributes(p: *Parser, qt: QualType, attr_buf_start: 
         } else {
             try p.attr_application_buf.append(gpa, attr);
         },
-        .calling_convention => try applyCallingConvention(attr, p, tok, base_qt),
+        .single,
+        .unsafe_indexable,
+        => try applyBoundsSafetyAttr(.fromTag(attr.tag), p, tok, &base_qt),
+
+        .calling_convention => try applyKeywordCallingConvention(attr, p, tok, base_qt),
+
+        .fastcall,
+        .stdcall,
+        .thiscall,
+        .vectorcall,
+        .cdecl,
+        .pcs,
+        .riscv_vector_cc,
+        .aarch64_sve_pcs,
+        .aarch64_vector_pcs,
+        .sysv_abi,
+        .ms_abi,
+        => try applyGnuAttrCallingConvention(attr, p, tok, base_qt),
+
         .alloc_size,
         .copy,
         .tls_model,
-        .visibility,
         => |t| try p.err(tok, .attribute_todo, .{ @tagName(t), "variables" }),
         // There is already an error in Parser for _Noreturn keyword
         .noreturn => if (attr.syntax != .keyword) try ignoredAttrErr(p, tok, attr.tag, "variables"),
@@ -903,7 +915,25 @@ pub fn applyTypeAttributes(p: *Parser, qt: QualType, attr_buf_start: usize, diag
             } else {
                 try p.err(tok, .designated_init_invalid, .{});
             },
-            .calling_convention => try applyCallingConvention(attr, p, tok, base_qt),
+            .calling_convention => try applyKeywordCallingConvention(attr, p, tok, base_qt),
+
+            .fastcall,
+            .stdcall,
+            .thiscall,
+            .vectorcall,
+            .cdecl,
+            .pcs,
+            .riscv_vector_cc,
+            .aarch64_sve_pcs,
+            .aarch64_vector_pcs,
+            .sysv_abi,
+            .ms_abi,
+            => try applyGnuAttrCallingConvention(attr, p, tok, base_qt),
+
+            .single,
+            .unsafe_indexable,
+            => try applyBoundsSafetyAttr(.fromTag(attr.tag), p, tok, &base_qt),
+
             .alloc_size,
             .copy,
             .scalar_storage_order,
@@ -931,6 +961,7 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
         .@"const", .warn_unused_result, .section, .returns_nonnull, .returns_twice, .@"error",
         .externally_visible, .retain, .flatten, .gnu_inline, .alias, .asm_label, .nodiscard,
         .reproducible, .unsequenced, .nothrow, .nullability, .unaligned, .internal_linkage,
+        .visibility,
          => try p.attr_application_buf.append(gpa, attr),
         // zig fmt: on
         .hot => if (cold) {
@@ -959,97 +990,21 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
         },
         .aligned => try attr.applyAligned(p, base_qt, null),
         .format => try attr.applyFormat(p, base_qt),
-        .calling_convention => try applyCallingConvention(attr, p, tok, base_qt),
-        .fastcall => if (p.comp.target.cpu.arch == .x86) {
-            try p.attr_application_buf.append(gpa, .{
-                .tag = .calling_convention,
-                .args = .{ .calling_convention = .{ .cc = .fastcall } },
-                .syntax = attr.syntax,
-            });
-        } else {
-            try p.err(tok, .callconv_not_supported, .{"fastcall"});
-        },
-        .stdcall => if (p.comp.target.cpu.arch == .x86) {
-            try p.attr_application_buf.append(gpa, .{
-                .tag = .calling_convention,
-                .args = .{ .calling_convention = .{ .cc = .stdcall } },
-                .syntax = attr.syntax,
-            });
-        } else {
-            try p.err(tok, .callconv_not_supported, .{"stdcall"});
-        },
-        .thiscall => if (p.comp.target.cpu.arch == .x86) {
-            try p.attr_application_buf.append(gpa, .{
-                .tag = .calling_convention,
-                .args = .{ .calling_convention = .{ .cc = .thiscall } },
-                .syntax = attr.syntax,
-            });
-        } else {
-            try p.err(tok, .callconv_not_supported, .{"thiscall"});
-        },
-        .vectorcall => if (p.comp.target.cpu.arch == .x86 or p.comp.target.cpu.arch.isAARCH64()) {
-            try p.attr_application_buf.append(gpa, .{
-                .tag = .calling_convention,
-                .args = .{ .calling_convention = .{ .cc = .vectorcall } },
-                .syntax = attr.syntax,
-            });
-        } else {
-            try p.err(tok, .callconv_not_supported, .{"vectorcall"});
-        },
-        .cdecl => {},
-        .pcs => if (p.comp.target.cpu.arch.isArm()) {
-            try p.attr_application_buf.append(gpa, .{
-                .tag = .calling_convention,
-                .args = .{ .calling_convention = .{ .cc = switch (attr.args.pcs.kind) {
-                    .aapcs => .arm_aapcs,
-                    .@"aapcs-vfp" => .arm_aapcs_vfp,
-                } } },
-                .syntax = attr.syntax,
-            });
-        } else {
-            try p.err(tok, .callconv_not_supported, .{"pcs"});
-        },
-        .riscv_vector_cc => if (p.comp.target.cpu.arch.isRISCV()) {
-            try p.attr_application_buf.append(gpa, .{
-                .tag = .calling_convention,
-                .args = .{ .calling_convention = .{ .cc = .riscv_vector } },
-                .syntax = attr.syntax,
-            });
-        } else {
-            try p.err(tok, .callconv_not_supported, .{"pcs"});
-        },
-        .aarch64_sve_pcs => if (p.comp.target.cpu.arch.isAARCH64()) {
-            try p.attr_application_buf.append(gpa, .{
-                .tag = .calling_convention,
-                .args = .{ .calling_convention = .{ .cc = .aarch64_sve_pcs } },
-                .syntax = attr.syntax,
-            });
-        } else {
-            try p.err(tok, .callconv_not_supported, .{"pcs"});
-        },
-        .aarch64_vector_pcs => if (p.comp.target.cpu.arch.isAARCH64()) {
-            try p.attr_application_buf.append(gpa, .{
-                .tag = .calling_convention,
-                .args = .{ .calling_convention = .{ .cc = .aarch64_vector_pcs } },
-                .syntax = attr.syntax,
-            });
-        } else {
-            try p.err(tok, .callconv_not_supported, .{"pcs"});
-        },
-        .sysv_abi => if (p.comp.target.cpu.arch == .x86_64 and p.comp.target.os.tag == .windows) {
-            try p.attr_application_buf.append(gpa, .{
-                .tag = .calling_convention,
-                .args = .{ .calling_convention = .{ .cc = .x86_64_sysv } },
-                .syntax = attr.syntax,
-            });
-        },
-        .ms_abi => if (p.comp.target.cpu.arch == .x86_64 and p.comp.target.os.tag != .windows) {
-            try p.attr_application_buf.append(gpa, .{
-                .tag = .calling_convention,
-                .args = .{ .calling_convention = .{ .cc = .x86_64_win } },
-                .syntax = attr.syntax,
-            });
-        },
+        .calling_convention => try applyKeywordCallingConvention(attr, p, tok, base_qt),
+
+        .fastcall,
+        .stdcall,
+        .thiscall,
+        .vectorcall,
+        .cdecl,
+        .pcs,
+        .riscv_vector_cc,
+        .aarch64_sve_pcs,
+        .aarch64_vector_pcs,
+        .sysv_abi,
+        .ms_abi,
+        => try applyGnuAttrCallingConvention(attr, p, tok, base_qt),
+
         .malloc => {
             if (base_qt.get(p.comp, .func).?.return_type.isPointer(p.comp)) {
                 try p.attr_application_buf.append(gpa, attr);
@@ -1102,7 +1057,7 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
         .no_stack_protector,
         .noclone,
         .noipa,
-        .nonnull,
+        // .nonnull,
         .noplt,
         // .optimize,
         .patchable_function_entry,
@@ -1112,7 +1067,6 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
         .symver,
         .target,
         .target_clones,
-        .visibility,
         .weakref,
         .zero_call_used_regs,
         => |t| try p.err(tok, .attribute_todo, .{ @tagName(t), "functions" }),
@@ -1262,9 +1216,129 @@ fn applyFormat(attr: Attribute, p: *Parser, qt: QualType) !void {
     try p.attr_application_buf.append(p.comp.gpa, attr);
 }
 
-fn applyCallingConvention(attr: Attribute, p: *Parser, tok: TokenIndex, qt: QualType) !void {
-    if (!qt.is(p.comp, .func)) {
-        return p.err(tok, .callconv_non_func, .{ p.tok_ids[tok].symbol(), qt });
+/// These come from GNU attributes like __attribute__((sysv_abi))
+fn applyGnuAttrCallingConvention(attr: Attribute, p: *Parser, tok: TokenIndex, qt: QualType) !void {
+    if (!qt.isCallable(p.comp)) {
+        return p.err(tok, .callconv_non_func, .{ p.tokSlice(tok), qt });
+    }
+    const gpa = p.comp.gpa;
+    switch (attr.tag) {
+        .fastcall => if (p.comp.target.cpu.arch == .x86) {
+            try p.attr_application_buf.append(gpa, .{
+                .tag = .calling_convention,
+                .args = .{ .calling_convention = .{ .cc = .fastcall } },
+                .syntax = attr.syntax,
+            });
+        } else {
+            try p.err(tok, .callconv_not_supported, .{"fastcall"});
+        },
+        .stdcall => if (p.comp.target.cpu.arch == .x86) {
+            try p.attr_application_buf.append(gpa, .{
+                .tag = .calling_convention,
+                .args = .{ .calling_convention = .{ .cc = .stdcall } },
+                .syntax = attr.syntax,
+            });
+        } else {
+            try p.err(tok, .callconv_not_supported, .{"stdcall"});
+        },
+        .thiscall => if (p.comp.target.cpu.arch == .x86) {
+            try p.attr_application_buf.append(gpa, .{
+                .tag = .calling_convention,
+                .args = .{ .calling_convention = .{ .cc = .thiscall } },
+                .syntax = attr.syntax,
+            });
+        } else {
+            try p.err(tok, .callconv_not_supported, .{"thiscall"});
+        },
+        .vectorcall => if (p.comp.target.cpu.arch == .x86 or p.comp.target.cpu.arch.isAARCH64()) {
+            try p.attr_application_buf.append(gpa, .{
+                .tag = .calling_convention,
+                .args = .{ .calling_convention = .{ .cc = .vectorcall } },
+                .syntax = attr.syntax,
+            });
+        } else {
+            try p.err(tok, .callconv_not_supported, .{"vectorcall"});
+        },
+        .cdecl => {},
+        .pcs => if (p.comp.target.cpu.arch.isArm()) {
+            try p.attr_application_buf.append(gpa, .{
+                .tag = .calling_convention,
+                .args = .{ .calling_convention = .{ .cc = switch (attr.args.pcs.kind) {
+                    .aapcs => .arm_aapcs,
+                    .@"aapcs-vfp" => .arm_aapcs_vfp,
+                } } },
+                .syntax = attr.syntax,
+            });
+        } else {
+            try p.err(tok, .callconv_not_supported, .{"pcs"});
+        },
+        .riscv_vector_cc => if (p.comp.target.cpu.arch.isRISCV()) {
+            try p.attr_application_buf.append(gpa, .{
+                .tag = .calling_convention,
+                .args = .{ .calling_convention = .{ .cc = .riscv_vector } },
+                .syntax = attr.syntax,
+            });
+        } else {
+            try p.err(tok, .callconv_not_supported, .{"pcs"});
+        },
+        .aarch64_sve_pcs => if (p.comp.target.cpu.arch.isAARCH64()) {
+            try p.attr_application_buf.append(gpa, .{
+                .tag = .calling_convention,
+                .args = .{ .calling_convention = .{ .cc = .aarch64_sve_pcs } },
+                .syntax = attr.syntax,
+            });
+        } else {
+            try p.err(tok, .callconv_not_supported, .{"pcs"});
+        },
+        .aarch64_vector_pcs => if (p.comp.target.cpu.arch.isAARCH64()) {
+            try p.attr_application_buf.append(gpa, .{
+                .tag = .calling_convention,
+                .args = .{ .calling_convention = .{ .cc = .aarch64_vector_pcs } },
+                .syntax = attr.syntax,
+            });
+        } else {
+            try p.err(tok, .callconv_not_supported, .{"pcs"});
+        },
+        .sysv_abi => if (p.comp.target.cpu.arch == .x86_64 and p.comp.target.os.tag == .windows) {
+            try p.attr_application_buf.append(gpa, .{
+                .tag = .calling_convention,
+                .args = .{ .calling_convention = .{ .cc = .x86_64_sysv } },
+                .syntax = attr.syntax,
+            });
+        },
+        .ms_abi => if (p.comp.target.cpu.arch == .x86_64 and p.comp.target.os.tag != .windows) {
+            try p.attr_application_buf.append(gpa, .{
+                .tag = .calling_convention,
+                .args = .{ .calling_convention = .{ .cc = .x86_64_win } },
+                .syntax = attr.syntax,
+            });
+        },
+        else => unreachable,
+    }
+}
+
+fn applyBoundsSafetyAttr(bounds: Type.Pointer.Bounds, p: *Parser, tok: TokenIndex, qt: *QualType) !void {
+    if (qt.isInvalid()) return;
+    const pointer = qt.get(p.comp, .pointer) orelse {
+        return p.err(tok, .attribute_requires_pointer, .{@tagName(bounds)});
+    };
+    if (pointer.bounds == bounds) {
+        return p.err(tok, .redundant_bounds_annotation, .{@tagName(bounds)});
+    }
+    if (pointer.bounds != .c) {
+        return p.err(tok, .multiple_bounds_annotations, .{});
+    }
+    qt.* = try p.comp.type_store.put(p.comp.gpa, .{ .pointer = .{
+        .child = pointer.child,
+        .decayed = pointer.decayed,
+        .bounds = bounds,
+    } });
+}
+
+/// These come from explicit MSVC keywords like __stdcall, __fastcall, etc
+fn applyKeywordCallingConvention(attr: Attribute, p: *Parser, tok: TokenIndex, qt: QualType) !void {
+    if (!qt.isCallable(p.comp)) {
+        return p.err(tok, .callconv_non_func, .{ p.tokSlice(tok), qt });
     }
     switch (attr.args.calling_convention.cc) {
         .c => {},
@@ -1294,4 +1368,16 @@ fn applySelected(qt: QualType, p: *Parser) !QualType {
         .base = qt,
         .attributes = p.attr_application_buf.items,
     } })).withQualifiers(qt);
+}
+
+pub fn visibilityFromString(s: []const u8) ?std.builtin.SymbolVisibility {
+    if (mem.eql(u8, s, "internal")) {
+        return .hidden;
+    }
+    const visibility = std.meta.stringToEnum(std.builtin.SymbolVisibility, s) orelse return null;
+    // compiler will notify us if .internal is added as a visibility type
+    switch (visibility) {
+        .default, .hidden, .protected => {},
+    }
+    return visibility;
 }

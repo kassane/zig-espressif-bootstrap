@@ -299,7 +299,11 @@ extern kern_return_t debug_control_port_for_pid(
 
 extern mach_error_t mach_vm_reclaim_update_kernel_accounting_trap(
 	mach_port_name_t target_tport,
-	uint64_t *bytes_reclaimed);
+	uint64_t *bytes_reclaimed,
+	uint64_t *next_deadline);
+
+extern kern_return_t thread_set_x86_64_compat(
+	uint32_t enable);
 
 
 __END_DECLS

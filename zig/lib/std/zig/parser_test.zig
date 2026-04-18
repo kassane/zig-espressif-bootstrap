@@ -5472,17 +5472,11 @@ test "zig fmt: while continue expr" {
         \\    while (i > 0)
         \\        (i * 2);
         \\}
+        \\T: (while (true) ({
+        \\    break usize;
+        \\})),
         \\
     );
-    try testError(
-        \\test {
-        \\    while (i > 0) (i -= 1) {
-        \\        print("test123", .{});
-        \\    }
-        \\}
-    , &[_]Error{
-        .expected_continue_expr,
-    });
 }
 
 test "zig fmt: canonicalize symbols (simple)" {
@@ -6135,6 +6129,16 @@ test "zig fmt: canonicalize cast builtins" {
 test "zig fmt: do not canonicalize invalid cast builtins" {
     try testCanonical(
         \\const foo = @alignCast(@volatileCast(@ptrCast(@alignCast(bar))));
+        \\
+    );
+}
+
+test "zig fmt: canonicalize cast builtins at file start" {
+    try testTransform(
+        \\@alignCast(@ptrCast(a)),
+        \\
+    ,
+        \\@ptrCast(@alignCast(a)),
         \\
     );
 }
@@ -6838,6 +6842,123 @@ test "zig fmt: error set with extra newline before comma" {
     );
 }
 
+test "zig fmt: extern container in tuple" {
+    try testCanonical(
+        \\const T = struct {
+        \\    extern struct {},
+        \\    extern union {},
+        \\    extern enum {},
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: break followed by colon" {
+    try testCanonical(
+        \\const a = [if (cond) len else break:0]u8;
+        \\
+    );
+}
+
+test "zig fmt: array init of labeled block" {
+    try testCanonical(
+        \\const a = blk: {
+        \\    break :blk T;
+        \\}{ .a = false };
+        \\
+    );
+}
+
+test "zig fmt: nested asm indentation" {
+    try testCanonical(
+        \\const A = asm (""
+        \\    : [_] "" (_),
+        \\    :
+        \\    : asm (""
+        \\      : [_] "" (_),
+        \\    ));
+        \\
+    );
+}
+
+test "zig fmt: asm with zig fmt on" {
+    try testCanonical(
+        \\// zig fmt: off
+        \\const A = asm("a" // zig fmt: on
+        \\    : [_] "" (_),
+        \\);
+        \\
+    );
+}
+
+test "zig fmt: array init with multiline string literal with fmt on/off" {
+    try testCanonical(
+        \\const array = .{
+        \\    \\
+        \\    // zig fmt: on
+        \\    // zig fmt: off
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: render extra colons with comments" {
+    try testCanonical(
+        \\const a = asm (""
+        \\    : // testing
+        \\);
+        \\const b = asm (""
+        \\    : // testing
+        \\    : // testing
+        \\);
+        \\const c = asm (""
+        \\    :
+        \\    : // testing
+        \\);
+        \\
+    );
+}
+
+test "zig fmt: cast builtins are not reordered with comments" {
+    try testCanonical(
+        \\const a = @volatileCast(@constCast( // ...
+        \\    @alignCast(@ptrCast(a))));
+        \\
+        \\const b = @alignCast(@ptrCast( // zig fmt: off
+        \\    c));
+        \\
+    );
+}
+
+test "zig fmt: inner over-indented if expressions becoming multiline" {
+    try testTransform(
+        \\const a = (b or
+        \\c) and [if (d) {}]T; // If the if-statement is kept on the same line it becomes multiline
+        \\const a = (b or
+        \\c)[if (d) {}]; // If the if-statement is kept on the same line it becomes multiline
+        \\const a = .{a, b, (c or
+        \\d), if (d) {}, e, f, g,};
+        \\
+    ,
+        \\const a = (b or
+        \\    c) and [
+        \\    if (d) {}
+        \\]T; // If the if-statement is kept on the same line it becomes multiline
+        \\const a = (b or
+        \\    c)[
+        \\    if (d) {}
+        \\]; // If the if-statement is kept on the same line it becomes multiline
+        \\const a = .{
+        \\    a,         b,
+        \\    (c or
+        \\        d),
+        \\    if (d) {}, e,
+        \\    f,         g,
+        \\};
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
@@ -7258,83 +7379,61 @@ test "zig fmt: fuzz" {
     try std.testing.fuzz({}, fuzzRender, .{});
 }
 
-fn parseTokens(
-    fba: Allocator,
-    source: [:0]const u8,
-) error{ SkipZigTest, OutOfMemory }!struct {
-    toks: std.zig.Ast.TokenList,
-    maybe_rewritable: bool,
-    skip_idempotency: bool,
-} {
+fn isRewritable(source: []const u8, tokens: std.zig.Ast.TokenList.Slice) !bool {
     @disableInstrumentation();
+
     // Byte-order marker is stripped
     var maybe_rewritable = std.mem.startsWith(u8, source, "\xEF\xBB\xBF");
-    var skip_idempotency = false; // This should be able to be removed once all the bugs are fixed
+    // The above variable can not yet be replaced by returns since error.SkipZigTest still needs to
+    // be checked for.
 
-    var tokens: std.zig.Ast.TokenList = .{};
-    try tokens.ensureTotalCapacity(fba, source.len / 2);
-    var tokenizer: std.zig.Tokenizer = .init(source);
-    while (true) {
-        const tok = tokenizer.next();
-        switch (tok.tag) {
-            .invalid,
-            .invalid_periodasterisks,
-            => return error.SkipZigTest,
-            // Extra colons can be removed
-            .keyword_asm,
-            // Qualifiers can be reordered
-            // keyword_const is intentionally excluded since it is used in other contexts and
-            // having only one qualifier will never lead to reordering.
-            .keyword_addrspace,
-            .keyword_align,
-            .keyword_allowzero,
-            .keyword_callconv,
-            .keyword_linksection,
-            .keyword_volatile,
-            => maybe_rewritable = true,
-            .builtin,
-            // Pointer casts can be reordered
-            => for ([_][]const u8{
-                "ptrCast",
-                "alignCast",
-                "addrSpaceCast",
-                "constCast",
-                "volatileCast",
-            }) |id| {
-                if (std.mem.eql(u8, source[tok.loc.start + 1 .. tok.loc.end], id)) {
-                    maybe_rewritable = false;
-                }
-            },
-            // Quoted identifiers can be unquoted
-            .identifier => maybe_rewritable = maybe_rewritable or source[tok.loc.start] == '@',
-            else => {},
-            // #23754
-            .container_doc_comment,
-            => if (std.mem.endsWith(Token.Tag, tokens.items(.tag), &.{.l_brace})) {
-                return error.SkipZigTest;
-            },
-            // #24507
-            .keyword_inline,
-            .keyword_for,
-            .keyword_while,
-            .l_brace,
-            => if (std.mem.endsWith(Token.Tag, tokens.items(.tag), &.{ .identifier, .colon })) {
+    for (0.., tokens.items(.tag), tokens.items(.start)) |i, tag, start| switch (tag) {
+        // Extra colons can be removed
+        .keyword_asm,
+        // Qualifiers can be reordered
+        // keyword_const is intentionally excluded since it is used in other contexts and
+        // having only one qualifier will never lead to reordering.
+        .keyword_addrspace,
+        .keyword_align,
+        .keyword_allowzero,
+        .keyword_callconv,
+        .keyword_linksection,
+        .keyword_volatile,
+        => maybe_rewritable = true,
+        .builtin,
+        // Pointer casts can be reordered
+        => for ([_][]const u8{
+            "ptrCast",
+            "alignCast",
+            "addrSpaceCast",
+            "constCast",
+            "volatileCast",
+        }) |id| {
+            if (std.mem.startsWith(u8, source[start + 1 ..], id)) {
                 maybe_rewritable = true;
-                skip_idempotency = true;
-            },
-        }
-        try tokens.append(fba, .{
-            .tag = tok.tag,
-            .start = @intCast(tok.loc.start),
-        });
-        if (tok.tag == .eof)
-            break;
-    }
-    return .{
-        .toks = tokens,
-        .maybe_rewritable = maybe_rewritable,
-        .skip_idempotency = skip_idempotency,
+            }
+        },
+        // Quoted identifiers can be unquoted
+        .identifier => if (source[start] == '@') {
+            maybe_rewritable = true;
+        },
+        else => {},
+        // #23754
+        .container_doc_comment,
+        => if (std.mem.endsWith(Token.Tag, tokens.items(.tag)[0..i], &.{.l_brace})) {
+            return error.SkipZigTest; // Can cause I.B.
+        },
+        // #24507
+        .keyword_inline,
+        .keyword_for,
+        .keyword_while,
+        .l_brace,
+        => if (std.mem.endsWith(Token.Tag, tokens.items(.tag)[0..i], &.{ .identifier, .colon })) {
+            return error.SkipZigTest; // Can cause I.B. due to double rendering of zig fmt on/off
+        },
     };
+
+    return maybe_rewritable;
 }
 
 /// Checks equivelence of non-whitespace characters.
@@ -7447,34 +7546,29 @@ fn reparseTokens(
 fn fuzzRender(_: void, smith: *std.testing.Smith) !void {
     @disableInstrumentation();
 
-    var src_buf: [512]u8 = undefined;
-    const src_len = smith.sliceWeighted(&src_buf, &.{
-        .rangeLessThan(u32, 0, 32, 256),
-        .rangeLessThan(u32, 32, 64, 64),
-        .rangeLessThan(u32, 64, src_buf.len, 1),
-    }, &.{
-        .rangeAtMost(u8, 0x20, 0x7e, 8),
-        .value(u8, '\n', 32),
-        .value(u8, '\t', 8),
-        .value(u8, '\r', 4),
-        .rangeAtMost(u8, 0x7f, 0xff, 1),
-    });
-    src_buf[src_len] = 0;
-
+    var ast_smith: std.zig.AstSmith = .init(smith);
+    try ast_smith.generateSource();
     var fba_ctx = std.heap.FixedBufferAllocator.init(&fixed_buffer_mem);
-    fuzzRenderInner(src_buf[0..src_len :0], fba_ctx.allocator()) catch |e| return switch (e) {
-        error.OutOfMemory => {},
-        else => e,
+    var opt_rendered: ?[]const u8 = null;
+    fuzzRenderInner(&ast_smith, fba_ctx.allocator(), &opt_rendered) catch |e| switch (e) {
+        error.SkipZigTest, error.OutOfMemory, error.WriteFailed => return error.SkipZigTest,
+        else => |failure| {
+            ast_smith.logSource();
+            if (opt_rendered) |rendered| {
+                logRenderedSource(rendered);
+            }
+            return failure;
+        },
     };
 }
 
-fn fuzzRenderInner(source: [:0]const u8, fba: Allocator) !void {
+fn fuzzRenderInner(ast_smith: *std.zig.AstSmith, fba: Allocator, opt_rendered: *?[]const u8) !void {
     @disableInstrumentation();
 
-    const src_toks = try parseTokens(fba, source);
-    const src_tree = try std.zig.Ast.parseTokens(fba, source, src_toks.toks.slice(), .zig);
-    if (src_tree.errors.len != 0)
-        return;
+    const source = ast_smith.source();
+    const src_rewritable = try isRewritable(source, ast_smith.tokens());
+    const src_tree = try std.zig.Ast.parseTokens(fba, source, ast_smith.tokens(), .zig);
+    std.debug.assert(src_tree.errors.len == 0);
     for (src_tree.nodes.items(.tag)) |tag| switch (tag) {
         // #24507 (`switch(x) { inline for (a) |a| a => {} }` to
         //         `switch(x) { { inline for (a) |a| a => {} }` since
@@ -7490,15 +7584,16 @@ fn fuzzRenderInner(source: [:0]const u8, fba: Allocator) !void {
     // list to save space which is useless for fixed buffer allocators.
     try rendered_w.writer.writeByte(0);
     const rendered = rendered_w.written()[0 .. rendered_w.written().len - 1 :0];
+    opt_rendered.* = rendered;
 
     // First check that the non-whitespace characters match. This ensures that
     // identifier names, numbers, comments, et cetera are preserved.
-    if (!src_toks.maybe_rewritable and isRewritten(source, rendered))
+    if (!src_rewritable and isRewritten(source, rendered))
         return error.Rewritten;
     // Next check that the tokens are the same since whitespace removal can change the tokens
-    const src_tags = src_toks.toks.items(.tag);
+    const src_tags = ast_smith.tokens().items(.tag);
     const rendered_toks = try reparseTokens(fba, rendered, src_tags[0 .. src_tags.len - 1 :.eof]);
-    if (!src_toks.maybe_rewritable and rendered_toks.rewritten)
+    if (!src_rewritable and rendered_toks.rewritten)
         return error.Rewritten;
 
     // Rerender the tree to check idempotency and that new commas
@@ -7506,10 +7601,39 @@ fn fuzzRenderInner(source: [:0]const u8, fba: Allocator) !void {
     const rendered_tree = try std.zig.Ast.parseTokens(fba, rendered, rendered_toks.toks.slice(), .zig);
     if (rendered_tree.errors.len != 0)
         return error.Rewritten;
-    if (!src_toks.skip_idempotency) {
-        var rerendered_w: std.Io.Writer.Allocating = .init(fba);
-        try rerendered_w.ensureUnusedCapacity(source.len);
-        try rendered_tree.render(fba, &rerendered_w.writer, .{});
-        try std.testing.expectEqualStrings(rendered, rerendered_w.written());
-    }
+    var rerendered_w: std.Io.Writer.Allocating = .init(fba);
+    try rerendered_w.ensureUnusedCapacity(source.len);
+    try rendered_tree.render(fba, &rerendered_w.writer, .{});
+    try std.testing.expectEqualStrings(rendered, rerendered_w.written());
+}
+
+fn logRenderedSource(source: []const u8) void {
+    var buf: [256]u8 = undefined;
+    const ls = std.debug.lockStderr(&buf);
+    defer std.debug.unlockStderr();
+    logRenderedSourceInner(source, ls.terminal()) catch {};
+}
+
+fn logRenderedSourceInner(source: []const u8, t: std.Io.Terminal) std.Io.Writer.Error!void {
+    const w = t.writer;
+
+    t.setColor(.dim) catch {};
+    try w.writeAll("=== Rendered Source ===\n");
+    t.setColor(.reset) catch {};
+
+    for (0.., source) |i, c| switch (c) {
+        ' '...0x7e => try w.writeByte(c),
+        '\n' => {
+            if (i != 0 and source[i - 1] == ' ') {
+                try w.writeAll("⏎");
+            }
+            try w.writeByte('\n');
+        },
+        else => {
+            t.setColor(.cyan) catch {};
+            try w.print("\\x{x:0>2}", .{c});
+            t.setColor(.reset) catch {};
+        },
+    };
+    try w.writeAll("␃\n");
 }

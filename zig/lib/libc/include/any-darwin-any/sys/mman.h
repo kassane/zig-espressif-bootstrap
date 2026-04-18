@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2020 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 2000-2025 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -153,7 +153,6 @@
 #define MAP_32BIT       0x8000          /* Return virtual addresses <4G only */
 #endif /* defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500 */
 
-
 /*
  * Flags used to support translated processes.
  */
@@ -236,7 +235,6 @@
 
 
 
-
 __BEGIN_DECLS
 /* [ML] */
 int     mlockall(int);
@@ -268,7 +266,8 @@ int     mincore(const void *, size_t, char *);
 int     minherit(void *, size_t, int);
 #endif
 
-
 __END_DECLS
+
+
 
 #endif /* !_SYS_MMAN_H_ */

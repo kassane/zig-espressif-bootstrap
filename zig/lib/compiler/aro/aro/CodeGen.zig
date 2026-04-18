@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-const backend = @import("backend");
+const backend = @import("../backend.zig");
 const Interner = backend.Interner;
 const Ir = backend.Ir;
 const Builder = Ir.Builder;
@@ -867,6 +867,8 @@ fn genExpr(c: *CodeGen, node_index: Node.Index) Error!Ir.Ref {
         .imag_expr,
         .real_expr,
         .sizeof_expr,
+        .builtin_va_arg_pack,
+        .builtin_va_arg_pack_len,
         => return c.fail("TODO CodeGen.genExpr {s}\n", .{@tagName(node)}),
         else => unreachable, // Not an expression.
     }

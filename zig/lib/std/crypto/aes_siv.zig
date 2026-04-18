@@ -88,16 +88,19 @@ fn AesSiv(comptime Aes: anytype) type {
             // Process the final string
             const sn = strings[strings.len - 1];
             if (sn.len >= 16) {
-                // XOR d with the first 16 bytes of Sn
-                var xored_msg_buf: [4096]u8 = undefined;
-                const xored_len = @min(sn.len, xored_msg_buf.len);
-                @memcpy(xored_msg_buf[0..xored_len], sn[0..xored_len]);
+                // XOR d with the last 16 bytes of Sn,
+                // and give the entire Sn to CMAC incrementally.
+                var cmac = CmacImpl.init(&key);
+                const prefix = sn.len - 16;
+                cmac.update(sn[0..prefix]);
 
-                for (d, 0..) |b, j| {
-                    xored_msg_buf[j] ^= b;
+                var tail: [16]u8 = undefined;
+                for (&tail, sn[prefix..][0..16], d) |*out, s, db| {
+                    out.* = s ^ db;
                 }
+                cmac.update(&tail);
 
-                CmacImpl.create(iv, xored_msg_buf[0..xored_len], &key);
+                cmac.final(iv);
             } else {
                 // Pad and XOR
                 d = dbl(d);
@@ -353,6 +356,48 @@ test "Aes128Siv - RFC 5297 Test Vector A.1" {
     var decrypted: [plaintext.len]u8 = undefined;
     try Aes128Siv.decryptWithAdVector(&decrypted, &ciphertext, tag, &ad_components, key);
     try testing.expectEqualSlices(u8, &plaintext, &decrypted);
+}
+
+test "Aes128Siv - RFC 5297 Test Vector A.2" {
+    // Test vector from RFC 5297 Appendix A.2
+    const key: [32]u8 = .{
+        0x7f, 0x7e, 0x7d, 0x7c, 0x7b, 0x7a, 0x79, 0x78,
+        0x77, 0x76, 0x75, 0x74, 0x73, 0x72, 0x71, 0x70,
+        0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
+        0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,
+    };
+    const ad1 = [_]u8{
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+        0xde, 0xad, 0xda, 0xda, 0xde, 0xad, 0xda, 0xda,
+        0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88,
+        0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00,
+    };
+    const ad2 = [_]u8{
+        0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80,
+        0x90, 0xa0,
+    };
+    const nonce: [16]u8 = .{
+        0x09, 0xf9, 0x11, 0x02, 0x9d, 0x74, 0xe3, 0x5b,
+        0xd8, 0x41, 0x56, 0xc5, 0x63, 0x56, 0x88, 0xc0,
+    };
+    const plaintext = [_]u8{
+        0x74, 0x68, 0x69, 0x73, 0x20, 0x69, 0x73, 0x20,
+        0x73, 0x6f, 0x6d, 0x65, 0x20, 0x70, 0x6c, 0x61,
+        0x69, 0x6e, 0x74, 0x65, 0x78, 0x74, 0x20, 0x74,
+        0x6f, 0x20, 0x65, 0x6e, 0x63, 0x72, 0x79, 0x70,
+        0x74, 0x20, 0x75, 0x73, 0x69, 0x6e, 0x67, 0x20,
+        0x53, 0x49, 0x56, 0x2d, 0x41, 0x45, 0x53,
+    };
+
+    var ciphertext: [plaintext.len]u8 = undefined;
+    var tag: [16]u8 = undefined;
+
+    Aes128Siv.encryptWithAdVector(&ciphertext, &tag, &plaintext, &.{ &ad1, &ad2, &nonce }, key);
+
+    // Expected values from RFC 5297
+    try htest.assertEqual("7bdb6e3b432667eb06f4d14bff2fbd0f", &tag);
+    try htest.assertEqual("cb900f2fddbe404326601965c889bf17dba77ceb094fa663b7a3f748ba8af829ea64ad544a272e9c485b62a3fd5c0d", &ciphertext);
 }
 
 test "Aes128Siv - empty plaintext" {

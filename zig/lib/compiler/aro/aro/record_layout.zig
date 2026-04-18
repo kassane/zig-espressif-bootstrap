@@ -332,7 +332,7 @@ const SysVContext = struct {
                 }
             }
         } else {
-            std.debug.assert(self.comp.langopts.emulate == .clang);
+            std.debug.assert(self.comp.langopts.emulate == .no or self.comp.langopts.emulate == .clang);
 
             // On Clang, the alignment requested by annotations is not respected if it is
             // larger than the value of #pragma pack. See test case 0083.
@@ -569,7 +569,7 @@ const MsvcContext = struct {
 
 pub fn compute(fields: []Type.Record.Field, qt: QualType, comp: *const Compilation, pragma_pack: ?u8) Error!Type.Record.Layout {
     switch (comp.langopts.emulate) {
-        .gcc, .clang => {
+        .no, .gcc, .clang => {
             var context = SysVContext.init(qt, comp, pragma_pack);
 
             try context.layoutFields(fields);
@@ -620,7 +620,7 @@ fn computeLayout(qt: QualType, comp: *const Compilation) RecordLayout {
         else => {
             const type_align = qt.alignof(comp) * BITS_PER_BYTE;
             return .{
-                .size_bits = qt.bitSizeofOrNull(comp) orelse 0,
+                .size_bits = BITS_PER_BYTE * (qt.sizeofOrNull(comp) orelse 0),
                 .pointer_alignment_bits = type_align,
                 .field_alignment_bits = type_align,
                 .required_alignment_bits = BITS_PER_BYTE,

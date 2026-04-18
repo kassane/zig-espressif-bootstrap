@@ -476,7 +476,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
         const old_air_bookkeeping = self.air_bookkeeping;
         try self.ensureProcessDeathCapacity(Air.Liveness.bpi);
 
-        self.reused_operands = @TypeOf(self.reused_operands).initEmpty();
+        self.reused_operands = @TypeOf(self.reused_operands).empty;
         switch (air_tags[@intFromEnum(inst)]) {
             // zig fmt: off
 
@@ -545,7 +545,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .cmp_gt  => try self.airCmp(inst, .gt),
             .cmp_neq => try self.airCmp(inst, .neq),
             .cmp_vector => @panic("TODO try self.airCmpVector(inst)"),
-            .cmp_lt_errors_len => try self.airCmpLtErrorsLen(inst),
+            .cmp_lte_errors_len => try self.airCmpLteErrorsLen(inst),
 
             .alloc           => try self.airAlloc(inst),
             .ret_ptr         => try self.airRetPtr(inst),
@@ -1310,7 +1310,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
-    if (try self.air.value(call.callee, pt)) |func_value| switch (ip.indexToKey(func_value.toIntern())) {
+    if (call.callee.toInterned()) |func_ip_index| switch (ip.indexToKey(func_ip_index)) {
         .func => {
             return self.fail("TODO implement calling functions", .{});
         },
@@ -1425,11 +1425,11 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
+fn airCmpLteErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try self.resolveInst(un_op);
     _ = operand;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airCmpLtErrorsLen for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airCmpLteErrorsLen for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
@@ -4487,7 +4487,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
         return self.getResolvedInstValue(inst);
     }
 
-    return self.genTypedValue((try self.air.value(ref, pt)).?);
+    return self.genTypedValue(.fromInterned(ref.toInterned().?));
 }
 
 fn ret(self: *Self, mcv: MCValue) !void {

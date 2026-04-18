@@ -44,7 +44,7 @@ const StringPairContext = struct {
     }
 };
 
-const OperandKindMap = std.ArrayHashMap(StringPair, OperandKind, StringPairContext, true);
+const OperandKindMap = std.array_hash_map.Custom(StringPair, OperandKind, StringPairContext, true);
 
 /// Khronos made it so that these names are not defined explicitly, so
 /// we need to hardcode it (like they did).
@@ -295,9 +295,9 @@ fn render(
     );
 
     // Merge the operand kinds from all extensions together.
-    var all_operand_kinds = OperandKindMap.init(arena);
+    var all_operand_kinds: OperandKindMap = .empty;
     for (registry.operand_kinds) |kind| {
-        try all_operand_kinds.putNoClobber(.{ "core", kind.kind }, kind);
+        try all_operand_kinds.putNoClobber(arena, .{ "core", kind.kind }, kind);
     }
     for (extensions) |ext| {
         // Note: extensions may define the same operand kind, with different
@@ -305,11 +305,11 @@ fn render(
         // using the name of the extension. This is similar to what
         // the official headers do.
 
-        try all_operand_kinds.ensureUnusedCapacity(ext.spec.operand_kinds.len);
+        try all_operand_kinds.ensureUnusedCapacity(arena, ext.spec.operand_kinds.len);
         for (ext.spec.operand_kinds) |kind| {
             var new_kind = kind;
             new_kind.kind = try std.mem.join(arena, ".", &.{ ext.name, kind.kind });
-            try all_operand_kinds.putNoClobber(.{ ext.name, kind.kind }, new_kind);
+            try all_operand_kinds.putNoClobber(arena, .{ ext.name, kind.kind }, new_kind);
         }
     }
 
@@ -411,11 +411,11 @@ fn renderInstructionsCase(
 }
 
 fn renderClass(arena: Allocator, writer: *std.Io.Writer, instructions: []const Instruction) !void {
-    var class_map = std.StringArrayHashMap(void).init(arena);
+    var class_map: std.array_hash_map.String(void) = .empty;
 
     for (instructions) |inst| {
         if (std.mem.eql(u8, inst.class.?, "@exclude")) continue;
-        try class_map.put(inst.class.?, {});
+        try class_map.put(arena, inst.class.?, {});
     }
 
     try writer.writeAll("pub const Class = enum {\n");
@@ -538,8 +538,8 @@ fn renderOpcodes(
     instructions: []const Instruction,
     extended_structs: ExtendedStructSet,
 ) !void {
-    var inst_map = std.AutoArrayHashMap(u32, usize).init(arena);
-    try inst_map.ensureTotalCapacity(instructions.len);
+    var inst_map: std.array_hash_map.Auto(u32, usize) = .empty;
+    try inst_map.ensureTotalCapacity(arena, instructions.len);
 
     var aliases = std.array_list.Managed(struct { inst: usize, alias: usize }).init(arena);
     try aliases.ensureTotalCapacity(instructions.len);
@@ -653,8 +653,8 @@ fn renderValueEnum(
 ) !void {
     const enumerants = enumeration.enumerants orelse return error.InvalidRegistry;
 
-    var enum_map = std.AutoArrayHashMap(u32, usize).init(arena);
-    try enum_map.ensureTotalCapacity(enumerants.len);
+    var enum_map: std.array_hash_map.Auto(u32, usize) = .empty;
+    try enum_map.ensureTotalCapacity(arena, enumerants.len);
 
     var aliases = std.array_list.Managed(struct { enumerant: usize, alias: usize }).init(arena);
     try aliases.ensureTotalCapacity(enumerants.len);

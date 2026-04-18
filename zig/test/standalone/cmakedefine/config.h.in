@@ -20,6 +20,10 @@
 // 1
 #cmakedefine stringval 1
 
+// whitespace test
+    #cmakedefine stringval 1
+	#cmakedefine stringval 1
+
 
 // cmakedefine01
 // 0

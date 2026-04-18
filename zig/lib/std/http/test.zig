@@ -11,6 +11,28 @@ const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
 const expectError = std.testing.expectError;
 
+test "content length reader state update" {
+    var in = Io.Reader.fixed("HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nHello!\r\nHTTP/1.1 200 OK\r\n\r\n");
+    var reader: http.Reader = .{
+        .in = &in,
+        .interface = undefined,
+        .state = .ready,
+        .max_head_len = 1024,
+    };
+
+    _ = try reader.receiveHead();
+    var body: [6]u8 = undefined;
+    _ = try reader.bodyReader(&.{}, .none, body.len).readSliceAll(&body);
+    try expectEqual(.ready, reader.state);
+    _ = try reader.receiveHead();
+
+    in.seek = 0;
+    _ = try reader.receiveHead();
+    try reader.bodyReader(&.{}, .none, body.len).discardAll(body.len);
+    try expectEqual(.ready, reader.state);
+    _ = try reader.receiveHead();
+}
+
 test "trailers" {
     if (builtin.cpu.arch.isPowerPC64() and builtin.mode != .Debug) return error.SkipZigTest; // https://github.com/llvm/llvm-project/issues/171879
     if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/30806
@@ -1254,5 +1276,65 @@ test "redirect to different connection" {
         defer gpa.free(body);
 
         try expectEqualStrings("good job, you pass", body);
+    }
+}
+
+test "boot failed connections from the pool" {
+    if (builtin.cpu.arch.isPowerPC64() and builtin.mode != .Debug) return error.SkipZigTest; // https://github.com/llvm/llvm-project/issues/171879
+    if (builtin.os.tag == .openbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/30806
+
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+
+    const test_server_orig = try createTestServer(io, struct {
+        fn run(test_server: *TestServer) anyerror!void {
+            const net_server = &test_server.net_server;
+            var recv_buffer: [500]u8 = undefined;
+            var send_buffer: [500]u8 = undefined;
+
+            accept: while (!test_server.shutting_down) {
+                var stream = try net_server.accept(io);
+                defer stream.close(io);
+
+                for (0..2) |i| {
+                    var connection_br = stream.reader(io, &recv_buffer);
+                    var connection_bw = stream.writer(io, &send_buffer);
+                    var server = http.Server.init(&connection_br.interface, &connection_bw.interface);
+                    var request = server.receiveHead() catch |err| switch (err) {
+                        error.HttpConnectionClosing => continue :accept,
+                        else => |e| return e,
+                    };
+                    if (i == 0) try request.respond("hello", .{});
+                }
+            }
+        }
+    });
+    defer test_server_orig.destroy();
+
+    var client: http.Client = .{
+        .allocator = gpa,
+        .io = io,
+    };
+    defer client.deinit();
+
+    var loc_buf: [100]u8 = undefined;
+    const location = try std.fmt.bufPrint(&loc_buf, "http://127.0.0.1:{d}/", .{
+        test_server_orig.port(),
+    });
+    const uri = try std.Uri.parse(location);
+
+    {
+        const response = try client.fetch(.{ .location = .{ .uri = uri } });
+        try expectEqual(.ok, response.status);
+    }
+    {
+        try expectError(error.HttpConnectionClosing, client.fetch(.{ .location = .{ .uri = uri } }));
+    }
+    {
+        const response = try client.fetch(.{ .location = .{ .uri = uri } });
+        try expectEqual(.ok, response.status);
+    }
+    {
+        try expectError(error.HttpConnectionClosing, client.fetch(.{ .location = .{ .uri = uri } }));
     }
 }

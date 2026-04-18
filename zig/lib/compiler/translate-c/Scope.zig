@@ -18,7 +18,22 @@ pub const ContainerMemberFns = struct {
     container_decl_ptr: *ast.Node,
     member_fns: std.ArrayList(*ast.Payload.Func) = .empty,
 };
-pub const ContainerMemberFnsHashMap = std.AutoArrayHashMapUnmanaged(aro.QualType, ContainerMemberFns);
+pub const ContainerMemberFnsHashMap = std.ArrayHashMapUnmanaged(
+    aro.QualType,
+    ContainerMemberFns,
+    struct {
+        pub fn hash(self: @This(), key: aro.QualType) u32 {
+            const auto_hash = std.array_hash_map.getAutoHashFn(aro.QualType, @This());
+            return auto_hash(self, key.unqualified());
+        }
+
+        pub fn eql(self: @This(), a: aro.QualType, b: aro.QualType, b_index: usize) bool {
+            const auto_eql = std.array_hash_map.getAutoEqlFn(aro.QualType, @This());
+            return auto_eql(self, a.unqualified(), b.unqualified(), b_index);
+        }
+    },
+    false,
+);
 
 id: Id,
 parent: ?*Scope,
@@ -254,7 +269,12 @@ pub const Root = struct {
 
         var member_names: std.StringArrayHashMapUnmanaged(void) = .empty;
         defer member_names.deinit(gpa);
-        for (root.container_member_fns_map.values()) |members| {
+        for (root.container_member_fns_map.keys(), root.container_member_fns_map.values()) |container_qt, members| {
+            // Get the container name
+            const container_name = root.translator.unnamed_typedefs.get(container_qt) orelse
+                container_qt.getRecord(root.translator.comp).?.name.lookup(root.translator.comp);
+            std.debug.assert(container_name.len > 0);
+
             member_names.clearRetainingCapacity();
             const decls_ptr = switch (members.container_decl_ptr.tag()) {
                 .@"struct", .@"union" => blk_record: {
@@ -274,7 +294,7 @@ pub const Root = struct {
                     members.container_decl_ptr.* = container_decl;
                     break :blk_opaque &container_decl.castTag(.@"opaque").?.data.decls;
                 },
-                else => return,
+                else => continue,
             };
 
             const old_decls = decls_ptr.*;
@@ -299,9 +319,26 @@ pub const Root = struct {
 
             for (members.member_fns.items) |func| {
                 const func_name = func.data.name.?;
-                const func_name_trimmed = std.mem.trimEnd(u8, func_name, "_");
-                const last_idx = std.mem.findLast(u8, func_name_trimmed, "_") orelse continue;
-                const func_name_alias = func_name[last_idx + 1 ..];
+                const func_name_alias = blk: {
+                    // Try multiple candidate prefixes to extract the alias
+                    // 1. typedef struct { ... } foo; -> foo_get_bar() extracts "get_bar"
+                    // 2. typedef struct _foo foo; -> foo_get_bar() extracts "get_bar"
+                    const container_name_trimmed = std.mem.trimStart(u8, container_name, "_");
+                    const suffix = std.mem.cutPrefix(u8, func_name, container_name_trimmed);
+                    // Check suffix starts with '_' to avoid invalid aliases like "1_get_bar" from foo1_get_bar()
+                    if (suffix) |alias| if (alias.len > 0 and alias[0] == '_') {
+                        const alias_trimmed = std.mem.trimStart(u8, alias, "_");
+                        if (alias_trimmed.len > 0) break :blk alias_trimmed;
+                    };
+
+                    // Doesn't match any prefix - fallback to trimming trailing underscores and using last segment
+                    const func_name_trimmed = std.mem.trimEnd(u8, func_name, "_");
+                    const last_idx = std.mem.findLast(u8, func_name_trimmed, "_") orelse continue;
+                    break :blk func_name[last_idx + 1 ..];
+                };
+
+                // Skip if the alias conflicts with an existing type
+                if (root.contains(func_name_alias)) continue;
                 const member_name_slot = try member_names.getOrPutValue(gpa, func_name_alias, {});
                 if (member_name_slot.found_existing) continue;
                 func_ref_vars[count] = try ast.Node.Tag.pub_var_simple.create(arena, .{

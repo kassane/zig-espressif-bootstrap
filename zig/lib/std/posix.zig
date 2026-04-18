@@ -38,6 +38,22 @@ pub const system = if (use_libc)
 else switch (native_os) {
     .linux => linux,
     .plan9 => std.os.plan9,
+    .psp => struct {
+        pub const fd_t = i32;
+        pub const pid_t = void;
+        pub const pollfd = void;
+        pub const uid_t = void;
+        pub const gid_t = void;
+        pub const mode_t = u32;
+        pub const nlink_t = u32;
+        pub const blksize_t = u32;
+        pub const ino_t = u64;
+        pub const IFNAMESIZE = {};
+        pub const SIG = void;
+
+        // https://github.com/pspdev/newlib/blob/9e0a073634ad73e8e088f2e071c55a9fe5d39709/newlib/libc/sys/psp/sys/dirent.h#L19
+        pub const NAME_MAX = 255;
+    },
     else => struct {
         pub const pid_t = void;
         pub const pollfd = void;
@@ -174,6 +190,7 @@ pub const timespec = system.timespec;
 pub const timestamp_t = system.timestamp_t;
 pub const timeval = system.timeval;
 pub const timezone = system.timezone;
+pub const UTIME = system.UTIME;
 pub const uid_t = system.uid_t;
 pub const user_desc = system.user_desc;
 pub const utsname = system.utsname;
@@ -496,6 +513,9 @@ pub const GetSockNameError = error{
     SocketNotBound,
 
     FileDescriptorNotASocket,
+
+    /// The socket is not connected (connection-oriented sockets only).
+    SocketUnconnected,
 } || UnexpectedError;
 
 pub fn getpeername(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSockNameError!void {
@@ -512,6 +532,7 @@ pub fn getpeername(sock: socket_t, addr: *sockaddr, addrlen: *socklen_t) GetSock
             .INVAL => unreachable, // invalid parameters
             .NOTSOCK => return error.FileDescriptorNotASocket,
             .NOBUFS => return error.SystemResources,
+            .NOTCONN => return error.SocketUnconnected,
         }
     }
 }
@@ -665,7 +686,7 @@ pub fn munmap(memory: []align(page_size_min) const u8) void {
         .SUCCESS => return,
         .INVAL => unreachable, // Invalid parameters.
         .NOMEM => unreachable, // Attempted to unmap a region in the middle of an existing mapping.
-        else => |e| if (unexpected_error_tracing) {
+        else => |e| if (std.options.unexpected_error_tracing) {
             std.debug.panic("unexpected errno: {d} ({t})", .{ @intFromEnum(e), e });
         } else unreachable,
     }
@@ -1641,22 +1662,12 @@ pub fn name_to_handle_atZ(
 
 pub const lfs64_abi = native_os == .linux and builtin.link_libc and (builtin.abi.isGnu() or builtin.abi.isAndroid());
 
-/// Whether or not `error.Unexpected` will print its value and a stack trace.
-///
-/// If this happens the fix is to add the error code to the corresponding
-/// switch expression, possibly introduce a new error in the error set, and
-/// send a patch to Zig.
-pub const unexpected_error_tracing = builtin.mode == .Debug and switch (builtin.zig_backend) {
-    .stage2_llvm, .stage2_x86_64 => true,
-    else => false,
-};
-
 pub const UnexpectedError = std.Io.UnexpectedError;
 
 /// Call this when you made a syscall or something that sets errno
 /// and you get an unexpected error.
 pub fn unexpectedErrno(err: E) UnexpectedError {
-    if (unexpected_error_tracing) {
+    if (std.options.unexpected_error_tracing) {
         std.debug.print("unexpected errno: {d}\n", .{@intFromEnum(err)});
         std.debug.dumpCurrentStackTrace(.{});
     }

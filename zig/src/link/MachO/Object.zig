@@ -328,7 +328,9 @@ fn initSubsections(self: *Object, allocator: Allocator, nlists: anytype) !void {
         if (isPtrLiteral(sect)) continue;
 
         const nlist_start = for (nlists, 0..) |nlist, i| {
-            if (nlist.nlist.n_sect - 1 == n_sect) break i;
+            // We must ignore `alt_entry` (N_ALT_ENTRY) symbols here, because that flag indicates
+            // that a symbol should *not* split subsections.
+            if (nlist.nlist.n_sect - 1 == n_sect and !nlist.nlist.n_desc.alt_entry) break i;
         } else nlists.len;
         const nlist_end = for (nlists[nlist_start..], nlist_start..) |nlist, i| {
             if (nlist.nlist.n_sect - 1 != n_sect) break i;
@@ -359,9 +361,24 @@ fn initSubsections(self: *Object, allocator: Allocator, nlists: anytype) !void {
             const alias_start = idx;
             const nlist = nlists[alias_start];
 
-            while (idx < nlist_end and
-                nlists[idx].nlist.n_value == nlist.nlist.n_value) : (idx += 1)
-            {}
+            // Skip past any symbols which shouldn't terminate this subsection.
+            while (true) {
+                idx += 1;
+                if (idx == nlist_end) {
+                    // This subsection contains the full remainder of the section.
+                    break;
+                }
+                if (nlists[idx].nlist.n_value == nlist.nlist.n_value) {
+                    // Multiple symbols at the same address---don't create zero-length subsections.
+                    continue;
+                }
+                if (nlists[idx].nlist.n_desc.alt_entry) {
+                    // N_ALT_ENTRY indicates that this symbol does not split subsections, and is
+                    // instead an "alternate entry point" into an existing subsection.
+                    continue;
+                }
+                break;
+            }
 
             const size = if (idx < nlist_end)
                 nlists[idx].nlist.n_value - nlist.nlist.n_value
@@ -385,7 +402,9 @@ fn initSubsections(self: *Object, allocator: Allocator, nlists: anytype) !void {
             });
 
             for (alias_start..idx) |i| {
-                self.symtab.items(.size)[nlists[i].idx] = size;
+                if (!nlists[i].nlist.n_desc.alt_entry) {
+                    self.symtab.items(.size)[nlists[i].idx] = size;
+                }
             }
         }
 
@@ -1273,8 +1292,8 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
 
     const Superposition = struct { atom: Atom.Index, size: u64, cu: ?UnwindInfo.Record.Index = null, fde: ?Fde.Index = null };
 
-    var superposition = std.AutoArrayHashMap(u64, Superposition).init(allocator);
-    defer superposition.deinit();
+    var superposition: std.array_hash_map.Auto(u64, Superposition) = .empty;
+    defer superposition.deinit(allocator);
 
     const slice = self.symtab.slice();
     for (slice.items(.nlist), slice.items(.atom), slice.items(.size)) |nlist, atom, size| {
@@ -1282,7 +1301,7 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
         if (nlist.n_type.bits.type != .sect) continue;
         const sect = self.sections.items(.header)[nlist.n_sect - 1];
         if (sect.isCode() and sect.size > 0) {
-            try superposition.ensureUnusedCapacity(1);
+            try superposition.ensureUnusedCapacity(allocator, 1);
             const gop = superposition.getOrPutAssumeCapacity(nlist.n_value);
             if (gop.found_existing) {
                 assert(gop.value_ptr.atom == atom and gop.value_ptr.size == size);
@@ -1296,7 +1315,7 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
         const atom = rec.getAtom(macho_file);
         const addr = atom.getInputAddress(macho_file) + rec.atom_offset;
 
-        try superposition.ensureUnusedCapacity(1);
+        try superposition.ensureUnusedCapacity(allocator, 1);
         const gop = superposition.getOrPutAssumeCapacity(addr);
         if (!gop.found_existing) {
             gop.value_ptr.* = .{ .atom = rec.atom, .size = rec.length };
@@ -1312,7 +1331,7 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
         const atom = fde.getAtom(macho_file);
         const addr = atom.getInputAddress(macho_file) + fde.atom_offset;
 
-        try superposition.ensureUnusedCapacity(1);
+        try superposition.ensureUnusedCapacity(allocator, 1);
         const gop = superposition.getOrPutAssumeCapacity(addr);
         if (!gop.found_existing) {
             gop.value_ptr.* = .{ .atom = fde.atom, .size = fde.pc_range };

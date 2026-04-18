@@ -772,7 +772,10 @@ fn addCompilerMod(b: *std.Build, options: AddCompilerModOptions) *std.Build.Modu
 fn addCompilerStep(b: *std.Build, options: AddCompilerModOptions) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = "zig",
-        .max_rss = 8_700_000_000,
+        // This number should never be raised. If the value is exceeded, then
+        // it is considered a bug in the Zig project that building the
+        // compiler takes more than 8G of memory.
+        .max_rss = 8_000_000_000,
         .root_module = addCompilerMod(b, options),
     });
     exe.stack_size = stack_size;

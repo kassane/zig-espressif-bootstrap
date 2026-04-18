@@ -46,7 +46,7 @@ pub fn generate(
         .dom_len = 0,
         .dom = .empty,
 
-        .saved_registers = comptime .initEmpty(),
+        .saved_registers = .empty,
         .instructions = .empty,
         .literals = .empty,
         .nav_relocs = .empty,

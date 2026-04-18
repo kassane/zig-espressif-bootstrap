@@ -303,7 +303,7 @@ fn resolveInst(cg: *CodeGen, ref: Air.Inst.Ref) InnerError!WValue {
 
     const pt = cg.pt;
     const zcu = pt.zcu;
-    const val = (try cg.air.value(ref, pt)).?;
+    const val: Value = .fromInterned(ref.toInterned().?);
     const ty = cg.typeOf(ref);
     if (!ty.hasRuntimeBits(zcu) and !ty.isInt(zcu) and !ty.isError(zcu)) {
         gop.value_ptr.* = .none;
@@ -345,7 +345,10 @@ fn finishAir(cg: *CodeGen, inst: Air.Inst.Index, result: WValue, operands: []con
         if (!dies) continue;
         processDeath(cg, operand);
     }
+    try cg.finishAirResult(inst, result);
+}
 
+fn finishAirResult(cg: *CodeGen, inst: Air.Inst.Index, result: WValue) InnerError!void {
     // results of `none` can never be referenced.
     if (result != .none) {
         const trackable_result = if (result != .stack)
@@ -374,37 +377,10 @@ inline fn currentBranch(cg: *CodeGen) *Branch {
     return &cg.branches.items[cg.branches.items.len - 1];
 }
 
-const BigTomb = struct {
-    gen: *CodeGen,
-    inst: Air.Inst.Index,
-    lbt: Air.Liveness.BigTomb,
-
-    fn feed(bt: *BigTomb, op_ref: Air.Inst.Ref) void {
-        const dies = bt.lbt.feed();
-        if (!dies) return;
-        // This will be a nop for interned constants.
-        processDeath(bt.gen, op_ref);
+fn feed(cg: *CodeGen, bt: *Air.Liveness.BigTomb, operand: Air.Inst.Ref) void {
+    if (bt.feed()) {
+        cg.processDeath(operand);
     }
-
-    fn finishAir(bt: *BigTomb, result: WValue) void {
-        assert(result != .stack);
-        if (result != .none) {
-            bt.gen.currentBranch().values.putAssumeCapacityNoClobber(bt.inst.toRef(), result);
-        }
-
-        if (std.debug.runtime_safety) {
-            bt.gen.air_bookkeeping += 1;
-        }
-    }
-};
-
-fn iterateBigTomb(cg: *CodeGen, inst: Air.Inst.Index, operand_count: usize) !BigTomb {
-    try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, operand_count + 1);
-    return BigTomb{
-        .gen = cg,
-        .inst = inst,
-        .lbt = cg.liveness.iterateBigTomb(inst),
-    };
 }
 
 fn processDeath(cg: *CodeGen, ref: Air.Inst.Ref) void {
@@ -496,6 +472,10 @@ fn addAtomicMemArg(cg: *CodeGen, tag: std.wasm.AtomicsOpcode, mem_arg: Mir.MemAr
 fn addAtomicTag(cg: *CodeGen, tag: std.wasm.AtomicsOpcode) error{OutOfMemory}!void {
     const extra_index = try cg.addExtra(@as(struct { val: u32 }, .{ .val = @intFromEnum(tag) }));
     try cg.addInst(.{ .tag = .atomics_prefix, .data = .{ .payload = extra_index } });
+}
+
+fn addCallIntrinsic(cg: *CodeGen, intrinsic: Mir.Intrinsic) error{OutOfMemory}!void {
+    try cg.addInst(.{ .tag = .call_intrinsic, .data = .{ .intrinsic = intrinsic } });
 }
 
 /// Appends entries to `mir_extra` based on the type of `extra`.
@@ -762,11 +742,15 @@ pub fn generate(
 
 fn generateInner(cg: *CodeGen, any_returns: bool) InnerError!Mir {
     const zcu = cg.pt.zcu;
+    // branch used for const values
     try cg.branches.append(cg.gpa, .{});
-    // clean up outer branch
+    // func scope branch
+    try cg.branches.append(cg.gpa, .{});
     defer {
-        var outer_branch = cg.branches.pop().?;
-        outer_branch.deinit(cg.gpa);
+        var func_branch = cg.branches.pop().?;
+        func_branch.deinit(cg.gpa);
+        var const_branch = cg.branches.pop().?;
+        const_branch.deinit(cg.gpa);
         assert(cg.branches.items.len == 0); // missing branch merge
     }
     // Generate MIR for function body
@@ -1001,6 +985,24 @@ fn allocStack(cg: *CodeGen, ty: Type) !WValue {
         });
     };
     const abi_align = ty.abiAlignment(zcu);
+
+    cg.stack_alignment = cg.stack_alignment.max(abi_align);
+
+    const offset: u32 = @intCast(abi_align.forward(cg.stack_size));
+    defer cg.stack_size = offset + abi_size;
+
+    return .{ .stack_offset = .{ .value = offset, .references = 1 } };
+}
+
+fn allocInt(cg: *CodeGen, int_ty: IntType) !WValue {
+    if (cg.initial_stack_value == .none) {
+        try cg.initializeStack();
+    }
+
+    const abi_size = std.math.cast(u32, std.zig.target.intByteSize(cg.target, int_ty.bits)) orelse {
+        return cg.fail("Integer ABI size exceeds max stack size", .{});
+    };
+    const abi_align: Alignment = .fromByteUnits(std.zig.target.intAlignment(cg.target, int_ty.bits));
 
     cg.stack_alignment = cg.stack_alignment.max(abi_align);
 
@@ -1718,7 +1720,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .cmp_neq => cg.airCmp(inst, .neq),
 
         .cmp_vector => cg.airCmpVector(inst),
-        .cmp_lt_errors_len => cg.airCmpLtErrorsLen(inst),
+        .cmp_lte_errors_len => cg.airCmpLteErrorsLen(inst),
 
         .array_elem_val => cg.airArrayElemVal(inst),
         .array_to_slice => cg.airArrayToSlice(inst),
@@ -1898,7 +1900,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             continue;
         }
         const old_bookkeeping_value = cg.air_bookkeeping;
-        try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, Air.Liveness.bpi);
+        try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, 1);
         try cg.genInst(inst);
 
         if (std.debug.runtime_safety and cg.air_bookkeeping < old_bookkeeping_value + 1) {
@@ -2006,7 +2008,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
     const first_param_sret = firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), zcu, cg.target);
 
     const callee: ?InternPool.Nav.Index = blk: {
-        const func_val = (try cg.air.value(call.callee, pt)) orelse break :blk null;
+        const func_val: Value = .fromInterned(call.callee.toInterned() orelse break :blk null);
 
         switch (ip.indexToKey(func_val.toIntern())) {
             inline .func, .@"extern" => |x| break :blk x.owner_nav,
@@ -2080,10 +2082,10 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
         }
     };
 
-    var bt = try cg.iterateBigTomb(inst, 1 + args.len);
-    bt.feed(call.callee);
-    for (args) |arg| bt.feed(arg);
-    return bt.finishAir(result_value);
+    var bt = cg.liveness.iterateBigTomb(inst);
+    cg.feed(&bt, call.callee);
+    for (args) |arg| cg.feed(&bt, arg);
+    return cg.finishAirResult(inst, result_value);
 }
 
 fn airAlloc(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -2393,7 +2395,18 @@ fn intAdd(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue
             try cg.store(result, tmp_op, Type.u64, 8);
             return result;
         },
-        else => return cg.fail("TODO: Support intAdd for integer bitsize: {d}", .{ty.bits}),
+        else => {
+            const result = try cg.allocInt(ty);
+
+            try cg.lowerToStack(result);
+            try cg.lowerToStack(lhs);
+            try cg.lowerToStack(rhs);
+            try cg.addImm32(@intFromBool(ty.is_signed));
+            try cg.addImm32(ty.bits);
+            try cg.addCallIntrinsic(.__addo_limb64);
+            try cg.addTag(.drop);
+            return result;
+        },
     }
 }
 
@@ -2435,7 +2448,19 @@ fn intSub(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!WValue
             try cg.store(result, tmp_op, Type.u64, 8);
             return result;
         },
-        else => return cg.fail("TODO: Support intSub for integer bitsize: {d}", .{ty.bits}),
+        else => {
+            const result = try cg.allocInt(ty);
+
+            try cg.lowerToStack(result);
+            try cg.lowerToStack(lhs);
+            try cg.lowerToStack(rhs);
+            try cg.addImm32(@intFromBool(ty.is_signed));
+            try cg.addImm32(ty.bits);
+            try cg.addCallIntrinsic(.__subo_limb64);
+            try cg.addTag(.drop);
+
+            return result;
+        },
     }
 }
 
@@ -3434,45 +3459,66 @@ const OverflowResult = struct {
     ov: WValue,
 };
 
-fn intAddOverflow(cg: *CodeGen, int_ty: IntType, lhs: WValue, rhs: WValue) InnerError!OverflowResult {
-    switch (int_ty.bits) {
+fn intAddOverflow(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!OverflowResult {
+    switch (ty.bits) {
         0 => unreachable,
         1...128 => {
-            const raw_result = try cg.intAdd(int_ty, lhs, rhs);
-            const op_result = try cg.intWrap(int_ty, raw_result);
-            const op_tmp = try cg.toLocalInt(op_result, int_ty);
+            const raw_result = try cg.intAdd(ty, lhs, rhs);
+            const op_result = try cg.intWrap(ty, raw_result);
+            const op_tmp = try cg.toLocalInt(op_result, ty);
 
-            const overflow_bit = if (int_ty.is_signed) blk: {
-                const zero = try cg.intZeroValue(int_ty);
-                const rhs_is_neg = try cg.intCmp(int_ty, .lt, rhs, zero);
-                const overflow_cmp = try cg.intCmp(int_ty, .lt, op_tmp, lhs);
+            const overflow_bit = if (ty.is_signed) blk: {
+                const zero = try cg.intZeroValue(ty);
+                const rhs_is_neg = try cg.intCmp(ty, .lt, rhs, zero);
+                const overflow_cmp = try cg.intCmp(ty, .lt, op_tmp, lhs);
                 break :blk try cg.intCmp(.u32, .neq, rhs_is_neg, overflow_cmp);
-            } else try cg.intCmp(int_ty, .lt, op_tmp, lhs);
+            } else try cg.intCmp(ty, .lt, op_tmp, lhs);
 
             return .{ .result = op_tmp, .ov = overflow_bit };
         },
-        else => return cg.fail("TODO: Support intAddOverflow for integer bitsize: {d}", .{int_ty.bits}),
+        else => {
+            const result = try cg.allocInt(ty);
+
+            try cg.lowerToStack(result);
+            try cg.lowerToStack(lhs);
+            try cg.lowerToStack(rhs);
+            try cg.addImm32(@intFromBool(ty.is_signed));
+            try cg.addImm32(ty.bits);
+            try cg.addCallIntrinsic(.__addo_limb64);
+
+            return .{ .result = result, .ov = .stack };
+        },
     }
 }
 
-fn intSubOverflow(cg: *CodeGen, int_ty: IntType, lhs: WValue, rhs: WValue) InnerError!OverflowResult {
-    switch (int_ty.bits) {
+fn intSubOverflow(cg: *CodeGen, ty: IntType, lhs: WValue, rhs: WValue) InnerError!OverflowResult {
+    switch (ty.bits) {
         0 => unreachable,
         1...128 => {
-            const raw_result = try cg.intSub(int_ty, lhs, rhs);
-            const op_result = try cg.intWrap(int_ty, raw_result);
-            const op_tmp = try cg.toLocalInt(op_result, int_ty);
+            const raw_result = try cg.intSub(ty, lhs, rhs);
+            const op_result = try cg.intWrap(ty, raw_result);
+            const op_tmp = try cg.toLocalInt(op_result, ty);
 
-            const overflow_bit = if (int_ty.is_signed) blk: {
-                const zero = try cg.intZeroValue(int_ty);
-                const rhs_is_neg = try cg.intCmp(int_ty, .lt, rhs, zero);
-                const overflow_cmp = try cg.intCmp(int_ty, .gt, op_tmp, lhs);
+            const overflow_bit = if (ty.is_signed) blk: {
+                const zero = try cg.intZeroValue(ty);
+                const rhs_is_neg = try cg.intCmp(ty, .lt, rhs, zero);
+                const overflow_cmp = try cg.intCmp(ty, .gt, op_tmp, lhs);
                 break :blk try cg.intCmp(.u32, .neq, rhs_is_neg, overflow_cmp);
-            } else try cg.intCmp(int_ty, .gt, op_tmp, lhs);
+            } else try cg.intCmp(ty, .gt, op_tmp, lhs);
 
             return .{ .result = op_tmp, .ov = overflow_bit };
         },
-        else => return cg.fail("TODO: Support intSubOverflow for integer bitsize: {d}", .{int_ty.bits}),
+        else => {
+            const result = try cg.allocInt(ty);
+
+            try cg.lowerToStack(result);
+            try cg.lowerToStack(lhs);
+            try cg.lowerToStack(rhs);
+            try cg.addImm32(@intFromBool(ty.is_signed));
+            try cg.addImm32(ty.bits);
+            try cg.addCallIntrinsic(.__subo_limb64);
+            return .{ .result = result, .ov = .stack };
+        },
     }
 }
 
@@ -4464,7 +4510,7 @@ fn lowerConstant(cg: *CodeGen, val: Value) InnerError!WValue {
             .vector_type => {
                 assert(determineSimdStoreStrategy(ty, zcu, cg.target) == .direct);
                 var buf: [16]u8 = undefined;
-                val.writeToMemory(pt, &buf) catch unreachable;
+                val.writeToMemory(zcu, &buf) catch unreachable;
                 return cg.storeSimdImmd(buf);
             },
             .struct_type => unreachable, // packed structs use `bitpack`
@@ -4542,11 +4588,15 @@ fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, block_ty: Type, body: []const 
         .value = block_result,
     });
 
-    try cg.genBody(body);
-    try cg.endBlock();
-
-    const liveness = cg.liveness.getBlock(inst);
-    try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, liveness.deaths.len);
+    {
+        try cg.branches.append(cg.gpa, .{});
+        defer {
+            var branch = cg.branches.pop().?;
+            branch.deinit(cg.gpa);
+        }
+        try cg.genBody(body);
+        try cg.endBlock();
+    }
 
     return cg.finishAir(inst, block_result, &.{});
 }
@@ -4587,7 +4637,6 @@ fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const condition = try cg.resolveInst(cond_br.condition);
     const then_body = cond_br.then_body;
     const else_body = cond_br.else_body;
-    const liveness_condbr = cg.liveness.getCondBr(inst);
 
     // result type is always noreturn, so use `block_empty` as type.
     try cg.startBlock(.block, .empty);
@@ -4602,7 +4651,6 @@ fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try cg.branches.ensureUnusedCapacity(cg.gpa, 2);
     {
         cg.branches.appendAssumeCapacity(.{});
-        try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, @as(u32, @intCast(liveness_condbr.else_deaths.len)));
         defer {
             var else_stack = cg.branches.pop().?;
             else_stack.deinit(cg.gpa);
@@ -4614,7 +4662,6 @@ fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // Outer block that matches the condition
     {
         cg.branches.appendAssumeCapacity(.{});
-        try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, @as(u32, @intCast(liveness_condbr.then_deaths.len)));
         defer {
             var then_stack = cg.branches.pop().?;
             then_stack.deinit(cg.gpa);
@@ -4764,7 +4811,23 @@ fn intCmp(cg: *CodeGen, ty: IntType, op: std.math.CompareOperator, lhs: WValue, 
 
             return .stack;
         },
-        else => return cg.fail("TODO: Support intCmp for integer bitsize: {d}", .{ty.bits}),
+        else => {
+            try cg.lowerToStack(lhs);
+            try cg.lowerToStack(rhs);
+            try cg.addImm32(@intFromBool(ty.is_signed));
+            try cg.addImm32(ty.bits);
+            try cg.addCallIntrinsic(.__cmp_limb64);
+            try cg.addImm32(0);
+            try cg.addTag(switch (op) {
+                .eq => .i32_eq,
+                .neq => .i32_ne,
+                .lt => .i32_lt_s,
+                .lte => .i32_le_s,
+                .gte => .i32_ge_s,
+                .gt => .i32_gt_s,
+            });
+            return .stack;
+        },
     }
 }
 
@@ -4841,7 +4904,7 @@ fn airCmpVector(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.fail("TODO implement airCmpVector for wasm", .{});
 }
 
-fn airCmpLtErrorsLen(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airCmpLteErrorsLen(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try cg.resolveInst(un_op);
 
@@ -5090,9 +5153,6 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
         break :target target;
     } else try cg.resolveInst(switch_br.operand);
 
-    const liveness = try cg.liveness.getSwitchBr(cg.gpa, inst, switch_br.cases_len + 1);
-    defer cg.gpa.free(liveness.deaths);
-
     const has_else_body = switch_br.else_body_len != 0;
     const branch_count = switch_br.cases_len + 1; // if else branch is missing, we trap when failing all conditions
     try cg.branches.ensureUnusedCapacity(cg.gpa, switch_br.cases_len + @intFromBool(has_else_body));
@@ -5104,8 +5164,6 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
         const else_body = it.elseBody();
 
         cg.branches.appendAssumeCapacity(.{});
-        const else_deaths = liveness.deaths.len - 1;
-        try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, liveness.deaths[else_deaths].len);
         defer {
             var else_branch = cg.branches.pop().?;
             else_branch.deinit(cg.gpa);
@@ -5239,7 +5297,6 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
         try cg.endBlock();
 
         cg.branches.appendAssumeCapacity(.{});
-        try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, liveness.deaths[case.idx].len);
         defer {
             var case_branch = cg.branches.pop().?;
             case_branch.deinit(cg.gpa);
@@ -5254,8 +5311,6 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
         const else_body = cases_it.elseBody();
 
         cg.branches.appendAssumeCapacity(.{});
-        const else_deaths = liveness.deaths.len - 1;
-        try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, liveness.deaths[else_deaths].len);
         defer {
             var else_branch = cg.branches.pop().?;
             else_branch.deinit(cg.gpa);
@@ -6247,14 +6302,9 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         }
     };
 
-    if (elements.len <= Air.Liveness.bpi - 1) {
-        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
-        @memcpy(buf[0..elements.len], elements);
-        return cg.finishAir(inst, result, &buf);
-    }
-    var bt = try cg.iterateBigTomb(inst, elements.len);
-    for (elements) |arg| bt.feed(arg);
-    return bt.finishAir(result);
+    var bt = cg.liveness.iterateBigTomb(inst);
+    for (elements) |arg| cg.feed(&bt, arg);
+    return cg.finishAirResult(inst, result);
 }
 
 fn airUnionInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -6589,6 +6639,7 @@ fn lowerTry(
     err_union_ty: Type,
     operand_is_ptr: bool,
 ) InnerError!WValue {
+    _ = inst;
     const zcu = cg.pt.zcu;
 
     const pl_ty = err_union_ty.errorUnionPayload(zcu);
@@ -6610,9 +6661,7 @@ fn lowerTry(
         try cg.addTag(.i32_eqz);
         try cg.addLabel(.br_if, 0); // jump out of block when error is '0'
 
-        const liveness = cg.liveness.getCondBr(inst);
         try cg.branches.append(cg.gpa, .{});
-        try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, liveness.else_deaths.len + liveness.then_deaths.len);
         defer {
             var branch = cg.branches.pop().?;
             branch.deinit(cg.gpa);

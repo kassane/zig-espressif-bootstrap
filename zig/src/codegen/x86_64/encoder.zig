@@ -43,17 +43,11 @@ pub const Instruction = struct {
 
         pub fn asSigned(imm: Immediate, bit_size: u64) i64 {
             return switch (imm) {
-                .signed => |x| switch (bit_size) {
-                    1, 8 => @as(i8, @intCast(x)),
-                    16 => @as(i16, @intCast(x)),
-                    32, 64 => x,
-                    else => unreachable,
-                },
-                .unsigned => |x| switch (bit_size) {
-                    1, 8 => @as(i8, @bitCast(@as(u8, @intCast(x)))),
-                    16 => @as(i16, @bitCast(@as(u16, @intCast(x)))),
-                    32 => @as(i32, @bitCast(@as(u32, @intCast(x)))),
-                    64 => @bitCast(x),
+                inline .signed, .unsigned => |x| switch (bit_size) {
+                    1, 8 => @as(i8, if (x < 0) @intCast(x) else @bitCast(@as(u8, @intCast(x)))),
+                    16 => @as(i16, if (x < 0) @intCast(x) else @bitCast(@as(u16, @intCast(x)))),
+                    32 => @as(i32, if (x < 0) @intCast(x) else @bitCast(@as(u32, @intCast(x)))),
+                    64 => @as(i64, if (x < 0) @intCast(x) else @bitCast(@as(u64, @intCast(x)))),
                     else => unreachable,
                 },
             };
@@ -61,17 +55,11 @@ pub const Instruction = struct {
 
         pub fn asUnsigned(imm: Immediate, bit_size: u64) u64 {
             return switch (imm) {
-                .signed => |x| switch (bit_size) {
-                    1, 8 => @as(u8, @bitCast(@as(i8, @intCast(x)))),
-                    16 => @as(u16, @bitCast(@as(i16, @intCast(x)))),
-                    32, 64 => @as(u32, @bitCast(x)),
-                    else => unreachable,
-                },
-                .unsigned => |x| switch (bit_size) {
-                    1, 8 => @as(u8, @intCast(x)),
-                    16 => @as(u16, @intCast(x)),
-                    32 => @as(u32, @intCast(x)),
-                    64 => x,
+                inline .signed, .unsigned => |x| switch (bit_size) {
+                    1, 8 => @as(u8, if (x < 0) @bitCast(@as(i8, @intCast(x))) else @intCast(x)),
+                    16 => @as(u16, if (x < 0) @bitCast(@as(i16, @intCast(x))) else @intCast(x)),
+                    32 => @as(u32, if (x < 0) @bitCast(@as(i32, @intCast(x))) else @intCast(x)),
+                    64 => @as(u64, if (x < 0) @bitCast(@as(i64, @intCast(x))) else @intCast(x)),
                     else => unreachable,
                 },
             };
@@ -712,9 +700,10 @@ pub const Instruction = struct {
         }
     }
 
-    fn encodeImm(imm: Immediate, kind: Encoding.Op, encoder: anytype) !void {
-        const raw = imm.asUnsigned(kind.immBitSize());
-        switch (kind.immBitSize()) {
+    fn encodeImm(imm: Immediate, enc_op: Encoding.Op, encoder: anytype) !void {
+        const bit_size = enc_op.immBitSize();
+        const raw = imm.asUnsigned(bit_size);
+        switch (bit_size) {
             8 => try encoder.imm8(@as(u8, @intCast(raw))),
             16 => try encoder.imm16(@as(u16, @intCast(raw))),
             32 => try encoder.imm32(@as(u32, @intCast(raw))),

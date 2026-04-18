@@ -219,9 +219,9 @@ pub const QualType = packed struct(u32) {
             .float_dfloat64 => return .{ .float = .dfloat64 },
             .float_dfloat128 => return .{ .float = .dfloat128 },
             .float_dfloat64x => return .{ .float = .dfloat64x },
-            .void_pointer => return .{ .pointer = .{ .child = .void, .decayed = null } },
-            .char_pointer => return .{ .pointer = .{ .child = .char, .decayed = null } },
-            .int_pointer => return .{ .pointer = .{ .child = .int, .decayed = null } },
+            .void_pointer => return .{ .pointer = .{ .child = .void } },
+            .char_pointer => return .{ .pointer = .{ .child = .char } },
+            .int_pointer => return .{ .pointer = .{ .child = .int } },
 
             else => {},
         }
@@ -280,7 +280,7 @@ pub const QualType = packed struct(u32) {
             },
             .pointer => .{ .pointer = .{
                 .child = @bitCast(repr.data[0]),
-                .decayed = null,
+                .bounds = @enumFromInt(repr.data[1]),
             } },
             .pointer_decayed => .{ .pointer = .{
                 .child = @bitCast(repr.data[0]),
@@ -800,7 +800,6 @@ pub const QualType = packed struct(u32) {
 
                 return comp.type_store.put(comp.gpa, .{ .pointer = .{
                     .child = qt,
-                    .decayed = null,
                 } });
             },
             else => return qt,
@@ -1011,6 +1010,15 @@ pub const QualType = packed struct(u32) {
     // Prefer calling scalarKind directly if checking multiple kinds.
     pub fn isPointer(qt: QualType, comp: *const Compilation) bool {
         return qt.scalarKind(comp).isPointer();
+    }
+
+    /// Function or function pointer
+    pub fn isCallable(qt: QualType, comp: *const Compilation) bool {
+        return switch (qt.base(comp).type) {
+            .func => true,
+            .pointer => |ptr| ptr.child.is(comp, .func),
+            else => false,
+        };
     }
 
     pub fn eqlQualified(a_qt: QualType, b_qt: QualType, comp: *const Compilation) bool {
@@ -1632,7 +1640,25 @@ pub const Type = union(enum) {
 
     pub const Pointer = struct {
         child: QualType,
-        decayed: ?QualType,
+        decayed: ?QualType = null,
+        bounds: Bounds = .c,
+
+        pub const Bounds = enum {
+            /// C pointer with no bounds attribute
+            c,
+            /// No pointer arithmetic or non-zero indexing
+            single,
+            /// Explicitly specified as a traditional C pointer
+            unsafe_indexable,
+
+            pub fn fromTag(tag: Attribute.Tag) Bounds {
+                return switch (tag) {
+                    .single => .single,
+                    .unsafe_indexable => .unsafe_indexable,
+                    else => unreachable,
+                };
+            }
+        };
     };
 
     pub const Array = struct {
@@ -1784,6 +1810,7 @@ attributes: std.ArrayList(Attribute) = .empty,
 anon_name_arena: std.heap.ArenaAllocator.State = .{},
 
 wchar: QualType = .invalid,
+wint: QualType = .invalid,
 uint_least16_t: QualType = .invalid,
 uint_least32_t: QualType = .invalid,
 ptrdiff: QualType = .invalid,
@@ -1918,10 +1945,12 @@ pub fn set(ts: *TypeStore, gpa: std.mem.Allocator, ty: Type, index: usize) !void
         .pointer => |pointer| {
             repr.data[0] = @bitCast(pointer.child);
             if (pointer.decayed) |array| {
+                std.debug.assert(pointer.bounds == .c);
                 repr.tag = .pointer_decayed;
                 repr.data[1] = @bitCast(array);
             } else {
                 repr.tag = .pointer;
+                repr.data[1] = @intFromEnum(pointer.bounds);
             }
         },
         .array => |array| {
@@ -2070,17 +2099,44 @@ pub fn set(ts: *TypeStore, gpa: std.mem.Allocator, ty: Type, index: usize) !void
 
 pub fn initNamedTypes(ts: *TypeStore, comp: *Compilation) !void {
     const os = comp.target.os.tag;
-    ts.wchar = switch (comp.target.cpu.arch) {
-        .xcore => .uchar,
-        .ve, .msp430 => .uint,
-        .arm, .armeb, .thumb, .thumbeb => if (os != .windows and os != .netbsd and os != .openbsd) .uint else .int,
-        .aarch64, .aarch64_be => if (!os.isDarwin() and os != .netbsd) .uint else .int,
-        .x86_64, .x86 => if (os == .windows) .ushort else .int,
-        else => .int,
+    const arch = comp.target.cpu.arch;
+    ts.wchar = switch (os) {
+        .openbsd, .netbsd => .int,
+        .ps4, .ps5 => .ushort,
+        .uefi => .ushort,
+        .windows => .ushort,
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => .int,
+        else => switch (arch) {
+            .aarch64, .aarch64_be => .uint,
+            .arm, .armeb, .thumb, .thumbeb => .uint,
+            .ve, .msp430 => .uint,
+            .x86_64, .x86 => .int,
+            .xcore => .uchar,
+            else => .int,
+        },
+    };
+
+    ts.wint = switch (os) {
+        .fuchsia => .uint,
+        .linux => .uint,
+        .openbsd => .int,
+        .uefi => .ushort,
+        .windows => .ushort,
+        else => switch (arch) {
+            .csky => .uint,
+            .loongarch32, .loongarch64 => .uint,
+            .riscv32, .riscv32be, .riscv64, .riscv64be => .uint,
+            .ve => .uint,
+            .xcore => .uint,
+            .xtensa, .xtensaeb => .uint,
+            else => .int,
+        },
     };
 
     const ptr_width = comp.target.ptrBitWidth();
-    ts.ptrdiff = if (os == .windows and ptr_width == 64)
+    ts.ptrdiff = if (arch == .wasm32)
+        .long
+    else if (os == .windows and ptr_width == 64)
         .long_long
     else switch (ptr_width) {
         16 => .int,
@@ -2089,7 +2145,9 @@ pub fn initNamedTypes(ts: *TypeStore, comp: *Compilation) !void {
         else => unreachable,
     };
 
-    ts.size = if (os == .windows and ptr_width == 64)
+    ts.size = if (arch == .wasm32)
+        .ulong
+    else if (os == .windows and ptr_width == 64)
         .ulong_long
     else switch (ptr_width) {
         16 => .uint,
@@ -2206,9 +2264,9 @@ fn generateVaListType(ts: *TypeStore, comp: *Compilation) !QualType {
     };
 
     const struct_qt = switch (kind) {
-        .aarch64_va_list => blk: {
+        .aarch64_va_list => {
             var record: Type.Record = .{
-                .name = try comp.internString("__va_list_tag"),
+                .name = try comp.internString("__va_list"),
                 .decl_node = undefined, // TODO
                 .layout = null,
                 .fields = &.{},
@@ -2226,11 +2284,11 @@ fn generateVaListType(ts: *TypeStore, comp: *Compilation) !QualType {
             record.layout = record_layout.compute(&fields, qt, comp, null) catch unreachable;
             try ts.set(comp.gpa, .{ .@"struct" = record }, @intFromEnum(qt._index));
 
-            break :blk qt;
+            return qt;
         },
-        .arm_va_list => blk: {
+        .arm_va_list => {
             var record: Type.Record = .{
-                .name = try comp.internString("__va_list_tag"),
+                .name = try comp.internString("__va_list"),
                 .decl_node = undefined, // TODO
                 .layout = null,
                 .fields = &.{},
@@ -2244,7 +2302,7 @@ fn generateVaListType(ts: *TypeStore, comp: *Compilation) !QualType {
             record.layout = record_layout.compute(&fields, qt, comp, null) catch unreachable;
             try ts.set(comp.gpa, .{ .@"struct" = record }, @intFromEnum(qt._index));
 
-            break :blk qt;
+            return qt;
         },
         .hexagon_va_list => blk: {
             var record: Type.Record = .{
@@ -2330,7 +2388,7 @@ fn generateVaListType(ts: *TypeStore, comp: *Compilation) !QualType {
 
             break :blk qt;
         },
-        .xtensa_va_list => blk: {
+        .xtensa_va_list => {
             var record: Type.Record = .{
                 .name = try comp.internString("__va_list_tag"),
                 .decl_node = undefined, // TODO
@@ -2348,7 +2406,7 @@ fn generateVaListType(ts: *TypeStore, comp: *Compilation) !QualType {
             record.layout = record_layout.compute(&fields, qt, comp, null) catch unreachable;
             try ts.set(comp.gpa, .{ .@"struct" = record }, @intFromEnum(qt._index));
 
-            break :blk qt;
+            return qt;
         },
     };
 
@@ -2830,7 +2888,7 @@ pub const Builder = struct {
     }
 
     fn duplicateSpec(b: *Builder, source_tok: TokenIndex, spec: []const u8) !void {
-        if (b.parser.comp.langopts.emulate != .clang) return b.cannotCombine(source_tok);
+        if (b.parser.comp.langopts.emulate == .gcc) return b.cannotCombine(source_tok);
         try b.parser.err(b.parser.tok_i, .duplicate_decl_spec, .{spec});
     }
 

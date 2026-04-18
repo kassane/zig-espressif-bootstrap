@@ -596,7 +596,7 @@ pub fn appendZigProcessFlags(
                 "-target", try target.query.zigTriple(b.allocator),
                 "-mcpu",   try target.query.serializeCpuAlloc(b.allocator),
             });
-            if (target.query.dynamic_linker) |dynamic_linker| {
+            if (target.query.dynamic_linker) |*dynamic_linker| {
                 if (dynamic_linker.get()) |dynamic_linker_path| {
                     try zig_args.append("--dynamic-linker");
                     try zig_args.append(dynamic_linker_path);

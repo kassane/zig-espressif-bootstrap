@@ -13,7 +13,7 @@ pub const std_options = std.Options{
     .logFn = logOverride,
 };
 
-const io = std.Io.Threaded.global_single_threaded.io();
+const io = Io.Threaded.global_single_threaded.io();
 
 fn logOverride(
     comptime level: std.log.Level,
@@ -77,23 +77,27 @@ const Executable = struct {
             panic("failed to create directory 'v': {t}", .{e});
         defer v.close(io);
 
-        const coverage_file, const populate = if (v.createFile(io, &file_name, .{
+        // Since acquiring locks in createFile is not gauraunteed to be atomic, it is not possible
+        // to ensure if we create the file we obtain an exclusive lock to populate it since another
+        // process may acquire a shared lock between the file being created and the lock request.
+        //
+        // Instead, the length will be used to determine if the file needs populated, and no
+        // process will acquire a shared lock before the coverage file is known to have been
+        // exclusively locked (i.e. is already locked). This means another process than the
+        // one which created the file could populate it, which is fine.
+        const coverage_file = v.createFile(io, &file_name, .{
             .read = true,
-            // If we create the file, we want to block other processes while we populate it
-            .lock = .exclusive,
-            .exclusive = true,
-        })) |f|
-            .{ f, true }
-        else |e| switch (e) {
-            error.PathAlreadyExists => .{ v.openFile(io, &file_name, .{
-                .mode = .read_write,
-                .lock = .shared,
-            }) catch |e2| panic(
-                "failed to open existing coverage file '{s}': {t}",
-                .{ &file_name, e2 },
-            ), false },
-            else => panic("failed to create coverage file '{s}': {t}", .{ &file_name, e }),
-        };
+            .truncate = false,
+        }) catch |e| panic("failed to open coverage file '{s}': {t}", .{ &file_name, e });
+
+        const maybe_populate = coverage_file.tryLock(io, .exclusive) catch |e| panic(
+            "failed to acquire exclusive lock coverage file '{s}': {t}",
+            .{ &file_name, e },
+        );
+        if (!maybe_populate) {
+            coverage_file.lock(io, .shared) catch |e|
+                panic("failed to acquire share lock coverage file '{s}': {t}", .{ &file_name, e });
+        }
 
         comptime assert(abi.SeenPcsHeader.trailing[0] == .pc_bits_usize);
         comptime assert(abi.SeenPcsHeader.trailing[1] == .pc_addr);
@@ -102,16 +106,21 @@ const Executable = struct {
             pc_bitset_usizes * @sizeOf(usize) +
             pcs.len * @sizeOf(usize);
 
-        if (populate) {
+        var populate: bool = false;
+        const size = coverage_file.length(io) catch |e|
+            panic("failed to stat coverage file '{s}': {t}", .{ &file_name, e });
+        if (size == 0 and maybe_populate) {
             coverage_file.setLength(io, coverage_file_len) catch |e|
                 panic("failed to resize new coverage file '{s}': {t}", .{ &file_name, e });
-        } else {
-            const size = coverage_file.length(io) catch |e|
-                panic("failed to stat coverage file '{s}': {t}", .{ &file_name, e });
-            if (size != coverage_file_len) panic(
+            populate = true;
+        } else if (size != coverage_file_len) {
+            panic(
                 "incompatible existing coverage file '{s}' (differing lengths: {} != {})",
                 .{ &file_name, size, coverage_file_len },
             );
+        } else if (maybe_populate) {
+            coverage_file.lock(io, .shared) catch |e|
+                panic("failed to demote lock for coverage file '{s}': {t}", .{ &file_name, e });
         }
 
         var io_map = coverage_file.createMemoryMap(io, .{ .len = coverage_file_len }) catch |e|
@@ -228,6 +237,13 @@ const Executable = struct {
         return self;
     }
 
+    /// Asserts `buf[0..2]` is "in"
+    fn inputFileName(buf: *[10]u8, i: u32) []u8 {
+        assert(buf[0..2].* == "in".*);
+        const hex = std.fmt.bufPrint(buf[2..], "{x}", .{i}) catch unreachable;
+        return buf[0 .. 2 + hex.len];
+    }
+
     pub fn pcBitsetIterator(self: Executable) PcBitsetIterator {
         return .{ .pc_counters = self.pc_counters };
     }
@@ -263,32 +279,16 @@ const Executable = struct {
 };
 
 const Fuzzer = struct {
+    tests: []Test,
+    test_i: u32,
+    test_one: abi.TestOne,
+
     // The default PRNG is not used here since going through `Random` can be very expensive
     // since LLVM often fails to devirtualize and inline `fill`. Additionally, optimization
     // is simpler since integers are not serialized then deserialized in the random stream.
     //
     // This acounts for a 30% performance improvement with LLVM 21.
     xoshiro: std.Random.Xoshiro256,
-    test_one: abi.TestOne,
-
-    seen_pcs: []usize,
-    bests: struct {
-        len: u32,
-        quality_buf: []Input.Best,
-        input_buf: []Input.Best.Map,
-    },
-    seen_uids: std.ArrayHashMapUnmanaged(Uid, struct {
-        slices: union {
-            ints: std.ArrayList([]u64),
-            bytes: std.ArrayList(Input.Data.Bytes),
-        },
-    }, Uid.hashmap_ctx, false),
-
-    /// Past inputs leading to new pc or uid hits.
-    /// These are randomly mutated in round-robin fashion.
-    corpus: std.MultiArrayList(Input),
-    corpus_pos: Input.Index,
-
     bytes_input: std.testing.Smith,
     input_builder: Input.Builder,
     /// Number of data calls the current run has made.
@@ -319,13 +319,140 @@ const Fuzzer = struct {
     },
 
     /// As values are provided to the Smith, they are appended to this. If the test
-    /// crashes, this can be recovered and used to obtain the crashing values.
+    /// crashes, this can be recovered and used to obtain the crashing values. It is
+    /// also used to rerun fresh inputs.
     mmap_input: MemoryMappedInput,
-    /// Filesystem directory containing found inputs for future runs
-    corpus_dir: Io.Dir,
-    /// The values in `corpus` past this point directly correspond to what is found
-    /// in `corpus_dir`.
-    start_corpus_dir: u32,
+    /// The instance is responsible for updating the filesystem corpus.
+    ///
+    /// Since different fuzzer instances can be out of sync due to finding inputs before recieving
+    /// others and nondeterministic tests, the filesystem is only based off the first instance.
+    main_instance: bool,
+
+    const Test = struct {
+        const NameHash = u64;
+        const dirname_len = @sizeOf(NameHash) * 2;
+
+        seen_pcs: []usize,
+        bests: struct {
+            len: u32,
+            quality_buf: []Input.Best,
+            input_buf: []Input.Best.Map,
+        },
+        seen_uids: std.ArrayHashMapUnmanaged(Uid, struct {
+            slices: union {
+                ints: std.ArrayList([]u64),
+                bytes: std.ArrayList(Input.Data.Bytes),
+            },
+        }, Uid.hashmap_ctx, false),
+
+        /// Past inputs leading to new pc or uid hits.
+        /// These are randomly mutated in round-robin fashion.
+        corpus: std.MultiArrayList(Input),
+        corpus_pos: Input.Index,
+        /// If this is `math.maxInt(u32)` (reserved), it means the corpus has not been loaded from
+        /// the filesystem.
+        ///
+        /// If `main_instance` is set, the values in `corpus` after this are mirrored to the
+        /// filesystem.
+        start_mut_corpus: u32,
+        dirname: [dirname_len]u8,
+        /// Ensures only one fuzzer writes to the corpus.
+        ///
+        /// Undefined if this is not the main instance.
+        lock_file: Io.File,
+        received: Received,
+
+        limit: ?u64,
+        /// A batch is the amount of cycles approximently for one second of runtime.
+        ///
+        /// This value is set to the previous batch's runs per second or run limit.
+        batch_cycles: u32,
+        batches: u64,
+        batches_since_find: u64,
+        seen_pc_count: u32,
+    };
+
+    const Received = struct {
+        state: State,
+        /// Stream of inputs with each prefixed with a u32 length
+        inputs: std.ArrayList(u8),
+
+        pub const empty: Received = .{
+            .state = .{
+                .pending = false,
+                .read_lock = false,
+                .write_lock = false,
+            },
+            .inputs = .empty,
+        };
+
+        pub const State = packed struct(u32) {
+            pending: bool,
+            read_lock: bool,
+            /// If set in conjucation with `read_lock`, then there is a waiter on state.
+            write_lock: bool,
+            _: u29 = 0,
+
+            pub fn hasPending(s: *State) bool {
+                return @atomicLoad(State, s, .monotonic).pending;
+            }
+
+            pub fn startReadIfPending(s: *State) bool {
+                return @cmpxchgWeak(
+                    State,
+                    s,
+                    .{ .pending = true, .read_lock = false, .write_lock = false },
+                    .{ .pending = true, .read_lock = true, .write_lock = false },
+                    .acquire,
+                    .monotonic,
+                ) == null;
+            }
+
+            pub fn finishRead(s: *State) void {
+                const prev = @atomicRmw(State, s, .And, .{
+                    .pending = false,
+                    .read_lock = false,
+                    .write_lock = true,
+                }, .release);
+                assert(prev.read_lock);
+                if (prev.write_lock) {
+                    abi.runner_futex_wake(@ptrCast(s), 1);
+                }
+            }
+
+            /// Returns if cancelation is requested.
+            pub fn startWrite(s: *State) bool {
+                var prev = @atomicRmw(State, s, .Or, .{
+                    .pending = false,
+                    .read_lock = false,
+                    .write_lock = true,
+                }, .acquire);
+                assert(!prev.write_lock);
+                while (prev.read_lock) {
+                    if (abi.runner_futex_wait(@ptrCast(s), @bitCast(prev))) {
+                        s.* = undefined; // fuzzer is exiting
+                        return true;
+                    }
+                    // Still need `.acquire` ordering so @atomicRmw is necessary
+                    prev = @atomicRmw(State, s, .Or, .{
+                        .pending = false,
+                        .read_lock = false,
+                        .write_lock = false,
+                    }, .acquire);
+                    assert(prev.write_lock);
+                }
+                return false;
+            }
+
+            pub fn finishWrite(s: *State) void {
+                @atomicStore(State, s, .{
+                    .pending = true,
+                    .read_lock = false,
+                    .write_lock = false,
+                }, .release);
+            }
+        };
+    };
 
     const SeqCopy = union {
         order_i: u32,
@@ -480,7 +607,9 @@ const Fuzzer = struct {
                 .total_ints = 0,
                 .total_bytes = 0,
                 .weighted_len = 0,
-                .smithed_len = 4,
+                // The - 1 is because we check that `smithed_len` does not overflow a u32;
+                // however, `MemoryMappedInput` allows up to `1 << 32`.
+                .smithed_len = @sizeOf(abi.MmapInputHeader) - 1,
             };
 
             pub fn addInt(b: *Builder, uid: Uid, int: u64) void {
@@ -591,29 +720,141 @@ const Fuzzer = struct {
                 b.total_ints = 0;
                 b.total_bytes = 0;
                 b.weighted_len = 0;
-                b.smithed_len = 4;
+                b.smithed_len = Builder.init.smithed_len;
                 return input;
+            }
+
+            pub fn reset(b: *Builder) void {
+                const uid_slices = b.uid_slices.entries.slice();
+                for (uid_slices.items(.key), uid_slices.items(.value)) |uid, *uid_data| {
+                    switch (uid.kind) {
+                        .int => uid_data.ints.deinit(gpa),
+                        .bytes => uid_data.bytes.deinit(gpa),
+                    }
+                }
+                b.uid_slices.clearRetainingCapacity();
+                b.bytes_table.clearRetainingCapacity();
+                b.total_ints = 0;
+                b.total_bytes = 0;
+                b.weighted_len = 0;
+                b.smithed_len = Builder.init.smithed_len;
+            }
+
+            /// Asserts the structure is reset
+            pub fn deinit(b: *Builder) void {
+                assert(b.uid_slices.entries.len == 0);
+                b.uid_slices.deinit(gpa);
+                b.bytes_table.deinit(gpa);
+                b.* = undefined;
             }
         };
     };
 
-    pub fn init() Fuzzer {
-        if (exec.pc_counters.len > math.maxInt(u32)) @panic("too many pcs");
-        const f: Fuzzer = .{
-            .xoshiro = .init(0),
+    pub fn init(n_tests: u32, seed: u64, instance_id: u32, limit: ?u64) Fuzzer {
+        const pcs = exec.pc_counters.len;
+        if (pcs > math.maxInt(u32)) @panic("too many pcs");
+
+        const mmap_input = map: {
+            // Find a free input file. `instance_id` should give one that is not in use;
+            // however, this may not be the case if there are multiple libfuzzers running.
+            var input_i = instance_id;
+            const input_f = while (true) {
+                var name_buf: [10]u8 = undefined;
+                name_buf[0..2].* = "in".*;
+                const hex = std.fmt.bufPrint(name_buf[2..], "{x}", .{input_i}) catch unreachable;
+                const name = name_buf[0 .. 2 + hex.len];
+
+                if (exec.cache_f.createFile(io, name, .{
+                    .read = true,
+                    .truncate = false,
+                    .lock = .exclusive,
+                    .lock_nonblocking = true,
+                })) |f| {
+                    break f;
+                } else |e| switch (e) {
+                    // To ensure no input file is unused to avoid the number of input files
+                    // growing indefinitely across runs, they are linearly searched through.
+                    //
+                    // This could be avoided by creating a shared file holding the current number
+                    // of input files in use; however, using multiple libfuzzers is uncommon and
+                    // there should not be that many input files to search through anyways.
+                    error.WouldBlock => input_i += 1,
+                    else => panic("failed to create file '{s}': {t}", .{ name, e }),
+                }
+            };
+            break :map MemoryMappedInput.init(input_f, instance_id, input_i);
+        };
+
+        const tests = gpa.alloc(Test, n_tests) catch @panic("OOM");
+        const seen_pcs_len = bitsetUsizes(pcs);
+        var seen_pcs_bufs = gpa.alloc(usize, seen_pcs_len * n_tests) catch @panic("OOM");
+        var best_quality_bufs = gpa.alloc(Input.Best, pcs * n_tests) catch @panic("OOM");
+        var best_input_bufs = gpa.alloc(Input.Best.Map, pcs * n_tests) catch @panic("OOM");
+        @memset(seen_pcs_bufs, 0);
+        for (0.., tests) |i, *t| {
+            const name = abi.runner_test_name(@intCast(i)).toSlice();
+            // A hash is used as the dirname instead of the actual test name since the test name
+            // may be not allowed by the filesystem or have a special meaning (e.g. absolute /
+            // relative paths).
+            const dirname = std.fmt.hex(std.hash.Wyhash.hash(0, name));
+
+            const lock_file = file: {
+                if (instance_id != 0) break :file undefined;
+
+                exec.cache_f.createDir(io, &dirname, .default_dir) catch |e| switch (e) {
+                    error.PathAlreadyExists => {},
+                    else => panic("failed to create directory '{s}': {t}", .{ &dirname, e }),
+                };
+
+                var cname: CorpusFileName = .fromTest(dirname);
+                const lock_name = cname.syncLockName();
+                break :file exec.cache_f.createFile(io, lock_name, .{
+                    .truncate = false,
+                    .lock = .exclusive,
+                    .lock_nonblocking = true,
+                }) catch |e| switch (e) {
+                    error.WouldBlock => panic("corpus of '{s}' is in use by another fuzzer", .{name}),
+                    else => panic("failed to create file '{s}': {t}", .{ lock_name, e }),
+                };
+            };
+
+            t.* = .{
+                .seen_pcs = seen_pcs_bufs[0..seen_pcs_len],
+                .bests = .{
+                    .len = 0,
+                    .quality_buf = best_quality_bufs[0..pcs],
+                    .input_buf = best_input_bufs[0..pcs],
+                },
+                .seen_uids = .empty,
+
+                .corpus = .empty,
+                .corpus_pos = @enumFromInt(0),
+                .start_mut_corpus = math.maxInt(u32),
+                .dirname = dirname,
+                .lock_file = lock_file,
+                .received = .empty,
+
+                .limit = limit,
+                .batch_cycles = 1,
+                .batches = 0,
+                .batches_since_find = 0,
+                .seen_pc_count = 0,
+            };
+            t.corpus.append(gpa, .none) catch @panic("OOM"); // Also ensures the corpus is not empty
+            seen_pcs_bufs = seen_pcs_bufs[seen_pcs_len..];
+            best_quality_bufs = best_quality_bufs[pcs..];
+            best_input_bufs = best_input_bufs[pcs..];
+        }
+        assert(seen_pcs_bufs.len == 0);
+        assert(best_quality_bufs.len == 0);
+        assert(best_input_bufs.len == 0);
+
+        return .{
+            .tests = tests,
+            .test_i = undefined,
             .test_one = undefined,
 
-            .seen_pcs = gpa.alloc(usize, bitsetUsizes(exec.pc_counters.len)) catch @panic("OOM"),
-            .bests = .{
-                .len = 0,
-                .quality_buf = gpa.alloc(Input.Best, exec.pc_counters.len) catch @panic("OOM"),
-                .input_buf = gpa.alloc(Input.Best.Map, exec.pc_counters.len) catch @panic("OOM"),
-            },
-            .seen_uids = .empty,
-
-            .corpus = .empty,
-            .corpus_pos = undefined,
-
+            .xoshiro = .init(seed),
             .bytes_input = undefined,
             .input_builder = .init,
             .req_values = undefined,
@@ -621,97 +862,144 @@ const Fuzzer = struct {
             .uid_data_i = .empty,
             .mut_data = undefined,
 
-            .mmap_input = undefined,
-            .corpus_dir = undefined,
-            .start_corpus_dir = undefined,
+            .mmap_input = mmap_input,
+            .main_instance = instance_id == 0,
         };
-        @memset(f.seen_pcs, 0);
-        return f;
     }
 
-    /// May only be called after `f.setTest` has been called
-    pub fn reset(f: *Fuzzer) void {
-        f.test_one = undefined;
-
-        @memset(f.seen_pcs, 0);
-        f.bests.len = 0;
-        @memset(f.bests.quality_buf, undefined);
-        @memset(f.bests.input_buf, undefined);
-        for (f.seen_uids.keys(), f.seen_uids.values()) |uid, *u| {
-            switch (uid.kind) {
-                .int => u.slices.ints.deinit(gpa),
-                .bytes => u.slices.bytes.deinit(gpa),
+    pub fn deinit(f: *Fuzzer) void {
+        const pcs = exec.pc_counters.len;
+        const n_tests = f.tests.len;
+        gpa.free(f.tests[0].seen_pcs.ptr[0 .. bitsetUsizes(pcs) * n_tests]);
+        gpa.free(f.tests[0].bests.quality_buf.ptr[0 .. pcs * n_tests]);
+        gpa.free(f.tests[0].bests.input_buf.ptr[0 .. pcs * n_tests]);
+        for (f.tests) |*t| {
+            const seen_uids = t.seen_uids.entries.slice();
+            for (seen_uids.items(.key), seen_uids.items(.value)) |uid, *data| {
+                switch (uid.kind) {
+                    .int => data.slices.ints.deinit(gpa),
+                    .bytes => data.slices.bytes.deinit(gpa),
+                }
             }
+            t.seen_uids.deinit(gpa);
+            const corpus = t.corpus.slice();
+            // The first input is `Input.none` and so is skipped as `deinit` is illegal.
+            for (1..corpus.len) |i| {
+                var in = corpus.get(i);
+                in.deinit();
+            }
+            if (f.main_instance) {
+                t.lock_file.close(io);
+            }
+            t.received.inputs.deinit(gpa);
         }
-        f.seen_uids.clearRetainingCapacity();
-
-        f.corpus.clearRetainingCapacity();
-        f.corpus_pos = undefined;
-
-        f.uid_data_i.clearRetainingCapacity();
-
+        gpa.free(f.tests);
+        f.input_builder.deinit();
         f.mmap_input.deinit();
-        f.corpus_dir.close(io);
-        f.start_corpus_dir = undefined;
+        f.* = undefined;
     }
 
-    pub fn setTest(f: *Fuzzer, test_one: abi.TestOne, unit_test_name: []const u8) void {
-        f.test_one = test_one;
-        f.corpus_dir = exec.cache_f.createDirPathOpen(io, unit_test_name, .{}) catch |e|
-            panic("failed to open directory '{s}': {t}", .{ unit_test_name, e });
-        f.mmap_input = map: {
-            const input = f.corpus_dir.createFile(io, "in", .{
-                .read = true,
+    pub fn ensureCorpusLoaded(f: *Fuzzer) void {
+        const t = &f.tests[f.test_i];
+        if (t.start_mut_corpus != math.maxInt(u32)) return;
+
+        const start_mut: u32 = @intCast(t.corpus.len);
+        if (!f.main_instance) {
+            // Inputs can be culled as added since filesystem synchronacy is not required
+            t.start_mut_corpus = start_mut;
+        }
+
+        read_corpus: {
+            var cname: CorpusFileName = .fromTest(t.dirname);
+
+            const readlock_name = cname.readLockName();
+            const readlock_file = exec.cache_f.createFile(io, readlock_name, .{
                 .truncate = false,
-                // In case any other fuzz tests are running under the same test name,
-                // the input file is exclusively locked to ensures only one proceeds.
-                .lock = .exclusive,
-                .lock_nonblocking = true,
+                .lock = .shared,
             }) catch |e| switch (e) {
-                error.WouldBlock => @panic("input file 'in' is in use by another fuzzing process"),
-                else => panic("failed to create input file 'in': {t}", .{e}),
+                // FileNotFound means the corpus directory does not exist, which means it is empty
+                error.FileNotFound => break :read_corpus,
+                else => panic("failed to open '{s}': {t}", .{ readlock_name, e }),
             };
+            defer readlock_file.close(io);
 
-            var size = input.length(io) catch |e| panic("failed to stat input file 'in': {t}", .{e});
-            if (size < std.heap.page_size_max) {
-                size = std.heap.page_size_max;
-                input.setLength(io, size) catch |e| panic("failed to resize input file 'in': {t}", .{e});
+            var input_buf: std.ArrayList(u8) = .empty;
+            defer input_buf.deinit(gpa);
+            var i: u32 = 0;
+            while (true) {
+                const name = cname.inputName(i);
+                const input_file = exec.cache_f.openFile(io, name, .{}) catch |e| switch (e) {
+                    error.FileNotFound => break,
+                    else => panic("failed to open input file '{s}': {t}", .{ name, e }),
+                };
+
+                const len = input_file.length(io) catch |e|
+                    panic("failed to get length of '{s}': {t}", .{ name, e });
+                const ulen = math.cast(usize, len) orelse @panic("OOM");
+                input_buf.resize(gpa, ulen) catch @panic("OOM");
+
+                var r = input_file.readerStreaming(io, &.{});
+                r.interface.readSliceAll(input_buf.items) catch |e| switch (e) {
+                    error.ReadFailed => panic(
+                        "failed to read from input file '{s}': {t}",
+                        .{ name, r.err.? },
+                    ),
+                    error.EndOfStream => panic(
+                        "input file '{s}' ended before its reported length",
+                        .{name},
+                    ),
+                };
+                f.newInputExternal(input_buf.items);
+
+                i += 1; // Cannot overflow due to corpus 32-bit size limit
             }
-
-            break :map MemoryMappedInput.init(input, size) catch |e|
-                panic("failed to memmap input file 'in': {t}", .{e});
-        };
-
-        // Perform a dry-run of the stored input in case it might reproduce a crash.
-        const len = mem.readInt(u32, f.mmap_input.mmap.memory[0..4], .little);
-        if (len < f.mmap_input.mmap.memory[4..].len) {
-            f.mmap_input.len = len;
-            _ = f.runBytes(f.mmap_input.inputSlice(), .bytes_dry);
-            f.mmap_input.clearRetainingCapacity();
         }
-    }
 
-    pub fn loadCorpus(f: *Fuzzer) void {
-        f.corpus_pos = @enumFromInt(f.corpus.len);
-        f.corpus.append(gpa, .none) catch @panic("OOM"); // Also ensures the corpus is not empty
-        f.start_corpus_dir = @intCast(f.corpus.len);
-        while (true) {
-            var name_buf: [8]u8 = undefined;
-            const name = f.corpusFileName(&name_buf, @enumFromInt(f.corpus.len));
-            const bytes = f.corpus_dir.readFileAlloc(io, name, gpa, .unlimited) catch |e| switch (e) {
-                error.FileNotFound => break,
-                else => panic("failed to read corpus file '{s}': {t}", .{ name, e }),
-            };
-            defer gpa.free(bytes);
-            f.newInputExternal(bytes);
+        if (f.main_instance) {
+            t.start_mut_corpus = start_mut;
+
+            // Cull old inputs
+            const ref = t.corpus.items(.ref);
+            var i: usize = t.start_mut_corpus;
+            while (i < t.corpus.len) {
+                if (ref[i].best_i_len == 0) {
+                    f.removeInput(@enumFromInt(i));
+                } else {
+                    i += 1;
+                }
+            }
         }
-        f.corpus_pos = @enumFromInt(0);
+
+        t.corpus_pos = @enumFromInt(0);
     }
 
-    fn corpusFileName(f: *Fuzzer, buf: *[8]u8, i: Input.Index) []u8 {
-        const dir_i = @intFromEnum(i) - f.start_corpus_dir;
-        return std.fmt.bufPrint(buf, "{x}", .{dir_i}) catch unreachable;
-    }
+    const CorpusFileName = struct {
+        buf: [Test.dirname_len + 9]u8,
+
+        pub fn fromTest(dirname: [Test.dirname_len]u8) CorpusFileName {
+            var n: CorpusFileName = undefined;
+            n.buf[0..dirname.len].* = dirname;
+            n.buf[dirname.len] = Io.Dir.path.sep;
+            return n;
+        }
+
+        pub fn readLockName(n: *CorpusFileName) []u8 {
+            const basename = "readlock";
+            n.buf[Test.dirname_len + 1 ..][0..basename.len].* = basename.*;
+            return n.buf[0 .. Test.dirname_len + 1 + basename.len];
+        }
+
+        pub fn syncLockName(n: *CorpusFileName) []u8 {
+            const basename = "synclock";
+            n.buf[Test.dirname_len + 1 ..][0..basename.len].* = basename.*;
+            return n.buf[0 .. Test.dirname_len + 1 + basename.len];
+        }
+
+        pub fn inputName(n: *CorpusFileName, i: u32) []u8 {
+            const hex = std.fmt.bufPrint(n.buf[Test.dirname_len + 1 ..][0..8], "{x}", .{i}) catch unreachable;
+            return n.buf[0 .. Test.dirname_len + 1 + hex.len];
+        }
+    };
 
     fn rngInt(f: *Fuzzer, T: type) T {
         comptime assert(@bitSizeOf(T) <= 64);
@@ -734,13 +1022,14 @@ const Fuzzer = struct {
     };
 
     fn isFresh(f: *Fuzzer) bool {
+        const t = &f.tests[f.test_i];
         // Store as a bool instead of returning immediately to aid optimizations
         // by reducing branching since a fresh input is the unlikely case.
         var fresh: bool = false;
 
         var n_pcs: u32 = 0;
         var hit_pcs = exec.pcBitsetIterator();
-        for (f.seen_pcs) |seen| {
+        for (t.seen_pcs) |seen| {
             const hits = hit_pcs.next();
             fresh |= hits & ~seen != 0;
             n_pcs += @popCount(hits);
@@ -753,7 +1042,7 @@ const Fuzzer = struct {
                 .bytes = f.req_bytes,
             },
         };
-        for (f.bests.quality_buf[0..f.bests.len]) |best| {
+        for (t.bests.quality_buf[0..t.bests.len]) |best| {
             if (exec.pc_counters[best.pc] == 0) continue;
             fresh |= quality.betterLess(best.min) | quality.betterMore(best.max);
         }
@@ -761,12 +1050,15 @@ const Fuzzer = struct {
         return fresh;
     }
 
+    /// It is the callee's responsibility to reset the corpus pos
+    ///
     /// Returns if `error.SkipZigTest` was indicated
     fn runBytes(f: *Fuzzer, bytes: []const u8, mode: Input.Index) bool {
         assert(mode == .bytes_dry or mode == .bytes_fresh);
 
         f.bytes_input = .{ .in = bytes };
-        f.corpus_pos = mode;
+        f.tests[f.test_i].corpus_pos = mode;
+        defer f.tests[f.test_i].corpus_pos = undefined;
         return f.run(0); // 0 since `f.uid_data` is unused
     }
 
@@ -776,89 +1068,112 @@ const Fuzzer = struct {
             exec.shared_seen_pcs[@sizeOf(abi.SeenPcsHeader)..].ptr,
         );
 
+        const t = &f.tests[f.test_i];
         var hit_pcs = exec.pcBitsetIterator();
-        for (f.seen_pcs, shared_seen_pcs) |*seen, *shared_seen| {
+        for (t.seen_pcs, shared_seen_pcs) |*seen, *shared_seen| {
             const new = hit_pcs.next() & ~seen.*;
             if (new != 0) {
                 seen.* |= new;
                 _ = @atomicRmw(usize, shared_seen, .Or, new, .monotonic);
+                t.seen_pc_count += @popCount(new);
             }
         }
     }
 
-    fn removeBest(f: *Fuzzer, i: Input.Index, best_i: u32, modify_fs_corpus: bool) void {
-        const ref = &f.corpus.items(.ref)[@intFromEnum(i)];
+    fn removeBest(f: *Fuzzer, i: Input.Index, best_i: u32) void {
+        const t = &f.tests[f.test_i];
+        const ref = &t.corpus.items(.ref)[@intFromEnum(i)];
         const list_i = mem.indexOfScalar(u32, ref.best_i_buf[0..ref.best_i_len], best_i).?;
         ref.best_i_len -= 1;
         ref.best_i_buf[list_i] = ref.best_i_buf[ref.best_i_len];
 
-        if (ref.best_i_len == 0 and @intFromEnum(i) >= f.start_corpus_dir and modify_fs_corpus) {
+        if (ref.best_i_len == 0 and @intFromEnum(i) >= t.start_mut_corpus) {
             // The input is no longer valuable, so remove it.
-            var removed_input = f.corpus.get(@intFromEnum(i));
-            for (
-                removed_input.data.uid_slices.keys(),
-                removed_input.data.uid_slices.values(),
-                removed_input.seen_uid_i,
-            ) |uid, slice, seen_uid_i| {
-                switch (uid.kind) {
-                    .int => {
-                        const seen_ints = &f.seen_uids.values()[seen_uid_i].slices.ints;
-                        const removed_ints = removed_input.data.ints[slice.base..][0..slice.len];
-                        _ = seen_ints.swapRemove(for (0.., seen_ints.items) |idx, ints| {
-                            if (removed_ints.ptr == ints.ptr) {
-                                assert(removed_ints.len == ints.len);
-                                break idx;
-                            }
-                        } else unreachable);
-                    },
-                    .bytes => {
-                        const seen_bytes = &f.seen_uids.values()[seen_uid_i].slices.bytes;
-                        const removed_bytes: Input.Data.Bytes = .{
-                            .entries = removed_input.data.bytes.entries[slice.base..][0..slice.len],
-                            .table = removed_input.data.bytes.table,
-                        };
-                        _ = seen_bytes.swapRemove(for (0.., seen_bytes.items) |idx, bytes| {
-                            if (removed_bytes.entries.ptr == bytes.entries.ptr) {
-                                assert(removed_bytes.entries.len == bytes.entries.len);
-                                assert(removed_bytes.table.ptr == bytes.table.ptr);
-                                assert(removed_bytes.table.len == bytes.table.len);
-                                break idx;
-                            }
-                        } else unreachable);
-                    },
-                }
+            f.removeInput(i);
+        }
+    }
+
+    fn removeInput(f: *Fuzzer, i: Input.Index) void {
+        const t = &f.tests[f.test_i];
+        const ref = &t.corpus.items(.ref)[@intFromEnum(i)];
+        assert(ref.best_i_len == 0 and @intFromEnum(i) >= t.start_mut_corpus);
+
+        var removed_input = t.corpus.get(@intFromEnum(i));
+        for (
+            removed_input.data.uid_slices.keys(),
+            removed_input.data.uid_slices.values(),
+            removed_input.seen_uid_i,
+        ) |uid, slice, seen_uid_i| {
+            switch (uid.kind) {
+                .int => {
+                    const seen_ints = &t.seen_uids.values()[seen_uid_i].slices.ints;
+                    const removed_ints = removed_input.data.ints[slice.base..][0..slice.len];
+                    _ = seen_ints.swapRemove(for (0.., seen_ints.items) |idx, ints| {
+                        if (removed_ints.ptr == ints.ptr) {
+                            assert(removed_ints.len == ints.len);
+                            break idx;
+                        }
+                    } else unreachable);
+                },
+                .bytes => {
+                    const seen_bytes = &t.seen_uids.values()[seen_uid_i].slices.bytes;
+                    const removed_bytes: Input.Data.Bytes = .{
+                        .entries = removed_input.data.bytes.entries[slice.base..][0..slice.len],
+                        .table = removed_input.data.bytes.table,
+                    };
+                    _ = seen_bytes.swapRemove(for (0.., seen_bytes.items) |idx, bytes| {
+                        if (removed_bytes.entries.ptr == bytes.entries.ptr) {
+                            assert(removed_bytes.entries.len == bytes.entries.len);
+                            assert(removed_bytes.table.ptr == bytes.table.ptr);
+                            assert(removed_bytes.table.len == bytes.table.len);
+                            break idx;
+                        }
+                    } else unreachable);
+                },
             }
-            removed_input.deinit();
-            f.corpus.swapRemove(@intFromEnum(i));
+        }
+        removed_input.deinit();
+        t.corpus.swapRemove(@intFromEnum(i));
 
-            var removed_name_buf: [8]u8 = undefined;
-            const removed_name = f.corpusFileName(&removed_name_buf, i);
+        if (@intFromEnum(i) != t.corpus.len) {
+            // The last item was moved so its refs need updated.
+            // `ref` can be reused since it was a swap remove.
+            for (ref.best_i_buf[0..ref.best_i_len]) |update_pc_i| {
+                const best = &t.bests.input_buf[update_pc_i];
+                assert(@intFromEnum(best.min) == t.corpus.len or
+                    @intFromEnum(best.max) == t.corpus.len);
 
-            if (@intFromEnum(i) == f.corpus.len) {
-                f.corpus_dir.deleteFile(io, removed_name) catch |e| panic(
-                    "failed to remove corpus file '{s}': {t}",
-                    .{ removed_name, e },
-                );
-                return; // No item moved so no refs to update
+                if (@intFromEnum(best.min) == t.corpus.len) best.min = i;
+                if (@intFromEnum(best.max) == t.corpus.len) best.max = i;
             }
+        }
 
-            var swapped_name_buf: [8]u8 = undefined;
-            const swapped_name = f.corpusFileName(&swapped_name_buf, @enumFromInt(f.corpus.len));
+        if (!f.main_instance) return;
 
-            f.corpus_dir.rename(swapped_name, f.corpus_dir, removed_name, io) catch |e| panic(
+        var removed_cname: CorpusFileName = .fromTest(t.dirname);
+        // Temporarily use removed_name to construct the path to the lock
+        const readlock_name = removed_cname.readLockName();
+        const readlock_file = exec.cache_f.createFile(io, readlock_name, .{
+            .truncate = false,
+            .lock = .exclusive,
+        }) catch |e| panic("failed to open '{s}': {t}", .{ readlock_name, e });
+        defer readlock_file.close(io);
+
+        const removed_name = removed_cname.inputName(@intFromEnum(i) - t.start_mut_corpus);
+        if (@intFromEnum(i) == t.corpus.len) {
+            exec.cache_f.deleteFile(io, removed_name) catch |e| panic(
+                "failed to remove corpus file '{s}': {t}",
+                .{ removed_name, e },
+            );
+        } else {
+            var swapped_cname: CorpusFileName = .fromTest(t.dirname);
+            const swapped_i: u32 = @intCast(t.corpus.len);
+            const swapped_name = swapped_cname.inputName(swapped_i - t.start_mut_corpus);
+
+            exec.cache_f.rename(swapped_name, exec.cache_f, removed_name, io) catch |e| panic(
                 "failed to rename corpus file '{s}' to '{s}': {t}",
                 .{ swapped_name, removed_name, e },
             );
-
-            // Update refrences. `ref` can be reused since it was a swap remove
-            for (ref.best_i_buf[0..ref.best_i_len]) |update_pc_i| {
-                const best = &f.bests.input_buf[update_pc_i];
-                assert(@intFromEnum(best.min) == f.corpus.len or
-                    @intFromEnum(best.max) == f.corpus.len);
-
-                if (@intFromEnum(best.min) == f.corpus.len) best.min = i;
-                if (@intFromEnum(best.max) == f.corpus.len) best.max = i;
-            }
         }
     }
 
@@ -866,44 +1181,30 @@ const Fuzzer = struct {
         // All inputs including the corpus are required to go through the memory
         // mapped input in case they cause a crash so they can be identified.
         f.mmap_input.appendSlice(bytes);
-        f.newInput(false);
+        f.newInput();
         f.mmap_input.clearRetainingCapacity();
     }
 
-    fn newInput(f: *Fuzzer, modify_fs_corpus: bool) void {
+    fn newInput(f: *Fuzzer) void {
+        const t = &f.tests[f.test_i];
+        const new_is_mut = t.start_mut_corpus != math.maxInt(u32);
+        assert(new_is_mut == (t.corpus.len >= t.start_mut_corpus));
         const bytes = f.mmap_input.inputSlice();
         // `error.SkipZigTest` here can be from one of these causes:
-        // * The test has changed and a previous corpus input is being used
-        // * An input provided by the test results in it
+        // * A previous corpus input after the test has changed
+        // * An input provided by the test
         // * The test is non-deterministic
-        if (f.runBytes(bytes, .bytes_fresh)) return;
-        f.req_values = f.input_builder.total_ints + f.input_builder.total_bytes;
-        f.req_bytes = @intCast(f.input_builder.bytes_table.items.len);
-        var input = f.input_builder.build();
-
-        f.uid_data_i.ensureTotalCapacity(gpa, input.data.uid_slices.entries.len) catch @panic("OOM");
-        for (
-            input.seen_uid_i,
-            input.data.uid_slices.keys(),
-            input.data.uid_slices.values(),
-        ) |*i, uid, slice| {
-            const gop = f.seen_uids.getOrPutValue(gpa, uid, switch (uid.kind) {
-                .int => .{ .slices = .{ .ints = .empty } },
-                .bytes => .{ .slices = .{ .bytes = .empty } },
-            }) catch @panic("OOM");
-            switch (uid.kind) {
-                .int => f.seen_uids.values()[gop.index].slices.ints.append(
-                    gpa,
-                    input.data.ints[slice.base..][0..slice.len],
-                ) catch @panic("OOM"),
-                .bytes => f.seen_uids.values()[gop.index].slices.bytes.append(gpa, .{
-                    .entries = input.data.bytes.entries[slice.base..][0..slice.len],
-                    .table = input.data.bytes.table,
-                }) catch @panic("OOM"),
-            }
-            i.* = @intCast(gop.index);
+        if (f.runBytes(bytes, .bytes_fresh) and
+            new_is_mut // The corpus must be mutable at this point for the input to be
+            // omitted (i.e. test corpus inputs and filesystem inputs cannot be dropped)
+        ) {
+            f.input_builder.reset();
+            t.corpus_pos = @enumFromInt(0);
+            return;
         }
 
+        f.req_values = f.input_builder.total_ints + f.input_builder.total_bytes;
+        f.req_bytes = @intCast(f.input_builder.bytes_table.items.len);
         const quality: Input.Best.Quality = .{
             .n_pcs = n_pcs: {
                 @setRuntimeSafety(builtin.mode == .Debug); // Necessary for vectorization
@@ -920,7 +1221,7 @@ const Fuzzer = struct {
         };
 
         var best_i_list: std.ArrayList(u32) = .empty;
-        for (0.., f.bests.quality_buf[0..f.bests.len]) |best_i, best| {
+        for (0.., t.bests.quality_buf[0..t.bests.len]) |best_i, best| {
             if (exec.pc_counters[best.pc] == 0) continue;
 
             const better_min = quality.betterLess(best.min);
@@ -931,30 +1232,30 @@ const Fuzzer = struct {
             }
             best_i_list.append(gpa, @intCast(best_i)) catch @panic("OOM");
 
-            const map = &f.bests.input_buf[best_i];
+            const map = &t.bests.input_buf[best_i];
             if (map.min != map.max) {
                 if (better_min) {
-                    f.removeBest(map.min, @intCast(best_i), modify_fs_corpus);
+                    f.removeBest(map.min, @intCast(best_i));
                 }
                 if (better_max) {
-                    f.removeBest(map.max, @intCast(best_i), modify_fs_corpus);
+                    f.removeBest(map.max, @intCast(best_i));
                 }
             } else {
                 if (better_min and better_max) {
-                    f.removeBest(map.min, @intCast(best_i), modify_fs_corpus);
+                    f.removeBest(map.min, @intCast(best_i));
                 }
             }
         }
 
         // Must come after the above since some inputs may be removed
-        const input_i: Input.Index = @enumFromInt(f.corpus.len);
+        const input_i: Input.Index = @enumFromInt(t.corpus.len);
         if (input_i == Input.Index.reserved_start) {
             @panic("corpus size limit exceeded");
         }
 
         for (best_i_list.items) |i| {
-            const best_qual = &f.bests.quality_buf[i];
-            const best_map = &f.bests.input_buf[i];
+            const best_qual = &t.bests.quality_buf[i];
+            const best_map = &t.bests.input_buf[i];
 
             if (quality.betterLess(best_qual.min)) {
                 best_qual.min = quality;
@@ -972,42 +1273,74 @@ const Fuzzer = struct {
                 continue;
             }
 
-            if ((f.seen_pcs[i / @bitSizeOf(usize)] >> @intCast(i % @bitSizeOf(usize))) & 1 == 0) {
+            if ((t.seen_pcs[i / @bitSizeOf(usize)] >> @intCast(i % @bitSizeOf(usize))) & 1 == 0) {
                 @branchHint(.unlikely);
-                best_i_list.append(gpa, f.bests.len) catch @panic("OOM");
-                f.bests.quality_buf[f.bests.len] = .{
+                best_i_list.append(gpa, t.bests.len) catch @panic("OOM");
+                t.bests.quality_buf[t.bests.len] = .{
                     .pc = @intCast(i),
                     .min = quality,
                     .max = quality,
                 };
-                f.bests.input_buf[f.bests.len] = .{ .min = input_i, .max = input_i };
-                f.bests.len += 1;
+                t.bests.input_buf[t.bests.len] = .{ .min = input_i, .max = input_i };
+                t.bests.len += 1;
             }
         }
 
-        if (best_i_list.items.len == 0 and
-            modify_fs_corpus // Found by freshness; otherwise, it does not need to be better
-        ) {
-            @branchHint(.cold); // Nondeterministic test
-            std.log.warn("nondeterministic rerun", .{});
+        // Having no best qualities could be from one of these causes:
+        // * A previous corpus input after the test has changed
+        // * An input provided by the test
+        // * The test is non-deterministic
+        if (best_i_list.items.len == 0 and new_is_mut) {
+            assert(best_i_list.capacity == 0);
+            f.input_builder.reset();
+            t.corpus_pos = @enumFromInt(0);
             return;
+        }
+
+        var input = f.input_builder.build();
+        f.uid_data_i.ensureTotalCapacity(gpa, input.data.uid_slices.entries.len) catch @panic("OOM");
+        for (
+            input.seen_uid_i,
+            input.data.uid_slices.keys(),
+            input.data.uid_slices.values(),
+        ) |*i, uid, slice| {
+            const gop = t.seen_uids.getOrPutValue(gpa, uid, switch (uid.kind) {
+                .int => .{ .slices = .{ .ints = .empty } },
+                .bytes => .{ .slices = .{ .bytes = .empty } },
+            }) catch @panic("OOM");
+            switch (uid.kind) {
+                .int => t.seen_uids.values()[gop.index].slices.ints.append(
+                    gpa,
+                    input.data.ints[slice.base..][0..slice.len],
+                ) catch @panic("OOM"),
+                .bytes => t.seen_uids.values()[gop.index].slices.bytes.append(gpa, .{
+                    .entries = input.data.bytes.entries[slice.base..][0..slice.len],
+                    .table = input.data.bytes.table,
+                }) catch @panic("OOM"),
+            }
+            i.* = @intCast(gop.index);
         }
 
         input.ref.best_i_buf = best_i_list.toOwnedSlice(gpa) catch @panic("OOM");
         input.ref.best_i_len = @intCast(input.ref.best_i_buf.len);
-        f.corpus.append(gpa, input) catch @panic("OOM");
-        f.corpus_pos = input_i;
+        t.corpus.append(gpa, input) catch @panic("OOM");
+        t.corpus_pos = input_i;
 
         // Must come after the above since `seen_pcs` is used
         f.updateSeenPcs();
 
-        if (!modify_fs_corpus) return;
-
-        // Write new input to cache
-        var name_buf: [8]u8 = undefined;
-        const name = f.corpusFileName(&name_buf, input_i);
-        f.corpus_dir.writeFile(io, .{ .sub_path = name, .data = bytes }) catch |e|
-            panic("failed to write corpus file '{s}': {t}", .{ name, e });
+        t.batches_since_find = 0;
+        if (f.main_instance and new_is_mut) {
+            // Only the main instance increments the number of unique runs since it is likely
+            // multiple instances find the same new input at the same time.
+            _ = @atomicRmw(usize, &exec.seenPcsHeader().unique_runs, .Add, 1, .monotonic);
+            // Write new input to the cache
+            var cname: CorpusFileName = .fromTest(t.dirname);
+            const name = cname.inputName(@intFromEnum(input_i) - t.start_mut_corpus);
+            exec.cache_f.writeFile(io, .{ .sub_path = name, .data = bytes, .flags = .{
+                .exclusive = true,
+            } }) catch |e| panic("failed to write corpus file '{s}': {t}", .{ name, e });
+        }
     }
 
     /// Returns if `error.SkipZigTest` was indicated
@@ -1039,8 +1372,10 @@ const Fuzzer = struct {
 
     pub fn cycle(f: *Fuzzer) void {
         assert(f.mmap_input.len == 0);
-        const corpus = f.corpus.slice();
-        const corpus_i = @intFromEnum(f.corpus_pos);
+
+        const t = &f.tests[f.test_i];
+        const corpus = t.corpus.slice();
+        const corpus_i = @intFromEnum(t.corpus_pos);
 
         var small_entronopy: SmallEntronopy = .{ .bits = f.rngInt(u64) };
         var n_mutate = mutCount(small_entronopy.take(u16));
@@ -1096,13 +1431,181 @@ const Fuzzer = struct {
         if (!skip and f.isFresh()) {
             @branchHint(.unlikely);
 
-            _ = @atomicRmw(usize, &exec.seenPcsHeader().unique_runs, .Add, 1, .monotonic);
-            f.newInput(true);
+            abi.runner_broadcast_input(f.test_i, .fromSlice(f.mmap_input.inputSlice()));
+            f.newInput();
+        } else {
+            assert(@intFromEnum(t.corpus_pos) < t.corpus.len);
+            t.corpus_pos = @enumFromInt((@intFromEnum(t.corpus_pos) + 1) % t.corpus.len);
         }
         f.mmap_input.clearRetainingCapacity();
+    }
 
-        assert(@intFromEnum(f.corpus_pos) < f.corpus.len);
-        f.corpus_pos = @enumFromInt((@intFromEnum(f.corpus_pos) + 1) % f.corpus.len);
+    fn takeReceived(f: *Fuzzer) void {
+        const t = &f.tests[f.test_i];
+        if (t.received.state.startReadIfPending()) {
+            defer t.received.state.finishRead();
+            const inputs = &t.received.inputs;
+            var rem = inputs.items;
+
+            while (true) {
+                const len: u32 = @bitCast(rem[0..4].*);
+                rem = rem[4..];
+                const bytes = rem[0..len];
+                rem = rem[len..];
+
+                f.mmap_input.appendSlice(bytes);
+                f.newInput();
+                f.mmap_input.clearRetainingCapacity();
+
+                if (rem.len == 0) break;
+            }
+
+            inputs.clearRetainingCapacity();
+        }
+    }
+
+    pub fn batch(f: *Fuzzer) void {
+        const t = &f.tests[f.test_i];
+        assert(t.limit != 0);
+        t.batches += 1;
+        t.batches_since_find += 1;
+        if (f.tests.len != 1) {
+            // Use cpu_process since some fuzz tests may spawn
+            // other threads and give all the work to them.
+            const start: Io.Timestamp = .now(io, .cpu_process);
+            var completed_cycles: u32 = 0;
+            var total_cycles: u32 = t.batch_cycles;
+
+            while (true) {
+                assert(completed_cycles != total_cycles);
+                while (completed_cycles < total_cycles) {
+                    f.takeReceived();
+                    f.cycle();
+                    completed_cycles += 1;
+                }
+
+                const duration = start.untilNow(io, .cpu_process);
+                const ns = @min(@max(1, duration.nanoseconds), math.maxInt(u64));
+                const speed = @as(u64, t.batch_cycles) * std.time.ns_per_s / ns;
+                // @min avoids large increases in batch_cycles due to just a few cycles running
+                // fast. For example, if batch_cycles is only 2, and both run very fast due to
+                // unlucky rng, this avoids a large runtime on the next batch. This also avoids
+                // timer inprecision giving large values.
+                t.batch_cycles = @max(1, @min(speed, t.batch_cycles *| 2));
+
+                if (ns < std.time.ns_per_s * 7 / 8) {
+                    // Keep running the test to get closer to a second. This will almost always
+                    // be the case for the first batch as the default batch_cycles is 1.
+                    if (t.limit == total_cycles) break;
+
+                    const rem_ns: u64 = @as(u32, std.time.ns_per_s) - ns;
+                    const extra: u32 = @intCast(rem_ns * t.batch_cycles / std.time.ns_per_s);
+                    if (extra == 0) break; // No better approximation of a second possible
+                    total_cycles += extra;
+                    if (t.limit) |limit| total_cycles = @min(total_cycles, limit);
+                    continue;
+                }
+
+                break;
+            }
+
+            assert(completed_cycles == total_cycles);
+            if (t.limit) |prev| {
+                t.limit = prev - total_cycles;
+                t.batch_cycles = @min(t.batch_cycles, t.limit.?);
+            }
+        } else {
+            while (true) {
+                if (t.limit) |limit| {
+                    if (limit == 0) break;
+                    t.limit = limit - 1;
+                }
+                f.takeReceived();
+                f.cycle();
+            }
+        }
+    }
+
+    pub fn select(f: *Fuzzer) ?u32 {
+        assert(f.tests.len > 1); // More efficiently handled by the callee
+
+        // The algorithm for selecting tests is such that:
+        // - 1/4 are from the number of pcs as they give an indication of test complexity.
+        // - 3/4 are from the recency of the last find as it gives an indication of the
+        //   effectiveness of fuzzing for the test.
+        // - Tests finding fresh inputs are run 8x other tests.
+        //   - Since new tests are considered to have just found a fresh input, this means they
+        //     are also prioritized which allows their characteristics to be learnt.
+        // When a test has a new input pending, it is treated as if it had just found a fresh
+        // input instead of immediately being run. This avoids a test which is finding many new
+        // inputs from being exclusively run.
+        const new_batches = 16;
+
+        var n_with_new: u32 = 0;
+        var n_seen_pcs: u64 = 0;
+        var n_latest_find: u64 = 0;
+
+        for (f.tests) |*t| {
+            const has_pending = t.received.state.hasPending();
+            if (has_pending) {
+                assert(t.limit == null); // If multiprocess limited fuzzing was to be added, then
+                // `t.received.inputs.clearRetainingCapacity()` would need to be added after
+                // `t.received.state.startReadIfPending()` when the limit has been reached.
+            }
+            if (t.limit == 0) continue;
+
+            const latest_find = t.batches - t.batches_since_find;
+            n_with_new += @intFromBool(t.batches_since_find < new_batches or has_pending);
+            n_seen_pcs += @max(t.seen_pc_count, 1);
+            n_latest_find += @max(latest_find, 1);
+        }
+
+        if (n_seen_pcs == 0) {
+            assert(n_with_new == 0);
+            assert(n_latest_find == 0);
+            return null; // All fuzz tests have used up their limit
+        }
+
+        const rng: packed struct(u64) {
+            idx_rng: u32,
+            from_new: u3,
+            from_latest_find: u2,
+            _: u27,
+        } = @bitCast(f.rngInt(u64));
+
+        if (n_with_new != 0 and rng.from_new != 0) {
+            var n = std.Random.limitRangeBiased(u32, rng.idx_rng, n_with_new);
+            for (0.., f.tests) |i, *t| {
+                if (t.limit == 0) continue;
+                if (t.batches_since_find < new_batches or t.received.state.hasPending()) {
+                    if (n == 0) return @intCast(i);
+                    n -= 1;
+                }
+            }
+            unreachable;
+        }
+
+        if (rng.from_latest_find != 0) {
+            const total_weight = n_latest_find;
+            var n = f.rngLessThan(u64, total_weight);
+            for (0.., f.tests) |i, *t| {
+                if (t.limit == 0) continue;
+                const latest_find = @max(t.batches - t.batches_since_find, 1);
+                if (n < latest_find) return @intCast(i);
+                n -= latest_find;
+            }
+            unreachable;
+        } else {
+            const total_weight = n_seen_pcs;
+            var n = f.rngLessThan(u64, total_weight);
+            for (0.., f.tests) |i, *t| {
+                if (t.limit == 0) continue;
+                const seen_pc_count = @max(t.seen_pc_count, 1);
+                if (n < seen_pc_count) return @intCast(i);
+                n -= seen_pc_count;
+            }
+            unreachable;
+        }
     }
 
     fn weightsContain(int: u64, weights: []const abi.Weight) bool {
@@ -1162,8 +1665,9 @@ const Fuzzer = struct {
         mutate: Untyped,
         fresh: void,
     } {
-        const corpus = f.corpus.slice();
-        const corpus_i = @intFromEnum(f.corpus_pos);
+        const t = &f.tests[f.test_i];
+        const corpus = t.corpus.slice();
+        const corpus_i = @intFromEnum(t.corpus_pos);
         const data = &corpus.items(.data)[corpus_i];
         var small_entronopy: SmallEntronopy = .{ .bits = f.rngInt(u64) };
 
@@ -1254,7 +1758,7 @@ const Fuzzer = struct {
                         data_slice.len,
                     } else src: {
                         const seen_uid_i = corpus.items(.seen_uid_i)[corpus_i][uid_i];
-                        const untyped_slices = f.seen_uids.values()[seen_uid_i].slices;
+                        const untyped_slices = t.seen_uids.values()[seen_uid_i].slices;
                         switch (uid.kind) {
                             .int => {
                                 const slices = untyped_slices.ints.items;
@@ -1382,7 +1886,7 @@ const Fuzzer = struct {
             }
         } else {
             const seen_uid_i = corpus.items(.seen_uid_i)[corpus_i][uid_i];
-            const untyped_slices = f.seen_uids.values()[seen_uid_i].slices;
+            const untyped_slices = t.seen_uids.values()[seen_uid_i].slices;
             switch (uid.kind) {
                 .int => {
                     const slices = untyped_slices.ints.items;
@@ -1410,11 +1914,12 @@ const Fuzzer = struct {
     }
 
     pub fn nextInt(f: *Fuzzer, uid: Uid, weights: []const abi.Weight) u64 {
+        const t = &f.tests[f.test_i];
         f.req_values += 1;
-        if (@intFromEnum(f.corpus_pos) >= @intFromEnum(Input.Index.reserved_start)) {
+        if (@intFromEnum(t.corpus_pos) >= @intFromEnum(Input.Index.reserved_start)) {
             @branchHint(.unlikely);
             const int = f.bytes_input.valueWeightedWithHash(u64, weights, undefined);
-            if (f.corpus_pos == .bytes_fresh) {
+            if (t.corpus_pos == .bytes_fresh) {
                 f.input_builder.checkSmithedLen(8);
                 f.input_builder.addInt(uid, int);
             }
@@ -1433,11 +1938,12 @@ const Fuzzer = struct {
     }
 
     pub fn nextEos(f: *Fuzzer, uid: Uid, weights: []const abi.Weight) bool {
+        const t = &f.tests[f.test_i];
         f.req_values += 1;
-        if (@intFromEnum(f.corpus_pos) >= @intFromEnum(Input.Index.reserved_start)) {
+        if (@intFromEnum(t.corpus_pos) >= @intFromEnum(Input.Index.reserved_start)) {
             @branchHint(.unlikely);
             const eos = f.bytes_input.eosWeightedWithHash(weights, undefined);
-            if (f.corpus_pos == .bytes_fresh) {
+            if (t.corpus_pos == .bytes_fresh) {
                 f.input_builder.checkSmithedLen(1);
                 f.input_builder.addInt(uid, @intFromBool(eos));
             }
@@ -1547,13 +2053,14 @@ const Fuzzer = struct {
     }
 
     pub fn nextBytes(f: *Fuzzer, uid: Uid, out: []u8, weights: []const abi.Weight) void {
+        const t = &f.tests[f.test_i];
         f.req_values += 1;
         f.req_bytes +%= @truncate(out.len); // This function should panic since the 32-bit
         // data limit is exceeded, so wrapping is fine.
-        if (@intFromEnum(f.corpus_pos) >= @intFromEnum(Input.Index.reserved_start)) {
+        if (@intFromEnum(t.corpus_pos) >= @intFromEnum(Input.Index.reserved_start)) {
             @branchHint(.unlikely);
             f.bytes_input.bytesWeightedWithHash(out, weights, undefined);
-            if (f.corpus_pos == .bytes_fresh) {
+            if (t.corpus_pos == .bytes_fresh) {
                 f.input_builder.checkSmithedLen(out.len);
                 f.input_builder.addBytes(uid, out);
             }
@@ -1638,8 +2145,9 @@ const Fuzzer = struct {
         len_weights: []const abi.Weight,
         byte_weights: []const abi.Weight,
     ) u32 {
+        const t = &f.tests[f.test_i];
         f.req_values += 1;
-        if (@intFromEnum(f.corpus_pos) >= @intFromEnum(Input.Index.reserved_start)) {
+        if (@intFromEnum(t.corpus_pos) >= @intFromEnum(Input.Index.reserved_start)) {
             @branchHint(.unlikely);
             const n = f.bytes_input.sliceWeightedWithHash(
                 buf,
@@ -1647,7 +2155,7 @@ const Fuzzer = struct {
                 byte_weights,
                 undefined,
             );
-            if (f.corpus_pos == .bytes_fresh) {
+            if (t.corpus_pos == .bytes_fresh) {
                 f.input_builder.checkSmithedLen(@as(usize, 4) + n);
                 f.input_builder.addBytes(uid, buf[0..n]);
             }
@@ -1664,7 +2172,6 @@ const Fuzzer = struct {
 
 export fn fuzzer_init(cache_dir_path: abi.Slice) void {
     exec = .init(cache_dir_path.toSlice());
-    fuzzer = .init();
 }
 
 export fn fuzzer_coverage() abi.Coverage {
@@ -1684,23 +2191,66 @@ export fn fuzzer_coverage() abi.Coverage {
     };
 }
 
-export fn fuzzer_set_test(test_one: abi.TestOne, unit_test_name: abi.Slice) void {
-    current_test_name = unit_test_name.toSlice();
-    fuzzer.setTest(test_one, unit_test_name.toSlice());
+export fn fuzzer_main(
+    n_tests: u32,
+    seed: u32,
+    limit_kind: abi.LimitKind,
+    amount_or_instance: u64,
+) void {
+    fuzzer = .init(
+        n_tests,
+        seed ^ amount_or_instance, // seed is otherwise the same for all instances
+        if (limit_kind == .forever) @as(u32, @intCast(amount_or_instance)) else 0,
+        if (limit_kind == .forever) null else amount_or_instance,
+    );
+    defer fuzzer.deinit();
+    abi.runner_start_input_poller();
+    defer abi.runner_stop_input_poller();
+
+    if (n_tests == 1) {
+        // no swapping between fuzz tests
+        runTest(0);
+    } else {
+        while (fuzzer.select()) |i| {
+            runTest(i);
+        }
+    }
+}
+
+export fn fuzzer_receive_input(test_i: u32, bytes_slice: abi.Slice) bool {
+    const recv = &fuzzer.tests[test_i].received;
+    if (recv.state.startWrite()) return true;
+    defer recv.state.finishWrite();
+
+    const bytes = bytes_slice.toSlice();
+    const len: u32 = @intCast(bytes.len);
+    recv.inputs.ensureUnusedCapacity(gpa, 4 + bytes.len) catch @panic("OOM");
+    recv.inputs.appendSliceAssumeCapacity(@ptrCast(&len));
+    recv.inputs.appendSliceAssumeCapacity(bytes);
+
+    return false;
+}
+
+fn runTest(i: u32) void {
+    fuzzer.test_i = i;
+    fuzzer.mmap_input.setTest(i);
+    current_test_name = abi.runner_test_name(i).toSlice();
+    abi.runner_test_run(i);
+}
+
+export fn fuzzer_set_test(test_one: abi.TestOne) void {
+    fuzzer.test_one = test_one;
 }
 
 export fn fuzzer_new_input(bytes: abi.Slice) void {
     if (bytes.len == 0) return; // An entry of length zero is always present
+    if (fuzzer.tests[fuzzer.test_i].start_mut_corpus != math.maxInt(u32)) return; // Test ran previously
     fuzzer.newInputExternal(bytes.toSlice());
 }
 
-export fn fuzzer_main(limit_kind: abi.LimitKind, amount: u64) void {
-    fuzzer.loadCorpus();
-    switch (limit_kind) {
-        .forever => while (true) fuzzer.cycle(),
-        .iterations => for (0..amount) |_| fuzzer.cycle(),
-    }
-    fuzzer.reset();
+export fn fuzzer_start_test() void {
+    fuzzer.ensureCorpusLoaded();
+    fuzzer.batch();
 }
 
 export fn fuzzer_int(uid: Uid, weights: abi.Weights) u64 {
@@ -1764,26 +2314,43 @@ export fn __sanitizer_cov_pcs_init(start: usize, end: usize) void {
 /// Reusable and recoverable input.
 ///
 /// Has a 32-bit limit on the input length. This has the nice side effect that `u32`
-/// can be used in most placed in `fuzzer` with the last four values reserved.
+/// can be used in most placed in `fuzzer` with the last `@sizeOf(abi.MmapInputHeader)`
+/// values reserved.
 const MemoryMappedInput = struct {
+    const Header = abi.MmapInputHeader;
+
     len: u32,
     /// Directly accessing `memory` is unsafe, use either `inputSlice` or `writeSlice`.
-    ///
-    /// `memory` starts with the length of the input as a little-endian 32-bit integer.
     mmap: Io.File.MemoryMap,
+    in_i: u32,
 
     /// `file` becomes owned by the returned `MemoryMappedInput`
-    pub fn init(file: Io.File, size: usize) !MemoryMappedInput {
-        assert(size >= 4);
+    pub fn init(file: Io.File, instance_id: u32, in_i: u32) MemoryMappedInput {
+        var size = file.length(io) catch |e|
+            panic("failed to get length of 'in{x}': {t}", .{ in_i, e });
+        if (size < std.heap.page_size_max) {
+            size = std.heap.page_size_max;
+            file.setLength(io, size) catch |e|
+                panic("failed to resize 'in{x}': {t}", .{ in_i, e });
+        }
+        const map = file.createMemoryMap(io, .{ .len = size }) catch |e|
+            panic("failed to memmap input file 'in{x}': {t}", .{ in_i, e });
+        @as(*volatile Header, @ptrCast(map.memory)).* = .{
+            .pc_digest = mem.nativeToLittle(u64, exec.pc_digest),
+            .instance_id = mem.nativeToLittle(u32, instance_id),
+            .test_i = 0,
+            .len = 0,
+        };
         return .{
             .len = 0,
-            .mmap = try file.createMemoryMap(io, .{ .len = size }),
+            .mmap = map,
+            .in_i = in_i,
         };
     }
 
     pub fn deinit(l: *MemoryMappedInput) void {
         const f = l.mmap.file;
-        l.mmap.write(io) catch |e| panic("failed to write memory map of 'in': {t}", .{e});
+        l.mmap.write(io) catch |e| panic("failed to write memory map of 'in{x}': {t}", .{ l.in_i, e });
         l.mmap.destroy(io);
         f.close(io);
         l.* = undefined;
@@ -1793,40 +2360,36 @@ const MemoryMappedInput = struct {
     ///
     /// Invalidates element pointers if additional memory is needed.
     pub fn ensureUnusedCapacity(l: *MemoryMappedInput, additional_count: usize) void {
-        return l.ensureTotalCapacity(4 + l.len + additional_count);
+        return l.ensureSize(@sizeOf(Header) + l.len + additional_count);
     }
 
-    /// If the current capacity is less than `min_capacity`, this function will
-    /// modify the array so that it can hold at least `min_capacity` items.
-    ///
-    /// Invalidates element pointers if additional memory is needed.
-    pub fn ensureTotalCapacity(l: *MemoryMappedInput, min_capacity: usize) void {
+    fn ensureSize(l: *MemoryMappedInput, min_capacity: usize) void {
         if (l.mmap.memory.len < min_capacity) {
             @branchHint(.unlikely);
 
-            const max_capacity = 1 << 32; // The size of the length header is not added
+            const max_capacity = 1 << 32; // The size of the header is not added
             // in order to keep the capacity page aligned and to allow those values to
             // reserved for other places.
             if (min_capacity > max_capacity) @panic("too much smith data requested");
 
             const new_capacity = @min(growCapacity(min_capacity), max_capacity);
             l.mmap.file.setLength(io, new_capacity) catch |e|
-                panic("failed to resize 'in': {t}", .{e});
+                panic("failed to resize 'in{x}': {t}", .{ l.in_i, e });
             l.mmap.setLength(io, new_capacity) catch |se| switch (se) {
                 error.OperationUnsupported => {
                     const f = l.mmap.file;
                     l.mmap.destroy(io);
                     l.mmap = f.createMemoryMap(io, .{ .len = new_capacity }) catch |e|
-                        panic("failed to memory map 'in': {t}", .{e});
+                        panic("failed to memory map 'in{x}': {t}", .{ l.in_i, e });
                 },
-                else => panic("failed to resize memory map of 'in': {t}", .{se}),
+                else => panic("failed to resize memory map of 'in{x}': {t}", .{ l.in_i, se }),
             };
         }
     }
 
     // Only writing has side effects, so volatile is not needed
     pub fn inputSlice(l: *MemoryMappedInput) []const u8 {
-        return l.mmap.memory[4..][0..l.len];
+        return l.mmap.memory[@sizeOf(Header)..][0..l.len];
     }
 
     // Writing has side effectsd, so volatile is necessary
@@ -1835,7 +2398,13 @@ const MemoryMappedInput = struct {
     }
 
     fn writeLen(l: *MemoryMappedInput) void {
-        l.writeSlice()[0..4].* = @bitCast(mem.nativeToLittle(u32, l.len));
+        l.writeSlice()[@offsetOf(Header, "len")..][0..4].* =
+            @bitCast(mem.nativeToLittle(u32, l.len));
+    }
+
+    pub fn setTest(l: *MemoryMappedInput, i: u32) void {
+        l.writeSlice()[@offsetOf(Header, "test_i")..][0..4].* =
+            @bitCast(mem.nativeToLittle(u32, i));
     }
 
     /// Invalidates all element pointers.
@@ -1849,7 +2418,7 @@ const MemoryMappedInput = struct {
     /// Invalidates item pointers if more space is required.
     pub fn appendSlice(l: *MemoryMappedInput, items: []const u8) void {
         l.ensureUnusedCapacity(items.len);
-        @memcpy(l.writeSlice()[4 + l.len ..][0..items.len], items);
+        @memcpy(l.writeSlice()[@sizeOf(Header) + l.len ..][0..items.len], items);
         l.len += @as(u32, @intCast(items.len));
         l.writeLen();
     }
@@ -1859,8 +2428,8 @@ const MemoryMappedInput = struct {
     /// Invalidates item pointers if more space is required.
     pub fn appendLittleInt(l: *MemoryMappedInput, T: type, x: T) void {
         l.ensureUnusedCapacity(@sizeOf(T));
-        //std.log.debug("{} {} {}", .{ l.writeSlice().len, l.len, @sizeOf(T) });
-        l.writeSlice()[4 + l.len ..][0..@sizeOf(T)].* = @bitCast(mem.nativeToLittle(T, x));
+        l.writeSlice()[@sizeOf(Header) + l.len ..][0..@sizeOf(T)].* =
+            @bitCast(mem.nativeToLittle(T, x));
         l.len += @sizeOf(T);
         l.writeLen();
     }

@@ -565,7 +565,7 @@ fn analyzeInst(
         .trunc_float,
         .neg,
         .neg_optimized,
-        .cmp_lt_errors_len,
+        .cmp_lte_errors_len,
         .set_err_return_trace,
         .c_va_end,
         => {

@@ -129,7 +129,7 @@ xpc_listener_create(const char * service,
 		dispatch_queue_t _Nullable target_queue,
 		xpc_listener_create_flags_t flags,
 		xpc_listener_incoming_session_handler_t incoming_session_handler,
-		xpc_rich_error_t _Nullable * _Nullable error_out);
+		xpc_rich_error_t _Nullable XPC_GIVES_REFERENCE * _Nullable error_out);
 
 #pragma mark Lifecycle
 /*!
@@ -156,7 +156,7 @@ API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_SWIFT_NOEXPORT
 bool
 xpc_listener_activate(xpc_listener_t listener,
-		xpc_rich_error_t _Nullable * _Nullable error_out);
+		xpc_rich_error_t _Nullable XPC_GIVES_REFERENCE * _Nullable error_out);
 
 /*!
  * @function xpc_listener_cancel

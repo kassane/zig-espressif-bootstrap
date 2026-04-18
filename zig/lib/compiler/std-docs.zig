@@ -423,7 +423,14 @@ fn buildWasmBinary(
             );
             return error.WasmCompilationFailed;
         },
-        .stopped, .unknown => {
+        .stopped => |sig| {
+            std.log.err(
+                "the following command stopped unexpectedly with signal {t}:\n{s}",
+                .{ sig, try std.Build.Step.allocPrintCmd(arena, .inherit, null, argv.items) },
+            );
+            return error.WasmCompilationFailed;
+        },
+        .unknown => {
             std.log.err(
                 "the following command terminated unexpectedly:\n{s}",
                 .{try std.Build.Step.allocPrintCmd(arena, .inherit, null, argv.items)},

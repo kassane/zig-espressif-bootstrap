@@ -34,11 +34,17 @@
 
 #include <mach/port.h>
 #include <mach/machine/vm_types.h>
+#include <mach/error.h>
 
 #include <stdint.h>
 #include <sys/cdefs.h>
 
 __BEGIN_DECLS
+
+/* (err_vm | err_sub(0)) reserved: vm_sanitize */
+#define err_vm_reclaim(e) (err_vm | err_sub(1) | e)
+/* (err_vm | err_sub(2)) reserved: vm_map_lock */
+
 
 typedef vm_offset_t             pointer_t __kernel_ptr_semantics;
 typedef vm_offset_t             vm_address_t __kernel_ptr_semantics;

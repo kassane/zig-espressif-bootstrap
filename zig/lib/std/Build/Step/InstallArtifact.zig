@@ -17,6 +17,10 @@ emitted_implib: ?LazyPath,
 pdb_dir: ?InstallDir,
 emitted_pdb: ?LazyPath,
 
+// hack for stage2_x86_64 + coff
+compiler_rt_dyn_lib_dir: ?InstallDir,
+emitted_compiler_rt_dyn_lib: ?LazyPath,
+
 h_dir: ?InstallDir,
 emitted_h: ?LazyPath,
 
@@ -35,6 +39,7 @@ pub const Options = struct {
     /// Which installation directory to put the main output file into.
     dest_dir: Dir = .default,
     pdb_dir: Dir = .default,
+    compiler_rt_dyn_lib_dir: Dir = .default,
     h_dir: Dir = .default,
     implib_dir: Dir = .default,
 
@@ -75,6 +80,11 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
             .default => if (artifact.producesPdbFile()) dest_dir else null,
             .override => |o| o,
         },
+        .compiler_rt_dyn_lib_dir = switch (options.compiler_rt_dyn_lib_dir) {
+            .disabled => null,
+            .default => if (artifact.producesCompilerRtDynLib()) dest_dir else null,
+            .override => |o| o,
+        },
         .h_dir = switch (options.h_dir) {
             .disabled => null,
             .default => if (artifact.kind == .lib) .header else null,
@@ -98,6 +108,7 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
 
         .emitted_bin = null,
         .emitted_pdb = null,
+        .emitted_compiler_rt_dyn_lib = null,
         .emitted_h = null,
         .emitted_implib = null,
 
@@ -107,6 +118,7 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
     install_artifact.step.dependOn(&artifact.step);
 
     if (install_artifact.dest_dir != null) install_artifact.emitted_bin = artifact.getEmittedBin();
+    if (install_artifact.compiler_rt_dyn_lib_dir != null) install_artifact.emitted_compiler_rt_dyn_lib = artifact.getEmittedCompilerRtDynLib();
     if (install_artifact.pdb_dir != null) install_artifact.emitted_pdb = artifact.getEmittedPdb();
     // https://github.com/ziglang/zig/issues/9698
     //if (install_artifact.h_dir != null) install_artifact.emitted_h = artifact.getEmittedH();
@@ -133,6 +145,12 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         }
 
         install_artifact.artifact.installed_path = full_dest_path;
+    }
+
+    if (install_artifact.compiler_rt_dyn_lib_dir) |compiler_rt_dir| {
+        const full_compiler_rt_path = b.getInstallPath(compiler_rt_dir, install_artifact.emitted_compiler_rt_dyn_lib.?.basename(b, step));
+        const p = try step.installFile(install_artifact.emitted_compiler_rt_dyn_lib.?, full_compiler_rt_path);
+        all_cached = all_cached and p == .fresh;
     }
 
     if (install_artifact.implib_dir) |implib_dir| {

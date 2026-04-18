@@ -94,7 +94,7 @@ pub const ResourceUsageStatistics = struct {
 pub const Term = union(enum) {
     exited: u8,
     signal: std.posix.SIG,
-    stopped: u32,
+    stopped: std.posix.SIG,
     unknown: u32,
 };
 

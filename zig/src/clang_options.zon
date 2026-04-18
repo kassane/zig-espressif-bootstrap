@@ -637,6 +637,7 @@
 },
 .{
     .name = "version",
+    .ze = .version,
     .pd1 = false,
     .pd2 = true,
 },
@@ -3383,7 +3384,7 @@
 },
 .{ .name = "verify-ignore-unexpected" },
 .{ .name = "verify-pch" },
-.{ .name = "version" },
+.{ .name = "version", .ze = .version },
 .{ .name = "via-file-asm", .pd2 = true },
 .{ .name = "w" },
 .{

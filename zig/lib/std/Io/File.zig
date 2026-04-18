@@ -142,11 +142,8 @@ pub fn stat(file: File, io: Io) StatError!Stat {
     return io.vtable.fileStat(io.userdata, file);
 }
 
-pub const OpenMode = enum {
-    read_only,
-    write_only,
-    read_write,
-};
+/// Deprecated, renamed to `Dir.OpenFileOptions.Mode`.
+pub const OpenMode = Dir.OpenFileOptions.Mode;
 
 pub const Lock = enum {
     none,
@@ -154,120 +151,11 @@ pub const Lock = enum {
     exclusive,
 };
 
-pub const OpenFlags = struct {
-    mode: OpenMode = .read_only,
+/// Deprecated, renamed to `Dir.OpenFileOptions`
+pub const OpenFlags = Dir.OpenFileOptions;
 
-    /// Determines the behavior when opening a path that refers to a directory.
-    ///
-    /// If set to true, directories may be opened, but `error.IsDir` is still
-    /// possible in certain scenarios, e.g. attempting to open a directory with
-    /// write permissions.
-    ///
-    /// If set to false, `error.IsDir` will always be returned when opening a directory.
-    ///
-    /// When set to false:
-    /// * On Windows, the behavior is implemented without any extra syscalls.
-    /// * On other operating systems, the behavior is implemented with an additional
-    ///   `fstat` syscall.
-    allow_directory: bool = true,
-    /// Indicates intent for only some operations to be performed on this
-    /// opened file:
-    /// * `close`
-    /// * `stat`
-    /// On Linux and FreeBSD, this corresponds to `std.posix.O.PATH`.
-    path_only: bool = false,
-
-    /// Open the file with an advisory lock to coordinate with other processes
-    /// accessing it at the same time. An exclusive lock will prevent other
-    /// processes from acquiring a lock. A shared lock will prevent other
-    /// processes from acquiring a exclusive lock, but does not prevent
-    /// other process from getting their own shared locks.
-    ///
-    /// The lock is advisory, except on Linux in very specific circumstances[1].
-    /// This means that a process that does not respect the locking API can still get access
-    /// to the file, despite the lock.
-    ///
-    /// On these operating systems, the lock is acquired atomically with
-    /// opening the file:
-    /// * Darwin
-    /// * DragonFlyBSD
-    /// * FreeBSD
-    /// * Haiku
-    /// * NetBSD
-    /// * OpenBSD
-    /// On these operating systems, the lock is acquired via a separate syscall
-    /// after opening the file:
-    /// * Linux
-    /// * Windows
-    ///
-    /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
-    lock: Lock = .none,
-
-    /// Sets whether or not to wait until the file is locked to return. If set to true,
-    /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
-    /// is available to proceed.
-    lock_nonblocking: bool = false,
-
-    /// Set this to allow the opened file to automatically become the
-    /// controlling TTY for the current process.
-    allow_ctty: bool = false,
-
-    follow_symlinks: bool = true,
-
-    pub fn isRead(self: OpenFlags) bool {
-        return self.mode != .write_only;
-    }
-
-    pub fn isWrite(self: OpenFlags) bool {
-        return self.mode != .read_only;
-    }
-};
-
-pub const CreateFlags = struct {
-    /// Whether the file will be created with read access.
-    read: bool = false,
-
-    /// If the file already exists, and is a regular file, and the access
-    /// mode allows writing, it will be truncated to length 0.
-    truncate: bool = true,
-
-    /// Ensures that this open call creates the file, otherwise causes
-    /// `error.PathAlreadyExists` to be returned.
-    exclusive: bool = false,
-
-    /// Open the file with an advisory lock to coordinate with other processes
-    /// accessing it at the same time. An exclusive lock will prevent other
-    /// processes from acquiring a lock. A shared lock will prevent other
-    /// processes from acquiring a exclusive lock, but does not prevent
-    /// other process from getting their own shared locks.
-    ///
-    /// The lock is advisory, except on Linux in very specific circumstances[1].
-    /// This means that a process that does not respect the locking API can still get access
-    /// to the file, despite the lock.
-    ///
-    /// On these operating systems, the lock is acquired atomically with
-    /// opening the file:
-    /// * Darwin
-    /// * DragonFlyBSD
-    /// * FreeBSD
-    /// * Haiku
-    /// * NetBSD
-    /// * OpenBSD
-    /// On these operating systems, the lock is acquired via a separate syscall
-    /// after opening the file:
-    /// * Linux
-    /// * Windows
-    ///
-    /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
-    lock: Lock = .none,
-
-    /// Sets whether or not to wait until the file is locked to return. If set to true,
-    /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
-    /// is available to proceed.
-    lock_nonblocking: bool = false,
-
-    permissions: Permissions = .default_file,
-};
+/// Deprecated, renamed to `Dir.CreateFileOptions`.
+pub const CreateFlags = Dir.CreateFileOptions;
 
 pub const OpenError = error{
     PipeBusy,
@@ -314,6 +202,7 @@ pub const OpenError = error{
     NotDir,
     /// The path already exists and the `CREAT` and `EXCL` flags were provided.
     PathAlreadyExists,
+    ReadOnlyFileSystem,
     DeviceBusy,
     FileLocksUnsupported,
     /// One of these three things:

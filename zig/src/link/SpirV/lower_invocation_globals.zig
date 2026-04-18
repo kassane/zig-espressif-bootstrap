@@ -67,17 +67,17 @@ const ModuleInfo = struct {
         parser: *BinaryModule.Parser,
         binary: BinaryModule,
     ) BinaryModule.ParseError!ModuleInfo {
-        var entry_points = std.AutoArrayHashMap(ResultId, void).init(arena);
-        var functions = std.AutoArrayHashMap(ResultId, Fn).init(arena);
+        var entry_points: std.array_hash_map.Auto(ResultId, void) = .empty;
+        var functions: std.array_hash_map.Auto(ResultId, Fn) = .empty;
         var fn_types = std.AutoHashMap(ResultId, struct {
             return_type: ResultId,
             param_types: []const ResultId,
         }).init(arena);
-        var calls = std.AutoArrayHashMap(ResultId, void).init(arena);
+        var calls: std.array_hash_map.Auto(ResultId, void) = .empty;
         var callee_store = std.array_list.Managed(ResultId).init(arena);
-        var function_invocation_globals = std.AutoArrayHashMap(ResultId, void).init(arena);
+        var function_invocation_globals: std.array_hash_map.Auto(ResultId, void) = .empty;
         var result_id_offsets = std.array_list.Managed(u16).init(arena);
-        var invocation_globals = std.AutoArrayHashMap(ResultId, InvocationGlobal).init(arena);
+        var invocation_globals: std.array_hash_map.Auto(ResultId, InvocationGlobal) = .empty;
 
         var maybe_current_function: ?ResultId = null;
         var fn_ty_id: ResultId = undefined;
@@ -90,7 +90,7 @@ const ModuleInfo = struct {
             switch (inst.opcode) {
                 .OpEntryPoint => {
                     const entry_point: ResultId = @enumFromInt(inst.operands[1]);
-                    const entry = try entry_points.getOrPut(entry_point);
+                    const entry = try entry_points.getOrPut(arena, entry_point);
                     if (entry.found_existing) {
                         log.err("Entry point type {f} has duplicate definition", .{entry_point});
                         return error.DuplicateId;
@@ -126,7 +126,7 @@ const ModuleInfo = struct {
                         else
                             .none;
 
-                        try invocation_globals.put(result_id, .{
+                        try invocation_globals.put(arena, result_id, .{
                             .dependencies = .{},
                             .ty = global_type,
                             .initializer = initializer,
@@ -145,14 +145,14 @@ const ModuleInfo = struct {
                 },
                 .OpFunctionCall => {
                     const callee: ResultId = @enumFromInt(inst.operands[2]);
-                    try calls.put(callee, {});
+                    try calls.put(arena, callee, {});
                 },
                 .OpFunctionEnd => {
                     const current_function = maybe_current_function orelse {
                         log.err("encountered OpFunctionEnd without corresponding OpFunction", .{});
                         return error.InvalidPhysicalFormat;
                     };
-                    const entry = try functions.getOrPut(current_function);
+                    const entry = try functions.getOrPut(arena, current_function);
                     if (entry.found_existing) {
                         log.err("Function {f} has duplicate definition", .{current_function});
                         return error.DuplicateId;
@@ -170,7 +170,7 @@ const ModuleInfo = struct {
                         .first_callee = first_callee,
                         .return_type = fn_type.return_type,
                         .param_types = fn_type.param_types,
-                        .invocation_globals = try function_invocation_globals.unmanaged.clone(arena),
+                        .invocation_globals = try function_invocation_globals.clone(arena),
                     };
                     maybe_current_function = null;
                     calls.clearRetainingCapacity();
@@ -181,7 +181,7 @@ const ModuleInfo = struct {
             for (result_id_offsets.items) |off| {
                 const result_id: ResultId = @enumFromInt(inst.operands[off]);
                 if (invocation_globals.contains(result_id)) {
-                    try function_invocation_globals.put(result_id, {});
+                    try function_invocation_globals.put(arena, result_id, {});
                 }
             }
         }
@@ -191,11 +191,11 @@ const ModuleInfo = struct {
             return error.InvalidPhysicalFormat;
         }
 
-        return ModuleInfo{
-            .functions = functions.unmanaged,
-            .entry_points = entry_points.unmanaged,
+        return .{
+            .functions = functions,
+            .entry_points = entry_points,
             .callee_store = callee_store.items,
-            .invocation_globals = invocation_globals.unmanaged,
+            .invocation_globals = invocation_globals,
         };
     }
 
@@ -583,7 +583,8 @@ const ModuleBuilder = struct {
     }
 
     fn emitNewEntryPoints(self: *ModuleBuilder, info: ModuleInfo) !void {
-        var all_function_invocation_globals = std.AutoArrayHashMap(ResultId, void).init(self.arena);
+        const arena = self.arena;
+        var all_function_invocation_globals: std.array_hash_map.Auto(ResultId, void) = .empty;
 
         for (info.entry_points.keys(), 0..) |func, entry_point_index| {
             const fn_info = info.functions.get(func).?;
@@ -593,7 +594,7 @@ const ModuleBuilder = struct {
                 .param_types = fn_info.param_types,
             }).?;
 
-            try self.section.emit(self.arena, .OpFunction, .{
+            try self.section.emit(arena, .OpFunction, .{
                 .id_result_type = fn_info.return_type,
                 .id_result = ep_id,
                 .function_control = .{}, // TODO: Copy the attributes from the original function maybe?
@@ -604,13 +605,13 @@ const ModuleBuilder = struct {
             const params_id_base: u32 = @intFromEnum(self.allocIds(@intCast(fn_info.param_types.len)));
             for (fn_info.param_types, 0..) |param_type, i| {
                 const id: ResultId = @enumFromInt(params_id_base + @as(u32, @intCast(i)));
-                try self.section.emit(self.arena, .OpFunctionParameter, .{
+                try self.section.emit(arena, .OpFunctionParameter, .{
                     .id_result_type = param_type,
                     .id_result = id,
                 });
             }
 
-            try self.section.emit(self.arena, .OpLabel, .{
+            try self.section.emit(arena, .OpLabel, .{
                 .id_result = self.allocId(),
             });
 
@@ -619,10 +620,10 @@ const ModuleBuilder = struct {
             // Just quickly construct that set here.
             all_function_invocation_globals.clearRetainingCapacity();
             for (fn_info.invocation_globals.keys()) |global| {
-                try all_function_invocation_globals.put(global, {});
+                try all_function_invocation_globals.put(arena, global, {});
                 const global_info = info.invocation_globals.get(global).?;
                 for (global_info.dependencies.keys()) |dependency| {
-                    try all_function_invocation_globals.put(dependency, {});
+                    try all_function_invocation_globals.put(arena, dependency, {});
                 }
             }
 
@@ -632,7 +633,7 @@ const ModuleBuilder = struct {
                 const global_info = info.invocation_globals.get(global).?;
 
                 const id: ResultId = @enumFromInt(global_id_base + @as(u32, @intCast(i)));
-                try self.section.emit(self.arena, .OpVariable, .{
+                try self.section.emit(arena, .OpVariable, .{
                     .id_result_type = global_info.ty,
                     .id_result = id,
                     .storage_class = .function,
@@ -649,7 +650,7 @@ const ModuleBuilder = struct {
                 assert(initializer_info.param_types.len == 0);
 
                 try self.callWithGlobalsAndLinearParams(
-                    all_function_invocation_globals,
+                    &all_function_invocation_globals,
                     global_info.initializer,
                     initializer_info,
                     global_id_base,
@@ -659,21 +660,21 @@ const ModuleBuilder = struct {
 
             // Call the main kernel entry
             try self.callWithGlobalsAndLinearParams(
-                all_function_invocation_globals,
+                &all_function_invocation_globals,
                 func,
                 fn_info,
                 global_id_base,
                 params_id_base,
             );
 
-            try self.section.emit(self.arena, .OpReturn, {});
-            try self.section.emit(self.arena, .OpFunctionEnd, {});
+            try self.section.emit(arena, .OpReturn, {});
+            try self.section.emit(arena, .OpFunctionEnd, {});
         }
     }
 
     fn callWithGlobalsAndLinearParams(
         self: *ModuleBuilder,
-        all_globals: std.AutoArrayHashMap(ResultId, void),
+        all_globals: *const std.array_hash_map.Auto(ResultId, void),
         func: ResultId,
         callee_info: ModuleInfo.Fn,
         global_id_base: u32,

@@ -65,7 +65,7 @@ comptime {
             // case it's not required to provide an entrypoint such as main.
             if (!@hasDecl(root, start_sym_name) and @hasDecl(root, "main")) @export(&wasm_freestanding_start, .{ .name = start_sym_name });
         } else switch (native_os) {
-            .other, .freestanding, .@"3ds", .vita => {},
+            .other, .freestanding, .@"3ds", .psp, .vita => {},
             else => if (!@hasDecl(root, start_sym_name)) @export(&_start, .{ .name = start_sym_name }),
         }
     }
@@ -631,6 +631,7 @@ inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [:null]?[*:0]u8)
     if (std.Options.debug_threaded_io) |t| {
         if (@sizeOf(std.Io.Threaded.Argv0) != 0) t.argv0.value = argv[0];
         t.environ = .{ .process_environ = .{ .block = env_block } };
+        t.environ_initialized = env_block.isEmpty();
     }
     std.Thread.maybeAttachSignalStack();
     std.debug.maybeEnableSegfaultHandler();
@@ -664,10 +665,22 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
 
 fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.c) c_int {
     const argv = @as([*][*:0]u8, @ptrCast(c_argv))[0..@intCast(c_argc)];
-    if (@sizeOf(std.Io.Threaded.Argv0) != 0) {
-        if (std.Options.debug_threaded_io) |t| t.argv0.value = argv[0];
+    const environ: [:null]?[*:0]u8 = switch (builtin.os.tag) {
+        .wasi, .emscripten => environ: {
+            const c_environ = std.c.environ;
+            var env_count: usize = 0;
+            while (c_environ[env_count] != null) : (env_count += 1) {}
+            break :environ c_environ[0..env_count :null];
+        },
+        else => &.{},
+    };
+    const env_block: std.process.Environ.Block = .{ .slice = environ };
+    if (std.Options.debug_threaded_io) |t| {
+        if (@sizeOf(std.Io.Threaded.Argv0) != 0) t.argv0.value = argv[0];
+        t.environ = .{ .process_environ = .{ .block = env_block } };
+        t.environ_initialized = env_block.isEmpty();
     }
-    return callMain(argv, .empty);
+    return callMain(argv, env_block);
 }
 
 /// General error message for a malformed return type
@@ -748,7 +761,7 @@ inline fn wrapMain(result: anytype) u8 {
         std.log.err("{t}", .{err});
         switch (native_os) {
             .freestanding, .other => {},
-            else => if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace),
+            else => if (@errorReturnTrace()) |trace| std.debug.dumpErrorReturnTrace(trace),
         }
         return 1;
     };

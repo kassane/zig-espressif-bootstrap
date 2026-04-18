@@ -1,5 +1,4 @@
 const std = @import("std");
-const Io = std.Io;
 const assert = std.debug.assert;
 
 const Compilation = @import("Compilation.zig");
@@ -891,6 +890,14 @@ pub const Token = struct {
                 else => false,
             };
         }
+
+        pub fn shouldTrackHideset(id: Id, context: enum { func, obj }) bool {
+            return switch (id) {
+                .identifier, .extended_identifier => true,
+                .r_paren => context == .func,
+                else => false,
+            };
+        }
     };
 
     /// double underscore and underscore + capital letter identifiers
@@ -938,6 +945,18 @@ pub const Token = struct {
             .keyword_unaligned,
             .keyword_unaligned2,
             => if (langopts.ms_extensions) kw else .identifier,
+
+            .keyword_float32,
+            .keyword_float64,
+            .keyword_float128,
+            .keyword_float32x,
+            .keyword_float64x,
+            .keyword_float128x,
+            .keyword_dfloat32,
+            .keyword_dfloat64,
+            .keyword_dfloat128,
+            .keyword_dfloat64x,
+            => if (langopts.emulate == .clang) .identifier else kw,
             else => kw,
         };
     }
@@ -2008,11 +2027,11 @@ test "operators" {
 test "keywords" {
     try expectTokens(
         \\auto __auto_type break case char const continue default do
-        \\double else enum extern float for goto if int 
-        \\long register return short signed sizeof static 
-        \\struct switch typedef union unsigned void volatile 
-        \\while _Bool _Complex _Imaginary inline restrict _Alignas 
-        \\_Alignof _Atomic _Generic _Noreturn _Static_assert _Thread_local 
+        \\double else enum extern float for goto if int
+        \\long register return short signed sizeof static
+        \\struct switch typedef union unsigned void volatile
+        \\while _Bool _Complex _Imaginary inline restrict _Alignas
+        \\_Alignof _Atomic _Generic _Noreturn _Static_assert _Thread_local
         \\__attribute __attribute__
         \\
     , &.{
@@ -2324,13 +2343,13 @@ test "Universal character names" {
 
 test "Tokenizer fuzz test" {
     const Context = struct {
-        fn testOne(_: @This(), input_bytes: []const u8) anyerror!void {
-            var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
-            defer arena.deinit();
-            var comp = Compilation.init(std.testing.allocator, arena.allocator(), std.testing.io, undefined, Io.Dir.cwd());
+        fn testOne(_: @This(), smith: *std.testing.Smith) anyerror!void {
+            var comp = try Compilation.init(.testing);
             defer comp.deinit();
 
-            const source = try comp.addSourceFromBuffer("fuzz.c", input_bytes);
+            var buf: [256]u8 = undefined;
+            const contents_len = smith.slice(&buf);
+            const source = try comp.addSourceFromBuffer("fuzz.c", buf[0..contents_len]);
 
             var tokenizer: Tokenizer = .{
                 .buf = source.buf,
@@ -2350,9 +2369,7 @@ test "Tokenizer fuzz test" {
 }
 
 fn expectTokensExtra(contents: []const u8, expected_tokens: []const Token.Id, langopts: ?LangOpts) !void {
-    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
-    defer arena.deinit();
-    var comp = Compilation.init(std.testing.allocator, arena.allocator(), std.testing.io, undefined, Io.Dir.cwd());
+    var comp = try Compilation.init(.testing);
     defer comp.deinit();
     if (langopts) |provided| {
         comp.langopts = provided;

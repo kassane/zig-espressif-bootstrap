@@ -322,7 +322,7 @@ pub fn resize(self: Allocator, allocation: anytype, new_len: usize) bool {
     if (allocation.len == 0) {
         return false;
     }
-    const old_memory = mem.sliceAsBytes(allocation);
+    const old_memory: []u8 = @ptrCast(@constCast(mem.absorbSentinel(allocation)));
     // I would like to use saturating multiplication here, but LLVM cannot lower it
     // on WebAssembly: https://github.com/ziglang/zig/issues/9660
     //const new_len_bytes = new_len *| @sizeOf(T);
@@ -368,7 +368,7 @@ pub fn remap(self: Allocator, allocation: anytype, new_len: usize) ?@TypeOf(allo
         new_memory.len = new_len;
         return new_memory;
     }
-    const old_memory = mem.sliceAsBytes(allocation);
+    const old_memory: []u8 = @ptrCast(@constCast(mem.absorbSentinel(allocation)));
     // I would like to use saturating multiplication here, but LLVM cannot lower it
     // on WebAssembly: https://github.com/ziglang/zig/issues/9660
     //const new_len_bytes = new_len *| @sizeOf(T);
@@ -420,7 +420,7 @@ pub fn reallocAdvanced(
         return ptr;
     }
 
-    const old_byte_slice = mem.sliceAsBytes(old_mem);
+    const old_byte_slice: []u8 = @ptrCast(@constCast(mem.absorbSentinel(old_mem)));
     const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return error.OutOfMemory;
     // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
     if (self.rawRemap(old_byte_slice, .fromByteUnits(slice_info.alignment orelse @alignOf(T)), byte_count, return_address)) |p| {
@@ -443,8 +443,7 @@ pub fn reallocAdvanced(
 pub fn free(self: Allocator, memory: anytype) void {
     const slice_info = @typeInfo(@TypeOf(memory)).pointer;
     comptime assert(slice_info.size == .slice);
-    const mem_with_sent = memory[0 .. memory.len + @intFromBool(slice_info.sentinel() != null)];
-    const bytes: []u8 = @ptrCast(@constCast(mem_with_sent));
+    const bytes: []u8 = @ptrCast(@constCast(mem.absorbSentinel(memory)));
     if (bytes.len == 0) return;
     @memset(bytes, undefined);
     self.rawFree(bytes, .fromByteUnits(slice_info.alignment orelse @alignOf(slice_info.child)), @returnAddress());

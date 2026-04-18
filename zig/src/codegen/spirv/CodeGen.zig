@@ -387,13 +387,12 @@ fn importExtendedSet(cg: *CodeGen) !Id {
 
 /// Fetch the result-id for a previously generated instruction or constant.
 fn resolve(cg: *CodeGen, inst: Air.Inst.Ref) !Id {
-    const pt = cg.pt;
     const zcu = cg.module.zcu;
     const ip = &zcu.intern_pool;
-    if (try cg.air.value(inst, pt)) |val| {
+    if (inst.toInterned()) |val_ip_index| {
         const ty = cg.typeOf(inst);
         if (ty.zigTypeTag(zcu) == .@"fn") {
-            const fn_nav = switch (zcu.intern_pool.indexToKey(val.ip_index)) {
+            const fn_nav = switch (zcu.intern_pool.indexToKey(val_ip_index)) {
                 .@"extern" => |@"extern"| @"extern".owner_nav,
                 .func => |func| func.owner_nav,
                 else => unreachable,
@@ -403,7 +402,7 @@ fn resolve(cg: *CodeGen, inst: Air.Inst.Ref) !Id {
             return cg.module.declPtr(spv_decl_index).result_id;
         }
 
-        return try cg.constant(ty, val, .direct);
+        return try cg.constant(ty, .fromInterned(val_ip_index), .direct);
     }
     const index = inst.toIndex().?;
     return cg.inst_results.get(index).?; // Assertion means instruction does not dominate usage.
@@ -5657,7 +5656,6 @@ fn airWrapOptional(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
 
 fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const gpa = cg.module.gpa;
-    const pt = cg.pt;
     const zcu = cg.module.zcu;
     const target = cg.module.zcu.getTarget();
     const switch_br = cg.air.unwrapSwitch(inst);
@@ -5732,7 +5730,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
             const label = case_labels.at(case.idx);
 
             for (case.items) |item| {
-                const value = (try cg.air.value(item, pt)) orelse unreachable;
+                const value: Value = .fromInterned(item.toInterned().?);
                 const int_val: u64 = switch (cond_ty.zigTypeTag(zcu)) {
                     .bool, .int => if (cond_ty.isSignedInt(zcu)) @bitCast(value.toSignedInt(zcu)) else value.toUnsignedInt(zcu),
                     .@"enum" => blk: {
@@ -5875,9 +5873,9 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
 
         if (std.mem.eql(u8, in.constraint, "c")) {
             // constant
-            const val = (try cg.air.value(in.operand, cg.pt)) orelse {
+            const val: Value = .fromInterned(in.operand.toInterned() orelse {
                 return cg.fail("assembly inputs with 'c' constraint have to be compile-time known", .{});
-            };
+            });
 
             // TODO: This entire function should be handled a bit better...
             const ip = &zcu.intern_pool;
@@ -5911,8 +5909,7 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             if (input_ty.zigTypeTag(zcu) == .type) {
                 // This assembly input is a type instead of a value.
                 // That's fine for now, just make sure to resolve it as such.
-                const val = (try cg.air.value(in.operand, cg.pt)).?;
-                const ty_id = try cg.resolveType(val.toType(), .direct);
+                const ty_id = try cg.resolveType(in.operand.toType(), .direct);
                 try ass.value_map.put(gpa, in.name, .{ .ty = ty_id });
             } else {
                 const ty_id = try cg.resolveType(input_ty, .direct);

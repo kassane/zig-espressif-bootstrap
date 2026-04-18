@@ -279,6 +279,8 @@ comptime {
     _ = @import("compiler_rt/divmodei4.zig");
     _ = @import("compiler_rt/udivmodei4.zig");
 
+    _ = @import("compiler_rt/limb64.zig");
+
     // extra
     _ = @import("compiler_rt/os_version_check.zig");
     _ = @import("compiler_rt/emutls.zig");
