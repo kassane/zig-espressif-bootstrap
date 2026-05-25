@@ -65,7 +65,10 @@ comptime {
             // case it's not required to provide an entrypoint such as main.
             if (!@hasDecl(root, start_sym_name) and @hasDecl(root, "main")) @export(&wasm_freestanding_start, .{ .name = start_sym_name });
         } else switch (native_os) {
-            .other, .freestanding, .@"3ds", .psp, .vita => {},
+            .other, .freestanding, .@"3ds", .psp, .vita,
+            .esp32, .esp32s2, .esp32s3, .esp8266,
+            .esp32c2, .esp32c3, .esp32c5, .esp32c6, .esp32c61,
+            .esp32h2, .esp32h21, .esp32h4, .esp32p4, .esp32s31 => {},
             else => if (!@hasDecl(root, start_sym_name)) @export(&_start, .{ .name = start_sym_name }),
         }
     }

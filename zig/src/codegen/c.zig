@@ -6992,6 +6992,8 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
         .x86_64_interrupt,
         => "interrupt",
 
+        .xtensa_call0, .xtensa_windowed => null,
+
         else => unreachable, // `Zcu.callconvSupported`
     };
 }

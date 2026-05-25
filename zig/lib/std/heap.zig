@@ -836,6 +836,12 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
         .xtensa, .xtensaeb => 4 << 10,
         else => null,
     },
+    .esp32, .esp32s2, .esp32s3,
+    .esp32c3, .esp32c5, .esp32c6, .esp32c61,
+    .esp32h2, .esp32h21, .esp32h4, .esp32s31,
+    => 64 << 10,
+    .esp32c2, .esp32p4 => 4 << 10,
+    .esp8266 => null, // no MMU
     .freestanding, .other => switch (builtin.cpu.arch) {
         .wasm32, .wasm64 => 64 << 10,
         .x86, .x86_64 => 4 << 10,
@@ -999,6 +1005,12 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
         .xtensa, .xtensaeb => 4 << 10,
         else => null,
     },
+    .esp32, .esp32s2, .esp32s3,
+    .esp32c3, .esp32c5, .esp32c6, .esp32c61,
+    .esp32h2, .esp32h21, .esp32h4, .esp32s31,
+    => 64 << 10,
+    .esp32c2, .esp32p4 => 4 << 10,
+    .esp8266 => null, // no MMU
     .freestanding => switch (builtin.cpu.arch) {
         .wasm32, .wasm64 => 64 << 10,
         else => null,

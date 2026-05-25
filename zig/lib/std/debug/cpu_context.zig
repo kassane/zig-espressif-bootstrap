@@ -23,6 +23,7 @@ else switch (native_arch) {
     .x86_16 => X86_16,
     .x86 => X86,
     .x86_64 => X86_64,
+    .xtensa, .xtensaeb => Xtensa,
     else => noreturn,
 };
 
@@ -1732,6 +1733,54 @@ const X86_64 = struct {
     }
 };
 
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Xtensa = extern struct {
+    /// Address registers a0 - a15 (DWARF numbers 0-15).
+    a: [16]u32,
+    /// The program counter. Set to a0 (return address) which is the caller's PC in call0 ABI.
+    pc: u32,
+
+    pub inline fn current() Xtensa {
+        var ctx: Xtensa = undefined;
+        asm volatile (
+            \\ s32i a0,  %[ctx],  0
+            \\ s32i a1,  %[ctx],  4
+            \\ s32i a2,  %[ctx],  8
+            \\ s32i a3,  %[ctx], 12
+            \\ s32i a4,  %[ctx], 16
+            \\ s32i a5,  %[ctx], 20
+            \\ s32i a6,  %[ctx], 24
+            \\ s32i a7,  %[ctx], 28
+            \\ s32i a8,  %[ctx], 32
+            \\ s32i a9,  %[ctx], 36
+            \\ s32i a10, %[ctx], 40
+            \\ s32i a11, %[ctx], 44
+            \\ s32i a12, %[ctx], 48
+            \\ s32i a13, %[ctx], 52
+            \\ s32i a14, %[ctx], 56
+            \\ s32i a15, %[ctx], 60
+            \\ s32i a0,  %[ctx], 64
+            :
+            : [ctx] "r" (&ctx),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn getFp(ctx: *const Xtensa) u32 {
+        return ctx.a[15]; // a15 = frame pointer in call0 ABI
+    }
+    pub fn getPc(ctx: *const Xtensa) u32 {
+        return ctx.pc;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Xtensa, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...15 => return @ptrCast(&ctx.a[register_num]),
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
 /// The native operating system's `ucontext_t` as seen in the third argument to signal handlers.
 ///
 /// These are dramatically simplified since we only need general-purpose registers and don't care
@@ -2002,6 +2051,7 @@ const signal_ucontext_t = switch (native_os) {
                 },
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/xtensa/include/uapi/asm/sigcontext.h
                 .xtensa, .xtensaeb => extern struct {
+                    _sc_ucontext: u32, // back-pointer to ucontext_t (struct ucontext __user *)
                     pc: u32,
                     _ps: u32,
                     _l: extern struct {

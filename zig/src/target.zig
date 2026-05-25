@@ -478,7 +478,7 @@ pub fn clangMightShellOutForAssembly(target: *const std.Target) bool {
 /// support an -mcpu flag.
 pub fn clangAssemblerSupportsMcpuArg(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
-        .arm, .armeb, .thumb, .thumbeb => true,
+        .arm, .armeb, .thumb, .thumbeb, .xtensa => true,
         else => false,
     };
 }

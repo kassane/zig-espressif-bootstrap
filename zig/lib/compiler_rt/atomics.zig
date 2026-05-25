@@ -20,6 +20,8 @@ const supports_atomic_ops = switch (arch) {
     // perform CAS operations).
     // XXX: The Linux code path is not implemented yet.
     !builtin.cpu.has(.arm, .has_v6m),
+    // Xtensa CAS requires the s32c1i instruction (ESP32, ESP32-S3); ESP8266 lacks it.
+    .xtensa => builtin.cpu.has(.xtensa, .s32c1i),
     else => true,
 };
 
@@ -31,6 +33,9 @@ const largest_atomic_size = switch (arch) {
     // available atomic operation is a test-and-set (`ldstub`), so we force
     // every atomic memory access to go through the lock.
     .sparc => if (builtin.cpu.has(.sparc, .hasleoncasa)) @sizeOf(usize) else 0,
+
+    // s32c1i provides 32-bit CAS (ESP32, ESP32-S3); without it (ESP8266) no atomics.
+    .xtensa => if (builtin.cpu.has(.xtensa, .s32c1i)) @sizeOf(u32) else 0,
 
     // XXX: On x86/x86_64 we could check the presence of cmpxchg8b/cmpxchg16b
     // and set this parameter accordingly.

@@ -926,6 +926,16 @@ pub const Clobbers = switch (@import("builtin").cpu.arch) {
         f13: bool = false,
         f14: bool = false,
         f15: bool = false,
+
+        // HIFI/SIMD vector registers (ESP32-S3, XtensaRegisterInfo.td Q0-Q7)
+        q0: bool = false,
+        q1: bool = false,
+        q2: bool = false,
+        q3: bool = false,
+        q4: bool = false,
+        q5: bool = false,
+        q6: bool = false,
+        q7: bool = false,
     },
     .kvx => packed struct {
         /// Whether the inline assembly code may perform stores to memory

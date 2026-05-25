@@ -983,7 +983,9 @@ const x86_64 = struct {
                 }
             },
 
-            .PC32 => {
+            .PC32,
+            .PC64,
+            => {
                 try atom.scanReloc(symbol, rel, pcRelocAction(symbol, elf_file), elf_file);
             },
 
@@ -1083,6 +1085,7 @@ const x86_64 = struct {
 
             .PLT32 => mem.writeInt(i32, code[r_offset..][0..4], @as(i32, @intCast(S + A - P)), .little),
             .PC32 => mem.writeInt(i32, code[r_offset..][0..4], @as(i32, @intCast(S + A - P)), .little),
+            .PC64 => mem.writeInt(i64, code[r_offset..][0..8], S + A - P, .little),
 
             .GOTPCREL => mem.writeInt(i32, code[r_offset..][0..4], @as(i32, @intCast(G + GOT + A - P)), .little),
             .GOTPC32 => mem.writeInt(i32, code[r_offset..][0..4], @as(i32, @intCast(GOT + A - P)), .little),

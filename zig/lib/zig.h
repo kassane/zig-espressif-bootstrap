@@ -79,6 +79,8 @@
 #elif defined(__I86__)
 #define zig_x86_16
 #define zig_x86
+#elif defined(__xtensa__)
+#define zig_xtensa
 #endif
 
 #if defined(zig_msvc) || __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -405,6 +407,8 @@
 #define zig_trap() __asm__ volatile("j 0x2")
 #elif defined(zig_sparc)
 #define zig_trap() __asm__ volatile("illtrap")
+#elif defined(zig_xtensa)
+#define zig_trap() __asm__ volatile("ill")
 #elif defined(zig_x86_16)
 #define zig_trap() __asm__ volatile("int $0x3")
 #elif defined(zig_x86)
@@ -443,6 +447,8 @@
 #define zig_breakpoint() __asm__ volatile("j 0x6")
 #elif defined(zig_sparc)
 #define zig_breakpoint() __asm__ volatile("ta 0x1")
+#elif defined(zig_xtensa)
+#define zig_breakpoint() __asm__ volatile("break 1, 15")
 #elif defined(zig_x86)
 #define zig_breakpoint() __asm__ volatile("int $0x3")
 #else

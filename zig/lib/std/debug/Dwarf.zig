@@ -1474,6 +1474,7 @@ pub fn fpRegNum(arch: std.Target.Cpu.Arch) u16 {
         .ve => 9,
         .x86 => 5,
         .x86_64 => 6,
+        .xtensa, .xtensaeb => 15,
         else => unreachable,
     };
 }
@@ -1498,6 +1499,7 @@ pub fn spRegNum(arch: std.Target.Cpu.Arch) u16 {
         .ve => 11,
         .x86 => 4,
         .x86_64 => 7,
+        .xtensa, .xtensaeb => 1,
         else => unreachable,
     };
 }
