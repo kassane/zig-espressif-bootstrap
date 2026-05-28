@@ -443,8 +443,6 @@ pub fn logq(a: f128) callconv(.c) f128 {
 
 pub fn logl(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return __logh(x),
-        32 => return logf(x),
         64 => return log(x),
         80 => return __logx(x),
         128 => return logq(x),

@@ -63,8 +63,7 @@ define void @wrap_around_scev_check(ptr noalias %a, ptr noalias %b, i8 %x, i8 %y
 ; CHECK-NEXT:    [[STRIDED_VEC:%.*]] = shufflevector <8 x i32> [[WIDE_VEC]], <8 x i32> poison, <4 x i32> <i32 0, i32 2, i32 4, i32 6>
 ; CHECK-NEXT:    [[TMP13:%.*]] = shl <4 x i32> [[STRIDED_VEC]], splat (i32 1)
 ; CHECK-NEXT:    [[TMP14:%.*]] = getelementptr inbounds i32, ptr [[B]], i64 [[INDEX]]
-; CHECK-NEXT:    [[TMP19:%.*]] = getelementptr inbounds i32, ptr [[TMP14]], i32 0
-; CHECK-NEXT:    store <4 x i32> [[TMP13]], ptr [[TMP19]], align 4
+; CHECK-NEXT:    store <4 x i32> [[TMP13]], ptr [[TMP14]], align 4
 ; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw i64 [[INDEX]], 4
 ; CHECK-NEXT:    [[TMP15:%.*]] = icmp eq i64 [[INDEX_NEXT]], [[N_VEC]]
 ; CHECK-NEXT:    br i1 [[TMP15]], label %[[MIDDLE_BLOCK:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP0:![0-9]+]]
@@ -124,12 +123,11 @@ define void @wrap_predicate_for_interleave_group_wraps_for_known_trip_count(ptr 
 ; CHECK-LABEL: define void @wrap_predicate_for_interleave_group_wraps_for_known_trip_count(
 ; CHECK-SAME: ptr noalias [[X:%.*]], ptr noalias [[OUT:%.*]]) {
 ; CHECK-NEXT:  [[START:.*]]:
-; CHECK-NEXT:    br i1 false, label %[[SCALAR_PH:.*]], label %[[VECTOR_SCEVCHECK:.*]]
+; CHECK-NEXT:    br label %[[VECTOR_SCEVCHECK:.*]]
 ; CHECK:       [[VECTOR_SCEVCHECK]]:
 ; CHECK-NEXT:    [[MUL:%.*]] = call { i4, i1 } @llvm.umul.with.overflow.i4(i4 5, i4 -1)
-; CHECK-NEXT:    [[MUL_RESULT:%.*]] = extractvalue { i4, i1 } [[MUL]], 0
 ; CHECK-NEXT:    [[MUL_OVERFLOW:%.*]] = extractvalue { i4, i1 } [[MUL]], 1
-; CHECK-NEXT:    br i1 [[MUL_OVERFLOW]], label %[[SCALAR_PH]], label %[[VECTOR_PH:.*]]
+; CHECK-NEXT:    br i1 [[MUL_OVERFLOW]], label %[[SCALAR_PH:.*]], label %[[VECTOR_PH:.*]]
 ; CHECK:       [[VECTOR_PH]]:
 ; CHECK-NEXT:    br label %[[VECTOR_BODY:.*]]
 ; CHECK:       [[VECTOR_BODY]]:
@@ -140,15 +138,14 @@ define void @wrap_predicate_for_interleave_group_wraps_for_known_trip_count(ptr 
 ; CHECK-NEXT:    [[WIDE_VEC:%.*]] = load <20 x i32>, ptr [[TMP2]], align 4
 ; CHECK-NEXT:    [[STRIDED_VEC:%.*]] = shufflevector <20 x i32> [[WIDE_VEC]], <20 x i32> poison, <4 x i32> <i32 0, i32 5, i32 10, i32 15>
 ; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds nuw i32, ptr [[OUT]], i64 [[INDEX]]
-; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr inbounds nuw i32, ptr [[TMP3]], i32 0
-; CHECK-NEXT:    store <4 x i32> [[STRIDED_VEC]], ptr [[TMP5]], align 4
+; CHECK-NEXT:    store <4 x i32> [[STRIDED_VEC]], ptr [[TMP3]], align 4
 ; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw i64 [[INDEX]], 4
 ; CHECK-NEXT:    [[TMP4:%.*]] = icmp eq i64 [[INDEX_NEXT]], 12
 ; CHECK-NEXT:    br i1 [[TMP4]], label %[[MIDDLE_BLOCK:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP4:![0-9]+]]
 ; CHECK:       [[MIDDLE_BLOCK]]:
 ; CHECK-NEXT:    br label %[[SCALAR_PH]]
 ; CHECK:       [[SCALAR_PH]]:
-; CHECK-NEXT:    [[BC_RESUME_VAL:%.*]] = phi i64 [ 12, %[[MIDDLE_BLOCK]] ], [ 0, %[[START]] ], [ 0, %[[VECTOR_SCEVCHECK]] ]
+; CHECK-NEXT:    [[BC_RESUME_VAL:%.*]] = phi i64 [ 12, %[[MIDDLE_BLOCK]] ], [ 0, %[[VECTOR_SCEVCHECK]] ]
 ; CHECK-NEXT:    br label %[[LOOP:.*]]
 ; CHECK:       [[LOOP]]:
 ; CHECK-NEXT:    [[IV:%.*]] = phi i64 [ [[BC_RESUME_VAL]], %[[SCALAR_PH]] ], [ [[IV_NEXT:%.*]], %[[LOOP]] ]
@@ -195,7 +192,6 @@ define void @wrap_predicate_for_interleave_group_unknown_trip_count(ptr noalias 
 ; CHECK-NEXT:    [[TMP0:%.*]] = add i64 [[N]], -1
 ; CHECK-NEXT:    [[TMP9:%.*]] = trunc i64 [[TMP0]] to i4
 ; CHECK-NEXT:    [[MUL:%.*]] = call { i4, i1 } @llvm.umul.with.overflow.i4(i4 3, i4 [[TMP9]])
-; CHECK-NEXT:    [[MUL_RESULT:%.*]] = extractvalue { i4, i1 } [[MUL]], 0
 ; CHECK-NEXT:    [[MUL_OVERFLOW:%.*]] = extractvalue { i4, i1 } [[MUL]], 1
 ; CHECK-NEXT:    [[TMP1:%.*]] = icmp ugt i64 [[TMP0]], 15
 ; CHECK-NEXT:    [[TMP10:%.*]] = or i1 [[MUL_OVERFLOW]], [[TMP1]]
@@ -214,8 +210,7 @@ define void @wrap_predicate_for_interleave_group_unknown_trip_count(ptr noalias 
 ; CHECK-NEXT:    [[WIDE_VEC:%.*]] = load <12 x i32>, ptr [[TMP4]], align 4
 ; CHECK-NEXT:    [[STRIDED_VEC:%.*]] = shufflevector <12 x i32> [[WIDE_VEC]], <12 x i32> poison, <4 x i32> <i32 0, i32 3, i32 6, i32 9>
 ; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr inbounds nuw i32, ptr [[OUT]], i64 [[INDEX]]
-; CHECK-NEXT:    [[TMP9:%.*]] = getelementptr inbounds nuw i32, ptr [[TMP5]], i32 0
-; CHECK-NEXT:    store <4 x i32> [[STRIDED_VEC]], ptr [[TMP9]], align 4
+; CHECK-NEXT:    store <4 x i32> [[STRIDED_VEC]], ptr [[TMP5]], align 4
 ; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw i64 [[INDEX]], 4
 ; CHECK-NEXT:    [[TMP6:%.*]] = icmp eq i64 [[INDEX_NEXT]], [[N_VEC]]
 ; CHECK-NEXT:    br i1 [[TMP6]], label %[[MIDDLE_BLOCK:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP6:![0-9]+]]

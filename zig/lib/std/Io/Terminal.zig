@@ -61,7 +61,7 @@ pub const Mode = union(enum) {
         if (file.enableAnsiEscapeCodes(io)) |_| {
             return .escape_codes;
         } else |err| switch (err) {
-            error.Canceled => return error.Canceled,
+            error.Canceled => |e| return e,
             error.NotTerminalDevice, error.Unexpected => {},
         }
 

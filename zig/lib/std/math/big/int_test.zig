@@ -484,7 +484,7 @@ fn toFloat(comptime Float: type) !void {
     );
 }
 test toFloat {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24191
+    if (builtin.cpu.arch == .x86) return error.SkipZigTest;
     try toFloat(f16);
     try toFloat(f32);
     try toFloat(f64);
@@ -602,7 +602,6 @@ test "bitcount/to" {
     try testing.expectEqual(0, a.bitCountTwosComp());
 
     try testing.expectEqual(0, try a.toInt(u0));
-    try testing.expectEqual(0, try a.toInt(i0));
 
     try a.set(-1);
     try testing.expectEqual(1, a.bitCountTwosComp());
@@ -631,7 +630,6 @@ test "fits" {
 
     try a.set(0);
     try testing.expect(a.fits(u0));
-    try testing.expect(a.fits(i0));
 
     try a.set(255);
     try testing.expect(!a.fits(u0));
@@ -711,7 +709,6 @@ test "twos complement limit set" {
     try testTwosComplementLimit(u1);
     try testTwosComplementLimit(i1);
     try testTwosComplementLimit(u0);
-    try testTwosComplementLimit(i0);
     try testTwosComplementLimit(u65);
     try testTwosComplementLimit(i65);
 }
@@ -2373,7 +2370,7 @@ test "truncate multi to single signed" {
 
 test "truncate multi to multi unsigned" {
     const bits = @typeInfo(SignedDoubleLimb).int.bits;
-    const Int = std.meta.Int(.unsigned, bits - 1);
+    const Int = @Int(.unsigned, bits - 1);
 
     var a = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
     defer a.deinit();
@@ -2389,7 +2386,7 @@ test "truncate multi to multi signed" {
 
     try a.truncate(&a, .signed, @bitSizeOf(Limb) + 1);
 
-    try testing.expectEqual(-1 << @bitSizeOf(Limb), try a.toInt(std.meta.Int(.signed, @bitSizeOf(Limb) + 1)));
+    try testing.expectEqual(-1 << @bitSizeOf(Limb), try a.toInt(@Int(.signed, @bitSizeOf(Limb) + 1)));
 }
 
 test "truncate negative multi to single" {
@@ -2801,8 +2798,6 @@ test "bitNotWrap more than two limbs" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    // LLVM: unexpected runtime library name: __umodei4
-    if (builtin.zig_backend == .stage2_llvm and comptime builtin.target.cpu.arch.isWasm()) return error.SkipZigTest; // TODO
 
     var a = try Managed.initSet(testing.allocator, maxInt(Limb));
     defer a.deinit();
@@ -3356,7 +3351,7 @@ test "big int popcount" {
     try popCountTest(&a, limb_bits * 2 + 1, limb_bits * 2 + 1);
 
     // Check very large numbers.
-    try a.setString(16, "ff00000100000100" ++ ("0000000000000000" ** 62));
+    try a.setString(16, "ff00000100000100" ++ &@as([16 * 62]u8, @splat('0')));
     try popCountTest(&a, 4032, 10);
     try popCountTest(&a, 6000, 10);
     a.negate();
@@ -3464,13 +3459,13 @@ test "big int write twos complement +/- zero" {
     // Test zero
 
     m.toConst().writeTwosComplement(buffer1[0..13], .little);
-    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3)), buffer1);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xAA, 0xAA, 0xAA }, buffer1);
     m.toConst().writeTwosComplement(buffer1[0..13], .big);
-    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3)), buffer1);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xAA, 0xAA, 0xAA }, buffer1);
     m.toConst().writeTwosComplement(buffer1[0..16], .little);
-    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 16)), buffer1);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, buffer1);
     m.toConst().writeTwosComplement(buffer1[0..16], .big);
-    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 16)), buffer1);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, buffer1);
 
     @memset(buffer1, 0xaa);
     m.positive = false;
@@ -3478,13 +3473,13 @@ test "big int write twos complement +/- zero" {
     // Test negative zero
 
     m.toConst().writeTwosComplement(buffer1[0..13], .little);
-    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3)), buffer1);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xAA, 0xAA, 0xAA }, buffer1);
     m.toConst().writeTwosComplement(buffer1[0..13], .big);
-    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3)), buffer1);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xAA, 0xAA, 0xAA }, buffer1);
     m.toConst().writeTwosComplement(buffer1[0..16], .little);
-    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 16)), buffer1);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, buffer1);
     m.toConst().writeTwosComplement(buffer1[0..16], .big);
-    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 16)), buffer1);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, buffer1);
 }
 
 test "big int conversion write twos complement with padding" {
@@ -3561,7 +3556,7 @@ test "big int conversion write twos complement with padding" {
 
     // Test 0
 
-    buffer = &([_]u8{0} ** 16);
+    buffer = &@as([16]u8, @splat(0));
     m.readTwosComplement(buffer[0..13], bit_count, .little, .unsigned);
     try testing.expectEqual(.eq, m.toConst().orderAgainstScalar(0x0));
     m.readTwosComplement(buffer[0..13], bit_count, .big, .unsigned);
@@ -3572,7 +3567,7 @@ test "big int conversion write twos complement with padding" {
     try testing.expectEqual(.eq, m.toConst().orderAgainstScalar(0x0));
 
     bit_count = 0;
-    buffer = &([_]u8{0xaa} ** 16);
+    buffer = &@as([16]u8, @splat(0xaa));
     m.readTwosComplement(buffer[0..13], bit_count, .little, .unsigned);
     try testing.expectEqual(.eq, m.toConst().orderAgainstScalar(0x0));
     m.readTwosComplement(buffer[0..13], bit_count, .big, .unsigned);
@@ -3597,13 +3592,13 @@ test "big int conversion write twos complement zero" {
     const bit_count: usize = 12 * 8 + 1;
     var buffer: []const u8 = undefined;
 
-    buffer = &([_]u8{0} ** 13);
+    buffer = &@as([13]u8, @splat(0));
     m.readTwosComplement(buffer[0..13], bit_count, .little, .unsigned);
     try testing.expectEqual(.eq, m.toConst().orderAgainstScalar(0x0));
     m.readTwosComplement(buffer[0..13], bit_count, .big, .unsigned);
     try testing.expectEqual(.eq, m.toConst().orderAgainstScalar(0x0));
 
-    buffer = &([_]u8{0} ** 16);
+    buffer = &@as([16]u8, @splat(0));
     m.readTwosComplement(buffer[0..16], bit_count, .little, .unsigned);
     try testing.expectEqual(.eq, m.toConst().orderAgainstScalar(0x0));
     m.readTwosComplement(buffer[0..16], bit_count, .big, .unsigned);

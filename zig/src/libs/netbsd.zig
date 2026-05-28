@@ -19,7 +19,7 @@ pub const CrtFile = enum {
     scrt0_o,
 };
 
-pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {
+pub fn needsCrt0(output_mode: std.lang.OutputMode) ?CrtFile {
     // For shared libraries and PIC executables, we should actually link in a variant of crt1 that
     // is built with `-DSHARED` so that it calls `__cxa_finalize` in an ELF destructor. However, we
     // currently make no effort to respect `__cxa_finalize` on any other targets, so for now, we're
@@ -156,6 +156,12 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     .path = "arch" ++ path.sep_str ++ "powerpc" ++ path.sep_str ++ "crt0.S",
                     .flags = acflags.items,
                     .condition = target.cpu.arch == .powerpc,
+                },
+
+                .{
+                    .path = "arch" ++ path.sep_str ++ "riscv" ++ path.sep_str ++ "crt0.S",
+                    .flags = acflags.items,
+                    .condition = target.cpu.arch.isRISCV(),
                 },
 
                 .{
@@ -755,7 +761,6 @@ fn buildSharedLib(
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
-        .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .version = version,

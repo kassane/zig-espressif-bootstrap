@@ -1,4 +1,4 @@
-/*	$OpenBSD: in_var.h,v 1.41 2018/10/18 15:23:04 cheloha Exp $	*/
+/*	$OpenBSD: in_var.h,v 1.47 2026/03/22 23:14:00 bluhm Exp $	*/
 /*	$NetBSD: in_var.h,v 1.16 1996/02/13 23:42:15 christos Exp $	*/
 
 /*
@@ -34,6 +34,12 @@
 
 #ifndef _NETINET_IN_VAR_H_
 #define _NETINET_IN_VAR_H_
+
+/*
+ *  Locks used to protect struct members in this file:
+ *	I	immutable after creation
+ *	m	multicast if_maddrlock rwlock of parent interface
+ */
 
 #include <sys/queue.h>
 
@@ -75,37 +81,9 @@ struct	in_aliasreq {
 	struct	sockaddr_in ifra_mask;
 };
 
-
-#ifdef	_KERNEL
-/*
- * Macro for finding the internet address structure (in_ifaddr) corresponding
- * to a given interface (ifnet structure).
- */
-#define IFP_TO_IA(ifp, ia)						\
-	/* struct ifnet *ifp; */					\
-	/* struct in_ifaddr *ia; */					\
-do {									\
-	struct ifaddr *ifa;						\
-	NET_ASSERT_LOCKED();						\
-	TAILQ_FOREACH(ifa, &(ifp)->if_addrlist, ifa_list) {		\
-		if (ifa->ifa_addr->sa_family == AF_INET)		\
-			break;						\
-	}								\
-	(ia) = ifatoia(ifa);						\
-} while (/* CONSTCOND */ 0)
-#endif
-
-/*
- * Per-interface router version information.
- */
-struct router_info {
-	unsigned int	rti_ifidx;
-	int		rti_type;	/* type of router on this interface */
-	int		rti_age;	/* time since last v1 query */
-	LIST_ENTRY(router_info)	rti_list;
-};
-
 #ifdef _KERNEL
+struct router_info;
+
 /*
  * Internet multicast address structure.  There is one of these for each IP
  * multicast group to which this host belongs on a given network interface.
@@ -115,11 +93,11 @@ struct in_multi {
 #define inm_refcnt		inm_ifma.ifma_refcnt
 #define inm_ifidx		inm_ifma.ifma_ifidx
 
-	struct sockaddr_in	inm_sin;   /* IPv4 multicast address */
+	struct sockaddr_in	inm_sin;   /* [I] IPv4 multicast address */
 #define inm_addr		inm_sin.sin_addr
 
-	u_int			inm_state; /* state of membership */
-	u_int			inm_timer; /* IGMP membership report timer */
+	u_int			inm_state; /* [m] state of membership */
+	u_int			inm_timer; /* [m] IGMP membership report */
 
 	struct router_info	*inm_rti;  /* router version info */
 };
@@ -130,37 +108,17 @@ ifmatoinm(struct ifmaddr *ifma)
        return ((struct in_multi *)(ifma));
 }
 
-/*
- * Macro for looking up the in_multi record for a given IP multicast
- * address on a given interface.  If no matching record is found, "inm"
- * returns NULL.
- */
-#define IN_LOOKUP_MULTI(addr, ifp, inm)					\
-	/* struct in_addr addr; */					\
-	/* struct ifnet *ifp; */					\
-	/* struct in_multi *inm; */					\
-do {									\
-	struct ifmaddr *ifma;						\
-									\
-	(inm) = NULL;							\
-	NET_ASSERT_LOCKED();						\
-	TAILQ_FOREACH(ifma, &(ifp)->if_maddrlist, ifma_list)		\
-		if (ifma->ifma_addr->sa_family == AF_INET &&		\
-		    ifmatoinm(ifma)->inm_addr.s_addr == (addr).s_addr) {\
-			(inm) = ifmatoinm(ifma);			\
-			break;						\
-		}							\
-} while (/* CONSTCOND */ 0)
-
+struct	in_ifaddr *in_ifp2ia(struct ifnet *);
 int	in_ifinit(struct ifnet *,
 	    struct in_ifaddr *, struct sockaddr_in *, int);
-struct	in_multi *in_addmulti(struct in_addr *, struct ifnet *);
+struct	in_multi *in_lookupmulti(const struct in_addr *, struct ifnet *);
+struct	in_multi *in_addmulti(const struct in_addr *, struct ifnet *);
 void	in_delmulti(struct in_multi *);
-int	in_hasmulti(struct in_addr *, struct ifnet *);
+int	in_hasmulti(const struct in_addr *, struct ifnet *);
 void	in_ifscrub(struct ifnet *, struct in_ifaddr *);
 int	in_control(struct socket *, u_long, caddr_t, struct ifnet *);
 int	in_ioctl(u_long, caddr_t, struct ifnet *, int);
 void	in_prefixlen2mask(struct in_addr *, int);
-#endif
+#endif /* _KERNEL */
 
 #endif /* _NETINET_IN_VAR_H_ */

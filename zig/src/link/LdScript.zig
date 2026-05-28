@@ -97,15 +97,15 @@ const Command = enum {
     as_needed,
 
     fn fromString(s: []const u8) ?Command {
-        inline for (@typeInfo(Command).@"enum".fields) |field| {
+        inline for (@typeInfo(Command).@"enum".field_names) |field_name| {
             const upper_name = n: {
-                comptime var buf: [field.name.len]u8 = undefined;
-                inline for (field.name, 0..) |c, i| {
+                comptime var buf: [field_name.len]u8 = undefined;
+                inline for (field_name, 0..) |c, i| {
                     buf[i] = comptime std.ascii.toUpper(c);
                 }
                 break :n buf;
             };
-            if (std.mem.eql(u8, &upper_name, s)) return @field(Command, field.name);
+            if (std.mem.eql(u8, &upper_name, s)) return @field(Command, field_name);
         }
         return null;
     }

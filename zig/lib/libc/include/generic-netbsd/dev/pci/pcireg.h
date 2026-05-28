@@ -1,4 +1,4 @@
-/*	$NetBSD: pcireg.h,v 1.168.2.1 2024/06/22 11:01:18 martin Exp $	*/
+/*	$NetBSD: pcireg.h,v 1.172 2024/12/31 14:00:35 skrll Exp $	*/
 
 /*
  * Copyright (c) 1995, 1996, 1999, 2000
@@ -50,8 +50,8 @@
  */
 #define	PCI_ID_REG		0x00
 
-typedef u_int16_t pci_vendor_id_t;
-typedef u_int16_t pci_product_id_t;
+typedef uint16_t pci_vendor_id_t;
+typedef uint16_t pci_product_id_t;
 
 #define	PCI_VENDOR_SHIFT		0
 #define	PCI_VENDOR_MASK			0xffffU
@@ -129,10 +129,10 @@ typedef u_int16_t pci_product_id_t;
  */
 #define	PCI_CLASS_REG		0x08
 
-typedef u_int8_t pci_class_t;
-typedef u_int8_t pci_subclass_t;
-typedef u_int8_t pci_interface_t;
-typedef u_int8_t pci_revision_t;
+typedef uint8_t pci_class_t;
+typedef uint8_t pci_subclass_t;
+typedef uint8_t pci_interface_t;
+typedef uint8_t pci_revision_t;
 
 #define	PCI_CLASS_SHIFT			24
 #define	PCI_CLASS_MASK			0xffU
@@ -1302,10 +1302,10 @@ struct pci_msix_table_entry {
  */
 #define	PCI_INTERRUPT_REG	0x3c
 
-typedef u_int8_t pci_intr_latency_t;
-typedef u_int8_t pci_intr_grant_t;
-typedef u_int8_t pci_intr_pin_t;
-typedef u_int8_t pci_intr_line_t;
+typedef uint8_t pci_intr_latency_t;
+typedef uint8_t pci_intr_grant_t;
+typedef uint8_t pci_intr_pin_t;
+typedef uint8_t pci_intr_line_t;
 
 #define PCI_MAX_LAT_SHIFT		24
 #define	PCI_MAX_LAT_MASK		0xff
@@ -1963,8 +1963,8 @@ struct pci_rom {
 #define  PCI_EA_PROP_MEM_NONPREF	0x00	/* Memory Space, Non-Prefetchable */
 #define  PCI_EA_PROP_MEM_PREF		0x01	/* Memory Space, Prefetchable */
 #define  PCI_EA_PROP_IO			0x02	/* I/O Space */
-#define  PCI_EA_PROP_VF_MEM_NONPREF	0x03	/* Resorce for VF use. Mem. Non-Pref */
-#define  PCI_EA_PROP_VF_MEM_PREF	0x04	/* Resorce for VF use. Mem. Prefetch */
+#define  PCI_EA_PROP_VF_MEM_NONPREF	0x03	/* Resource for VF use. Mem. Non-Pref */
+#define  PCI_EA_PROP_VF_MEM_PREF	0x04	/* Resource for VF use. Mem. Prefetch */
 #define  PCI_EA_PROP_BB_MEM_NONPREF	0x05	/* Behind Bridge: MEM. Non-Pref */
 #define  PCI_EA_PROP_BB_MEM_PREF	0x06	/* Behind Bridge: MEM. Prefetch */
 #define  PCI_EA_PROP_BB_IO		0x07	/* Behind Bridge: I/O Space */
@@ -2116,7 +2116,7 @@ struct pci_rom {
 #define	PCI_DPCCTL_DLACTECOR	__BIT(23)      /* DL_Active ERR_COR Enable */
 
 #define	PCI_DPC_STATESID 0x08	/* Status and Error Source ID Register */
-#define	PCI_DPCSTAT_TSTAT	__BIT(0)       /* DPC Trigger Staus */
+#define	PCI_DPCSTAT_TSTAT	__BIT(0)       /* DPC Trigger Status */
 #define	PCI_DPCSTAT_TREASON	__BITS(2, 1)   /* DPC Trigger Reason */
 #define	PCI_DPCSTAT_ISTAT	__BIT(3)       /* DPC Interrupt Status */
 #define	PCI_DPCSTAT_RPBUSY	__BIT(4)       /* DPC RP Busy */

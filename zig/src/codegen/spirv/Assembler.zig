@@ -212,7 +212,7 @@ fn processTypeInstruction(ass: *Assembler) !AsmValue {
         .OpTypeVoid => try module.voidType(),
         .OpTypeBool => try module.boolType(),
         .OpTypeInt => blk: {
-            const signedness: std.builtin.Signedness = switch (operands[2].literal32) {
+            const signedness: std.lang.Signedness = switch (operands[2].literal32) {
                 0 => .unsigned,
                 1 => .signed,
                 else => {
@@ -766,7 +766,7 @@ fn parseContextDependentNumber(ass: *Assembler) !void {
     return ass.fail(tok.start, "cannot parse literal constant", .{});
 }
 
-fn parseContextDependentInt(ass: *Assembler, signedness: std.builtin.Signedness, width: u32) !void {
+fn parseContextDependentInt(ass: *Assembler, signedness: std.lang.Signedness, width: u32) !void {
     const gpa = ass.cg.module.gpa;
 
     const tok = ass.currentToken();
@@ -821,7 +821,7 @@ fn parseContextDependentFloat(ass: *Assembler, comptime width: u16) !void {
     const gpa = ass.cg.module.gpa;
 
     const Float = std.meta.Float(width);
-    const Int = std.meta.Int(.unsigned, width);
+    const Int = @Int(.unsigned, width);
 
     const tok = ass.currentToken();
     try ass.expectToken(.value);

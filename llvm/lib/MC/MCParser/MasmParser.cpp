@@ -39,7 +39,7 @@
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
-#include "llvm/MC/MCSymbol.h"
+#include "llvm/MC/MCSymbolCOFF.h"
 #include "llvm/MC/MCTargetOptions.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
@@ -483,11 +483,9 @@ public:
     AssemblerDialect = i;
   }
 
-  void Note(SMLoc L, const Twine &Msg, SMRange Range = std::nullopt) override;
-  bool Warning(SMLoc L, const Twine &Msg,
-               SMRange Range = std::nullopt) override;
-  bool printError(SMLoc L, const Twine &Msg,
-                  SMRange Range = std::nullopt) override;
+  void Note(SMLoc L, const Twine &Msg, SMRange Range = {}) override;
+  bool Warning(SMLoc L, const Twine &Msg, SMRange Range = {}) override;
+  bool printError(SMLoc L, const Twine &Msg, SMRange Range = {}) override;
 
   enum ExpandKind { ExpandMacros, DoNotExpandMacros };
   const AsmToken &Lex(ExpandKind ExpandNextToken);
@@ -592,7 +590,7 @@ private:
   bool expandStatement(SMLoc Loc);
 
   void printMessage(SMLoc Loc, SourceMgr::DiagKind Kind, const Twine &Msg,
-                    SMRange Range = std::nullopt) const {
+                    SMRange Range = {}) const {
     ArrayRef<SMRange> Ranges(Range);
     SrcMgr.PrintMessage(Loc, Kind, Msg, Ranges);
   }
@@ -964,8 +962,6 @@ private:
 namespace llvm {
 
 extern cl::opt<unsigned> AsmMacroMaxNestingDepth;
-
-extern MCAsmParserExtension *createCOFFMasmParser();
 
 } // end namespace llvm
 
@@ -2903,7 +2899,7 @@ bool MasmParser::parseIdentifier(StringRef &Res,
   if (Position == StartOfStatement &&
       StringSwitch<bool>(Res)
           .CaseLower("echo", true)
-          .CasesLower("ifdef", "ifndef", "elseifdef", "elseifndef", true)
+          .CasesLower({"ifdef", "ifndef", "elseifdef", "elseifndef"}, true)
           .Default(false)) {
     ExpandNextToken = DoNotExpandMacros;
   }
@@ -3009,7 +3005,7 @@ bool MasmParser::parseDirectiveEquate(StringRef IDVal, StringRef Name,
     return false;
   }
 
-  auto *Sym = getContext().parseSymbol(Var.Name);
+  auto *Sym = static_cast<MCSymbolCOFF *>(getContext().parseSymbol(Var.Name));
   const MCConstantExpr *PrevValue =
       Sym->isVariable()
           ? dyn_cast_or_null<MCConstantExpr>(Sym->getVariableValue())
@@ -4227,8 +4223,7 @@ bool MasmParser::emitAlignTo(int64_t Alignment) {
     // Check whether we should use optimal code alignment for this align
     // directive.
     const MCSection *Section = getStreamer().getCurrentSectionOnly();
-    assert(Section && "must have section to emit alignment");
-    if (Section->useCodeAlign()) {
+    if (MAI.useCodeAlign(*Section)) {
       getStreamer().emitCodeAlignment(Align(Alignment),
                                       &getTargetParser().getSTI(),
                                       /*MaxBytesToEmit=*/0);
@@ -4521,7 +4516,7 @@ bool MasmParser::parseDirectiveExtern() {
       KnownType[Sym->getName().lower()] = Type;
     }
 
-    Sym->setExternal(true);
+    static_cast<MCSymbolCOFF *>(Sym)->setExternal(true);
     getStreamer().emitSymbolAttribute(Sym, MCSA_Extern);
 
     return false;
@@ -5326,10 +5321,10 @@ void MasmParser::initializeDirectiveKindMap() {
 bool MasmParser::isMacroLikeDirective() {
   if (getLexer().is(AsmToken::Identifier)) {
     bool IsMacroLike = StringSwitch<bool>(getTok().getIdentifier())
-                           .CasesLower("repeat", "rept", true)
+                           .CasesLower({"repeat", "rept"}, true)
                            .CaseLower("while", true)
-                           .CasesLower("for", "irp", true)
-                           .CasesLower("forc", "irpc", true)
+                           .CasesLower({"for", "irp"}, true)
+                           .CasesLower({"forc", "irpc"}, true)
                            .Default(false);
     if (IsMacroLike)
       return true;
@@ -5845,11 +5840,11 @@ bool MasmParser::lookUpField(const StructInfo &Structure, StringRef Member,
 
 bool MasmParser::lookUpType(StringRef Name, AsmTypeInfo &Info) const {
   unsigned Size = StringSwitch<unsigned>(Name)
-                      .CasesLower("byte", "db", "sbyte", 1)
-                      .CasesLower("word", "dw", "sword", 2)
-                      .CasesLower("dword", "dd", "sdword", 4)
-                      .CasesLower("fword", "df", 6)
-                      .CasesLower("qword", "dq", "sqword", 8)
+                      .CasesLower({"byte", "db", "sbyte"}, 1)
+                      .CasesLower({"word", "dw", "sword"}, 2)
+                      .CasesLower({"dword", "dd", "sdword"}, 4)
+                      .CasesLower({"fword", "df"}, 6)
+                      .CasesLower({"qword", "dq", "sqword"}, 8)
                       .CaseLower("real4", 4)
                       .CaseLower("real8", 8)
                       .CaseLower("real10", 10)

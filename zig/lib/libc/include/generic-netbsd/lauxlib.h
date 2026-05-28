@@ -1,4 +1,4 @@
-/*	$NetBSD: lauxlib.h,v 1.8.10.1 2023/08/11 16:22:06 martin Exp $	*/
+/*	$NetBSD: lauxlib.h,v 1.9 2023/04/16 20:46:17 nikita Exp $	*/
 
 /*
 ** Id: lauxlib.h 

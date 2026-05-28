@@ -127,10 +127,10 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         },
 
         .@"struct" => |info| {
-            inline for (info.fields) |field| {
+            inline for (info.field_names) |field_name| {
                 // We reuse the hash of the previous field as the seed for the
                 // next one so that they're dependant.
-                hash(hasher, @field(key, field.name), strat);
+                hash(hasher, @field(key, field_name), strat);
             }
         },
 
@@ -138,10 +138,10 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
             if (info.tag_type) |tag_type| {
                 const tag = std.meta.activeTag(key);
                 hash(hasher, tag, strat);
-                inline for (info.fields) |field| {
-                    if (@field(tag_type, field.name) == tag) {
-                        if (field.type != void) {
-                            hash(hasher, @field(key, field.name), strat);
+                inline for (info.field_names, info.field_types) |field_name, field_type| {
+                    if (@field(tag_type, field_name) == tag) {
+                        if (field_type != void) {
+                            hash(hasher, @field(key, field_name), strat);
                         }
                         break :blk;
                     }
@@ -165,8 +165,8 @@ inline fn typeContainsSlice(comptime K: type) bool {
         .pointer => |info| info.size == .slice,
 
         inline .@"struct", .@"union" => |info| {
-            inline for (info.fields) |field| {
-                if (typeContainsSlice(field.type)) {
+            inline for (info.field_types) |field_type| {
+                if (typeContainsSlice(field_type)) {
                     return true;
                 }
             }

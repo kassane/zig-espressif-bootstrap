@@ -286,7 +286,7 @@ pub fn createEmpty(
 
         .image_base = b: {
             if (is_dyn_lib) break :b 0;
-            if (output_mode == .Exe and comp.config.pie) break :b 0;
+            if (output_mode == .Exe and (comp.config.pie or target.os.tag == .haiku)) break :b 0;
             break :b options.image_base orelse switch (ptr_width) {
                 .p32 => 0x10000,
                 .p64 => 0x1000000,
@@ -757,8 +757,7 @@ pub fn flush(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std
     defer sub_prog_node.end();
 
     return flushInner(self, arena, tid) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.LinkFailure => return error.LinkFailure,
+        error.OutOfMemory, error.LinkFailure => |e| return e,
         else => |e| return diags.fail("ELF flush failed: {t}", .{e}),
     };
 }
@@ -1195,7 +1194,7 @@ fn parseDso(
     // TODO: save this work for later
     const nsyms = parsed.symbols.len;
     try so.symbols.ensureTotalCapacityPrecise(gpa, nsyms);
-    try so.symbols_extra.ensureTotalCapacityPrecise(gpa, nsyms * @typeInfo(Symbol.Extra).@"struct".fields.len);
+    try so.symbols_extra.ensureTotalCapacityPrecise(gpa, nsyms * @typeInfo(Symbol.Extra).@"struct".field_names.len);
     try so.symbols_resolver.ensureTotalCapacityPrecise(gpa, nsyms);
     so.symbols_resolver.appendNTimesAssumeCapacity(0, nsyms);
 
@@ -1393,9 +1392,9 @@ pub fn initOutputSection(self: *Elf, args: struct {
         if (self.base.isRelocatable()) break :blk args.name;
         if (args.flags & elf.SHF_MERGE != 0) break :blk args.name;
         const name_prefixes: []const [:0]const u8 = &.{
-            ".text",       ".data.rel.ro", ".data", ".rodata", ".bss.rel.ro",       ".bss",
-            ".init_array", ".fini_array",  ".tbss", ".tdata",  ".gcc_except_table", ".ctors",
-            ".dtors",      ".gnu.warning",
+            ".text",          ".data.rel.ro", ".data",        ".rodata", ".bss.rel.ro", ".bss",
+            ".preinit_array", ".init_array",  ".fini_array",  ".tbss",   ".tdata",      ".gcc_except_table",
+            ".ctors",         ".dtors",       ".gnu.warning",
         };
         inline for (name_prefixes) |prefix| {
             if (mem.eql(u8, args.name, prefix) or mem.startsWith(u8, args.name, prefix ++ ".")) {
@@ -1410,6 +1409,8 @@ pub fn initOutputSection(self: *Elf, args: struct {
         switch (args.type) {
             elf.SHT_NULL => unreachable,
             elf.SHT_PROGBITS => {
+                if (mem.eql(u8, args.name, ".preinit_array") or mem.startsWith(u8, args.name, ".preinit_array."))
+                    break :tt elf.SHT_PREINIT_ARRAY;
                 if (mem.eql(u8, args.name, ".init_array") or mem.startsWith(u8, args.name, ".init_array."))
                     break :tt elf.SHT_INIT_ARRAY;
                 if (mem.eql(u8, args.name, ".fini_array") or mem.startsWith(u8, args.name, ".fini_array."))
@@ -1717,7 +1718,7 @@ pub fn updateContainerType(
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     return self.zigObjectPtr().?.updateContainerType(pt, ty, success) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
     };
 }
 
@@ -2353,9 +2354,9 @@ fn sortPhdrs(
         phdr.* = slice[entry.phndx];
     }
 
-    inline for (@typeInfo(ProgramHeaderIndexes).@"struct".fields) |field| {
-        if (@field(special_indexes, field.name).int()) |special_index| {
-            @field(special_indexes, field.name) = @enumFromInt(backlinks[special_index]);
+    inline for (@typeInfo(ProgramHeaderIndexes).@"struct".field_names) |field_name| {
+        if (@field(special_indexes, field_name).int()) |special_index| {
+            @field(special_indexes, field_name) = @enumFromInt(backlinks[special_index]);
         }
     }
 
@@ -2473,9 +2474,9 @@ pub fn sortShdrs(
         }
     }
 
-    inline for (@typeInfo(SectionIndexes).@"struct".fields) |field| {
-        if (@field(section_indexes, field.name)) |special_index| {
-            @field(section_indexes, field.name) = backlinks[special_index];
+    inline for (@typeInfo(SectionIndexes).@"struct".field_names) |field_name| {
+        if (@field(section_indexes, field_name)) |special_index| {
+            @field(section_indexes, field_name) = backlinks[special_index];
         }
     }
 
@@ -3942,7 +3943,7 @@ fn formatPhdr(ctx: FormatPhdr, writer: *std.Io.Writer) std.Io.Writer.Error!void 
     const write = phdr.p_flags & elf.PF_W != 0;
     const read = phdr.p_flags & elf.PF_R != 0;
     const exec = phdr.p_flags & elf.PF_X != 0;
-    var flags: [3]u8 = [_]u8{'_'} ** 3;
+    var flags: [3]u8 = @splat('_');
     if (exec) flags[0] = 'X';
     if (write) flags[1] = 'W';
     if (read) flags[2] = 'R';

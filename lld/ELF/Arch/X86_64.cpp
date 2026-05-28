@@ -44,7 +44,7 @@ public:
                          unsigned size) const override;
   RelExpr adjustGotPcExpr(RelType type, int64_t addend,
                           const uint8_t *loc) const override;
-  void relocateAlloc(InputSectionBase &sec, uint8_t *buf) const override;
+  void relocateAlloc(InputSection &sec, uint8_t *buf) const override;
   bool adjustPrologueForCrossSplitStack(uint8_t *loc, uint8_t *end,
                                         uint8_t stOther) const override;
   bool deleteFallThruJmpInsn(InputSection &is, InputFile *file,
@@ -80,7 +80,7 @@ X86_64::X86_64(Ctx &ctx) : TargetInfo(ctx) {
   pltRel = R_X86_64_JUMP_SLOT;
   relativeRel = R_X86_64_RELATIVE;
   iRelativeRel = R_X86_64_IRELATIVE;
-  symbolicRel = R_X86_64_64;
+  symbolicRel = ctx.arg.is64 ? R_X86_64_64 : R_X86_64_32;
   tlsDescRel = R_X86_64_TLSDESC;
   tlsGotRel = R_X86_64_TPOFF64;
   tlsModuleIndexRel = R_X86_64_DTPMOD64;
@@ -469,8 +469,7 @@ void X86_64::writePlt(uint8_t *buf, const Symbol &sym,
 }
 
 RelType X86_64::getDynRel(RelType type) const {
-  if (type == R_X86_64_64 || type == R_X86_64_PC64 || type == R_X86_64_SIZE32 ||
-      type == R_X86_64_SIZE64)
+  if (type == symbolicRel || type == R_X86_64_SIZE32 || type == R_X86_64_SIZE64)
     return type;
   return R_X86_64_NONE;
 }
@@ -1146,12 +1145,8 @@ bool X86_64::adjustPrologueForCrossSplitStack(uint8_t *loc, uint8_t *end,
   return false;
 }
 
-void X86_64::relocateAlloc(InputSectionBase &sec, uint8_t *buf) const {
-  uint64_t secAddr = sec.getOutputSection()->addr;
-  if (auto *s = dyn_cast<InputSection>(&sec))
-    secAddr += s->outSecOff;
-  else if (auto *ehIn = dyn_cast<EhInputSection>(&sec))
-    secAddr += ehIn->getParent()->outSecOff;
+void X86_64::relocateAlloc(InputSection &sec, uint8_t *buf) const {
+  uint64_t secAddr = sec.getOutputSection()->addr + sec.outSecOff;
   for (const Relocation &rel : sec.relocs()) {
     if (rel.expr == R_NONE) // See deleteFallThruJmpInsn
       continue;

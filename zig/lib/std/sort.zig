@@ -749,9 +749,9 @@ test partitionPoint {
 
 /// Returns a tuple of the lower and upper indices in `items` between which all
 /// elements return `.eq` when given to `compareFn`.
-/// - If no element in `items` returns `.eq`, both indices are the
-/// index of the first element in `items` returning `.gt`.
-/// - If no element in `items` returns `.gt`, both indices equal `items.len`.
+/// If no element in `items` returns `.eq`, both indices are the index of the
+/// first element in `items` which returns `.gt`, or if no element returns `.gt`,
+/// both indices are `items.len`.
 ///
 /// `items` must be sorted in ascending order with respect to `compareFn`:
 /// ```

@@ -106,7 +106,7 @@ pub const Condition = enum(u5) {
     }
 
     pub fn fromCompareOperator(
-        signedness: std.builtin.Signedness,
+        signedness: std.lang.Signedness,
         op: std.math.CompareOperator,
     ) Condition {
         return switch (signedness) {
@@ -722,7 +722,7 @@ pub const FrameIndex = enum(u32) {
     // Other indices are used for local variable stack slots
     _,
 
-    pub const named_count = @typeInfo(FrameIndex).@"enum".fields.len;
+    pub const named_count = @typeInfo(FrameIndex).@"enum".field_names.len;
 
     pub fn isNamed(fi: FrameIndex) bool {
         return @intFromEnum(fi) < named_count;

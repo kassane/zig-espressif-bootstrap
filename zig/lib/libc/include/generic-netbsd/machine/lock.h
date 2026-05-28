@@ -1,3 +1,3 @@
-/*	$NetBSD: lock.h,v 1.1 2002/12/09 12:16:08 scw Exp $	*/
+/* $NetBSD: lock.h,v 1.4 2015/06/26 14:27:35 matt Exp $ */
 
-#include <powerpc/lock.h>
+#include <sys/common_lock.h>

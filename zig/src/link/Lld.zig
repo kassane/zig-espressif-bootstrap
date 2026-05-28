@@ -126,7 +126,7 @@ pub const Elf = struct {
             .hash_style = options.hash_style,
             .image_base = b: {
                 if (is_dyn_lib) break :b 0;
-                if (output_mode == .Exe and comp.config.pie) break :b 0;
+                if (output_mode == .Exe and (comp.config.pie or target.os.tag == .haiku)) break :b 0;
                 break :b options.image_base orelse switch (ptr_width) {
                     .p32 => 0x10000,
                     .p64 => 0x1000000,
@@ -287,7 +287,7 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
     const comp = base.comp;
     const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
-    const full_out_path_z = try arena.dupeZ(u8, full_out_path);
+    const full_out_path_z = try arena.dupeSentinel(u8, full_out_path, 0);
     const opt_zcu = comp.zcu;
 
     const zcu_obj_path: ?Cache.Path = if (opt_zcu != null) p: {
@@ -326,7 +326,7 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
         object_files.appendAssumeCapacity(try key.status.success.object_path.toStringZ(arena));
     }
     for (comp.win32_resource_table.keys()) |key| {
-        object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.res_path));
+        object_files.appendAssumeCapacity(try arena.dupeSentinel(u8, key.status.success.res_path, 0));
     }
     if (zcu_obj_path) |p| object_files.appendAssumeCapacity(try p.toStringZ(arena));
     if (compiler_rt_path) |p| object_files.appendAssumeCapacity(try p.toStringZ(arena));
@@ -637,17 +637,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
                             try argv.append("-ALTERNATENAME:__image_base__=__ImageBase");
                         }
 
-                        if (is_dyn_lib) {
-                            try argv.append(try comp.crtFileAsString(arena, "dllcrt2.obj"));
-                            if (target.cpu.arch == .x86) {
-                                try argv.append("-ALTERNATENAME:__DllMainCRTStartup@12=_DllMainCRTStartup@12");
-                            } else {
-                                try argv.append("-ALTERNATENAME:_DllMainCRTStartup=DllMainCRTStartup");
-                            }
-                        } else {
-                            try argv.append(try comp.crtFileAsString(arena, "crt2.obj"));
-                        }
-
+                        try argv.append(try comp.crtFileAsString(arena, if (is_dyn_lib) "dllcrt2.obj" else "crt2.obj"));
                         try argv.append(try comp.crtFileAsString(arena, "libmingw32.lib"));
                     } else {
                         try argv.append(switch (comp.config.link_mode) {
@@ -812,7 +802,8 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             target.cpu.arch == .m68k or
             target.cpu.arch.isSPARC() or
             target.cpu.arch == .ve or
-            target.cpu.arch == .xcore))
+            target.cpu.arch == .xcore or
+            target.cpu.arch == .xtensa))
     {
         // In this case we must do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
@@ -1095,10 +1086,10 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             .dso => continue,
             .object, .archive => |obj| {
                 if (obj.must_link and !whole_archive) {
-                    try argv.append("-whole-archive");
+                    try argv.append("--whole-archive");
                     whole_archive = true;
                 } else if (!obj.must_link and whole_archive) {
-                    try argv.append("-no-whole-archive");
+                    try argv.append("--no-whole-archive");
                     whole_archive = false;
                 }
                 try argv.append(try obj.path.toString(arena));
@@ -1110,7 +1101,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
         };
 
         if (whole_archive) {
-            try argv.append("-no-whole-archive");
+            try argv.append("--no-whole-archive");
             whole_archive = false;
         }
 
@@ -1124,7 +1115,11 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
 
         if (comp.tsan_lib) |lib| {
             assert(comp.config.any_sanitize_thread);
-            try argv.append(try lib.full_object_path.toString(arena));
+            try argv.appendSlice(&.{
+                "--whole-archive",
+                try lib.full_object_path.toString(arena),
+                "--no-whole-archive",
+            });
         }
 
         if (comp.fuzzer_lib) |lib| {
@@ -1558,10 +1553,10 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
         for (comp.link_inputs) |link_input| switch (link_input) {
             .object, .archive => |obj| {
                 if (obj.must_link and !whole_archive) {
-                    try argv.append("-whole-archive");
+                    try argv.append("--whole-archive");
                     whole_archive = true;
                 } else if (!obj.must_link and whole_archive) {
-                    try argv.append("-no-whole-archive");
+                    try argv.append("--no-whole-archive");
                     whole_archive = false;
                 }
                 try argv.append(try obj.path.toString(arena));
@@ -1573,7 +1568,7 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
             .res => unreachable,
         };
         if (whole_archive) {
-            try argv.append("-no-whole-archive");
+            try argv.append("--no-whole-archive");
             whole_archive = false;
         }
 

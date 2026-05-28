@@ -367,6 +367,7 @@ test {
     _ = ff;
     _ = errors;
     _ = tls;
+    _ = tls.Client;
     _ = Certificate;
     _ = codecs;
 }
@@ -393,7 +394,7 @@ test "issue #4532: no index out of bounds" {
     };
 
     inline for (types) |Hasher| {
-        var block = [_]u8{'#'} ** Hasher.block_length;
+        var block: [Hasher.block_length]u8 = @splat('#');
         var out1: [Hasher.digest_length]u8 = undefined;
         var out2: [Hasher.digest_length]u8 = undefined;
         const h0 = Hasher.init(.{});
@@ -416,8 +417,8 @@ pub fn secureZero(comptime T: type, s: []volatile T) void {
 }
 
 test secureZero {
-    var a = [_]u8{0xfe} ** 8;
-    var b = [_]u8{0xfe} ** 8;
+    var a: [8]u8 = @splat(0xFE);
+    var b: [8]u8 = @splat(0xFE);
 
     @memset(&a, 0);
     secureZero(u8, &b);

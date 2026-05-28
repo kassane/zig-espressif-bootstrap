@@ -400,7 +400,7 @@ pub const Reader = struct {
                         0 => return error.HttpConnectionClosing,
                         else => return error.HttpRequestTruncated,
                     },
-                    error.ReadFailed => return error.ReadFailed,
+                    error.ReadFailed => |e| return e,
                 };
                 continue;
             }
@@ -543,8 +543,7 @@ pub const Reader = struct {
             else => unreachable,
         };
         return chunkedReadEndless(reader, w, limit, chunk_len_ptr) catch |err| switch (err) {
-            error.ReadFailed => return error.ReadFailed,
-            error.WriteFailed => return error.WriteFailed,
+            error.ReadFailed, error.WriteFailed => |e| return e,
             error.EndOfStream => {
                 reader.body_err = error.HttpChunkTruncated;
                 return error.ReadFailed;
@@ -613,7 +612,7 @@ pub const Reader = struct {
             else => unreachable,
         };
         return chunkedDiscardEndless(reader, limit, chunk_len_ptr) catch |err| switch (err) {
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
             error.EndOfStream => {
                 reader.body_err = error.HttpChunkTruncated;
                 return error.ReadFailed;
@@ -750,7 +749,7 @@ pub const BodyWriter = struct {
     /// How many zeroes to reserve for hex-encoded chunk length.
     const chunk_len_digits = 8;
     const max_chunk_len: usize = std.math.pow(u64, 16, chunk_len_digits) - 1;
-    const chunk_header_template = ("0" ** chunk_len_digits) ++ "\r\n";
+    const chunk_header_template = @as([chunk_len_digits]u8, @splat('0')) ++ "\r\n";
 
     comptime {
         assert(max_chunk_len == std.math.maxInt(u32));

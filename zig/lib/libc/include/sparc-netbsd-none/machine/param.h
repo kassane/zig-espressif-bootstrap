@@ -1,4 +1,4 @@
-/*	$NetBSD: param.h,v 1.74 2020/05/01 08:21:27 isaki Exp $ */
+/*	$NetBSD: param.h,v 1.76 2025/04/20 22:33:41 riastradh Exp $ */
 
 /*
  * Copyright (c) 1992, 1993
@@ -60,6 +60,8 @@
 #define SUN4_PGSHIFT	13	/* for a sun4 machine */
 #define SUN4CM_PGSHIFT	12	/* for a sun4c or sun4m machine */
 
+#define	STACK_ALIGNBYTES	(8 - 1)
+
 /*
  * The following variables are always defined and initialized (in locore)
  * so independently compiled modules (e.g. LKMs) can be used irrespective
@@ -75,7 +77,7 @@ extern int nbpg, pgofset, pgshift;
 #else
 /*
  * JS1/OF has prom sitting in f000.0000..f007.ffff, modify kernel VA 
- * layout to work around that. XXX - kernel should live beyound prom on
+ * layout to work around that. XXX - kernel should live beyond prom on
  * those machines.
  */
 #define	KERNBASE	0xe8000000

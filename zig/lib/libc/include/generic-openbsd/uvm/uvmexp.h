@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvmexp.h,v 1.19 2025/03/10 19:52:57 miod Exp $	*/
+/*	$OpenBSD: uvmexp.h,v 1.27 2026/03/08 17:06:10 deraadt Exp $	*/
 
 #ifndef	_UVM_UVMEXP_
 #define	_UVM_UVMEXP_
@@ -41,13 +41,14 @@
  * other than the vm system.
  *
  *  Locks used to protect struct members in this file:
- *	a	atomic operations
+ *	a	atomic operations (signed int, so use atomic_load_sint)
  *	I	immutable after creation
  *	K	kernel lock
  *	F	uvm_lock_fpageq
  *	L	uvm_lock_pageq
  *	S	uvm_swap_data_lock
  *	p	copy of per-CPU counters, used only by userland.
+ *	o	updated only by the page daemon
  */
 struct uvmexp {
 	/* vm_page constants */
@@ -57,13 +58,13 @@ struct uvmexp {
 
 	/* vm_page counters */
 	int npages;     /* [I] number of pages we manage */
-	int free;       /* [F] number of free pages */
-	int active;     /* [L] # of active pages */
-	int inactive;   /* [L] # of pages that we free'd but may want back */
-	int paging;	/* [a] # of pages in the process of being paged out */
-	int wired;      /* [a] number of wired pages */
+	int free;       /* [aF] number of free pages */
+	int active;     /* [aL] # of active pages */
+	int inactive;   /* [aL] # of pages that we free'd but may want back */
+	int paging;	/* [a] # number of pages in the process of being paged out */
+	int wired;      /* [a] # number of wired pages */
 
-	int zeropages;		/* [F] number of zero'd pages */
+	int zeropages;		/* [aF] number of zero'd pages */
 	int reserve_pagedaemon; /* [I] # of pages reserved for pagedaemon */
 	int reserve_kernel;	/* [I] # of pages reserved for kernel */
 	int percpucaches;	/* [a] # of pages in per-CPU caches */
@@ -83,9 +84,9 @@ struct uvmexp {
 	int vnodeminpct;/* min percent vnode pages */
 
 	/* swap */
-	int nswapdev;	/* [S] number of configured swap devices in system */
-	int swpages;	/* [S] number of PAGE_SIZE'ed swap pages */
-	int swpginuse;	/* [S] number of swap pages in use */
+	int nswapdev;	/* [aS] number of configured swap devices in system */
+	int swpages;	/* [aS] number of PAGE_SIZE'ed swap pages */
+	int swpginuse;	/* [aS] number of swap pages in use */
 	int swpgonly;	/* [a] number of swap pages in use, not also in RAM */
 	int nswget;	/* [a] number of swap pages moved from disk to RAM */
 	int nanon;	/* XXX number total of anon's in system */
@@ -94,23 +95,23 @@ struct uvmexp {
 
 	/* stat counters */
 	int faults;		/* [p] page fault count */
-	int traps;		/* trap count */
-	int intrs;		/* interrupt count */
+	int traps;		/* [a] trap count */
+	int intrs;		/* [a] interrupt count */
 	int swtch;		/* context switch count */
-	int softs;		/* software interrupt count */
-	int syscalls;		/* system calls */
+	int softs;		/* [a] software interrupt count */
+	int syscalls;		/* [a] system calls */
 	int pageins;		/* [p] pagein operation count */
 				/* pageouts are in pdpageouts below */
 	int pcphit;		/* [a] # of pagealloc from per-CPU cache */
 	int pcpmiss;		/* [a] # of times a per-CPU cache was empty */
 	int pgswapin;		/* pages swapped in */
-	int pgswapout;		/* pages swapped out */
+	int pgswapout;		/* [a] pages swapped out */
 	int forks;  		/* forks */
 	int forks_ppwait;	/* forks where parent waits */
 	int forks_sharevm;	/* forks where vmspace is shared */
-	int pga_zerohit;	/* pagealloc where zero wanted and zero
+	int pga_zerohit;	/* [a] pagealloc where zero wanted and zero
 				   was available */
-	int pga_zeromiss;	/* pagealloc where zero wanted and zero
+	int pga_zeromiss;	/* [a] pagealloc where zero wanted and zero
 				   not available */
 	int unused09;		/* formerly zeroaborts */
 
@@ -138,23 +139,22 @@ struct uvmexp {
 	int fltnoup;	/* [p] # of times fault upgrade failed */
 
 	/* daemon counters */
-	int pdwoke;	/* [F] # of times daemon woke up */
-	int pdrevs;	/* number of times daemon scanned for free pages */
-	int pdswout;	/* number of times daemon called for swapout */
-	int pdfreed;	/* number of pages daemon freed since boot */
-	int pdscans;	/* number of pages daemon scanned since boot */
-	int pdanscan;	/* number of anonymous pages scanned by daemon */
-	int pdobscan;	/* number of object pages scanned by daemon */
-	int pdreact;	/* number of pages daemon reactivated since boot */
-	int pdbusy;	/* number of times daemon found a busy page */
-	int pdpageouts;	/* number of times daemon started a pageout */
-	int pdpending;	/* number of times daemon got a pending pagout */
-	int pddeact;	/* number of pages daemon deactivates */
+	int pdwoke;	/* [ao] # of times daemon woke up */
+	int pdrevs;	/* [ao] # of times daemon scanned for free pages */
+	int pdswout;	/* [o] # of times daemon called for swapout */
+	int pdfreed;	/* [ao] # of pages daemon freed since boot */
+	int pdscans;	/* [ao] # of pages daemon scanned since boot */
+	int pdanscan;	/* [ao] # of anonymous pages scanned by daemon */
+	int pdobscan;	/* [ao] # of object pages scanned by daemon */
+	int pdreact;	/* [ao] # of pages daemon reactivated since boot */
+	int pdbusy;	/* [ao] # of times daemon found a busy page */
+	int pdpageouts;	/* [ao] # of times daemon started a pageout */
+	int pdpending;	/* [ao] # of times daemon got a pending pagout */
+	int pddeact;	/* [ao] # of pages daemon deactivates */
+	int swpskip;	/* [ao] # of pages delayed because swap crypt busy */
 
-	int unused13;	/* formerly pdrevtext */
-
-	int fpswtch;	/* FPU context switches */
-	int kmapent;	/* number of kernel map entries */
+	int fpswtch;	/* [a] FPU context switches */
+	int kmapent;	/* [a] number of kernel map entries */
 };
 
 struct _ps_strings {
@@ -162,6 +162,12 @@ struct _ps_strings {
 };
 
 #ifdef _KERNEL
+
+static inline int
+atomic_load_sint(volatile const int *p)
+{
+        return *p;
+}
 
 /*
  * Per-cpu UVM counters.

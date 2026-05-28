@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const Io = std.Io;
 const Dir = std.Io.Dir;
+const Path = std.Build.Cache.Path;
 const process = std.process;
 const Progress = std.Progress;
 const print = std.debug.print;
@@ -73,8 +74,13 @@ pub fn main(init: std.process.Init) !void {
     var out_file_buffer: [4096]u8 = undefined;
     var out_file_writer = out_file.writer(io, &out_file_buffer);
 
-    var code_dir = try Dir.cwd().openDir(io, code_dir_path, .{});
-    defer code_dir.close(io);
+    var code_dir: Path = .{
+        .root_dir = .{
+            .handle = try Dir.cwd().openDir(io, code_dir_path, .{}),
+            .path = code_dir_path,
+        },
+    };
+    defer code_dir.root_dir.handle.close(io);
 
     var in_file_reader = in_file.reader(io, &.{});
     const input_file_bytes = try in_file_reader.interface.allocRemaining(arena, .limited(max_doc_file_size));
@@ -337,20 +343,20 @@ const Action = enum {
     close,
 };
 
-fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
-    var urls = std.StringHashMap(Token).init(allocator);
+fn genToc(gpa: Allocator, tokenizer: *Tokenizer) !Toc {
+    var urls = std.StringHashMap(Token).init(gpa);
     errdefer urls.deinit();
 
     var header_stack_size: usize = 0;
     var last_action: Action = .open;
     var last_columns: ?u8 = null;
 
-    var toc_buf: Writer.Allocating = .init(allocator);
+    var toc_buf: Writer.Allocating = .init(gpa);
     defer toc_buf.deinit();
 
     const toc = &toc_buf.writer;
 
-    var nodes = std.array_list.Managed(Node).init(allocator);
+    var nodes = std.array_list.Managed(Node).init(gpa);
     defer nodes.deinit();
 
     try toc.writeByte('\n');
@@ -408,7 +414,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
 
                     header_stack_size += 1;
 
-                    const urlized = try urlize(allocator, content);
+                    const urlized = try urlize(gpa, content);
                     try nodes.append(Node{
                         .HeaderOpen = HeaderOpen{
                             .name = content,
@@ -450,7 +456,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         last_action = .close;
                     }
                 } else if (mem.eql(u8, tag_name, "see_also")) {
-                    var list = std.array_list.Managed(SeeAlsoItem).init(allocator);
+                    var list = std.array_list.Managed(SeeAlsoItem).init(gpa);
                     errdefer list.deinit();
 
                     while (true) {
@@ -465,7 +471,8 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             },
                             .separator => {},
                             .bracket_close => {
-                                try nodes.append(Node{ .SeeAlso = try list.toOwnedSlice() });
+                                try nodes.ensureUnusedCapacity(1);
+                                nodes.appendAssumeCapacity(.{ .SeeAlso = try list.toOwnedSlice() });
                                 break;
                             },
                             else => return parseError(tokenizer, see_also_tok, "invalid see_also token", .{}),
@@ -491,7 +498,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
 
                     try nodes.append(Node{
                         .Link = Link{
-                            .url = try urlize(allocator, url_name),
+                            .url = try urlize(gpa, url_name),
                             .name = name,
                             .token = name_tok,
                         },
@@ -592,9 +599,14 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
         }
     }
 
+    const nodes_slice = try nodes.toOwnedSlice();
+    errdefer gpa.free(nodes_slice);
+    const toc_slice = try toc_buf.toOwnedSlice();
+    errdefer gpa.free(toc_slice);
+
     return .{
-        .nodes = try nodes.toOwnedSlice(),
-        .toc = try toc_buf.toOwnedSlice(),
+        .nodes = nodes_slice,
+        .toc = toc_slice,
         .urls = urls,
     };
 }
@@ -617,12 +629,11 @@ fn urlize(gpa: Allocator, input: []const u8) ![]u8 {
     return try buf.toOwnedSlice(gpa);
 }
 
-fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.array_list.Managed(u8).init(allocator);
-    defer buf.deinit();
+fn escapeHtml(gpa: Allocator, input: []const u8) ![]u8 {
+    var buf: std.Io.Writer.Allocating = .init(gpa);
+    defer buf.deinit(gpa);
 
-    const out = buf.writer();
-    try writeEscaped(out, input);
+    try writeEscaped(&buf.writer, input);
     return try buf.toOwnedSlice();
 }
 
@@ -674,7 +685,7 @@ fn tokenizeAndPrintRaw(
     raw_src: []const u8,
 ) !void {
     const src_non_terminated = mem.trim(u8, raw_src, " \r\n");
-    const src = try allocator.dupeZ(u8, src_non_terminated);
+    const src = try allocator.dupeSentinel(u8, src_non_terminated, 0);
 
     try out.writeAll("<code>");
     var tokenizer = std.zig.Tokenizer.init(src);
@@ -866,7 +877,6 @@ fn tokenizeAndPrintRaw(
             .minus_pipe_equal,
             .asterisk,
             .asterisk_equal,
-            .asterisk_asterisk,
             .asterisk_percent,
             .asterisk_percent_equal,
             .asterisk_pipe,
@@ -892,7 +902,7 @@ fn tokenizeAndPrintRaw(
             .tilde,
             => try writeEscaped(out, src[token.loc.start..token.loc.end]),
 
-            .invalid, .invalid_periodasterisks => return parseError(
+            .invalid => return parseError(
                 docgen_tokenizer,
                 source_token,
                 "syntax error",
@@ -984,7 +994,7 @@ fn genHtml(
     io: Io,
     tokenizer: *Tokenizer,
     toc: *Toc,
-    code_dir: Dir,
+    code_dir: Path,
     out: *Writer,
 ) !void {
     for (toc.nodes) |node| {
@@ -1040,8 +1050,13 @@ fn genHtml(
                 });
                 defer allocator.free(out_basename);
 
-                const contents = code_dir.readFileAlloc(io, out_basename, allocator, .limited(std.math.maxInt(u32))) catch |err| {
-                    return parseError(tokenizer, code.token, "unable to open '{s}': {t}", .{ out_basename, err });
+                const out_path: Path = .{
+                    .root_dir = code_dir.root_dir,
+                    .sub_path = out_basename,
+                };
+
+                const contents = out_path.root_dir.handle.readFileAlloc(io, out_path.sub_path, allocator, .unlimited) catch |err| {
+                    return parseError(tokenizer, code.token, "failed opening {f}: {t}", .{ out_path, err });
                 };
                 defer allocator.free(contents);
 

@@ -468,8 +468,9 @@ pub fn lowerToBuildSteps(
     options: CaseTestOptions,
 ) void {
     const io = self.io;
+    const graph = b.graph;
+    const arena = graph.arena;
     const host = b.resolveTargetQuery(.{});
-    const cases_dir_path = b.build_root.join(b.allocator, &.{ "test", "cases" }) catch @panic("OOM");
 
     for (self.cases.items) |case| {
         for (options.test_filters) |test_filter| {
@@ -502,7 +503,7 @@ pub fn lowerToBuildSteps(
         );
         if (options.skip_llvm and would_use_llvm) continue;
 
-        const triple_txt = case.target.query.zigTriple(b.allocator) catch @panic("OOM");
+        const triple_txt = case.target.query.zigTriple(arena) catch @panic("OOM");
 
         if (options.test_target_filters.len > 0) {
             for (options.test_target_filters) |filter| {
@@ -514,7 +515,7 @@ pub fn lowerToBuildSteps(
             continue;
 
         const writefiles = b.addWriteFiles();
-        var file_sources = std.StringHashMap(std.Build.LazyPath).init(b.allocator);
+        var file_sources = std.StringHashMap(std.Build.LazyPath).init(arena);
         defer file_sources.deinit();
         const first_file = case.files.items[0];
         const root_source_file = writefiles.add(first_file.path, first_file.src);
@@ -524,12 +525,15 @@ pub fn lowerToBuildSteps(
         }
 
         for (case.imports) |import_rel| {
-            const import_abs = std.fs.path.join(b.allocator, &.{
-                cases_dir_path,
-                case.import_path orelse @panic("import_path not set"),
-                import_rel,
-            }) catch @panic("OOM");
-            _ = writefiles.addCopyFile(.{ .cwd_relative = import_abs }, import_rel);
+            _ = writefiles.addCopyFile(.{ .src_path = .{
+                .owner = b,
+                .sub_path = b.pathJoin(&.{
+                    "test",
+                    "cases",
+                    case.import_path orelse @panic("import_path not set"),
+                    import_rel,
+                }),
+            } }, import_rel);
         }
 
         const mod = b.createModule(.{
@@ -603,7 +607,11 @@ pub fn lowerToBuildSteps(
             },
             .Execution => |expected_stdout| no_exec: {
                 const run = if (case.target.result.ofmt == .c) run_step: {
-                    if (getExternalExecutor(io, &host.result, &case.target.result, .{ .link_libc = true }) != .native) {
+                    if (getExternalExecutor(io, &case.target.result, .{
+                        .host_cpu_arch = host.result.cpu.arch,
+                        .host_os_tag = host.result.os.tag,
+                        .link_libc = true,
+                    }) != .native) {
                         // We wouldn't be able to run the compiled C code.
                         break :no_exec;
                     }

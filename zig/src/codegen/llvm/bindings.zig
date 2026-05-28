@@ -1,6 +1,3 @@
-//! We do this instead of @cImport because the self-hosted compiler is easier
-//! to bootstrap if it does not depend on translate-c.
-
 /// Do not compare directly to .True, use toBool() instead.
 pub const Bool = enum(c_int) {
     False,
@@ -305,6 +302,7 @@ pub extern fn LLVMInitializeSystemZAsmParser() void;
 pub extern fn LLVMInitializeWebAssemblyAsmParser() void;
 pub extern fn LLVMInitializeX86AsmParser() void;
 pub extern fn LLVMInitializeXtensaAsmParser() void;
+pub extern fn LLVMInitializeXtensaDisassembler() void;
 pub extern fn LLVMInitializeM68kAsmParser() void;
 pub extern fn LLVMInitializeCSKYAsmParser() void;
 pub extern fn LLVMInitializeVEAsmParser() void;

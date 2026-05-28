@@ -1,7 +1,7 @@
-/*	$NetBSD: lwp.h,v 1.217 2022/07/23 19:15:29 mrg Exp $	*/
+/*	$NetBSD: lwp.h,v 1.231 2023/11/02 10:31:55 martin Exp $	*/
 
 /*
- * Copyright (c) 2001, 2006, 2007, 2008, 2009, 2010, 2019, 2020
+ * Copyright (c) 2001, 2006, 2007, 2008, 2009, 2010, 2019, 2020, 2023
  *    The NetBSD Foundation, Inc.
  * All rights reserved.
  *
@@ -36,17 +36,18 @@
 #if defined(_KERNEL) || defined(_KMEMUSER)
 
 #include <sys/param.h>
-#include <sys/time.h>
-#include <sys/queue.h>
+
 #include <sys/callout.h>
+#include <sys/condvar.h>
 #include <sys/kcpuset.h>
 #include <sys/mutex.h>
-#include <sys/condvar.h>
-#include <sys/signalvar.h>
-#include <sys/sched.h>
-#include <sys/specificdata.h>
-#include <sys/syncobj.h>
+#include <sys/queue.h>
 #include <sys/resource.h>
+#include <sys/sched.h>
+#include <sys/signalvar.h>
+#include <sys/specificdata.h>
+#include <sys/time.h>
+#include <sys/wchan.h>
 
 #if defined(_KERNEL)
 struct lwp;
@@ -109,10 +110,8 @@ struct lwp {
 	u_int		l_rticksum;	/* l: Sum of ticks spent running */
 	u_int		l_slpticks;	/* l: Saved start time of sleep */
 	u_int		l_slpticksum;	/* l: Sum of ticks spent sleeping */
-	int		l_biglocks;	/* l: biglock count before sleep */
 	int		l_class;	/* l: scheduling class */
-	int		l_kpriority;	/* !: has kernel priority boost */
-	pri_t		l_kpribase;	/* !: kernel priority base level */
+	pri_t		l_boostpri;	/* l: boosted priority after blocking */
 	pri_t		l_priority;	/* l: scheduler priority */
 	pri_t		l_inheritedprio;/* l: inherited priority */
 	pri_t		l_protectprio;	/* l: for PTHREAD_PRIO_PROTECT */
@@ -122,8 +121,6 @@ struct lwp {
 	psetid_t	l_psid;		/* l: assigned processor-set ID */
 	fixpt_t		l_pctcpu;	/* p: %cpu during l_swtime */
 	fixpt_t		l_estcpu;	/* l: cpu time for SCHED_4BSD */
-	volatile uint64_t l_ncsw;	/* l: total context switches */
-	volatile uint64_t l_nivcsw;	/* l: involuntary context switches */
 	SLIST_HEAD(, turnstile) l_pi_lenders; /* l: ts lending us priority */
 	struct cpu_info *l_target_cpu;	/* l: target CPU to migrate */
 	struct lwpctl	*l_lwpctl;	/* p: lwpctl block kernel address */
@@ -131,7 +128,7 @@ struct lwp {
 	kcpuset_t	*l_affinity;	/* l: CPU set for affinity */
 
 	/* Synchronisation. */
-	struct syncobj	*l_syncobj;	/* l: sync object operations set */
+	const struct syncobj *l_syncobj;/* l: sync object operations set */
 	LIST_ENTRY(lwp) l_sleepchain;	/* l: sleep queue */
 	wchan_t		l_wchan;	/* l: sleep address */
 	const char	*l_wmesg;	/* l: reason for sleep */
@@ -267,6 +264,7 @@ extern int		maxlwp __read_mostly;	/* max number of lwps */
 #define	LW_WEXIT	0x00100000 /* Exit before return to user */
 #define	LW_PENDSIG	0x01000000 /* Pending signal for us */
 #define	LW_CANCELLED	0x02000000 /* tsleep should not sleep */
+#define	LW_CACHECRED	0x04000000 /* Cache new process credential */
 #define	LW_WREBOOT	0x08000000 /* System is rebooting, please suspend */
 #define	LW_UNPARKED	0x10000000 /* Unpark op pending */
 #define	LW_RUMP_CLEAR	0x40000000 /* Clear curlwp in RUMP scheduler */
@@ -299,15 +297,14 @@ extern int		maxlwp __read_mostly;	/* max number of lwps */
  * with p_lock held.
  */
 #define	LPR_DETACHED	0x00800000 /* Won't be waited for. */
-#define	LPR_CRMOD	0x00000100 /* Credentials modified */
 #define	LPR_DRAINING	0x80000000 /* Draining references before exiting */
 
 /*
  * Mask indicating that there is "exceptional" work to be done on return to
  * user.
  */
-#define	LW_USERRET	\
-    (LW_WEXIT | LW_PENDSIG | LW_WREBOOT | LW_WSUSPEND | LW_WCORE | LW_LWPCTL)
+#define	LW_USERRET	(LW_WEXIT | LW_PENDSIG | LW_WREBOOT | LW_WSUSPEND \
+    | LW_WCORE | LW_LWPCTL | LW_CACHECRED)
 
 /*
  * Status values.
@@ -338,23 +335,21 @@ lwp_getpcb(struct lwp *l)
 #endif /* _KERNEL || _KMEMUSER */
 
 #ifdef _KERNEL
-#define	LWP_CACHE_CREDS(l, p)						\
-do {									\
-	(void)p;							\
-	if (__predict_false((l)->l_prflag & LPR_CRMOD))			\
-		lwp_update_creds(l);					\
-} while (/* CONSTCOND */ 0)
-
 void	lwpinit(void);
 void	lwp0_init(void);
 
 void	lwp_startup(lwp_t *, lwp_t *);
 void	startlwp(void *);
 
+void	lwp_lock(lwp_t *);
+void	lwp_unlock(lwp_t *);
+pri_t	lwp_eprio(lwp_t *);
 int	lwp_locked(lwp_t *, kmutex_t *);
 kmutex_t *lwp_setlock(lwp_t *, kmutex_t *);
 void	lwp_unlock_to(lwp_t *, kmutex_t *);
 int	lwp_trylock(lwp_t *);
+void	lwp_changepri(lwp_t *, pri_t);
+void	lwp_lendpri(lwp_t *, pri_t);
 void	lwp_addref(lwp_t *);
 void	lwp_delref(lwp_t *);
 void	lwp_delref2(lwp_t *);
@@ -370,14 +365,13 @@ void	lwp_exit(lwp_t *);
 int	lwp_suspend(lwp_t *, lwp_t *);
 int	lwp_create1(lwp_t *, const void *, size_t, u_long, lwpid_t *);
 void	lwp_start(lwp_t *, int);
-void	lwp_update_creds(lwp_t *);
 void	lwp_migrate(lwp_t *, struct cpu_info *);
 lwp_t *	lwp_find2(pid_t, lwpid_t);
 lwp_t *	lwp_find(proc_t *, int);
 void	lwp_userret(lwp_t *);
 void	lwp_need_userret(lwp_t *);
 void	lwp_free(lwp_t *, bool, bool);
-uint64_t lwp_pctr(void);
+long	lwp_pctr(void);
 int	lwp_setprivate(lwp_t *, void *);
 int	do_lwp_create(lwp_t *, void *, u_long, lwp_t **, const sigset_t *,
     const stack_t *);
@@ -402,67 +396,6 @@ int	lwp_unpark(const lwpid_t *, const u_int);
 
 /* DDB. */
 void	lwp_whatis(uintptr_t, void (*)(const char *, ...) __printflike(1, 2));
-
-/*
- * Lock an LWP. XXX _MODULE
- */
-static __inline void
-lwp_lock(lwp_t *l)
-{
-	kmutex_t *old = atomic_load_consume(&l->l_mutex);
-
-	/*
-	 * Note: mutex_spin_enter() will have posted a read barrier.
-	 * Re-test l->l_mutex.  If it has changed, we need to try again.
-	 */
-	mutex_spin_enter(old);
-	while (__predict_false(atomic_load_relaxed(&l->l_mutex) != old)) {
-		mutex_spin_exit(old);
-		old = atomic_load_consume(&l->l_mutex);
-		mutex_spin_enter(old);
-	}
-}
-
-/*
- * Unlock an LWP. XXX _MODULE
- */
-static __inline void
-lwp_unlock(lwp_t *l)
-{
-	mutex_spin_exit(l->l_mutex);
-}
-
-static __inline void
-lwp_changepri(lwp_t *l, pri_t pri)
-{
-	KASSERT(mutex_owned(l->l_mutex));
-
-	if (l->l_priority == pri)
-		return;
-
-	(*l->l_syncobj->sobj_changepri)(l, pri);
-	KASSERT(l->l_priority == pri);
-}
-
-static __inline void
-lwp_lendpri(lwp_t *l, pri_t pri)
-{
-	KASSERT(mutex_owned(l->l_mutex));
-
-	(*l->l_syncobj->sobj_lendpri)(l, pri);
-	KASSERT(l->l_inheritedprio == pri);
-}
-
-static __inline pri_t
-lwp_eprio(lwp_t *l)
-{
-	pri_t pri;
-
-	pri = l->l_priority;
-	if ((l->l_flag & LW_SYSTEM) == 0 && l->l_kpriority && pri < PRI_KERNEL)
-		pri = (pri >> 1) + l->l_kpribase;
-	return MAX(l->l_auxprio, pri);
-}
 
 int lwp_create(lwp_t *, struct proc *, vaddr_t, int, void *, size_t,
     void (*)(void *), void *, lwp_t **, int, const sigset_t *, const stack_t *);
@@ -539,8 +472,9 @@ CURCPU_IDLE_P(void)
 static __inline void
 KPREEMPT_DISABLE(lwp_t *l)
 {
+	struct lwp *l1 __diagused;
 
-	KASSERT(l == curlwp);
+	KASSERTMSG(l == (l1 = curlwp), "l=%p curlwp=%p", l, l1);
 	l->l_nopreempt++;
 	__insn_barrier();
 }
@@ -548,16 +482,15 @@ KPREEMPT_DISABLE(lwp_t *l)
 static __inline void
 KPREEMPT_ENABLE(lwp_t *l)
 {
+	struct lwp *l1 __diagused;
 
-	KASSERT(l == curlwp);
+	KASSERTMSG(l == (l1 = curlwp), "l=%p curlwp=%p", l, l1);
 	KASSERT(l->l_nopreempt > 0);
 	__insn_barrier();
-	if (--l->l_nopreempt != 0)
-		return;
+	l->l_nopreempt--;
 	__insn_barrier();
 	if (__predict_false(l->l_dopreempt))
 		kpreempt(0);
-	__insn_barrier();
 }
 
 /* For lwp::l_dopreempt */

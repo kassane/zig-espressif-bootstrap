@@ -1,4 +1,4 @@
-/*	$NetBSD: cd9660_extern.h,v 1.27.30.1 2024/06/22 10:57:10 martin Exp $	*/
+/*	$NetBSD: cd9660_extern.h,v 1.29 2024/05/19 15:41:53 tsutsui Exp $	*/
 
 /*-
  * Copyright (c) 1994
@@ -61,6 +61,11 @@ struct iso_mnt {
 	struct mount *im_mountp;
 	dev_t im_dev;
 	struct vnode *im_devvp;
+
+	uid_t	im_uid;
+	gid_t	im_gid;
+	mode_t	im_fmask;
+	mode_t	im_dmask;
 
 	int logical_block_size;
 	int im_bshift;

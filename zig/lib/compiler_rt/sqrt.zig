@@ -481,8 +481,6 @@ fn _Qp_sqrt(c: *f128, a: *f128) callconv(.c) void {
 
 pub fn sqrtl(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return __sqrth(x),
-        32 => return sqrtf(x),
         64 => return sqrt(x),
         80 => return __sqrtx(x),
         128 => return sqrtq(x),

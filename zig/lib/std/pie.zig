@@ -22,6 +22,7 @@ const R_RISCV_RELATIVE = 3;
 const R_390_RELATIVE = 12;
 const R_SH_RELATIVE = 165;
 const R_SPARC_RELATIVE = 22;
+const R_XTENSA_RELATIVE = 5;
 
 const R_RELATIVE = switch (builtin.cpu.arch) {
     .x86 => R_386_RELATIVE,
@@ -43,6 +44,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
     .s390x => R_390_RELATIVE,
     .sh, .sheb => R_SH_RELATIVE,
     .sparc, .sparc64 => R_SPARC_RELATIVE,
+    .xtensa, .xtensaeb => R_XTENSA_RELATIVE,
     else => @compileError("Missing R_RELATIVE definition for this target"),
 };
 
@@ -261,6 +263,25 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
                 : .{ .l7 = true }),
+            .xtensa, .xtensaeb => asm volatile (
+                \\ .weak _DYNAMIC
+                \\ .hidden _DYNAMIC
+                // Set things up such that after the `call0`, `a0` will point 1 byte before the
+                // embedded constant. Note that `call0` is a 3-byte instruction, so we need both
+                // `.balign` directives to be safe.
+                \\ .balign 4
+                \\ .begin no-transform
+                \\ call0 1f
+                \\ .end no-transform
+                \\ .balign 4
+                \\ .word _DYNAMIC - .
+                \\1:
+                \\ add a0, a0, 1
+                \\ l32i a8, a0, 0
+                \\ add %[ret], a0, a8
+                : [ret] "=a" (-> [*]const elf.Dyn),
+                :
+                : .{ .a0 = true, .a8 = true }),
             else => {
                 @compileError("PIE startup is not yet supported for this target!");
             },

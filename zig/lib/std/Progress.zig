@@ -867,8 +867,8 @@ const TreeSymbol = enum {
 
     fn maxByteLen(symbol: TreeSymbol) usize {
         var max: usize = 0;
-        inline for (@typeInfo(Encoding).@"enum".fields) |field| {
-            const len = symbol.bytes(@field(Encoding, field.name)).len;
+        inline for (@typeInfo(Encoding).@"enum".field_names) |field_name| {
+            const len = symbol.bytes(@field(Encoding, field_name)).len;
             max = @max(max, len);
         }
         return max;

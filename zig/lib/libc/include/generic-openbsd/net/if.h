@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.h,v 1.221 2025/09/09 09:16:18 bluhm Exp $	*/
+/*	$OpenBSD: if.h,v 1.223 2025/12/09 03:33:06 dlg Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -526,6 +526,9 @@ struct if_sffpage {
 #include <net/if_arp.h>
 
 #ifdef _KERNEL
+
+#define IF_MAX_VECTORS		8
+
 struct socket;
 struct ifnet;
 struct ifq_ops;
@@ -555,6 +558,7 @@ void	if_group_routechange(const struct sockaddr *, const struct sockaddr *);
 struct	ifnet *if_unit(const char *);
 struct	ifnet *if_get(unsigned int);
 struct	ifnet *if_ref(struct ifnet *);
+struct	ifnet *if_get_smr(unsigned int);
 void	if_put(struct ifnet *);
 void	ifnewlladdr(struct ifnet *);
 void	if_congestion(void);

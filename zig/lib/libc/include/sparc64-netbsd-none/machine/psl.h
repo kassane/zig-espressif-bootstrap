@@ -1,4 +1,4 @@
-/*	$NetBSD: psl.h,v 1.62.4.2 2023/09/09 15:01:24 martin Exp $ */
+/*	$NetBSD: psl.h,v 1.66 2025/05/20 06:12:00 macallan Exp $ */
 
 /*
  * Copyright (c) 1992, 1993
@@ -129,7 +129,11 @@
 #define PSTATE_IE	0x002	/* interrupt enable */
 #define PSTATE_AG	0x001	/* enable alternate globals */
 
-#define PSTATE_BITS "\20\14IG\13MG\12CLE\11TLE\10\7MM\6RED\5PEF\4AM\3PRIV\2IE\1AG"
+#define PSTATE_BITS "\177\020"						\
+	"b\013IG\0"	"b\012MG\0"	"b\011CLE\0"	"b\010TLE\0"	\
+			"F\006\002\0"	":\000MM_TSO\0"	":\001MM_PSO\0"	\
+	":\002MM_RMO\0"	"*?\0"		"b\005RED\0"	"b\004PEF\0"	\
+	"b\003AM\0"	"b\002PRIV\0"	"b\001IE\0"	"b\000AG\0"
 
 
 /*
@@ -508,6 +512,7 @@ SPL(spl0, 0)
 SPLHOLD(splsoftint, 1)
 #define	splsoftclock	splsoftint
 #define	splsoftnet	splsoftint
+#define	splsoftbio	splsoftint
 
 SPLHOLD(splsoftserial, 4)
 

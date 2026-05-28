@@ -31,7 +31,7 @@ pub fn cmdTargets(
         allocator,
         .limited(glibc.abilists_max_size),
     ) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         else => fatal("unable to read " ++ glibc.abilists_path ++ ": {t}", .{err}),
     };
     defer allocator.free(abilists_contents);

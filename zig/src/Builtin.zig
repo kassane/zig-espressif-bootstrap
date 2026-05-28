@@ -1,13 +1,13 @@
 target: std.Target,
-zig_backend: std.builtin.CompilerBackend,
-output_mode: std.builtin.OutputMode,
-link_mode: std.builtin.LinkMode,
-unwind_tables: std.builtin.UnwindTables,
+zig_backend: std.lang.CompilerBackend,
+output_mode: std.lang.OutputMode,
+link_mode: std.lang.LinkMode,
+unwind_tables: std.lang.UnwindTables,
 is_test: bool,
 single_threaded: bool,
 link_libc: bool,
 link_libcpp: bool,
-optimize_mode: std.builtin.OptimizeMode,
+optimize_mode: std.lang.OptimizeMode,
 error_tracing: bool,
 valgrind: bool,
 sanitize_thread: bool,
@@ -15,16 +15,16 @@ fuzz: bool,
 pic: bool,
 pie: bool,
 strip: bool,
-code_model: std.builtin.CodeModel,
+code_model: std.lang.CodeModel,
 omit_frame_pointer: bool,
-wasi_exec_model: std.builtin.WasiExecModel,
+wasi_exec_model: std.lang.WasiExecModel,
 
 /// Compute an abstract hash representing this `Builtin`. This is *not* a hash
 /// of the resulting file contents.
 pub fn hash(opts: @This()) [std.Build.Cache.bin_digest_len]u8 {
     var h: Cache.Hasher = Cache.hasher_init;
-    inline for (@typeInfo(@This()).@"struct".fields) |f| {
-        if (comptime std.mem.eql(u8, f.name, "target")) {
+    inline for (@typeInfo(@This()).@"struct".field_names) |f_name| {
+        if (comptime std.mem.eql(u8, f_name, "target")) {
             // This needs special handling.
             std.hash.autoHash(&h, opts.target.cpu);
             std.hash.autoHash(&h, opts.target.os.tag);
@@ -33,7 +33,7 @@ pub fn hash(opts: @This()) [std.Build.Cache.bin_digest_len]u8 {
             std.hash.autoHash(&h, opts.target.ofmt);
             std.hash.autoHash(&h, opts.target.dynamic_linker);
         } else {
-            std.hash.autoHash(&h, @field(opts, f.name));
+            std.hash.autoHash(&h, @field(opts, f_name));
         }
     }
     return h.finalResult();
@@ -57,11 +57,11 @@ pub fn append(opts: @This(), buffer: *std.array_list.Managed(u8)) Allocator.Erro
         \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
         \\pub const zig_version = std.SemanticVersion.parse(zig_version_string) catch unreachable;
         \\pub const zig_version_string = "{s}";
-        \\pub const zig_backend = std.builtin.CompilerBackend.{f};
+        \\pub const zig_backend = std.lang.CompilerBackend.{f};
         \\
-        \\pub const output_mode: std.builtin.OutputMode = .{f};
-        \\pub const link_mode: std.builtin.LinkMode = .{f};
-        \\pub const unwind_tables: std.builtin.UnwindTables = .{f};
+        \\pub const output_mode: std.lang.OutputMode = .{f};
+        \\pub const link_mode: std.lang.LinkMode = .{f};
+        \\pub const unwind_tables: std.lang.UnwindTables = .{f};
         \\pub const is_test = {};
         \\pub const single_threaded = {};
         \\pub const abi: std.Target.Abi = .{f};
@@ -239,7 +239,7 @@ pub fn append(opts: @This(), buffer: *std.array_list.Managed(u8)) Allocator.Erro
 
     try buffer.print(
         \\pub const object_format: std.Target.ObjectFormat = .{f};
-        \\pub const mode: std.builtin.OptimizeMode = .{f};
+        \\pub const mode: std.lang.OptimizeMode = .{f};
         \\pub const link_libc = {};
         \\pub const link_libcpp = {};
         \\pub const have_error_return_tracing = {};
@@ -249,7 +249,7 @@ pub fn append(opts: @This(), buffer: *std.array_list.Managed(u8)) Allocator.Erro
         \\pub const position_independent_code = {};
         \\pub const position_independent_executable = {};
         \\pub const strip_debug_info = {};
-        \\pub const code_model: std.builtin.CodeModel = .{f};
+        \\pub const code_model: std.lang.CodeModel = .{f};
         \\pub const omit_frame_pointer = {};
         \\
     , .{
@@ -270,14 +270,14 @@ pub fn append(opts: @This(), buffer: *std.array_list.Managed(u8)) Allocator.Erro
 
     if (target.os.tag == .wasi) {
         try buffer.print(
-            \\pub const wasi_exec_model: std.builtin.WasiExecModel = .{f};
+            \\pub const wasi_exec_model: std.lang.WasiExecModel = .{f};
             \\
         , .{std.zig.fmtIdPU(@tagName(opts.wasi_exec_model))});
     }
 
     if (opts.is_test) {
         try buffer.appendSlice(
-            \\pub var test_functions: []const std.builtin.TestFn = &.{}; // overwritten later
+            \\pub var test_functions: []const std.lang.TestFn = &.{}; // overwritten later
             \\
         );
     }

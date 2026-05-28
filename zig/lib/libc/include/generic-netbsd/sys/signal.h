@@ -1,4 +1,4 @@
-/*	$NetBSD: signal.h,v 1.75.4.2 2024/10/14 17:44:57 martin Exp $	*/
+/*	$NetBSD: signal.h,v 1.78 2024/09/19 14:41:05 kre Exp $	*/
 
 /*
  * Copyright (c) 1982, 1986, 1989, 1991, 1993

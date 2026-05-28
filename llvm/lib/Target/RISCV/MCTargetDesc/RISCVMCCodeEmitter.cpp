@@ -97,6 +97,10 @@ public:
                              SmallVectorImpl<MCFixup> &Fixups,
                              const MCSubtargetInfo &STI) const;
 
+  uint64_t getImmOpValueZibi(const MCInst &MI, unsigned OpNo,
+                             SmallVectorImpl<MCFixup> &Fixups,
+                             const MCSubtargetInfo &STI) const;
+
   uint64_t getImmOpValue(const MCInst &MI, unsigned OpNo,
                          SmallVectorImpl<MCFixup> &Fixups,
                          const MCSubtargetInfo &STI) const;
@@ -303,6 +307,10 @@ static unsigned getInvertedBranchOp(unsigned BrOp) {
     return RISCV::BNE;
   case RISCV::PseudoLongBNE:
     return RISCV::BEQ;
+  case RISCV::PseudoLongBEQI:
+    return RISCV::BNEI;
+  case RISCV::PseudoLongBNEI:
+    return RISCV::BEQI;
   case RISCV::PseudoLongBLT:
     return RISCV::BGE;
   case RISCV::PseudoLongBGE:
@@ -345,14 +353,15 @@ void RISCVMCCodeEmitter::expandLongCondBr(const MCInst &MI,
                                           SmallVectorImpl<MCFixup> &Fixups,
                                           const MCSubtargetInfo &STI) const {
   MCRegister SrcReg1 = MI.getOperand(0).getReg();
-  MCRegister SrcReg2 = MI.getOperand(1).getReg();
-  MCOperand SrcSymbol = MI.getOperand(2);
+  const MCOperand &Src2 = MI.getOperand(1);
+  const MCOperand &SrcSymbol = MI.getOperand(2);
   unsigned Opcode = MI.getOpcode();
   bool IsEqTest =
       Opcode == RISCV::PseudoLongBNE || Opcode == RISCV::PseudoLongBEQ;
 
   bool UseCompressedBr = false;
   if (IsEqTest && STI.hasFeature(RISCV::FeatureStdExtZca)) {
+    MCRegister SrcReg2 = Src2.getReg();
     if (RISCV::X8 <= SrcReg1.id() && SrcReg1.id() <= RISCV::X15 &&
         SrcReg2.id() == RISCV::X0) {
       UseCompressedBr = true;
@@ -374,7 +383,7 @@ void RISCVMCCodeEmitter::expandLongCondBr(const MCInst &MI,
   } else {
     unsigned InvOpc = getInvertedBranchOp(Opcode);
     MCInst TmpInst =
-        MCInstBuilder(InvOpc).addReg(SrcReg1).addReg(SrcReg2).addImm(8);
+        MCInstBuilder(InvOpc).addReg(SrcReg1).addOperand(Src2).addImm(8);
     uint32_t Binary = getBinaryCodeForInstr(TmpInst, Fixups, STI);
     support::endian::write(CB, Binary, llvm::endianness::little);
     Offset = 4;
@@ -392,8 +401,11 @@ void RISCVMCCodeEmitter::expandLongCondBr(const MCInst &MI,
   // Drop any fixup added so we can add the correct one.
   Fixups.resize(FixupStartIndex);
 
-  if (SrcSymbol.isExpr())
+  if (SrcSymbol.isExpr()) {
     addFixup(Fixups, Offset, SrcSymbol.getExpr(), RISCV::fixup_riscv_jal);
+    if (STI.hasFeature(RISCV::FeatureRelax))
+      Fixups.back().setLinkerRelaxable();
+  }
 }
 
 // Expand PseudoLongQC_(E_)Bxxx to an inverted conditional branch and an
@@ -440,8 +452,11 @@ void RISCVMCCodeEmitter::expandQCLongCondBrImm(const MCInst &MI,
   support::endian::write(CB, JBinary, llvm::endianness::little);
   // Drop any fixup added so we can add the correct one.
   Fixups.resize(FixupStartIndex);
-  if (SrcSymbol.isExpr())
+  if (SrcSymbol.isExpr()) {
     addFixup(Fixups, Offset, SrcSymbol.getExpr(), RISCV::fixup_riscv_jal);
+    if (STI.hasFeature(RISCV::FeatureRelax))
+      Fixups.back().setLinkerRelaxable();
+  }
 }
 
 void RISCVMCCodeEmitter::encodeInstruction(const MCInst &MI,
@@ -471,6 +486,8 @@ void RISCVMCCodeEmitter::encodeInstruction(const MCInst &MI,
     return;
   case RISCV::PseudoLongBEQ:
   case RISCV::PseudoLongBNE:
+  case RISCV::PseudoLongBEQI:
+  case RISCV::PseudoLongBNEI:
   case RISCV::PseudoLongBLT:
   case RISCV::PseudoLongBGE:
   case RISCV::PseudoLongBLTU:
@@ -611,6 +628,19 @@ RISCVMCCodeEmitter::getImmOpValueAsrN(const MCInst &MI, unsigned OpNo,
   return getImmOpValue(MI, OpNo, Fixups, STI);
 }
 
+uint64_t
+RISCVMCCodeEmitter::getImmOpValueZibi(const MCInst &MI, unsigned OpNo,
+                                      SmallVectorImpl<MCFixup> &Fixups,
+                                      const MCSubtargetInfo &STI) const {
+  const MCOperand &MO = MI.getOperand(OpNo);
+  assert(MO.isImm() && "Zibi operand must be an immediate");
+  int64_t Res = MO.getImm();
+  if (Res == -1)
+    return 0;
+
+  return Res;
+}
+
 uint64_t RISCVMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
                                            SmallVectorImpl<MCFixup> &Fixups,
                                            const MCSubtargetInfo &STI) const {
@@ -637,8 +667,8 @@ uint64_t RISCVMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
   // The actual emission of `R_RISCV_RELAX` will be handled in
   // `RISCVAsmBackend::applyFixup`.
   bool RelaxCandidate = false;
-  auto AsmRelaxToLinkerRelaxableWithFeature = [&](unsigned Feature) -> void {
-    if (!STI.hasFeature(RISCV::FeatureExactAssembly) && STI.hasFeature(Feature))
+  auto AsmRelaxToLinkerRelaxable = [&]() -> void {
+    if (!STI.hasFeature(RISCV::FeatureExactAssembly))
       RelaxCandidate = true;
   };
 
@@ -693,9 +723,6 @@ uint64_t RISCVMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
         llvm_unreachable("VK_TPREL_LO used with unexpected instruction format");
       RelaxCandidate = true;
       break;
-    case ELF::R_RISCV_TPREL_HI20:
-      RelaxCandidate = true;
-      break;
     case ELF::R_RISCV_CALL_PLT:
       FixupKind = RISCV::fixup_riscv_call_plt;
       RelaxCandidate = true;
@@ -704,32 +731,41 @@ uint64_t RISCVMCCodeEmitter::getImmOpValue(const MCInst &MI, unsigned OpNo,
       FixupKind = RISCV::fixup_riscv_qc_abs20_u;
       RelaxCandidate = true;
       break;
+    case ELF::R_RISCV_GOT_HI20:
+    case ELF::R_RISCV_TPREL_HI20:
+    case ELF::R_RISCV_TLSDESC_HI20:
+      RelaxCandidate = true;
+      break;
     }
   } else if (Kind == MCExpr::SymbolRef || Kind == MCExpr::Binary) {
     // FIXME: Sub kind binary exprs have chance of underflow.
     if (MIFrm == RISCVII::InstFormatJ) {
       FixupKind = RISCV::fixup_riscv_jal;
-      AsmRelaxToLinkerRelaxableWithFeature(RISCV::FeatureVendorXqcilb);
+      RelaxCandidate = true;
     } else if (MIFrm == RISCVII::InstFormatB||
                MIFrm == RISCVII::InstFormatESPV) {
       FixupKind = RISCV::fixup_riscv_branch;
-      // This might be assembler relaxed to `b<cc>; jal` but we cannot relax
-      // the `jal` again in the assembler.
+      // Relaxes to B<cc>; JAL, with fixup_riscv_jal
+      AsmRelaxToLinkerRelaxable();
     } else if (MIFrm == RISCVII::InstFormatCJ) {
       FixupKind = RISCV::fixup_riscv_rvc_jump;
-      AsmRelaxToLinkerRelaxableWithFeature(RISCV::FeatureVendorXqcilb);
+      // Relaxes to JAL with fixup_riscv_jal
+      AsmRelaxToLinkerRelaxable();
     } else if (MIFrm == RISCVII::InstFormatCB) {
       FixupKind = RISCV::fixup_riscv_rvc_branch;
-      // This might be assembler relaxed to `b<cc>; jal` but we cannot relax
-      // the `jal` again in the assembler.
+      // Relaxes to B<cc>; JAL, with fixup_riscv_jal
+      AsmRelaxToLinkerRelaxable();
     } else if (MIFrm == RISCVII::InstFormatCI) {
       FixupKind = RISCV::fixup_riscv_rvc_imm;
+      // Relaxes to `QC.E.LI` with fixup_riscv_qc_e_32
+      if (STI.hasFeature(RISCV::FeatureVendorXqcili))
+        AsmRelaxToLinkerRelaxable();
     } else if (MIFrm == RISCVII::InstFormatI) {
       FixupKind = RISCV::fixup_riscv_12_i;
     } else if (MIFrm == RISCVII::InstFormatQC_EB) {
       FixupKind = RISCV::fixup_riscv_qc_e_branch;
-      // This might be assembler relaxed to `qc.e.b<cc>; jal` but we cannot
-      // relax the `jal` again in the assembler.
+      // Relaxes to QC.E.B<cc>I; JAL, with fixup_riscv_jal
+      AsmRelaxToLinkerRelaxable();
     } else if (MIFrm == RISCVII::InstFormatQC_EAI) {
       FixupKind = RISCV::fixup_riscv_qc_e_32;
       RelaxCandidate = true;
@@ -760,7 +796,7 @@ unsigned RISCVMCCodeEmitter::getVMaskReg(const MCInst &MI, unsigned OpNo,
   MCOperand MO = MI.getOperand(OpNo);
   assert(MO.isReg() && "Expected a register.");
 
-  switch (MO.getReg()) {
+  switch (MO.getReg().id()) {
   default:
     llvm_unreachable("Invalid mask register.");
   case RISCV::V0:

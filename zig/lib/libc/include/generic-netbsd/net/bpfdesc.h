@@ -1,4 +1,4 @@
-/*	$NetBSD: bpfdesc.h,v 1.48.10.1 2024/09/13 14:13:05 martin Exp $	*/
+/*	$NetBSD: bpfdesc.h,v 1.50 2024/08/19 07:47:16 ozaki-r Exp $	*/
 
 /*
  * Copyright (c) 1990, 1991, 1993

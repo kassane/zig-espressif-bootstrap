@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Parse/Parser.h"
+#include "clang/Parse/RAIIObjectsForParser.h"
 #include "clang/Sema/ParsedTemplate.h"
 using namespace clang;
 
@@ -78,6 +79,21 @@ bool Parser::isCXXDeclarationStatement(
     [[fallthrough]];
     // simple-declaration
   default:
+
+    if (DisambiguatingWithExpression) {
+      TentativeParsingAction TPA(*this, /*Unannotated=*/true);
+      // Skip early access checks to support edge cases like extern declarations
+      // involving private types. Tokens are unannotated by reverting so that
+      // access integrity is verified during the subsequent type-lookup phase.
+      SuppressAccessChecks AccessExporter(*this, /*activate=*/true);
+      if (isCXXSimpleDeclaration(/*AllowForRangeDecl=*/false)) {
+        // Do not annotate the tokens, otherwise access will be neglected later.
+        TPA.Revert();
+        return true;
+      }
+      TPA.Commit();
+      return false;
+    }
     return isCXXSimpleDeclaration(/*AllowForRangeDecl=*/false);
   }
 }
@@ -1063,7 +1079,7 @@ Parser::isCXXDeclarationSpecifier(ImplicitTypenameContext AllowImplicitTypename,
       return TPResult::False;
     }
 
-    if (Next.isNot(tok::coloncolon) && Next.isNot(tok::less)) {
+    if (Next.isNoneOf(tok::coloncolon, tok::less, tok::colon)) {
       // Determine whether this is a valid expression. If not, we will hit
       // a parse error one way or another. In that case, tell the caller that
       // this is ambiguous. Typo-correct to type and expression keywords and
@@ -1328,7 +1344,7 @@ Parser::isCXXDeclarationSpecifier(ImplicitTypenameContext AllowImplicitTypename,
         Actions.RestoreNestedNameSpecifierAnnotation(Tok.getAnnotationValue(),
                                                      Tok.getAnnotationRange(),
                                                      SS);
-        if (SS.getScopeRep() && SS.getScopeRep()->isDependent()) {
+        if (SS.getScopeRep().isDependent()) {
           RevertingTentativeParsingAction PA(*this);
           ConsumeAnnotationToken();
           ConsumeToken();
@@ -1376,7 +1392,7 @@ Parser::isCXXDeclarationSpecifier(ImplicitTypenameContext AllowImplicitTypename,
               // If we annotated then the current token should not still be ::
               // FIXME we may want to also check for tok::annot_typename but
               // currently don't have a test case.
-              if (Tok.isNot(tok::annot_cxxscope))
+              if (Tok.isNot(tok::annot_cxxscope) && Tok.isNot(tok::identifier))
                 break;
             }
 

@@ -1,4 +1,4 @@
-/*	$NetBSD: intr.h,v 1.28.20.1 2023/08/09 17:42:02 martin Exp $	*/
+/*	$NetBSD: intr.h,v 1.29 2023/07/11 10:42:07 riastradh Exp $	*/
 
 /*
  * Copyright (c) 2001, 2003 Wasabi Systems, Inc.

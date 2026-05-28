@@ -305,6 +305,23 @@ pub const Node = extern struct {
             }
         }
 
+        /// Moves and expands a node such that its offset and size are aligned to `new_alignment`.
+        ///
+        /// Asserts that `ni` is not `Node.Index.root`.
+        pub fn realign(
+            ni: Node.Index,
+            mf: *MappedFile,
+            gpa: std.mem.Allocator,
+            new_alignment: std.mem.Alignment,
+        ) !void {
+            try mf.realignNode(gpa, ni, new_alignment);
+            var writers_it = mf.writers.first;
+            while (writers_it) |writer_node| : (writers_it = writer_node.next) {
+                const w: *Node.Writer = @fieldParentPtr("writer_node", writer_node);
+                w.interface.buffer = w.ni.slice(mf);
+            }
+        }
+
         pub fn writer(ni: Node.Index, mf: *MappedFile, gpa: std.mem.Allocator, w: *Writer) void {
             w.* = .{
                 .gpa = gpa,
@@ -840,6 +857,82 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
         first_floating_ni = last_fixed_ni;
         last_fixed_ni = last_fixed.prev;
         direction = .reverse;
+    }
+}
+
+fn realignNode(
+    mf: *MappedFile,
+    gpa: std.mem.Allocator,
+    ni: Node.Index,
+    new_alignment: std.mem.Alignment,
+) !void {
+    assert(ni != Node.Index.root); // currently unsupported
+
+    const node = ni.get(mf);
+    const old_offset, const size = node.location().resolve(mf);
+
+    assert(new_alignment.compare(.gt, node.flags.alignment));
+
+    defer if (std.debug.runtime_safety) mf.verify();
+
+    node.flags.alignment = new_alignment;
+
+    const new_size = node.flags.alignment.forward(@intCast(size));
+    if (new_alignment.check(@intCast(old_offset))) {
+        if (new_size > size) try mf.resizeNode(gpa, ni, new_size);
+        return;
+    }
+
+    _, const parent_size = node.parent.location(mf).resolve(mf);
+    const trailing_end = trailing_end: switch (node.next) {
+        .none => parent_size,
+        else => |next_ni| {
+            const next_offset, _ = next_ni.location(mf).resolve(mf);
+            break :trailing_end next_offset;
+        },
+    };
+
+    const forward_offset = new_alignment.forward(@intCast(old_offset));
+    if (forward_offset + new_size <= trailing_end) {
+        // Shift into the free space if possible
+        try mf.ensureCapacityForSetLocation(gpa);
+        if (node.flags.has_content) {
+            const old_file_offset = ni.fileLocation(mf, false).offset;
+            const new_file_offset = (old_file_offset - old_offset) + forward_offset;
+            if (new_file_offset < old_file_offset + size) {
+                @memmove(
+                    mf.memory_map.memory[@intCast(new_file_offset)..][0..@intCast(size)],
+                    mf.memory_map.memory[@intCast(old_file_offset)..][0..@intCast(size)],
+                );
+            } else try mf.moveRange(old_file_offset, new_file_offset, size);
+            @memset(mf.memory_map.memory[@intCast(new_file_offset + size)..][0..@intCast(new_size - size)], 0);
+        }
+
+        ni.setLocationAssumeCapacity(mf, forward_offset, new_size);
+    } else {
+        const temp_size = node.flags.alignment.forward(@intCast(new_size + 1));
+        try mf.resizeNode(gpa, ni, temp_size);
+        const new_offset, _ = ni.location(mf).resolve(mf);
+
+        try mf.ensureCapacityForSetLocation(gpa);
+
+        // Non-fixed nodes may now be aligned if the resize moved them
+        const new_forward_offset = new_alignment.forward(@intCast(new_offset));
+        const final_offset = if (new_forward_offset != new_offset) final_offset: {
+            if (node.flags.has_content) {
+                const old_file_offset = ni.fileLocation(mf, false).offset;
+                const new_file_offset = (old_file_offset - new_offset) + new_forward_offset;
+                @memmove(
+                    mf.memory_map.memory[@intCast(new_file_offset)..][0..@intCast(size)],
+                    mf.memory_map.memory[@intCast(old_file_offset)..][0..@intCast(size)],
+                );
+                @memset(mf.memory_map.memory[@intCast(old_file_offset)..@intCast(new_file_offset)], 0);
+            }
+
+            break :final_offset new_forward_offset;
+        } else new_offset;
+
+        ni.setLocationAssumeCapacity(mf, final_offset, new_size);
     }
 }
 

@@ -401,9 +401,9 @@ pub fn write(self: *Stringify, v: anytype) Error!void {
                 return v.jsonStringify(self);
             }
 
-            if (!enum_info.is_exhaustive) {
-                inline for (enum_info.fields) |field| {
-                    if (v == @field(T, field.name)) {
+            if (enum_info.mode == .nonexhaustive) {
+                inline for (enum_info.field_names) |field_name| {
+                    if (v == @field(T, field_name)) {
                         break;
                     }
                 } else {
@@ -424,15 +424,15 @@ pub fn write(self: *Stringify, v: anytype) Error!void {
             const info = @typeInfo(T).@"union";
             if (info.tag_type) |UnionTagType| {
                 try self.beginObject();
-                inline for (info.fields) |u_field| {
-                    if (v == @field(UnionTagType, u_field.name)) {
-                        try self.objectField(u_field.name);
-                        if (u_field.type == void) {
+                inline for (info.field_names, info.field_types) |u_field_name, u_field_type| {
+                    if (v == @field(UnionTagType, u_field_name)) {
+                        try self.objectField(u_field_name);
+                        if (u_field_type == void) {
                             // void v is {}
                             try self.beginObject();
                             try self.endObject();
                         } else {
-                            try self.write(@field(v, u_field.name));
+                            try self.write(@field(v, u_field_name));
                         }
                         break;
                     }
@@ -455,16 +455,16 @@ pub fn write(self: *Stringify, v: anytype) Error!void {
             } else {
                 try self.beginObject();
             }
-            inline for (S.fields) |Field| {
+            inline for (S.field_names, S.field_types) |field_name, field_type| {
                 // don't include void fields
-                if (Field.type == void) continue;
+                if (field_type == void) continue;
 
                 var emit_field = true;
 
                 // don't include optional fields that are null when emit_null_optional_fields is set to false
-                if (@typeInfo(Field.type) == .optional) {
+                if (@typeInfo(field_type) == .optional) {
                     if (self.options.emit_null_optional_fields == false) {
-                        if (@field(v, Field.name) == null) {
+                        if (@field(v, field_name) == null) {
                             emit_field = false;
                         }
                     }
@@ -472,9 +472,9 @@ pub fn write(self: *Stringify, v: anytype) Error!void {
 
                 if (emit_field) {
                     if (!S.is_tuple) {
-                        try self.objectField(Field.name);
+                        try self.objectField(field_name);
                     }
-                    try self.write(@field(v, Field.name));
+                    try self.write(@field(v, field_name));
                 }
             }
             if (S.is_tuple) {

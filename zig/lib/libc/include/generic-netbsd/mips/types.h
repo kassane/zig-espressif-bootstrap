@@ -1,4 +1,4 @@
-/*	$NetBSD: types.h,v 1.77.4.1 2023/04/03 18:30:41 martin Exp $	*/
+/*	$NetBSD: types.h,v 1.78 2023/03/28 10:54:13 nakayama Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993

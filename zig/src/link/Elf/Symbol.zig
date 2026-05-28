@@ -259,9 +259,9 @@ const AddExtraOpts = struct {
 
 pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) void {
     var extras = symbol.extra(elf_file);
-    inline for (@typeInfo(@TypeOf(opts)).@"struct".fields) |field| {
-        if (@field(opts, field.name)) |x| {
-            @field(extras, field.name) = x;
+    inline for (@typeInfo(@TypeOf(opts)).@"struct".field_names) |field_name| {
+        if (@field(opts, field_name)) |x| {
+            @field(extras, field_name) = x;
         }
     }
     symbol.setExtra(extras, elf_file);
@@ -363,7 +363,7 @@ const Format = struct {
             if (symbol.atom(elf_file)) |atom_ptr| {
                 try writer.print(" : atom({d})", .{atom_ptr.atom_index});
             }
-            var buf: [2]u8 = .{'_'} ** 2;
+            var buf: [2]u8 = @splat('_');
             if (symbol.flags.@"export") buf[0] = 'E';
             if (symbol.flags.import) buf[1] = 'I';
             try writer.print(" : {s}", .{&buf});

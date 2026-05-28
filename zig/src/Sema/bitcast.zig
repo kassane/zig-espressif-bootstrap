@@ -565,6 +565,7 @@ const PackValueBits = struct {
                 },
                 .@"packed" => {
                     const backing_int_val = try pack.primitive(ty.bitpackBackingInt(zcu));
+                    if (backing_int_val.isUndef(zcu)) return pt.undefValue(ty);
                     return pt.bitpackValue(ty, backing_int_val);
                 },
             },
@@ -659,6 +660,7 @@ const PackValueBits = struct {
                 },
                 .@"packed" => {
                     const backing_int_val = try pack.primitive(ty.bitpackBackingInt(zcu));
+                    if (backing_int_val.isUndef(zcu)) return pt.undefValue(ty);
                     return pt.bitpackValue(ty, backing_int_val);
                 },
             },

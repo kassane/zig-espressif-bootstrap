@@ -137,7 +137,6 @@ test "File.setLength" {
 test "legacy setLength" {
     // https://github.com/ziglang/zig/issues/20747 (open fd does not have write permission)
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
-    if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23806
 
     const io = testing.io;
 
@@ -325,6 +324,8 @@ test "Group materializes error.Cancel" {
 }
 
 test "Group task receives cancelation unknowingly" {
+    if (builtin.cpu.arch.isSPARC() and builtin.os.tag == .linux) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/35347
+
     const S = struct {
         io: Io,
         err: ?Io.Cancelable!void,
@@ -629,6 +630,7 @@ test "randomSecure" {
 
 test "memory mapping" {
     if (builtin.cpu.arch == .hexagon) return error.SkipZigTest; // mmap returned EINVAL
+    if (builtin.cpu.arch.isSPARC()) return error.SkipZigTest; // mmap returned EINVAL
     if (builtin.os.tag == .wasi and builtin.link_libc) {
         // https://github.com/ziglang/zig/issues/20747 (open fd does not have write permission)
         return error.SkipZigTest;
@@ -970,4 +972,92 @@ test "Select.cancel with no tasks, no deadlock" {
     };
     var select: Io.Select(U) = .init(io, &.{});
     try expectEqual(null, select.cancel());
+}
+
+test "Condition.waitTimeout" {
+    const io = testing.io;
+
+    const Context = struct {
+        ready: Io.Event = .unset,
+        mutex: Io.Mutex = .init,
+        cond: Io.Condition = .init,
+        value: u32 = 0,
+
+        fn worker(ctx: *@This()) !void {
+            defer ctx.ready.set(io);
+
+            try ctx.mutex.lock(io);
+            defer ctx.mutex.unlock(io);
+
+            try expectError(error.Timeout, ctx.cond.waitTimeout(io, &ctx.mutex, .{ .duration = .{
+                .raw = .fromMilliseconds(1),
+                .clock = .awake,
+            } }));
+            try expectEqual(0, ctx.value);
+
+            ctx.ready.set(io);
+
+            while (ctx.value == 0) try ctx.cond.wait(io, &ctx.mutex);
+            try expectEqual(1, ctx.value);
+        }
+    };
+
+    var ctx: Context = .{};
+
+    var future = io.concurrent(Context.worker, .{&ctx}) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => return error.SkipZigTest,
+    };
+    defer future.cancel(io) catch {};
+
+    try ctx.ready.wait(io);
+
+    try ctx.mutex.lock(io);
+    ctx.value = 1;
+    ctx.mutex.unlock(io);
+    ctx.cond.signal(io);
+
+    try future.await(io);
+}
+
+test "Condition.waitUncancelable" {
+    const io = testing.io;
+
+    const Context = struct {
+        ready: Io.Event = .unset,
+        mutex: Io.Mutex = .init,
+        cond: Io.Condition = .init,
+        value: u32 = 0,
+
+        fn worker(ctx: *@This()) !void {
+            defer ctx.ready.set(io);
+
+            try ctx.mutex.lock(io);
+            defer ctx.mutex.unlock(io);
+
+            try expectEqual(0, ctx.value);
+
+            ctx.ready.set(io);
+
+            ctx.cond.waitUncancelable(io, &ctx.mutex);
+
+            while (ctx.value == 0) try ctx.cond.wait(io, &ctx.mutex);
+            try expectEqual(1, ctx.value);
+        }
+    };
+
+    var ctx: Context = .{};
+
+    var future = io.concurrent(Context.worker, .{&ctx}) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => return error.SkipZigTest,
+    };
+    defer future.cancel(io) catch {};
+
+    try ctx.ready.wait(io);
+
+    try ctx.mutex.lock(io);
+    ctx.value = 1;
+    ctx.mutex.unlock(io);
+    ctx.cond.signal(io);
+
+    try future.await(io);
 }

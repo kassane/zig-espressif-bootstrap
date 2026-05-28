@@ -38,7 +38,7 @@ project(zig
 )
 
 set(ZIG_VERSION_MAJOR 0)
-set(ZIG_VERSION_MINOR 16)
+set(ZIG_VERSION_MINOR 17)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
@@ -133,9 +133,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 21)
-find_package(clang 21)
-find_package(lld 21)
+find_package(llvm 22)
+find_package(clang 22)
+find_package(lld 22)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -240,7 +240,8 @@ set(ZIG_STAGE2_SOURCES
     lib/std/atomic.zig
     lib/std/base64.zig
     lib/std/buf_map.zig
-    lib/std/builtin.zig
+    lib/std/lang.zig
+    lib/std/lang/assembly.zig
     lib/std/c.zig
     lib/std/coff.zig
     lib/std/crypto.zig
@@ -610,7 +611,7 @@ else()
   set(ZIG1_COMPILE_FLAGS "-std=c99 -Os -fno-strict-aliasing")
   set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-sanitize=undefined -fno-stack-protector -fno-strict-aliasing")
   # Must match the condition in build.zig.
-  if(ZIG_HOST_TARGET_ARCH MATCHES "^(arm|thumb)(eb)?$" OR ZIG_HOST_TARGET_ARCH MATCHES "^powerpc(64)?(le)?$")
+  if(ZIG_HOST_TARGET_ARCH MATCHES "^(arm|thumb)(eb)?$" OR ZIG_HOST_TARGET_ARCH EQUAL "hexagon" OR ZIG_HOST_TARGET_ARCH MATCHES "^powerpc(64)?(le)?$")
     set(ZIG1_COMPILE_FLAGS "${ZIG1_COMPILE_FLAGS} -ffunction-sections -fdata-sections")
     set(ZIG2_COMPILE_FLAGS "${ZIG2_COMPILE_FLAGS} -ffunction-sections -fdata-sections")
   endif()
@@ -736,11 +737,6 @@ if(MSVC OR MINGW)
 endif()
 
 
-# "-Dno-langref" is hardcoded because stage2 builds lack the `@cImport`
-# feature, which some of the doctests rely on.
-
-# To obtain this document, run `zig build` against stage3 rather than stage2.
-# Note that the `langref` step can be used to isolate this task.
 set(ZIG_BUILD_ARGS
   --zig-lib-dir "${PROJECT_SOURCE_DIR}/lib"
 
@@ -750,8 +746,6 @@ set(ZIG_BUILD_ARGS
 
   -Denable-llvm
   "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
-
-  -Dno-langref
 )
 
 set(ZIG_EXTRA_BUILD_ARGS "" CACHE STRING "Extra zig build args")

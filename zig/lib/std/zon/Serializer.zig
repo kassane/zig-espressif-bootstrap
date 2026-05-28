@@ -122,7 +122,7 @@ pub fn valueMaxDepth(self: *Serializer, val: anytype, options: ValueOptions, dep
 
 /// Serialize a value, similar to `serializeArbitraryDepth`.
 pub fn valueArbitraryDepth(self: *Serializer, val: anytype, options: ValueOptions) Error!void {
-    comptime assert(canSerializeType(@TypeOf(val)));
+    comptime assertCanSerializeType(@TypeOf(val));
     switch (@typeInfo(@TypeOf(val))) {
         .int, .comptime_int => if (options.emit_codepoint_literals.emitAsCodepoint(val)) |c| {
             self.codePoint(c) catch |err| switch (err) {
@@ -165,7 +165,7 @@ pub fn valueArbitraryDepth(self: *Serializer, val: anytype, options: ValueOption
         },
         .@"struct" => |@"struct"| if (@"struct".is_tuple) {
             var container = try self.beginTuple(
-                .{ .whitespace_style = .{ .fields = @"struct".fields.len } },
+                .{ .whitespace_style = .{ .fields = @"struct".field_names.len } },
             );
             inline for (val) |field_value| {
                 try container.fieldArbitraryDepth(field_value, options);
@@ -173,15 +173,20 @@ pub fn valueArbitraryDepth(self: *Serializer, val: anytype, options: ValueOption
             try container.end();
         } else {
             // Decide which fields to emit
-            const fields, const skipped: [@"struct".fields.len]bool = if (options.emit_default_optional_fields) b: {
-                break :b .{ @"struct".fields.len, @splat(false) };
+            const fields, const skipped: [@"struct".field_names.len]bool = if (options.emit_default_optional_fields) b: {
+                break :b .{ @"struct".field_names.len, @splat(false) };
             } else b: {
-                var fields = @"struct".fields.len;
-                var skipped: [@"struct".fields.len]bool = @splat(false);
-                inline for (@"struct".fields, &skipped) |field_info, *skip| {
-                    if (field_info.default_value_ptr) |ptr| {
-                        const default: *const field_info.type = @ptrCast(@alignCast(ptr));
-                        const field_value = @field(val, field_info.name);
+                var fields = @"struct".field_names.len;
+                var skipped: [@"struct".field_names.len]bool = @splat(false);
+                inline for (
+                    @"struct".field_names,
+                    @"struct".field_types,
+                    @"struct".field_attrs,
+                    &skipped,
+                ) |field_name, field_type, field_attrs, *skip| {
+                    if (field_attrs.default_value_ptr) |ptr| {
+                        const default: *const field_type = @ptrCast(@alignCast(ptr));
+                        const field_value = @field(val, field_name);
                         if (std.meta.eql(field_value, default.*)) {
                             skip.* = true;
                             fields -= 1;
@@ -195,11 +200,11 @@ pub fn valueArbitraryDepth(self: *Serializer, val: anytype, options: ValueOption
             var container = try self.beginStruct(
                 .{ .whitespace_style = .{ .fields = fields } },
             );
-            inline for (@"struct".fields, skipped) |field_info, skip| {
+            inline for (@"struct".field_names, skipped) |field_name, skip| {
                 if (!skip) {
                     try container.fieldArbitraryDepth(
-                        field_info.name,
-                        @field(val, field_info.name),
+                        field_name,
+                        @field(val, field_name),
                         options,
                     );
                 }
@@ -321,7 +326,7 @@ pub fn tupleArbitraryDepth(
 }
 
 fn tupleImpl(self: *Serializer, val: anytype, options: ValueOptions) Error!void {
-    comptime assert(canSerializeType(@TypeOf(val)));
+    comptime assertCanSerializeType(@TypeOf(val));
     switch (@typeInfo(@TypeOf(val))) {
         .@"struct" => {
             var container = try self.beginTuple(.{ .whitespace_style = .{ .fields = val.len } });
@@ -713,11 +718,11 @@ fn typeIsRecursiveInner(comptime T: type, comptime prev_visited: []const type) b
         .optional => |optional| typeIsRecursiveInner(optional.child, visited),
         .array => |array| typeIsRecursiveInner(array.child, visited),
         .vector => |vector| typeIsRecursiveInner(vector.child, visited),
-        .@"struct" => |@"struct"| for (@"struct".fields) |field| {
-            if (typeIsRecursiveInner(field.type, visited)) break true;
+        .@"struct" => |@"struct"| for (@"struct".field_types) |field_type| {
+            if (typeIsRecursiveInner(field_type, visited)) break true;
         } else false,
-        .@"union" => |@"union"| inline for (@"union".fields) |field| {
-            if (typeIsRecursiveInner(field.type, visited)) break true;
+        .@"union" => |@"union"| inline for (@"union".field_types) |field_type| {
+            if (typeIsRecursiveInner(field_type, visited)) break true;
         } else false,
         else => false,
     };
@@ -761,8 +766,8 @@ fn checkValueDepth(val: anytype, depth: usize) error{ExceededMaxDepth}!void {
         .array => for (val) |item| {
             try checkValueDepth(item, child_depth);
         },
-        .@"struct" => |@"struct"| inline for (@"struct".fields) |field_info| {
-            try checkValueDepth(@field(val, field_info.name), child_depth);
+        .@"struct" => |@"struct"| inline for (@"struct".field_names) |field_name| {
+            try checkValueDepth(@field(val, field_name), child_depth);
         },
         .@"union" => |@"union"| if (@"union".tag_type == null) {
             return;
@@ -814,6 +819,10 @@ test checkValueDepth {
     try expectValueDepthEquals(3, @as([]const []const u8, &.{&.{ 1, 2, 3 }}));
 }
 
+inline fn assertCanSerializeType(T: type) void {
+    if (!canSerializeType(T)) @compileError("cannot serialize: " ++ @typeName(T));
+}
+
 inline fn canSerializeType(T: type) bool {
     comptime return canSerializeTypeInner(T, &.{}, false);
 }
@@ -847,7 +856,7 @@ fn canSerializeTypeInner(
         .@"opaque",
         => false,
 
-        .@"enum" => |@"enum"| @"enum".is_exhaustive,
+        .@"enum" => |@"enum"| @"enum".mode == .exhaustive,
 
         .pointer => |pointer| switch (pointer.size) {
             .one => canSerializeTypeInner(pointer.child, visited, parent_is_optional),
@@ -866,8 +875,8 @@ fn canSerializeTypeInner(
         .@"struct" => |@"struct"| {
             for (visited) |V| if (T == V) return true;
             const new_visited = visited ++ .{T};
-            for (@"struct".fields) |field| {
-                if (!canSerializeTypeInner(field.type, new_visited, false)) return false;
+            for (@"struct".field_types) |field_type| {
+                if (!canSerializeTypeInner(field_type, new_visited, false)) return false;
             }
             return true;
         },
@@ -875,8 +884,8 @@ fn canSerializeTypeInner(
             for (visited) |V| if (T == V) return true;
             const new_visited = visited ++ .{T};
             if (@"union".tag_type == null) return false;
-            for (@"union".fields) |field| {
-                if (field.type != void and !canSerializeTypeInner(field.type, new_visited, false)) {
+            for (@"union".field_types) |field_type| {
+                if (field_type != void and !canSerializeTypeInner(field_type, new_visited, false)) {
                     return false;
                 }
             }

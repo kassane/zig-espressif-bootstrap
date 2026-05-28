@@ -73,6 +73,7 @@ pub const DynamicSection = struct {
         if (dt.rpath > 0) nentries += 1; // RUNPATH
         if (elf_file.sectionByName(".init") != null) nentries += 1; // INIT
         if (elf_file.sectionByName(".fini") != null) nentries += 1; // FINI
+        if (elf_file.sectionByName(".preinit_array") != null) nentries += 2; // PREINIT_ARRAY
         if (elf_file.sectionByName(".init_array") != null) nentries += 2; // INIT_ARRAY
         if (elf_file.sectionByName(".fini_array") != null) nentries += 2; // FINI_ARRAY
         if (elf_file.section_indexes.rela_dyn != null) nentries += 3; // RELA
@@ -122,6 +123,13 @@ pub const DynamicSection = struct {
         if (elf_file.sectionByName(".fini")) |shndx| {
             const addr = shdrs[shndx].sh_addr;
             try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_FINI, .d_val = addr }), .little);
+        }
+
+        // PREINIT_ARRAY
+        if (elf_file.sectionByName(".preinit_array")) |shndx| {
+            const shdr = shdrs[shndx];
+            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_PREINIT_ARRAY, .d_val = shdr.sh_addr }), .little);
+            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_PREINIT_ARRAYSZ, .d_val = shdr.sh_size }), .little);
         }
 
         // INIT_ARRAY

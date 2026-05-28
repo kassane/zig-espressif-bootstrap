@@ -4,6 +4,9 @@ const truncf = @import("./truncf.zig").truncf;
 
 comptime {
     symbol(&__trunctfhf2, "__trunctfhf2");
+    if (compiler_rt.want_ppc_abi) {
+        symbol(&__trunctfhf2, "__trunckfhf2");
+    }
 }
 
 pub fn __trunctfhf2(a: f128) callconv(.c) compiler_rt.F16T(f128) {

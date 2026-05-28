@@ -1,4 +1,4 @@
-/*	$NetBSD: lwp.h,v 1.13 2017/12/08 01:19:29 christos Exp $	*/
+/*	$NetBSD: lwp.h,v 1.15 2024/11/04 15:45:22 christos Exp $	*/
 
 /*-
  * Copyright (c) 2000 The NetBSD Foundation, Inc.

@@ -3084,7 +3084,7 @@ pub const StringTable = struct {
 
     pub const Block = struct {
         strings: std.ArrayList(Token) = .empty,
-        set_indexes: std.bit_set.IntegerBitSet(16) = .{ .mask = 0 },
+        set_indexes: std.bit_set.Integer(16) = .{ .mask = 0 },
         memory_flags: MemoryFlags = MemoryFlags.defaults(res.RT.STRING),
         characteristics: u32,
         version: u32,

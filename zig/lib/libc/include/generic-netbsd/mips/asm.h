@@ -1,4 +1,4 @@
-/*	$NetBSD: asm.h,v 1.71.4.1 2023/07/31 13:36:30 martin Exp $	*/
+/*	$NetBSD: asm.h,v 1.77 2025/01/06 10:46:43 martin Exp $	*/
 
 /*
  * Copyright (c) 1992, 1993
@@ -59,6 +59,7 @@
 
 #if defined(_KERNEL_OPT)
 #include "opt_gprof.h"
+#include "opt_multiprocessor.h"
 #endif
 
 #ifdef __ASSEMBLER__
@@ -70,6 +71,9 @@
 #define	__SHIFTIN(__x, __mask) ((__x) * __LOWEST_SET_BIT(__mask))
 #endif	/* __ASSEMBLER__ */
 
+#ifndef GPROF
+#define	_MIPS_ASM_MCOUNT(x)
+#else
 /*
  * Define -pg profile entry code.
  * Must always be noreorder, must never use a macro instruction.
@@ -80,7 +84,7 @@
  * stack and the final addiu to t9 must always equal the size of this
  * _MIPS_ASM_MCOUNT.
  */
-#define	_MIPS_ASM_MCOUNT					\
+#define	_MIPS_ASM_MCOUNT(x)					\
 	.set	push;						\
 	.set	noreorder;					\
 	.set	noat;						\
@@ -103,7 +107,8 @@
  * call _mcount().  For the no abicalls case, skip the reloc dance.
  */
 #ifdef __mips_abicalls
-#define	_MIPS_ASM_MCOUNT					\
+#if defined(__mips_n32)		/* n32 */
+#define	_MIPS_ASM_MCOUNT(x)					\
 	.set	push;						\
 	.set	noreorder;					\
 	.set	noat;						\
@@ -117,8 +122,28 @@
 	lw	t9,8(sp);					\
 	addiu	sp,16;						\
 	.set	pop;
+#else				/* n64 */
+#define	_MIPS_ASM_MCOUNT(x)					\
+	.set	push;						\
+	.set	noreorder;					\
+	.set	noat;						\
+	dsubu	sp,16;						\
+	sd	gp,0(sp);					\
+	sd	t9,8(sp);					\
+	move	AT,ra;						\
+	lui	gp,%hi(%neg(%gp_rel(x)));			\
+	daddiu	gp,%lo(%neg(%gp_rel(x)));			\
+	daddu	gp,gp,t9;					\
+	ld	t9,%call16(_mcount)(gp);			\
+	jalr	t9;						\
+	 nop;							\
+	ld	gp,0(sp);					\
+	ld	t9,8(sp);					\
+	daddiu	sp,16;						\
+	.set	pop;
+#endif
 #else /* !__mips_abicalls */
-#define	_MIPS_ASM_MCOUNT					\
+#define	_MIPS_ASM_MCOUNT(x)					\
 	.set	push;						\
 	.set	noreorder;					\
 	.set	noat;						\
@@ -128,12 +153,7 @@
 	.set	pop;
 #endif /* !__mips_abicalls */
 #endif /* n32/n64 */
-
-#ifdef GPROF
-#define	MCOUNT _MIPS_ASM_MCOUNT
-#else
-#define	MCOUNT
-#endif
+#endif /* GPROF */
 
 #ifdef USE_AENT
 #define	AENT(x)				\
@@ -186,7 +206,7 @@ _C_LABEL(x): ;				\
  */
 #define	STATIC_LEAF(x)			\
 	STATIC_LEAF_NOPROFILE(x);	\
-	MCOUNT
+	_MIPS_ASM_MCOUNT(x)
 
 /*
  * LEAF
@@ -197,7 +217,7 @@ _C_LABEL(x): ;				\
  */
 #define	LEAF(x)				\
 	LEAF_NOPROFILE(x);		\
-	MCOUNT
+	_MIPS_ASM_MCOUNT(x)
 
 /*
  * STATIC_XLEAF
@@ -240,7 +260,7 @@ _C_LABEL(x): ;						\
  */
 #define	NESTED(x, fsize, retpc)			\
 	NESTED_NOPROFILE(x, fsize, retpc);	\
-	MCOUNT
+	_MIPS_ASM_MCOUNT(x)
 
 /*
  * STATIC_NESTED
@@ -248,7 +268,7 @@ _C_LABEL(x): ;						\
  */
 #define	STATIC_NESTED(x, fsize, retpc)			\
 	STATIC_NESTED_NOPROFILE(x, fsize, retpc);	\
-	MCOUNT
+	_MIPS_ASM_MCOUNT(x)
 
 /*
  * XNESTED
@@ -326,9 +346,18 @@ _C_LABEL(x):
 	.asciz str;			\
 	.align	3
 
+#ifdef _NETBSD_REVISIONID
+#define	RCSID(x)	.pushsection ".ident","MS",@progbits,1;		\
+			.asciz x;					\
+			.ascii "$"; .ascii "NetBSD: "; .ascii __FILE__;	\
+			.ascii " "; .ascii _NETBSD_REVISIONID;		\
+			.asciz " $";					\
+			.popsection
+#else
 #define	RCSID(x)	.pushsection ".ident","MS",@progbits,1;		\
 			.asciz x;					\
 			.popsection
+#endif
 
 /*
  * XXX retain dialects XXX
@@ -573,7 +602,7 @@ _C_LABEL(x):
 #endif
 
 /* compiler define */
-#if defined(__OCTEON__)
+#if defined(MULTIPROCESSOR) && defined(__OCTEON__)
 /*
  * See common/lib/libc/arch/mips/atomic/membar_ops.S for notes on
  * Octeon memory ordering guarantees and barriers.
@@ -582,7 +611,30 @@ _C_LABEL(x):
  * we need to apply a plunger to it _after_ releasing a lock or else
  * other CPUs may spin for hundreds of thousands of cycles before they
  * see the lock is released.  So we also have the quirky SYNC_PLUNGER
- * barrier as syncw.
+ * barrier as syncw.  See the note in the SYNCW instruction description
+ * on p. 2168 of Cavium OCTEON III CN78XX Hardware Reference Manual,
+ * CN78XX-HM-0.99E, September 2014:
+ *
+ *	Core A (writer)
+ *
+ *	SW R1, DATA#		change shared DATA value
+ *	LI R1, 1
+ *	SYNCW# (or SYNCWS)	Perform DATA store before performing FLAG store
+ *	SW R2, FLAG#		say that the shared DATA value is valid
+ *	SYNCW# (or SYNCWS)	Force the FLAG store soon (CN78XX-specific)
+ *
+ *	...
+ *
+ *	The second SYNCW instruction executed by core A is not
+ *	necessary for correctness, but has very important performance
+ *	effects on the CN78XX.  Without it, the store to FLAG may
+ *	linger in core A's write buffer before it becomes visible to
+ *	any other cores.  (If core A is not performing many stores,
+ *	this may add hundreds of thousands of cycles to the flag
+ *	release time since the CN78XX core nominally retains stores to
+ *	attempt to merge them before sending the store on the CMI.)
+ *	Applications should include this second SYNCW instruction after
+ *	flag or lock release.
  */
 #define	LLSCSYNC	/* nothing */
 #define	BDSYNC		sync
@@ -591,7 +643,7 @@ _C_LABEL(x):
 #define	SYNC_REL	sync 4
 #define	BDSYNC_PLUNGER	sync 4
 #define	SYNC_PLUNGER	sync 4
-#elif __mips >= 3 || !defined(__mips_o32)
+#elif defined(MULTIPROCESSOR) && (__mips >= 3 || !defined(__mips_o32))
 #define	LLSCSYNC	/* nothing */
 #define	BDSYNC		sync
 #define	BDSYNC_ACQ	sync

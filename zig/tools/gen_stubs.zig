@@ -141,10 +141,10 @@ const Family = enum {
     x86,
 };
 
-const arches: [@typeInfo(Arch).@"enum".fields.len]Arch = blk: {
-    var result: [@typeInfo(Arch).@"enum".fields.len]Arch = undefined;
-    for (@typeInfo(Arch).@"enum".fields) |field| {
-        const arch: Arch = @enumFromInt(field.value);
+const arches: [@typeInfo(Arch).@"enum".field_names.len]Arch = blk: {
+    var result: [@typeInfo(Arch).@"enum".field_names.len]Arch = undefined;
+    for (@typeInfo(Arch).@"enum".field_values) |field_value| {
+        const arch: Arch = @enumFromInt(field_value);
         result[archIndex(arch)] = arch;
     }
     break :blk result;
@@ -160,8 +160,8 @@ const MultiSym = struct {
 
     fn isSingleArch(ms: MultiSym) ?Arch {
         var result: ?Arch = null;
-        inline for (@typeInfo(Arch).@"enum".fields) |field| {
-            const arch: Arch = @enumFromInt(field.value);
+        inline for (@typeInfo(Arch).@"enum".field_values) |field_value| {
+            const arch: Arch = @enumFromInt(field_value);
             if (ms.present[archIndex(arch)]) {
                 if (result != null) return null;
                 result = arch;
@@ -172,8 +172,8 @@ const MultiSym = struct {
 
     fn isFamily(ms: MultiSym) ?Family {
         var result: ?Family = null;
-        inline for (@typeInfo(Arch).@"enum".fields) |field| {
-            const arch: Arch = @enumFromInt(field.value);
+        inline for (@typeInfo(Arch).@"enum".field_values) |field_value| {
+            const arch: Arch = @enumFromInt(field_value);
             if (ms.present[archIndex(arch)]) {
                 const family = arch.family();
                 if (result) |r| if (family != r) return null;
@@ -193,8 +193,8 @@ const MultiSym = struct {
     }
 
     fn isTime32Only(ms: MultiSym) bool {
-        inline for (@typeInfo(Arch).@"enum".fields) |field| {
-            const arch: Arch = @enumFromInt(field.value);
+        inline for (@typeInfo(Arch).@"enum".field_values) |field_value| {
+            const arch: Arch = @enumFromInt(field_value);
             if (ms.present[archIndex(arch)] != arch.isTime32()) {
                 return false;
             }
@@ -233,8 +233,8 @@ const MultiSym = struct {
     }
 
     fn isPtrSize(ms: MultiSym, mult: u16) bool {
-        inline for (@typeInfo(Arch).@"enum".fields) |field| {
-            const arch: Arch = @enumFromInt(field.value);
+        inline for (@typeInfo(Arch).@"enum".field_values) |field_value| {
+            const arch: Arch = @enumFromInt(field_value);
             const arch_index = archIndex(arch);
             if (ms.present[arch_index] and ms.size[arch_index] != arch.ptrSize() * mult) {
                 return false;
@@ -244,8 +244,8 @@ const MultiSym = struct {
     }
 
     fn isWeak64(ms: MultiSym) bool {
-        inline for (@typeInfo(Arch).@"enum".fields) |field| {
-            const arch: Arch = @enumFromInt(field.value);
+        inline for (@typeInfo(Arch).@"enum".field_values) |field_value| {
+            const arch: Arch = @enumFromInt(field_value);
             const arch_index = archIndex(arch);
             const binding: u4 = switch (arch.ptrSize()) {
                 4 => std.elf.STB_GLOBAL,
@@ -260,8 +260,8 @@ const MultiSym = struct {
     }
 
     fn isWeakTime64(ms: MultiSym) bool {
-        inline for (@typeInfo(Arch).@"enum".fields) |field| {
-            const arch: Arch = @enumFromInt(field.value);
+        inline for (@typeInfo(Arch).@"enum".field_values) |field_value| {
+            const arch: Arch = @enumFromInt(field_value);
             const arch_index = archIndex(arch);
             const binding: u4 = if (arch.isTime32()) std.elf.STB_GLOBAL else std.elf.STB_WEAK;
             if (ms.present[arch_index] and ms.binding[arch_index] != binding) {
@@ -702,12 +702,12 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: std.builtin.End
             }
         } else {
             gop.value_ptr.* = .{
-                .present = [1]bool{false} ** arches.len,
+                .present = @splat(false),
                 .section = section_index_map[this_section],
                 .ty = ty,
-                .binding = [1]u4{0} ** arches.len,
+                .binding = @splat(0),
                 .visib = visib,
-                .size = [1]u64{0} ** arches.len,
+                .size = @splat(0),
             };
         }
         gop.value_ptr.present[archIndex(parse.arch)] = true;

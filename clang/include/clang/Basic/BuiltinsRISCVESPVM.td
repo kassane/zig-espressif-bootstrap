@@ -529,7 +529,7 @@ let Features = "xespv", Attributes = [NoThrow, RequiredVectorWidth<128>] in
 
   // ESP.STXQ.32 (_m version) - Store 32-bit data from qu vector using sel4 to memory address calculated using qw vector and sel8
   // Returns void
-  def esp_stxq_32_m : RISCVBuiltin<"void(_Vector<4, int>, _Vector<8, short>, void *, int, int)">;
+  def esp_stxq_32_m : RISCVBuiltin<"void(void *, _Vector<4, int>, _Vector<8, short>, int, int)">;
 
   // ESP.VLDHBC.16.INCP (_m version) - Load 128-bit data and broadcast 16-bit halves to two 128-bit vectors
   // Returns updated pointer, outputs passed via pointers
@@ -1414,6 +1414,15 @@ let Features = "xespv", Attributes = [NoThrow, RequiredVectorWidth<128>] in
 
   // Note: Scalar instructions (ADDX2, ADDX4, SUBX2, SUBX4, SAT) are already
   // defined in BuiltinsRISCVESP32P4.td, so we don't redefine them here.
+}
+
+// GPR ALU (.m): SSA result = op(rs1, rs2); lowers to esp.{addx2,addx4,subx2,subx4}.
+let Features = "xespv", Attributes = [NoThrow] in {
+  def esp_addx2_m : RISCVBuiltin<"unsigned int(unsigned int, unsigned int)">;
+  def esp_addx4_m : RISCVBuiltin<"unsigned int(unsigned int, unsigned int)">;
+  def esp_subx2_m : RISCVBuiltin<"unsigned int(unsigned int, unsigned int)">;
+  def esp_subx4_m : RISCVBuiltin<"unsigned int(unsigned int, unsigned int)">;
+  def esp_sat_m : RISCVBuiltin<"unsigned int(unsigned int, unsigned int, unsigned int)">;
 }
 
 // MOVX - Read/Write implicit registers (_m version)

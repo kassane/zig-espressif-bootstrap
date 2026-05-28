@@ -933,10 +933,11 @@ PreservedAnalyses
 ForceSpecializationWrapperPass::run(Module &M, ModuleAnalysisManager &AM) {
   // Find the cl::opt by its string name.
   cl::opt<bool> *ForceSpecOpt = nullptr;
-  auto &RegisteredOptions = cl::getRegisteredOptions();
-  auto It = RegisteredOptions.find("force-specialization");
-  if (It != RegisteredOptions.end()) {
-    ForceSpecOpt = static_cast<cl::opt<bool> *>(It->getValue());
+  DenseMap<StringRef, cl::Option *> &Map =
+      cl::getRegisteredOptions();
+
+  if (Map.count("force-specialization") == 1u) {
+    ForceSpecOpt = static_cast<cl::opt<bool> *>(Map["force-specialization"]);
   }
 
   // Use RAII helper to ensure the flag is restored.

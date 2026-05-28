@@ -157,13 +157,6 @@ pub fn join(a: anytype, b: anytype) @Vector(vectorLength(@TypeOf(a)) + vectorLen
 /// Returns a vector whose elements alternates between those of each input vector.
 /// For example, `interlace(.{[4]u32{11, 12, 13, 14}, [4]u32{21, 22, 23, 24}})` returns a vector containing `.{11, 21, 12, 22, 13, 23, 14, 24}`.
 pub fn interlace(vecs: anytype) @Vector(vectorLength(@TypeOf(vecs[0])) * vecs.len, std.meta.Child(@TypeOf(vecs[0]))) {
-    // interlace doesn't work on MIPS, for some reason.
-    // Notes from earlier debug attempt:
-    //  The indices are correct. The problem seems to be with the @shuffle builtin.
-    //  On MIPS, the test that interlaces small_base gives { 0, 2, 0, 0, 64, 255, 248, 200, 0, 0 }.
-    //  Calling this with two inputs seems to work fine, but I'll let the compile error trigger for all inputs, just to be safe.
-    if (builtin.cpu.arch.isMIPS()) @compileError("TODO: Find out why interlace() doesn't work on MIPS");
-
     const VecType = @TypeOf(vecs[0]);
     const vecs_arr = @as([vecs.len]VecType, vecs);
     const Child = std.meta.Child(@TypeOf(vecs_arr[0]));
@@ -247,13 +240,11 @@ test "vector patterns" {
     try std.testing.expectEqual([8]u32{ 10, 20, 30, 40, 55, 66, 77, 88 }, join(base, other_base));
     try std.testing.expectEqual([2]u32{ 20, 30 }, extract(base, 1, 2));
 
-    if (!builtin.cpu.arch.isMIPS()) {
-        try std.testing.expectEqual([8]u32{ 10, 55, 20, 66, 30, 77, 40, 88 }, interlace(.{ base, other_base }));
+    try std.testing.expectEqual([8]u32{ 10, 55, 20, 66, 30, 77, 40, 88 }, interlace(.{ base, other_base }));
 
-        const small_braid = interlace(small_bases);
-        try std.testing.expectEqual([10]u8{ 0, 2, 4, 6, 8, 1, 3, 5, 7, 9 }, small_braid);
-        try std.testing.expectEqual(small_bases, deinterlace(small_bases.len, small_braid));
-    }
+    const small_braid = interlace(small_bases);
+    try std.testing.expectEqual([10]u8{ 0, 2, 4, 6, 8, 1, 3, 5, 7, 9 }, small_braid);
+    try std.testing.expectEqual(small_bases, deinterlace(small_bases.len, small_braid));
 }
 
 /// Joins two vectors, shifts them leftwards (towards lower indices) and extracts the leftmost elements into a vector the length of a and b.
@@ -384,9 +375,6 @@ pub fn prefixScanWithFunc(
     /// For example, this should be 0 for addition or 1 for multiplication.
     comptime identity: std.meta.Child(@TypeOf(vec)),
 ) if (ErrorType == void) @TypeOf(vec) else ErrorType!@TypeOf(vec) {
-    // I haven't debugged this, but it might be a cousin of sorts to what's going on with interlace.
-    if (builtin.cpu.arch.isMIPS()) @compileError("TODO: Find out why prefixScan doesn't work on MIPS");
-
     const len = vectorLength(@TypeOf(vec));
 
     if (hop == 0) @compileError("hop can not be 0; you'd be going nowhere forever!");
@@ -456,11 +444,6 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
 }
 
 test "vector prefix scan" {
-    if (builtin.cpu.arch == .aarch64_be and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21893
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon) return error.SkipZigTest;
-
-    if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
-
     const int_base = @Vector(4, i32){ 11, 23, 9, -21 };
     const float_base = @Vector(4, f32){ 2, 0.5, -10, 6.54321 };
     const bool_base = @Vector(4, bool){ true, false, true, false };

@@ -53,9 +53,7 @@ pub extern "c" fn profiling_enable(pid: pid_t, event_mask: PERF_EVENT) c_int;
 pub extern "c" fn profiling_disable(pid: pid_t) c_int;
 pub extern "c" fn profiling_free_buffer(pid: pid_t) c_int;
 
-pub extern "c" fn futex(userspace_address: *u32, futex_op: c_int, value: u32, timeout: *const timespec, userspace_address2: *u32, value3: u32) c_int;
-pub extern "c" fn futex_wait(userspace_address: *u32, value: u32, abstime: *const timespec, clockid: clockid_t, process_shared: c_int) c_int;
-pub extern "c" fn futex_wake(userspace_address: *u32, count: u32, process_shared: c_int) c_int;
+pub extern "c" fn futex(userspace_address: *u32, futex_op: c_int, value: u32, timeout: ?*const timespec, userspace_address2: ?*u32, value3: u32) c_int;
 
 pub extern "c" fn purge(mode: c_int) c_int;
 
@@ -65,9 +63,6 @@ pub extern "c" fn perf_register_string(string: [*]const u8, string_length: usize
 pub extern "c" fn get_stack_bounds(user_stack_base: *usize, user_stack_size: *usize) c_int;
 
 pub extern "c" fn anon_create(size: usize, options: O) c_int;
-
-pub extern "c" fn serenity_readlink(path: [*]const u8, path_length: usize, buffer: [*]u8, buffer_size: usize) c_int;
-pub extern "c" fn serenity_open(path: [*]const u8, path_length: usize, options: c_int, ...) c_int;
 
 pub extern "c" fn getkeymap(name_buffer: [*]u8, name_buffer_size: usize, map: [*]u32, shift_map: [*]u32, alt_map: [*]u32, altgr_map: [*]u32, shift_altgr_map: [*]u32) c_int;
 pub extern "c" fn setkeymap(name: [*]const u8, map: [*]const u32, shift_map: [*]const u32, alt_map: [*]const u32, altgr_map: [*]const u32, shift_altgr_map: [*]const u32) c_int;

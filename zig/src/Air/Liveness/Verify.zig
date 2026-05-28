@@ -249,8 +249,6 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .cmp_gt_optimized,
             .cmp_neq,
             .cmp_neq_optimized,
-            .bool_and,
-            .bool_or,
             .store,
             .store_safe,
             .array_elem_val,

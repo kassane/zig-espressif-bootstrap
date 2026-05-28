@@ -1,28 +1,21 @@
 export fn a() void {
-    errdefer |_| {
-        @"_";
-    }
-}
-export fn b() void {
     const x: error{}!void = {};
     x catch |_| {
         @"_";
     };
 }
-export fn c() void {
+export fn b() void {
     const x: error{}!void = {};
     x catch |_| switch (_) {};
 }
-export fn d() void {
+export fn c() void {
     const x: error{}!u32 = 0;
     if (x) |v| v else |_| switch (_) {}
 }
 
 // error
 //
-// :2:15: error: discard of error capture; omit it instead
-// :3:9: error: use of undeclared identifier '_'
-// :8:14: error: discard of error capture; omit it instead
-// :9:9: error: use of undeclared identifier '_'
-// :14:14: error: discard of error capture; omit it instead
-// :18:24: error: discard of error capture; omit it instead
+// :3:14: error: discard of error capture; omit it instead
+// :4:9: error: use of undeclared identifier '_'
+// :9:14: error: discard of error capture; omit it instead
+// :13:24: error: discard of error capture; omit it instead

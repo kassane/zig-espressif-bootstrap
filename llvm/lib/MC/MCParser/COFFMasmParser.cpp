@@ -18,10 +18,8 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbolCOFF.h"
 #include "llvm/MC/SectionKind.h"
-#include "llvm/Support/Casting.h"
 #include "llvm/Support/SMLoc.h"
 #include <cstdint>
-#include <utility>
 
 using namespace llvm;
 
@@ -462,7 +460,7 @@ bool COFFMasmParser::parseDirectiveProc(StringRef Directive, SMLoc Loc) {
   }
 
   // Define symbol as simple external function
-  auto *COFFSym = cast<MCSymbolCOFF>(Sym);
+  auto *COFFSym = static_cast<MCSymbolCOFF *>(Sym);
   COFFSym->setExternal(true);
   COFFSym->setType(COFF::IMAGE_SYM_DTYPE_FUNCTION
                    << COFF::SCT_COMPLEX_TYPE_SHIFT);
@@ -537,8 +535,6 @@ bool COFFMasmParser::parseSEHDirectiveEndProlog(StringRef Directive,
   return false;
 }
 
-namespace llvm {
-
-MCAsmParserExtension *createCOFFMasmParser() { return new COFFMasmParser; }
-
-} // end namespace llvm
+MCAsmParserExtension *llvm::createCOFFMasmParser() {
+  return new COFFMasmParser;
+}

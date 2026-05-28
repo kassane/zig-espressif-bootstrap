@@ -246,14 +246,14 @@ pub fn BitcodeWriter(comptime types: []const type) type {
 
                     try self.bitcode.writeBits(comptime abbrevId(Abbrev), abbrev_len);
 
-                    const fields = std.meta.fields(Abbrev);
+                    const field_names = comptime std.meta.fieldNames(Abbrev);
 
                     // This abbreviation might only contain literals
-                    if (fields.len == 0) return;
+                    if (field_names.len == 0) return;
 
                     comptime var field_index: usize = 0;
                     inline for (Abbrev.ops) |ty| {
-                        const param = @field(params, fields[field_index].name);
+                        const param = @field(params, field_names[field_index]);
                         switch (ty) {
                             .literal => continue,
                             .fixed => |len| try self.bitcode.writeBits(adapter.get(param), len),
@@ -296,7 +296,7 @@ pub fn BitcodeWriter(comptime types: []const type) type {
                             },
                         }
                         field_index += 1;
-                        if (field_index == fields.len) break;
+                        if (field_index == field_names.len) break;
                     }
                 }
 
@@ -404,7 +404,7 @@ fn charTo6Bit(c: u8) u8 {
 }
 
 fn BufType(comptime T: type, comptime min_len: usize) type {
-    return std.meta.Int(.unsigned, @max(min_len, @bitSizeOf(switch (@typeInfo(T)) {
+    return @Int(.unsigned, @max(min_len, @bitSizeOf(switch (@typeInfo(T)) {
         .comptime_int => u32,
         .int => |info| if (info.signedness == .unsigned)
             T
@@ -414,7 +414,7 @@ fn BufType(comptime T: type, comptime min_len: usize) type {
         .bool => u1,
         .@"struct" => |info| switch (info.layout) {
             .auto, .@"extern" => @compileError("Unsupported type: " ++ @typeName(T)),
-            .@"packed" => std.meta.Int(.unsigned, @bitSizeOf(T)),
+            .@"packed" => @Int(.unsigned, @bitSizeOf(T)),
         },
         else => @compileError("Unsupported type: " ++ @typeName(T)),
     })));
@@ -425,7 +425,7 @@ fn bufValue(value: anytype, comptime min_len: usize) BufType(@TypeOf(value), min
         .comptime_int, .int => @intCast(value),
         .@"enum" => @intFromEnum(value),
         .bool => @intFromBool(value),
-        .@"struct" => @intCast(@as(std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(value))), @bitCast(value))),
+        .@"struct" => @intCast(@as(@Int(.unsigned, @bitSizeOf(@TypeOf(value))), @bitCast(value))),
         else => unreachable,
     };
 }

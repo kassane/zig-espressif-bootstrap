@@ -24,6 +24,6 @@ pub fn build(b: *std.Build) void {
     b.default_step = run_step;
 
     const run_artifact = b.addRunArtifact(exe);
-    run_artifact.addArg(b.cache_root.path orelse "");
+    run_artifact.addFileArg(.cache_root);
     run_step.dependOn(&run_artifact.step);
 }

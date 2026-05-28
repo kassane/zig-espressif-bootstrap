@@ -1,7 +1,6 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const math = std.math;
-const meta = std.meta;
 const expect = std.testing.expect;
 
 pub fn isNan(x: anytype) bool {
@@ -12,7 +11,7 @@ pub fn isNan(x: anytype) bool {
 ///       this is tracked by https://github.com/ziglang/zig/issues/14366
 pub fn isSignalNan(x: anytype) bool {
     const T = @TypeOf(x);
-    const U = meta.Int(.unsigned, @bitSizeOf(T));
+    const U = @Int(.unsigned, @bitSizeOf(T));
     const quiet_signal_bit_mask = 1 << (math.floatFractionalBits(T) - 1);
     return isNan(x) and (@as(U, @bitCast(x)) & quiet_signal_bit_mask == 0);
 }

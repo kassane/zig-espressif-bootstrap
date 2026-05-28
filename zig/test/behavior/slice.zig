@@ -314,7 +314,7 @@ test "C pointer slice access" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
-    var buf: [10]u32 = [1]u32{42} ** 10;
+    var buf: [10]u32 = @splat(42);
     const c_ptr = @as([*c]const u32, @ptrCast(&buf));
 
     var runtime_zero: usize = 0;
@@ -388,9 +388,9 @@ test "empty array to slice" {
             const align_1: []align(1) u8 = empty;
             const align_4: []align(4) u8 = empty;
             const align_16: []align(16) u8 = empty;
-            try expect(1 == @typeInfo(@TypeOf(align_1)).pointer.alignment);
-            try expect(4 == @typeInfo(@TypeOf(align_4)).pointer.alignment);
-            try expect(16 == @typeInfo(@TypeOf(align_16)).pointer.alignment);
+            try expect(1 == @typeInfo(@TypeOf(align_1)).pointer.attrs.@"align");
+            try expect(4 == @typeInfo(@TypeOf(align_4)).pointer.attrs.@"align");
+            try expect(16 == @typeInfo(@TypeOf(align_16)).pointer.attrs.@"align");
         }
     };
 
@@ -764,16 +764,6 @@ test "array concat of slices gives ptr to array" {
         _ = .{ &a, &b };
         const c = a ++ b;
         try expect(std.mem.eql(u8, c, "aoeuasdf"));
-        try expect(@TypeOf(c) == *const [8]u8);
-    }
-}
-
-test "array mult of slice gives ptr to array" {
-    comptime {
-        var a: []const u8 = "aoeu";
-        _ = &a;
-        const c = a ** 2;
-        try expect(std.mem.eql(u8, c, "aoeuaoeu"));
         try expect(@TypeOf(c) == *const [8]u8);
     }
 }

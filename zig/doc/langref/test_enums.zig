@@ -102,8 +102,8 @@ test "std.meta.Tag" {
 
 // @typeInfo tells us the field count and the fields names:
 test "@typeInfo" {
-    try expectEqual(4, @typeInfo(Small).@"enum".fields.len);
-    try expectEqualStrings(@typeInfo(Small).@"enum".fields[1].name, "two");
+    try expectEqual(4, @typeInfo(Small).@"enum".field_names.len);
+    try expectEqualStrings(@typeInfo(Small).@"enum".field_names[1], "two");
 }
 
 // @tagName gives a [:0]const u8 representation of an enum value:

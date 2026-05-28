@@ -8,7 +8,7 @@ test "tuple" {
         @as(f64, 12.34),
         true,
         "hi",
-    } ++ .{false} ** 2;
+    } ++ .{ false, false };
     try expectEqual(1234, values[0]);
     try expectEqual(false, values[4]);
     inline for (values, 0..) |v, i| {

@@ -18,7 +18,7 @@ fn usage(io: Io) noreturn {
         \\                            By default, enabled unless a port is specified.
         \\
     ) catch {};
-    std.process.exit(1);
+    std.process.exit(0);
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -271,12 +271,16 @@ fn serveWasm(
     // Do the compilation every request, so that the user can edit the files
     // and see the changes without restarting the server.
     const wasm_base_path = try buildWasmBinary(arena, context, optimize_mode);
+    const target = std.zig.system.resolveTargetQuery(io, std.Build.parseTargetQuery(.{
+        .arch_os_abi = autodoc_arch_os_abi,
+        .cpu_features = autodoc_cpu_features,
+    }) catch unreachable) catch unreachable;
     const bin_name = try std.zig.binNameAlloc(arena, .{
         .root_name = autodoc_root_name,
-        .target = &(std.zig.system.resolveTargetQuery(io, std.Build.parseTargetQuery(.{
-            .arch_os_abi = autodoc_arch_os_abi,
-            .cpu_features = autodoc_cpu_features,
-        }) catch unreachable) catch unreachable),
+        .cpu_arch = target.cpu.arch,
+        .os_tag = target.os.tag,
+        .ofmt = target.ofmt,
+        .abi = target.abi,
         .output_mode = .Exe,
     });
     // std.http.Server does not have a sendfile API yet.
@@ -406,51 +410,26 @@ fn buildWasmBinary(
     child.stdin.?.close(io);
     child.stdin = null;
 
-    switch (try child.wait(io)) {
-        .exited => |code| {
-            if (code != 0) {
-                std.log.err(
-                    "the following command exited with error code {d}:\n{s}",
-                    .{ code, try std.Build.Step.allocPrintCmd(arena, .inherit, null, argv.items) },
-                );
-                return error.WasmCompilationFailed;
-            }
-        },
-        .signal => |sig| {
-            std.log.err(
-                "the following command terminated with signal {t}:\n{s}",
-                .{ sig, try std.Build.Step.allocPrintCmd(arena, .inherit, null, argv.items) },
-            );
-            return error.WasmCompilationFailed;
-        },
-        .stopped => |sig| {
-            std.log.err(
-                "the following command stopped unexpectedly with signal {t}:\n{s}",
-                .{ sig, try std.Build.Step.allocPrintCmd(arena, .inherit, null, argv.items) },
-            );
-            return error.WasmCompilationFailed;
-        },
-        .unknown => {
-            std.log.err(
-                "the following command terminated unexpectedly:\n{s}",
-                .{try std.Build.Step.allocPrintCmd(arena, .inherit, null, argv.items)},
-            );
-            return error.WasmCompilationFailed;
-        },
+    const term = try child.wait(io);
+    if (!term.success()) {
+        std.log.err("the following command {f}:\n{s}", .{
+            term, try std.zig.allocPrintCmd(arena, argv.items, .{}),
+        });
+        return error.WasmCompilationFailed;
     }
 
     if (result_error_bundle.errorMessageCount() > 0) {
         try result_error_bundle.renderToStderr(io, .{}, .auto);
         std.log.err("the following command failed with {d} compilation errors:\n{s}", .{
             result_error_bundle.errorMessageCount(),
-            try std.Build.Step.allocPrintCmd(arena, .inherit, null, argv.items),
+            try std.zig.allocPrintCmd(arena, argv.items, .{}),
         });
         return error.WasmCompilationFailed;
     }
 
     return result orelse {
         std.log.err("child process failed to report result\n{s}", .{
-            try std.Build.Step.allocPrintCmd(arena, .inherit, null, argv.items),
+            try std.zig.allocPrintCmd(arena, argv.items, .{}),
         });
         return error.WasmCompilationFailed;
     };

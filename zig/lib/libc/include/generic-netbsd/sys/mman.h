@@ -1,4 +1,4 @@
-/*	$NetBSD: mman.h,v 1.62 2019/12/06 19:37:43 christos Exp $	*/
+/*	$NetBSD: mman.h,v 1.65.4.1 2025/11/20 19:27:16 martin Exp $	*/
 
 /*-
  * Copyright (c) 1982, 1986, 1993
@@ -157,7 +157,7 @@ typedef	__off_t		off_t;		/* file offset */
 		":\060" "ALIGN=256TB\0"		\
 		":\064" "ALIGN=4PB\0"		\
 		":\070" "ALIGN=64PB\0"		\
-		":\074" "ALIGN=256PB\0"		\
+		":\074" "ALIGN=1EB\0"		\
 		"*"	"ALIGN=2^%ju\0"
 #endif
 
@@ -212,7 +212,14 @@ typedef	__off_t		off_t;		/* file offset */
 					   implemented in UVM */
 #define	MAP_INHERIT_ZERO	4	/* zero in child */
 #define	MAP_INHERIT_DEFAULT	MAP_INHERIT_COPY
-#endif
+
+/*
+ * Flags to memfd_create
+ */
+#define	MFD_CLOEXEC		0x1U
+#define	MFD_ALLOW_SEALING	0x2U
+#define	MFD_CLOFORK		0x4U
+#endif /* _NETBSD_SOURCE */
 
 #ifndef _KERNEL
 
@@ -234,6 +241,7 @@ int	madvise(void *, size_t, int);
 int	mincore(void *, size_t, char *);
 int	minherit(void *, size_t, int);
 void *	mremap(void *, size_t, void *, size_t, int);
+int	memfd_create(const char *, unsigned int);
 #endif
 int	posix_madvise(void *, size_t, int);
 int	shm_open(const char *, int, mode_t);

@@ -93,6 +93,132 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext, os: std.Target.
     });
 
     cases.addCase(.{
+        .name = "for loop pops error return trace",
+        .source =
+        \\fn foo() !void { return error.FooError; }
+        \\
+        \\pub fn main() !void {
+        \\    for (0..2) |_| {
+        \\        const f = foo();
+        \\        f catch {};
+        \\    } else {
+        \\        const f = foo();
+        \\        f catch {};
+        \\    }
+        \\    return error.Stop;
+        \\}
+        ,
+        .expect_error = "Stop",
+        .expect_trace =
+        \\source.zig:11:5: [address] in main
+        \\    return error.Stop;
+        \\    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .name = "implicit continue in for loop pops stale error return trace",
+        .source =
+        \\fn foo() !void { return error.FooError; }
+        \\
+        \\pub fn main() !void {
+        \\    for (0..2) |i| {
+        \\        const f = foo();
+        \\        f catch {};
+        \\
+        \\        if (i == 1) return error.Stop;
+        \\    }
+        \\}
+        ,
+        .expect_error = "Stop",
+        .expect_trace =
+        \\source.zig:1:18: [address] in foo
+        \\fn foo() !void { return error.FooError; }
+        \\                 ^
+        \\source.zig:8:21: [address] in main
+        \\        if (i == 1) return error.Stop;
+        \\                    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .name = "while loop pops error return trace",
+        .source =
+        \\fn foo() !void { return error.FooError; }
+        \\
+        \\pub fn main() !void {
+        \\    var i: usize = 0;
+        \\    while (i < 2) {
+        \\        const f = foo();
+        \\        f catch {};
+        \\        i += 1;
+        \\    } else {
+        \\        const f = foo();
+        \\        f catch {};
+        \\    }
+        \\    return error.Stop;
+        \\}
+        ,
+        .expect_error = "Stop",
+        .expect_trace =
+        \\source.zig:13:5: [address] in main
+        \\    return error.Stop;
+        \\    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
+        .name = "implicit continue in while loop pops stale error return trace",
+        .source =
+        \\fn foo() !void { return error.FooError; }
+        \\
+        \\pub fn main() !void {
+        \\    var i: usize = 0;
+        \\    while (i < 2) {
+        \\        const f = foo();
+        \\        f catch {};
+        \\
+        \\        if (i == 1) return error.Stop;
+        \\        i += 1;
+        \\    }
+        \\}
+        ,
+        .expect_error = "Stop",
+        .expect_trace =
+        \\source.zig:1:18: [address] in foo
+        \\fn foo() !void { return error.FooError; }
+        \\                 ^
+        \\source.zig:9:21: [address] in main
+        \\        if (i == 1) return error.Stop;
+        \\                    ^
+        ,
+        .disable_trace_optimized = &.{
+            .{ .x86_64, .windows },
+            .{ .x86, .windows },
+            .{ .x86_64, .macos },
+            .{ .aarch64, .macos },
+        },
+    });
+
+    cases.addCase(.{
         .name = "try return + handled catch/if-else",
         .source =
         \\fn foo() !void {
@@ -454,12 +580,15 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext, os: std.Target.
 
     cases.addCase(.{
         .name = "trace through inline call",
+        // The main function has two inline calls to ensure
+        // that inlinees in PDBs are properly deduplicated.
         .source =
         \\pub fn main() !void {
-        \\    try foo();
+        \\    try foo(false);
+        \\    try foo(true);
         \\}
-        \\inline fn foo() !void {
-        \\    try bar();
+        \\inline fn foo(b: bool) !void {
+        \\    if (b) try bar();
         \\}
         \\fn bar() !void {
         \\    return error.ThisIsSoSad;
@@ -471,25 +600,25 @@ pub fn addCases(cases: *@import("tests.zig").ErrorTracesContext, os: std.Target.
             // so our expected result is slightly different for Windows than on other operating
             // systems.
             .windows =>
-            \\source.zig:8:5: [address] in bar
+            \\source.zig:9:5: [address] in bar
             \\    return error.ThisIsSoSad;
             \\    ^
-            \\source.zig:5: [address] in foo
-            \\    try bar();
+            \\source.zig:6: [address] in foo
+            \\    if (b) try bar();
             \\
-            \\source.zig:2:5: [address] in main
-            \\    try foo();
+            \\source.zig:3:5: [address] in main
+            \\    try foo(true);
             \\    ^
             ,
             else =>
-            \\source.zig:8:5: [address] in bar
+            \\source.zig:9:5: [address] in bar
             \\    return error.ThisIsSoSad;
             \\    ^
-            \\source.zig:5:5: [address] in foo
-            \\    try bar();
-            \\    ^
-            \\source.zig:2:5: [address] in main
-            \\    try foo();
+            \\source.zig:6:12: [address] in foo
+            \\    if (b) try bar();
+            \\           ^
+            \\source.zig:3:5: [address] in main
+            \\    try foo(true);
             \\    ^
             ,
         },

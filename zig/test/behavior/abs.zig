@@ -155,7 +155,7 @@ test "@abs big int <= 128 bits" {
     try testAbsUnsignedBigInt();
 }
 
-fn abs(comptime T: type, a: T) std.meta.Int(.unsigned, @typeInfo(T).int.bits) {
+fn abs(comptime T: type, a: T) @Int(.unsigned, @typeInfo(T).int.bits) {
     return @abs(a);
 }
 
@@ -214,9 +214,9 @@ test "@abs floats" {
     try comptime testAbsFloats(f64);
     try testAbsFloats(f64);
     try comptime testAbsFloats(f80);
-    if (builtin.zig_backend != .stage2_wasm and builtin.zig_backend != .stage2_spirv and builtin.zig_backend != .stage2_riscv64) try testAbsFloats(f80);
+    if (builtin.zig_backend != .stage2_spirv and builtin.zig_backend != .stage2_riscv64) try testAbsFloats(f80);
     try comptime testAbsFloats(f128);
-    if (builtin.zig_backend != .stage2_wasm and builtin.zig_backend != .stage2_spirv and builtin.zig_backend != .stage2_riscv64) try testAbsFloats(f128);
+    if (builtin.zig_backend != .stage2_spirv and builtin.zig_backend != .stage2_riscv64) try testAbsFloats(f128);
 }
 
 fn testAbsFloats(comptime T: type) !void {
@@ -259,7 +259,6 @@ fn testAbsFloats(comptime T: type) !void {
 test "@abs int vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -326,7 +325,6 @@ fn testAbsIntVectors(comptime len: comptime_int) !void {
 
 test "@abs unsigned int vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -385,7 +383,6 @@ fn testAbsUnsignedIntVectors(comptime len: comptime_int) !void {
 
 test "@abs float vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;

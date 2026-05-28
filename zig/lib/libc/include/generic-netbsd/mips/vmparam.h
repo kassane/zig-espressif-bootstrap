@@ -1,4 +1,4 @@
-/*	$NetBSD: vmparam.h,v 1.66.10.1 2023/05/15 10:37:24 martin Exp $	*/
+/*	$NetBSD: vmparam.h,v 1.67 2023/05/14 18:44:27 he Exp $	*/
 
 /*
  * Copyright (c) 1988 University of Utah.

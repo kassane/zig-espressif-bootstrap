@@ -96,6 +96,22 @@ pub const Term = union(enum) {
     signal: std.posix.SIG,
     stopped: std.posix.SIG,
     unknown: u32,
+
+    pub fn success(t: Term) bool {
+        return switch (t) {
+            .exited => |code| code == 0,
+            else => false,
+        };
+    }
+
+    pub fn format(t: Term, w: *Io.Writer) Io.Writer.Error!void {
+        switch (t) {
+            .exited => |code| return w.print("exited with code {d}", .{code}),
+            .signal => |sig| return w.print("terminated with signal {t}", .{sig}),
+            .stopped => |sig| return w.print("stopped with signal {t}", .{sig}),
+            .unknown => return w.writeAll("terminated unexpectedly"),
+        }
+    }
 };
 
 pub const Cwd = union(enum) {
@@ -134,4 +150,8 @@ pub const WaitError = error{
 pub fn wait(child: *Child, io: Io) WaitError!Term {
     assert(child.id != null);
     return io.vtable.childWait(io.userdata, child);
+}
+
+test {
+    _ = Term;
 }

@@ -518,9 +518,9 @@ pub fn readFromPackedMemory(
         },
         .int => {
             if (buffer.len == 0) return pt.intValue(ty, 0);
+            if (ty.toIntern() == .u0_type) return pt.intValue(ty, 0);
             const int_info = ty.intInfo(zcu);
             const bits = int_info.bits;
-            if (bits == 0) return pt.intValue(ty, 0);
 
             // Fast path for integers <= u64
             if (bits <= 64) switch (int_info.signedness) {
@@ -882,15 +882,16 @@ pub fn fieldValue(val: Value, pt: Zcu.PerThread, index: usize) !Value {
                 else => unreachable,
             };
             // Avoid hitting gpa for accesses to small packed structs
-            var sfba_state = std.heap.stackFallback(128, zcu.comp.gpa);
-            const sfba = sfba_state.get();
-            const buf = try sfba.alloc(u8, @intCast((ty.bitSize(zcu) + 7) / 8));
-            defer sfba.free(buf);
+            var bfa_buf: [128]u8 = undefined;
+            var bfa_state: std.heap.BufferFirstAllocator = .init(&bfa_buf, zcu.comp.gpa);
+            const bfa = bfa_state.allocator();
+            const buf = try bfa.alloc(u8, @intCast((ty.bitSize(zcu) + 7) / 8));
+            defer bfa.free(buf);
             int_val.writeToPackedMemory(zcu, buf, 0) catch |err| switch (err) {
                 error.ReinterpretDeclRef => unreachable, // it's an integer
                 error.OutOfMemory => |e| return e,
             };
-            return Value.readFromPackedMemory(field_ty, pt, buf, field_bit_offset, sfba) catch |err| switch (err) {
+            return Value.readFromPackedMemory(field_ty, pt, buf, field_bit_offset, bfa) catch |err| switch (err) {
                 error.IllDefinedMemoryLayout => unreachable, // it's a bitpack
                 error.OutOfMemory => |e| return e,
             };
@@ -1610,7 +1611,7 @@ pub fn hasRepeatedByteRepr(val: Value, zcu: *const Zcu) !?u8 {
     defer zcu.gpa.free(byte_buffer);
 
     writeToMemory(val, zcu, byte_buffer) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         error.ReinterpretDeclRef => return null,
         // TODO: The writeToMemory function was originally created for the purpose
         // of comptime pointer casting. However, it is now additionally being used
@@ -1844,7 +1845,7 @@ pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, pt: Zcu.PerThread) !Value
     } }));
 }
 
-fn canonicalizeBasePtr(base_ptr: Value, want_size: std.builtin.Type.Pointer.Size, want_child: Type, pt: Zcu.PerThread) !Value {
+fn canonicalizeBasePtr(base_ptr: Value, want_size: std.lang.Type.Pointer.Size, want_child: Type, pt: Zcu.PerThread) !Value {
     const ptr_ty = base_ptr.typeOf(pt.zcu);
     const ptr_info = ptr_ty.ptrInfo(pt.zcu);
 
@@ -2198,19 +2199,19 @@ pub fn pointerDerivation(ptr_val: Value, arena: Allocator, pt: Zcu.PerThread, op
 const InterpretMode = enum {
     /// In this mode, types are assumed to match what the compiler was built with in terms of field
     /// order, field types, etc. This improves compiler performance. However, it means that certain
-    /// modifications to `std.builtin` will result in compiler crashes.
+    /// modifications to `std.lang` will result in compiler crashes.
     direct,
     /// In this mode, various details of the type are allowed to differ from what the compiler was built
     /// with. Fields are matched by name rather than index; added struct fields are ignored, and removed
     /// struct fields use their default value if one exists. This is slower than `.direct`, but permits
-    /// making certain changes to `std.builtin` (in particular reordering/adding/removing fields), so it
-    /// is useful when applying breaking changes.
+    /// making certain changes to `std.lang` (in particular reordering/adding/removing fields), so it is
+    /// useful when applying breaking changes.
     by_name,
 };
 const interpret_mode: InterpretMode = @field(InterpretMode, @tagName(build_options.value_interpret_mode));
 
 /// Given a `Value` representing a comptime-known value of type `T`, unwrap it into an actual `T` known to the compiler.
-/// This is useful for accessing `std.builtin` structures received from comptime logic.
+/// This is useful for accessing `std.lang` structures received from comptime logic.
 pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMemory, UndefinedValue, TypeMismatch }!T {
     const zcu = pt.zcu;
     const io = zcu.comp.io;
@@ -2287,23 +2288,23 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
 
         .@"struct" => |@"struct"| switch (interpret_mode) {
             .direct => {
-                if (ty.structFieldCount(zcu) != @"struct".fields.len) return error.TypeMismatch;
+                if (ty.structFieldCount(zcu) != @"struct".field_names.len) return error.TypeMismatch;
                 var result: T = undefined;
-                inline for (@"struct".fields, 0..) |field, field_idx| {
+                inline for (@"struct".field_names, @"struct".field_types, 0..) |field_name, field_type, field_idx| {
                     const field_val = try val.fieldValue(pt, field_idx);
-                    @field(result, field.name) = try field_val.interpret(field.type, pt);
+                    @field(result, field_name) = try field_val.interpret(field_type, pt);
                 }
                 return result;
             },
             .by_name => {
                 const struct_obj = zcu.typeToStruct(ty) orelse return error.TypeMismatch;
                 var result: T = undefined;
-                inline for (@"struct".fields) |field| {
-                    const field_name_ip = try ip.getOrPutString(zcu.gpa, io, pt.tid, field.name, .no_embedded_nulls);
-                    @field(result, field.name) = if (struct_obj.nameIndex(ip, field_name_ip)) |field_idx| f: {
+                inline for (@"struct".field_names, @"struct".field_types, @"struct".field_attrs) |field_name, field_type, field_attr| {
+                    const field_name_ip = try ip.getOrPutString(zcu.gpa, io, pt.tid, field_name, .no_embedded_nulls);
+                    @field(result, field_name) = if (struct_obj.nameIndex(ip, field_name_ip)) |field_idx| f: {
                         const field_val = try val.fieldValue(pt, field_idx);
-                        break :f try field_val.interpret(field.type, pt);
-                    } else (field.defaultValue() orelse return error.TypeMismatch);
+                        break :f try field_val.interpret(field_type, pt);
+                    } else (field_attr.defaultValue(field_type) orelse return error.TypeMismatch);
                 }
                 return result;
             },
@@ -2312,7 +2313,7 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
 }
 
 /// Given any `val` and a `Type` corresponding `@TypeOf(val)`, construct a `Value` representing it which can be used
-/// within the compilation. This is useful for passing `std.builtin` structures in the compiler back to the compilation.
+/// within the compilation. This is useful for passing `std.lang` structures in the compiler back to the compilation.
 /// This is the inverse of `interpret`.
 pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory, TypeMismatch }!Value {
     const T = @TypeOf(val);
@@ -2384,11 +2385,11 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
 
         .@"struct" => |@"struct"| switch (interpret_mode) {
             .direct => {
-                if (ty.structFieldCount(zcu) != @"struct".fields.len) return error.TypeMismatch;
-                var field_vals: [@"struct".fields.len]InternPool.Index = undefined;
-                inline for (&field_vals, @"struct".fields, 0..) |*field_val, field, field_idx| {
+                if (ty.structFieldCount(zcu) != @"struct".field_names.len) return error.TypeMismatch;
+                var field_vals: [@"struct".field_names.len]InternPool.Index = undefined;
+                inline for (&field_vals, @"struct".field_names, 0..) |*field_val, field_name, field_idx| {
                     const field_ty = ty.fieldType(field_idx, zcu);
-                    field_val.* = (try uninterpret(@field(val, field.name), field_ty, pt)).toIntern();
+                    field_val.* = (try uninterpret(@field(val, field_name), field_ty, pt)).toIntern();
                 }
                 return pt.aggregateValue(ty, &field_vals);
             },
@@ -2398,11 +2399,11 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
                 const field_vals = try zcu.gpa.alloc(InternPool.Index, want_fields_len);
                 defer zcu.gpa.free(field_vals);
                 @memset(field_vals, .none);
-                inline for (@"struct".fields) |field| {
-                    const field_name_ip = try ip.getOrPutString(zcu.gpa, io, pt.tid, field.name, .no_embedded_nulls);
+                inline for (@"struct".field_names) |field_name| {
+                    const field_name_ip = try ip.getOrPutString(zcu.gpa, io, pt.tid, field_name, .no_embedded_nulls);
                     if (struct_obj.nameIndex(ip, field_name_ip)) |field_idx| {
                         const field_ty = ty.fieldType(field_idx, zcu);
-                        field_vals[field_idx] = (try uninterpret(@field(val, field.name), field_ty, pt)).toIntern();
+                        field_vals[field_idx] = (try uninterpret(@field(val, field_name), field_ty, pt)).toIntern();
                     }
                 }
                 for (field_vals, 0..) |*field_val, field_idx| {

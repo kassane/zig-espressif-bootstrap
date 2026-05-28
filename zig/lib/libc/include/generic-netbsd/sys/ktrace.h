@@ -1,4 +1,4 @@
-/*	$NetBSD: ktrace.h,v 1.68 2022/06/29 22:10:43 riastradh Exp $	*/
+/*	$NetBSD: ktrace.h,v 1.71 2025/04/06 19:13:06 riastradh Exp $	*/
 
 /*
  * Copyright (c) 1988, 1993
@@ -33,6 +33,8 @@
 
 #ifndef _SYS_KTRACE_H_
 #define _SYS_KTRACE_H_
+
+#include <sys/param.h>
 
 #include <sys/mutex.h>
 #include <sys/lwp.h>
@@ -265,9 +267,9 @@ struct ktr_execfd {
     "b\16MIB\0" \
     "b\17EXEC_FD\0" \
     "f\30\4VERSION\0" \
-    "b\36TRC_EMUL\0" \
-    "b\37INHERIT\0" \
-    "b\40PERSISTENT\0"
+    "b\34TRC_EMUL\0" \
+    "b\36INHERIT\0" \
+    "b\37PERSISTENT\0"
 
 /*
  * trace flags (also in p_traceflags)

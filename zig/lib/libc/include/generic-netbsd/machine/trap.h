@@ -1,3 +1,3 @@
-/*	$NetBSD: trap.h,v 1.1 2002/12/09 12:16:18 scw Exp $	*/
+/*	$NetBSD: trap.h,v 1.1 2002/03/07 14:44:02 simonb Exp $	*/
 
-#include <powerpc/trap.h>
+#include <mips/trap.h>

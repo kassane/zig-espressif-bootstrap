@@ -31,21 +31,37 @@ pub fn detectNativeCpuAndFeatures(
 
     cpu.features.addFeatureSet(cpu.model.features);
 
-    const cfg1 = cpucfg(1);
     const cfg2 = cpucfg(2);
     const cfg3 = cpucfg(3);
 
-    setFeature(&cpu, .ual, bit(cfg1, 20));
+    if (builtin.os.tag == .linux) {
+        const HWCAP = std.os.linux.HWCAP;
+        const hwcap_bits: usize = if (builtin.link_libc)
+            std.c.getauxval(std.elf.AT_HWCAP)
+        else
+            std.os.linux.getauxval(std.elf.AT_HWCAP);
 
-    const has_fpu = bit(cfg2, 0);
-    setFeature(&cpu, .f, has_fpu and bit(cfg2, 1));
-    setFeature(&cpu, .d, has_fpu and bit(cfg2, 2));
+        setFeature(&cpu, .ual, (hwcap_bits & HWCAP.UAL) != 0);
 
-    setFeature(&cpu, .lsx, bit(cfg2, 6));
-    setFeature(&cpu, .lasx, bit(cfg2, 7));
-    setFeature(&cpu, .lvz, bit(cfg2, 10));
+        const has_fpu = (hwcap_bits & HWCAP.FPU) != 0;
+        setFeature(&cpu, .f, has_fpu and bit(cfg2, 1));
+        setFeature(&cpu, .d, has_fpu and bit(cfg2, 2));
+        setFeature(&cpu, .lsx, (hwcap_bits & HWCAP.LSX) != 0);
+        setFeature(&cpu, .lasx, (hwcap_bits & HWCAP.LASX) != 0);
 
-    setFeature(&cpu, .lbt, bit(cfg2, 18) and bit(cfg2, 19) and bit(cfg2, 20));
+        setFeature(&cpu, .lvz, (hwcap_bits & HWCAP.LVZ) != 0);
+        setFeature(&cpu, .lbt, (hwcap_bits & HWCAP.LBT_X86) != 0 and (hwcap_bits & HWCAP.LBT_ARM) != 0 and (hwcap_bits & HWCAP.LBT_MIPS) != 0);
+    } else {
+        setFeature(&cpu, .ual, false);
+
+        setFeature(&cpu, .f, false);
+        setFeature(&cpu, .d, false);
+        setFeature(&cpu, .lsx, false);
+        setFeature(&cpu, .lasx, false);
+
+        setFeature(&cpu, .lvz, false);
+        setFeature(&cpu, .lbt, false);
+    }
 
     setFeature(&cpu, .frecipe, bit(cfg2, 25));
     setFeature(&cpu, .div32, bit(cfg2, 26));

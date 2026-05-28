@@ -302,7 +302,6 @@ pub fn fileSourceHtml(
             .minus_pipe_equal,
             .asterisk,
             .asterisk_equal,
-            .asterisk_asterisk,
             .asterisk_percent,
             .asterisk_percent_equal,
             .asterisk_pipe,
@@ -328,7 +327,7 @@ pub fn fileSourceHtml(
             .tilde,
             => try appendEscaped(out, slice),
 
-            .invalid, .invalid_periodasterisks => return error.InvalidToken,
+            .invalid => return error.InvalidToken,
         }
     }
 }

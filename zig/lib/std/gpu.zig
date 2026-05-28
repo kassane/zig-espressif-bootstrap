@@ -58,7 +58,7 @@ pub const ExecutionMode = union(Tag) {
 
 /// Declare the mode entry point executes in.
 pub fn executionMode(comptime entry_point: anytype, comptime mode: ExecutionMode) void {
-    const cc = @typeInfo(@TypeOf(entry_point)).@"fn".calling_convention;
+    const cc = @typeInfo(@TypeOf(entry_point)).@"fn".attrs.@"callconv";
     switch (mode) {
         .origin_upper_left,
         .origin_lower_left,

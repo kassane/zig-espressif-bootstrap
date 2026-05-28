@@ -144,7 +144,7 @@ pub const OBJECT = struct {
         Session = 5,
         _,
 
-        pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".fields.len;
+        pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".field_names.len;
     };
 
     pub const NAME_INFORMATION = extern struct {
@@ -575,7 +575,7 @@ pub const FILE = struct {
         MupProvider = 83,
         _,
 
-        pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".fields.len;
+        pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".field_names.len;
     };
 
     pub const BASIC_INFORMATION = extern struct {
@@ -881,7 +881,7 @@ pub const DIRECTORY = struct {
         NotifyFull = 3,
         _,
 
-        pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".fields.len;
+        pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".field_names.len;
     };
 };
 
@@ -930,14 +930,8 @@ pub const CONSOLE = struct {
 
                     pub const Tag = @typeInfo(WITH).@"union".tag_type.?;
                     pub const Payload = PAYLOAD: {
-                        const with_fields = @typeInfo(WITH).@"union".fields;
-                        var field_names: [with_fields.len][]const u8 = undefined;
-                        var field_types: [with_fields.len]type = undefined;
-                        for (with_fields, &field_names, &field_types) |field, *field_name, *field_type| {
-                            field_name.* = field.name;
-                            field_type.* = field.type;
-                        }
-                        break :PAYLOAD @Union(.@"extern", null, &field_names, &field_types, &@splat(.{}));
+                        const with_info = @typeInfo(WITH).@"union";
+                        break :PAYLOAD @Union(.@"extern", null, with_info.field_names, with_info.field_types[0..], &@splat(.{}));
                     };
                 };
             };
@@ -2122,7 +2116,7 @@ pub const HEAP = opaque {
                     Custom,
                     _,
 
-                    pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".fields.len;
+                    pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".field_names.len;
                 };
 
                 pub const VA_CALLBACKS = extern struct {
@@ -3369,7 +3363,7 @@ pub const FS_INFORMATION_CLASS = enum(c_int) {
     Guid = 15,
     _,
 
-    pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".fields.len;
+    pub const Maximum: @typeInfo(@This()).@"enum".tag_type = 1 + @typeInfo(@This()).@"enum".field_names.len;
 };
 
 pub const SECTION_INHERIT = enum(c_int) {
@@ -3493,7 +3487,7 @@ pub const MEM = struct {
             ImageMachine,
             _,
 
-            pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".fields.len;
+            pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".field_names.len;
         };
     };
 };
@@ -4467,7 +4461,7 @@ pub const KEY = struct {
             Layer = 5,
             _,
 
-            pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".fields.len;
+            pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".field_names.len;
         };
 
         pub const PARTIAL_INFORMATION = extern struct {
@@ -5665,7 +5659,136 @@ pub const PF = enum(DWORD) {
     ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE = 44,
 
     /// This Arm processor implements the Arm v8.3 LRCPC instructions (for example, LDAPR). Note that certain Arm v8.2 CPUs may optionally support the LRCPC instructions.
-    ARM_V83_LRCPC_INSTRUCTIONS_AVAILABLE,
+    ARM_V83_LRCPC_INSTRUCTIONS_AVAILABLE = 45,
+
+    /// This Arm processor implements the SVE (Scalable Vector Extension) instructions (FEAT_SVE).
+    ARM_SVE_INSTRUCTIONS_AVAILABLE = 46,
+
+    /// This Arm processor implements the SVE2 instructions (FEAT_SVE2).
+    ARM_SVE2_INSTRUCTIONS_AVAILABLE = 47,
+
+    /// This Arm processor implements the SVE2.1 instructions (FEAT_SVE2p1).
+    ARM_SVE2_1_INSTRUCTIONS_AVAILABLE = 48,
+
+    /// This Arm processor implements the SVE AES instructions (FEAT_SVE_AES).
+    ARM_SVE_AES_INSTRUCTIONS_AVAILABLE = 49,
+
+    /// This Arm processor implements the SVE 128-bit polynomial multiply long instructions (FEAT_SVE_PMULL128).
+    ARM_SVE_PMULL128_INSTRUCTIONS_AVAILABLE = 50,
+
+    /// This Arm processor implements the SVE bit permute instructions (FEAT_SVE_BitPerm).
+    ARM_SVE_BITPERM_INSTRUCTIONS_AVAILABLE = 51,
+
+    /// This Arm processor implements the SVE BF16 (BFloat16) instructions (FEAT_BF16).
+    ARM_SVE_BF16_INSTRUCTIONS_AVAILABLE = 52,
+
+    /// This Arm processor implements the SVE EBF16 (Extended BFloat16) instructions (FEAT_EBF16).
+    ARM_SVE_EBF16_INSTRUCTIONS_AVAILABLE = 53,
+
+    /// This Arm processor implements the SVE B16B16 instructions (FEAT_SVE_B16B16).
+    ARM_SVE_B16B16_INSTRUCTIONS_AVAILABLE = 54,
+
+    /// This Arm processor implements the SVE SHA-3 cryptographic instructions (FEAT_SVE_SHA3).
+    ARM_SVE_SHA3_INSTRUCTIONS_AVAILABLE = 55,
+
+    /// This Arm processor implements the SVE SM4 cryptographic instructions (FEAT_SVE_SM4).
+    ARM_SVE_SM4_INSTRUCTIONS_AVAILABLE = 56,
+
+    /// This Arm processor implements the SVE I8MM (Int8 matrix multiply) instructions (FEAT_I8MM).
+    ARM_SVE_I8MM_INSTRUCTIONS_AVAILABLE = 57,
+
+    /// This Arm processor implements the SVE F32MM (FP32 matrix multiply) instructions (FEAT_F32MM).
+    ARM_SVE_F32MM_INSTRUCTIONS_AVAILABLE = 58,
+
+    /// This Arm processor implements the SVE F64MM (FP64 matrix multiply) instructions (FEAT_F64MM).
+    ARM_SVE_F64MM_INSTRUCTIONS_AVAILABLE = 59,
+
+    /// This x64 processor implements the BMI2 instruction set.
+    BMI2_INSTRUCTIONS_AVAILABLE = 60,
+
+    /// This x64 processor implements the MOVDIR64B instruction.
+    MOVDIR64B_INSTRUCTION_AVAILABLE = 61,
+
+    /// This Arm processor implements the LSE2 atomic instructions (FEAT_LSE2).
+    ARM_LSE2_AVAILABLE = 62,
+
+    /// This Arm processor implements the SHA-3 cryptographic instructions (FEAT_SHA3).
+    ARM_SHA3_INSTRUCTIONS_AVAILABLE = 64,
+
+    /// This Arm processor implements the SHA-512 cryptographic instructions (FEAT_SHA512).
+    ARM_SHA512_INSTRUCTIONS_AVAILABLE = 65,
+
+    /// This Arm processor implements the I8MM (Int8 matrix multiply) NEON instructions (FEAT_I8MM).
+    ARM_V82_I8MM_INSTRUCTIONS_AVAILABLE = 66,
+
+    /// This Arm processor implements the FP16 (half-precision floating point) NEON instructions (FEAT_FP16).
+    ARM_V82_FP16_INSTRUCTIONS_AVAILABLE = 67,
+
+    /// This Arm processor implements the BF16 (BFloat16) NEON instructions (FEAT_BF16).
+    ARM_V86_BF16_INSTRUCTIONS_AVAILABLE = 68,
+
+    /// This Arm processor implements the EBF16 (Extended BFloat16) NEON instructions (FEAT_EBF16).
+    ARM_V86_EBF16_INSTRUCTIONS_AVAILABLE = 69,
+
+    /// This Arm processor implements the SME (Scalable Matrix Extension) instructions (FEAT_SME).
+    ARM_SME_INSTRUCTIONS_AVAILABLE = 70,
+
+    /// This Arm processor implements the SME2 instructions (FEAT_SME2).
+    ARM_SME2_INSTRUCTIONS_AVAILABLE = 71,
+
+    /// This Arm processor implements the SME2.1 instructions (FEAT_SME2p1).
+    ARM_SME2_1_INSTRUCTIONS_AVAILABLE = 72,
+
+    /// This Arm processor implements the SME2.2 instructions (FEAT_SME2p2).
+    ARM_SME2_2_INSTRUCTIONS_AVAILABLE = 73,
+
+    /// This Arm processor implements the SVE AES instructions when in Streaming SVE mode (FEAT_SSVE_AES).
+    ARM_SME_AES_INSTRUCTIONS_AVAILABLE = 74,
+
+    /// This Arm processor implements the SVE bit permute instructions when in Streaming SVE mode (FEAT_SSVE_BitPerm).
+    ARM_SME_SBITPERM_INSTRUCTIONS_AVAILABLE = 75,
+
+    /// This Arm processor implements the SVE FMMLA (widening, 4-way, FP8 to FP16) instruction when in Streaming SVE mode (FEAT_SSVE_F8F16MM).
+    ARM_SME_SF8MM4_INSTRUCTIONS_AVAILABLE = 76,
+
+    /// This Arm processor implements the SVE FMMLA (widening, 8-way, FP8 to FP32) instruction when in Streaming SVE mode (FEAT_SSVE_F8F32MM).
+    ARM_SME_SF8MM8_INSTRUCTIONS_AVAILABLE = 77,
+
+    /// This Arm processor implements the SVE2 FP8DOT2 instructions when in Streaming SVE mode (FEAT_SSVE_FP8DOT2).
+    ARM_SME_SF8DP2_INSTRUCTIONS_AVAILABLE = 78,
+
+    /// This Arm processor implements the SVE2 FP8DOT4 instructions when in Streaming SVE mode (FEAT_SSVE_FP8DOT4).
+    ARM_SME_SF8DP4_INSTRUCTIONS_AVAILABLE = 79,
+
+    /// This Arm processor implements the SVE2 FP8FMA instructions when in Streaming SVE mode (FEAT_SSVE_FP8FMA).
+    ARM_SME_SF8FMA_INSTRUCTIONS_AVAILABLE = 80,
+
+    /// This Arm processor implements the SME F8F32 instructions (FEAT_SME_F8F32).
+    ARM_SME_F8F32_INSTRUCTIONS_AVAILABLE = 81,
+
+    /// This Arm processor implements the SME F8F16 instructions (FEAT_SME_F8F16).
+    ARM_SME_F8F16_INSTRUCTIONS_AVAILABLE = 82,
+
+    /// This Arm processor implements the SME F16F16 instructions (FEAT_SME_F16F16).
+    ARM_SME_F16F16_INSTRUCTIONS_AVAILABLE = 83,
+
+    /// This Arm processor implements the SME B16B16 instructions (FEAT_SME_B16B16).
+    ARM_SME_B16B16_INSTRUCTIONS_AVAILABLE = 84,
+
+    /// This Arm processor implements the SME F64F64 instructions (FEAT_SME_F64F64).
+    ARM_SME_F64F64_INSTRUCTIONS_AVAILABLE = 85,
+
+    /// This Arm processor implements the SME I16I64 instructions (FEAT_SME_I16I64).
+    ARM_SME_I16I64_INSTRUCTIONS_AVAILABLE = 86,
+
+    /// This Arm processor implements the SME LUTv2 instructions (FEAT_SME_LUTv2).
+    ARM_SME_LUTv2_INSTRUCTIONS_AVAILABLE = 87,
+
+    /// This Arm processor implements SME FA64 (Full AArch64 instruction set when in Streaming SVE mode) (FEAT_SME_FA64).
+    ARM_SME_FA64_INSTRUCTIONS_AVAILABLE = 88,
+
+    /// This x64 processor implements the UMONITOR instruction.
+    UMONITOR_INSTRUCTION_AVAILABLE = 89,
 };
 
 pub const MAX_WOW64_SHARED_ENTRIES = 16;

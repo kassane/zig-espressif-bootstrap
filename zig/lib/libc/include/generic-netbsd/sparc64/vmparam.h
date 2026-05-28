@@ -1,4 +1,4 @@
-/*	$NetBSD: vmparam.h,v 1.42.18.1 2023/02/08 16:40:45 martin Exp $ */
+/*	$NetBSD: vmparam.h,v 1.43 2023/02/07 14:11:16 hgutch Exp $ */
 
 /*
  * Copyright (c) 1992, 1993

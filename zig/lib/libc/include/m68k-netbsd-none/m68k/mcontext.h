@@ -1,4 +1,4 @@
-/*	$NetBSD: mcontext.h,v 1.12 2020/10/04 10:34:18 rin Exp $	*/
+/*	$NetBSD: mcontext.h,v 1.16 2024/11/30 01:04:11 christos Exp $	*/
 
 /*-
  * Copyright (c) 2001 The NetBSD Foundation, Inc.
@@ -39,8 +39,8 @@
 /*
  * mcontext extensions to handle signal delivery.
  */
-#define _UC_SETSTACK	0x00010000
-#define _UC_CLRSTACK	0x00020000
+#define	_UC_SETSTACK	_UC_MD_BIT16
+#define	_UC_CLRSTACK	_UC_MD_BIT17
 
 /*
  * General register state
@@ -98,8 +98,8 @@ typedef struct {
 /* Note: no additional padding is to be performed in ucontext_t. */
 
 /* Machine-specific uc_flags value */
-#define _UC_M68K_UC_USER 0x40000000
-#define	_UC_TLSBASE	0x00080000
+#define	_UC_M68K_UC_USER _UC_MD_BIT30
+#define	_UC_TLSBASE	_UC_MD_BIT19
 
 #define _UC_MACHINE_SP(uc)	((uc)->uc_mcontext.__gregs[_REG_A7])
 #define _UC_MACHINE_FP(uc)	((uc)->uc_mcontext.__gregs[_REG_A6])
@@ -109,36 +109,5 @@ typedef struct {
 #define	_UC_MACHINE_SET_PC(uc, pc)	_UC_MACHINE_PC(uc) = (pc)
 
 #define	__UCONTEXT_SIZE	1024
-
-#if defined(_LIBC_SOURCE) || defined(_RTLD_SOURCE) || defined(__LIBPTHREAD_SOURCE__)
-#define	TLS_TP_OFFSET	0x7000
-#define	TLS_DTV_OFFSET	0x8000
-
-#include <sys/tls.h>
-
-__CTASSERT(TLS_TP_OFFSET + sizeof(struct tls_tcb) < 0x8000);
-__CTASSERT(TLS_TP_OFFSET % sizeof(struct tls_tcb) == 0);
-
-__BEGIN_DECLS
-
-void *_lwp_getprivate(void);
-void _lwp_setprivate(void *);
-
-static __inline struct tls_tcb *
-__lwp_gettcb_fast(void)
-{
-	unsigned int __tcb = (unsigned int)_lwp_getprivate();
-	return (struct tls_tcb *)(uintptr_t)
-	    (__tcb - TLS_TP_OFFSET - sizeof(struct tls_tcb));
-}
-
-static inline void
-__lwp_settcb(struct tls_tcb *__tcb)
-{
-	__tcb += TLS_TP_OFFSET / sizeof(*__tcb) + 1;
-	_lwp_setprivate(__tcb);
-}
-__END_DECLS
-#endif
 
 #endif	/* !_M68K_MCONTEXT_H_ */

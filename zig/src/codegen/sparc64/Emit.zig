@@ -2,7 +2,7 @@
 //! machine code
 
 const std = @import("std");
-const Endian = std.builtin.Endian;
+const Endian = std.lang.Endian;
 const assert = std.debug.assert;
 const link = @import("../../link.zig");
 const Zcu = @import("../../Zcu.zig");

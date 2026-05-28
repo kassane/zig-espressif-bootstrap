@@ -1,4 +1,4 @@
-/*	$NetBSD: procfs.h,v 1.82.4.1 2024/04/18 18:22:10 martin Exp $	*/
+/*	$NetBSD: procfs.h,v 1.87 2024/07/01 01:35:53 christos Exp $	*/
 
 /*
  * Copyright (c) 1993
@@ -97,11 +97,18 @@ typedef enum {
 	PFSfpregs,	/* the process's FP register set */
 	PFSloadavg,	/* load average (if -o linux) */
 	PFSlimit,	/* resource limits */
+	PFSlimits,	/* resource limits, Linux style (if -o linux) */
 	PFSmap,		/* memory map */
 	PFSmaps,	/* memory map, Linux style (if -o linux) */
 	PFSmem,		/* the process's memory image */
 	PFSmeminfo,	/* system memory info (if -o linux) */
 	PFSmounts,	/* mounted filesystems (if -o linux) */
+	PFSmqueue,	/* sys/fs/mqueue subdirectory (if -o linux) */
+	PFSmq_msg_def,	/* sys/fs/mqueue/msg_default (if -o linux) */
+	PFSmq_msg_max,	/* sys/fs/mqueue/msg_max (if -o linux) */
+	PFSmq_siz_def,	/* sys/fs/mqueue/msgsize_default (if -o linux) */
+	PFSmq_siz_max,	/* sys/fs/mqueue/msgsize_max (if -o linux) */
+	PFSmq_qmax,	/* sys/fs/mqueue/queues_max (if -o linux) */
 	PFSnote,	/* process notifier */
 	PFSnotepg,	/* process group notifier */
 	PFSproc,	/* a process-specific sub-directory */
@@ -111,7 +118,13 @@ typedef enum {
 	PFSstat,	/* process status (if -o linux) */
 	PFSstatm,	/* process memory info (if -o linux) */
 	PFSstatus,	/* process status */
-	PFStask,	/* task subdirector (if -o linux) */
+	PFSsys,		/* sys subdirectory (if -o linux) */
+	PFSsysfs,	/* sys/fs subdirectory (if -o linux) */
+	PFSsysvipc,	/* sysvipc subdirectory (if -o linux) */
+	PFSsysvipc_msg,	/* sysvipc msg info (if -o linux) */
+	PFSsysvipc_sem,	/* sysvipc sem info (if -o linux) */
+	PFSsysvipc_shm,	/* sysvipc shm info (if -o linux) */
+	PFStask,	/* task subdirectory (if -o linux) */
 	PFSuptime,	/* elapsed time since (if -o linux) */
 	PFSversion,	/* kernel version (if -o linux) */
 #ifdef __HAVE_PROCFS_MACHDEP
@@ -268,6 +281,24 @@ int procfs_doversion(struct lwp *, struct proc *, struct pfsnode *,
 int procfs_doauxv(struct lwp *, struct proc *, struct pfsnode *,
     struct uio *);
 int procfs_dolimit(struct lwp *, struct proc *, struct pfsnode *,
+    struct uio *);
+int procfs_dolimits(struct lwp *, struct proc *, struct pfsnode *,
+    struct uio *);
+int procfs_domq_msg_def(struct lwp *, struct proc *, struct pfsnode *,
+    struct uio *);
+int procfs_domq_msg_max(struct lwp *, struct proc *, struct pfsnode *,
+    struct uio *);
+int procfs_domq_siz_def(struct lwp *, struct proc *, struct pfsnode *,
+    struct uio *);
+int procfs_domq_siz_max(struct lwp *, struct proc *, struct pfsnode *,
+    struct uio *);
+int procfs_domq_qmax(struct lwp *, struct proc *, struct pfsnode *,
+    struct uio *);
+int procfs_dosysvipc_msg(struct lwp *, struct proc *, struct pfsnode *,
+    struct uio *);
+int procfs_dosysvipc_sem(struct lwp *, struct proc *, struct pfsnode *,
+    struct uio *);
+int procfs_dosysvipc_shm(struct lwp *, struct proc *, struct pfsnode *,
     struct uio *);
 
 void procfs_hashrem(struct pfsnode *);

@@ -1,4 +1,4 @@
-/*	$NetBSD: uvm_swap.h,v 1.26 2020/09/05 16:30:13 riastradh Exp $	*/
+/*	$NetBSD: uvm_swap.h,v 1.29.4.1 2026/04/03 12:38:34 martin Exp $	*/
 
 /*
  * Copyright (c) 1997 Matthew R. Green
@@ -39,10 +39,10 @@
 #endif
 
 struct lwp;
+struct swapent;
 
 #if defined(VMSWAP)
 
-struct swapent;
 struct vm_page;
 
 int	uvm_swap_get(struct vm_page *, int, int);
@@ -55,10 +55,21 @@ void	swapsys_lock(krw_t);
 void	swapsys_unlock(void);
 int	uvm_swap_stats(char *, int,
     void (*)(void *, const struct swapent *), size_t, register_t *);
+void	uvm_swap_decrypt_pages(int startslot, void *p, int npages);
 
 #else /* defined(VMSWAP) */
+
 #define	uvm_swapisfull()	true
-#define uvm_swap_stats(c, l, f, count, retval) (__used f, *retval = 0, ENOSYS)
+
+static inline int
+uvm_swap_stats(char *c, int l, void (*f)(void *, const struct swapent *),
+    size_t count, register_t *retval)
+{
+
+	*retval = 0;
+	return ENOSYS;
+}
+
 #endif /* defined(VMSWAP) */
 
 void	uvm_swap_shutdown(struct lwp *);

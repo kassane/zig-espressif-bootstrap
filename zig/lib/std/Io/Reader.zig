@@ -200,8 +200,7 @@ pub fn defaultDiscard(r: *Reader, limit: Limit) Error!usize {
     var d: Writer.Discarding = .init(r.buffer);
     var n = r.stream(&d.writer, limit) catch |err| switch (err) {
         error.WriteFailed => unreachable,
-        error.ReadFailed => return error.ReadFailed,
-        error.EndOfStream => return error.EndOfStream,
+        error.ReadFailed, error.EndOfStream => |e| return e,
     };
     // If `stream` wrote to `r.buffer` without going through the writer,
     // we need to discard as much of the buffered data as possible.
@@ -379,7 +378,7 @@ pub fn appendRemainingAligned(
         const n = stream(r, &a.writer, remaining) catch |err| switch (err) {
             error.EndOfStream => return,
             error.WriteFailed => return error.OutOfMemory,
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
         };
         remaining = remaining.subtract(n).?;
     }
@@ -400,7 +399,7 @@ pub fn appendRemainingUnlimited(r: *Reader, gpa: Allocator, list: *ArrayList(u8)
     }
     _ = streamRemaining(r, &a.writer) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
-        error.ReadFailed => return error.ReadFailed,
+        error.ReadFailed => |e| return e,
     };
 }
 
@@ -428,7 +427,7 @@ pub fn readVec(r: *Reader, data: [][]u8) Error!usize {
         defer data[i] = buf;
         return n + (r.vtable.readVec(r, data[i..]) catch |err| switch (err) {
             error.EndOfStream => if (n == 0) return error.EndOfStream else 0,
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
         });
     }
     const n = seek - r.seek;
@@ -639,7 +638,7 @@ pub fn discardShort(r: *Reader, n: usize) ShortError!usize {
     while (true) {
         const discard_len = r.vtable.discard(r, .limited(remaining)) catch |err| switch (err) {
             error.EndOfStream => return n - remaining,
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
         };
         remaining -= discard_len;
         if (remaining == 0) return n;
@@ -687,7 +686,7 @@ pub fn readSliceShort(r: *Reader, buffer: []u8) ShortError!usize {
         data[0] = buffer[i..];
         i += readVec(r, &data) catch |err| switch (err) {
             error.EndOfStream => return i,
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
         };
         if (buffer.len - i == 0) return buffer.len;
     }
@@ -1009,7 +1008,7 @@ pub fn streamDelimiterLimit(
     var remaining = @intFromEnum(limit);
     while (remaining != 0) {
         const available = Limit.limited(remaining).slice(r.peekGreedy(1) catch |err| switch (err) {
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
             error.EndOfStream => return @intFromEnum(limit) - remaining,
         });
         if (std.mem.findScalar(u8, available, delimiter)) |delimiter_index| {
@@ -1080,7 +1079,7 @@ pub fn discardDelimiterLimit(r: *Reader, delimiter: u8, limit: Limit) DiscardDel
     var remaining = @intFromEnum(limit);
     while (remaining != 0) {
         const available = Limit.limited(remaining).slice(r.peekGreedy(1) catch |err| switch (err) {
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
             error.EndOfStream => return @intFromEnum(limit) - remaining,
         });
         if (std.mem.findScalar(u8, available, delimiter)) |delimiter_index| {
@@ -1278,7 +1277,7 @@ pub fn takeEnum(r: *Reader, comptime Enum: type, endian: std.builtin.Endian) Tak
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(Enum)`.
 pub fn takeEnumNonexhaustive(r: *Reader, comptime Enum: type, endian: std.builtin.Endian) Error!Enum {
     const info = @typeInfo(Enum).@"enum";
-    comptime assert(!info.is_exhaustive);
+    comptime assert(info.mode != .exhaustive);
     comptime assert(@bitSizeOf(info.tag_type) == @sizeOf(info.tag_type) * 8);
     return takeEnum(r, Enum, endian) catch |err| switch (err) {
         error.InvalidEnumTag => unreachable,
@@ -2098,7 +2097,6 @@ test "deserialize signed LEB128" {
     try testing.expectEqual(std.math.minInt(i128), testLeb128(i128, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7E"));
 
     // Specific cases
-    try testing.expectEqual(0, testLeb128(i0, "\x00"));
     try testing.expectEqual(0, testLeb128(i2, "\x00"));
     try testing.expectEqual(0, testLeb128(i8, "\x00"));
 
@@ -2135,8 +2133,6 @@ test "deserialize signed LEB128" {
     try testing.expectError(error.EndOfStream, testLeb128(i128, &end_of_stream));
 
     // Overflow
-    try testing.expectError(error.Overflow, testLeb128(i0, "\x01"));
-    try testing.expectError(error.Overflow, testLeb128(i0, "\x7F"));
     try testing.expectError(error.Overflow, testLeb128(i8, "\x80\x01"));
     try testing.expectError(error.Overflow, testLeb128(i8, "\xFF\x7E"));
     try testing.expectError(error.Overflow, testLeb128(i8, "\x80\x80\x40"));
@@ -2146,7 +2142,6 @@ test "deserialize signed LEB128" {
     try testing.expectError(error.Overflow, testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01"));
     try testing.expectError(error.Overflow, testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x40"));
 
-    try testing.expectError(error.Overflow, testLeb128(i0, &overflow));
     try testing.expectError(error.Overflow, testLeb128(i7, &overflow));
     try testing.expectError(error.Overflow, testLeb128(i8, &overflow));
     try testing.expectError(error.Overflow, testLeb128(i14, &overflow));
@@ -2160,7 +2155,6 @@ test "deserialize signed LEB128" {
     try testing.expectEqual(0x80, testLeb128(i64, "\x80\x81\x00"));
     try testing.expectEqual(0x80, testLeb128(i64, "\x80\x81\x80\x00"));
 
-    try testing.expectEqual(0, testLeb128(i0, &long_zero));
     try testing.expectEqual(0, testLeb128(i7, &long_zero));
     try testing.expectEqual(0, testLeb128(i8, &long_zero));
     try testing.expectEqual(0, testLeb128(i14, &long_zero));

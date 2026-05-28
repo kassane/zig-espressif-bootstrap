@@ -1,14 +1,15 @@
+const InstallDir = @This();
+
 const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
 const Step = std.Build.Step;
 const LazyPath = std.Build.LazyPath;
-const InstallDir = @This();
 
 step: Step,
 options: Options,
 
-pub const base_id: Step.Id = .install_dir;
+pub const base_tag: Step.Tag = .install_dir;
 
 pub const Options = struct {
     source_dir: LazyPath,
@@ -28,83 +29,29 @@ pub const Options = struct {
     /// `@import("test.zig")` would be a compile error.
     blank_extensions: []const []const u8 = &.{},
 
-    fn dupe(opts: Options, b: *std.Build) Options {
+    fn dupe(opts: Options, graph: *const std.Build.Graph) Options {
         return .{
-            .source_dir = opts.source_dir.dupe(b),
-            .install_dir = opts.install_dir.dupe(b),
-            .install_subdir = b.dupe(opts.install_subdir),
-            .exclude_extensions = b.dupeStrings(opts.exclude_extensions),
-            .include_extensions = if (opts.include_extensions) |incs| b.dupeStrings(incs) else null,
-            .blank_extensions = b.dupeStrings(opts.blank_extensions),
+            .source_dir = opts.source_dir.dupe(graph),
+            .install_dir = opts.install_dir.dupe(graph),
+            .install_subdir = graph.dupeString(opts.install_subdir),
+            .exclude_extensions = graph.dupeStrings(opts.exclude_extensions),
+            .include_extensions = if (opts.include_extensions) |incs| graph.dupeStrings(incs) else null,
+            .blank_extensions = graph.dupeStrings(opts.blank_extensions),
         };
     }
 };
 
 pub fn create(owner: *std.Build, options: Options) *InstallDir {
     const install_dir = owner.allocator.create(InstallDir) catch @panic("OOM");
+    const graph = owner.graph;
     install_dir.* = .{
         .step = Step.init(.{
-            .id = base_id,
-            .name = owner.fmt("install {s}/", .{options.source_dir.getDisplayName()}),
+            .tag = base_tag,
+            .name = owner.fmt("install {f}/", .{options.source_dir}),
             .owner = owner,
-            .makeFn = make,
         }),
-        .options = options.dupe(owner),
+        .options = options.dupe(graph),
     };
     options.source_dir.addStepDependencies(&install_dir.step);
     return install_dir;
-}
-
-fn make(step: *Step, options: Step.MakeOptions) !void {
-    _ = options;
-    const b = step.owner;
-    const io = b.graph.io;
-    const install_dir: *InstallDir = @fieldParentPtr("step", step);
-    step.clearWatchInputs();
-    const arena = b.allocator;
-    const dest_prefix = b.getInstallPath(install_dir.options.install_dir, install_dir.options.install_subdir);
-    const src_dir_path = install_dir.options.source_dir.getPath3(b, step);
-    const need_derived_inputs = try step.addDirectoryWatchInput(install_dir.options.source_dir);
-    var src_dir = src_dir_path.root_dir.handle.openDir(io, src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
-        return step.fail("unable to open source directory '{f}': {t}", .{ src_dir_path, err });
-    };
-    defer src_dir.close(io);
-    var it = try src_dir.walk(arena);
-    var all_cached = true;
-    next_entry: while (try it.next(io)) |entry| {
-        for (install_dir.options.exclude_extensions) |ext| {
-            if (mem.endsWith(u8, entry.path, ext)) continue :next_entry;
-        }
-        if (install_dir.options.include_extensions) |incs| {
-            for (incs) |inc| {
-                if (mem.endsWith(u8, entry.path, inc)) break;
-            } else {
-                continue :next_entry;
-            }
-        }
-
-        const src_path = try install_dir.options.source_dir.join(b.allocator, entry.path);
-        const dest_path = b.pathJoin(&.{ dest_prefix, entry.path });
-        switch (entry.kind) {
-            .directory => {
-                if (need_derived_inputs) _ = try step.addDirectoryWatchInput(src_path);
-                const p = try step.installDir(dest_path);
-                all_cached = all_cached and p == .existed;
-            },
-            .file => {
-                for (install_dir.options.blank_extensions) |ext| {
-                    if (mem.endsWith(u8, entry.path, ext)) {
-                        try b.truncateFile(dest_path);
-                        continue :next_entry;
-                    }
-                }
-
-                const p = try step.installFile(src_path, dest_path);
-                all_cached = all_cached and p == .fresh;
-            },
-            else => continue,
-        }
-    }
-
-    step.result_cached = all_cached;
 }

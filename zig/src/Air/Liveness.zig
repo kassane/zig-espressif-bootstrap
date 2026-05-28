@@ -301,7 +301,7 @@ pub fn iterateBigTomb(l: Liveness, inst: Air.Inst.Index) BigTomb {
 
 /// How many tomb bits per AIR instruction.
 pub const bpi = 4;
-pub const Bpi = std.meta.Int(.unsigned, bpi);
+pub const Bpi = @Int(.unsigned, bpi);
 pub const OperandInt = std.math.Log2Int(Bpi);
 
 /// Useful for decoders of Liveness information.
@@ -351,17 +351,17 @@ const Analysis = struct {
     extra: std.ArrayList(u32),
 
     fn addExtra(a: *Analysis, extra: anytype) Allocator.Error!u32 {
-        const fields = std.meta.fields(@TypeOf(extra));
-        try a.extra.ensureUnusedCapacity(a.gpa, fields.len);
+        const field_count = std.meta.fieldNames(@TypeOf(extra)).len;
+        try a.extra.ensureUnusedCapacity(a.gpa, field_count);
         return addExtraAssumeCapacity(a, extra);
     }
 
     fn addExtraAssumeCapacity(a: *Analysis, extra: anytype) u32 {
-        const fields = std.meta.fields(@TypeOf(extra));
+        const info = @typeInfo(@TypeOf(extra)).@"struct";
         const result = @as(u32, @intCast(a.extra.items.len));
-        inline for (fields) |field| {
-            a.extra.appendAssumeCapacity(switch (field.type) {
-                u32 => @field(extra, field.name),
+        inline for (info.field_names, info.field_types) |field_name, field_type| {
+            a.extra.appendAssumeCapacity(switch (field_type) {
+                u32 => @field(extra, field_name),
                 else => @compileError("bad field type"),
             });
         }
@@ -436,8 +436,6 @@ fn analyzeInst(
         .cmp_gt_optimized,
         .cmp_neq,
         .cmp_neq_optimized,
-        .bool_and,
-        .bool_or,
         .store,
         .store_safe,
         .array_elem_val,
@@ -613,7 +611,7 @@ fn analyzeInst(
             const call = a.air.unwrapCall(inst);
             const args = call.args;
             if (args.len + 1 <= bpi - 1) {
-                var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
+                var buf: [bpi - 1]Air.Inst.Ref = @splat(.none);
                 buf[0] = call.callee;
                 @memcpy(buf[1..][0..args.len], args);
                 return analyzeOperands(a, pass, data, inst, buf);
@@ -657,7 +655,7 @@ fn analyzeInst(
             const elements = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[ty_pl.payload..][0..len]));
 
             if (elements.len <= bpi - 1) {
-                var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
+                var buf: [bpi - 1]Air.Inst.Ref = @splat(.none);
                 @memcpy(buf[0..elements.len], elements);
                 return analyzeOperands(a, pass, data, inst, buf);
             }
@@ -713,7 +711,7 @@ fn analyzeInst(
             const inputs = unwrapped_asm.inputs;
 
             const num_operands = simple: {
-                var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
+                var buf: [bpi - 1]Air.Inst.Ref = @splat(.none);
                 var buf_index: usize = 0;
                 for (unwrapped_asm.outputs) |output| {
                     if (output != .none) {
@@ -1004,7 +1002,7 @@ fn analyzeInstBlock(
                 const block_scope = data.block_scopes.get(inst).?;
                 const num_deaths = data.live_set.count() - block_scope.live_set.count();
 
-                try a.extra.ensureUnusedCapacity(gpa, num_deaths + std.meta.fields(Block).len);
+                try a.extra.ensureUnusedCapacity(gpa, num_deaths + std.meta.fieldNames(Block).len);
                 const extra_index = a.addExtraAssumeCapacity(Block{
                     .death_count = num_deaths,
                 });
@@ -1267,7 +1265,7 @@ fn analyzeInstCondBr(
             // Write the mirrored deaths to `extra`
             const then_death_count = @as(u32, @intCast(then_mirrored_deaths.items.len));
             const else_death_count = @as(u32, @intCast(else_mirrored_deaths.items.len));
-            try a.extra.ensureUnusedCapacity(gpa, std.meta.fields(CondBr).len + then_death_count + else_death_count);
+            try a.extra.ensureUnusedCapacity(gpa, std.meta.fieldNames(CondBr).len + then_death_count + else_death_count);
             const extra_index = a.addExtraAssumeCapacity(CondBr{
                 .then_death_count = then_death_count,
                 .else_death_count = else_death_count,
@@ -1423,7 +1421,7 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
         inst: Air.Inst.Index,
 
         operands_remaining: u32,
-        small: [bpi - 1]Air.Inst.Ref = .{.none} ** (bpi - 1),
+        small: [bpi - 1]Air.Inst.Ref = @splat(.none),
         extra_tombs: []u32,
 
         // Only used in `LivenessPass.main_analysis`

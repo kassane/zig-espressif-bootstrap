@@ -1,7 +1,7 @@
-/*	$NetBSD: syncobj.h,v 1.13 2020/03/26 21:15:14 ad Exp $	*/
+/*	$NetBSD: syncobj.h,v 1.18 2023/10/15 10:27:11 riastradh Exp $	*/
 
 /*-
- * Copyright (c) 2007, 2008, 2020 The NetBSD Foundation, Inc.
+ * Copyright (c) 2007, 2008, 2020, 2023 The NetBSD Foundation, Inc.
  * All rights reserved.
  *
  * This code is derived from software contributed to The NetBSD Foundation
@@ -32,22 +32,24 @@
 #if !defined(_SYS_SYNCOBJ_H_)
 #define	_SYS_SYNCOBJ_H_
 
+#include <sys/wchan.h>
+
 struct lwp;
 
-typedef volatile const void *wchan_t;
-
-#if defined(_KERNEL)
+#if defined(_KERNEL) || defined(_KMEMUSER)
 
 /*
  * Synchronisation object operations set.
  */
 typedef struct syncobj {
+	char	sobj_name[16];
 	u_int	sobj_flag;
+	int	sobj_boostpri;
 	void	(*sobj_unsleep)(struct lwp *, bool);
 	void	(*sobj_changepri)(struct lwp *, pri_t);
 	void	(*sobj_lendpri)(struct lwp *, pri_t);
 	struct lwp *(*sobj_owner)(wchan_t);
-} syncobj_t;
+} const syncobj_t;
 
 struct lwp *syncobj_noowner(wchan_t);
 
@@ -55,6 +57,7 @@ struct lwp *syncobj_noowner(wchan_t);
 #define	SOBJ_SLEEPQ_LIFO	0x04
 #define	SOBJ_SLEEPQ_NULL	0x08
 
+extern syncobj_t	callout_syncobj;
 extern syncobj_t	cv_syncobj;
 extern syncobj_t	kpause_syncobj;
 extern syncobj_t	lwp_park_syncobj;

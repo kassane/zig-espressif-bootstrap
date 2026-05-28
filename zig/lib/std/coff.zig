@@ -1386,7 +1386,7 @@ pub const IMAGE = struct {
         RESERVED = 15,
         _,
 
-        pub const len = @typeInfo(IMAGE.DIRECTORY_ENTRY).@"enum".fields.len;
+        pub const len = @typeInfo(IMAGE.DIRECTORY_ENTRY).@"enum".field_names.len;
     };
 
     pub const FILE = struct {

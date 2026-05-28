@@ -20,7 +20,7 @@ pub const CrtFile = enum {
     scrt0_o,
 };
 
-pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {
+pub fn needsCrt0(output_mode: std.lang.OutputMode) ?CrtFile {
     // https://github.com/ziglang/zig/issues/23574#issuecomment-2869089897
     return switch (output_mode) {
         .Obj, .Lib => null,
@@ -683,7 +683,6 @@ fn buildSharedLib(
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
-        .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .soname = soname,

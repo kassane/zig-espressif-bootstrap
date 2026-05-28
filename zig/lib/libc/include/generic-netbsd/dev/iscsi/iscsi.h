@@ -1,4 +1,4 @@
-/*	$NetBSD: iscsi.h,v 1.4.50.1 2023/12/18 14:15:58 martin Exp $	*/
+/*	$NetBSD: iscsi.h,v 1.5 2023/11/25 10:08:27 mlelstv Exp $	*/
 
 /*-
  * Copyright (c) 2004,2006,2011 The NetBSD Foundation, Inc.

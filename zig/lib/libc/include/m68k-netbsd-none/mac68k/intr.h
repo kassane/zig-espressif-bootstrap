@@ -1,4 +1,4 @@
-/*	$NetBSD: intr.h,v 1.31.112.1 2023/08/09 17:42:03 martin Exp $	*/
+/*	$NetBSD: intr.h,v 1.33 2024/02/28 13:05:40 thorpej Exp $	*/
 
 /*
  * Copyright (C) 1997 Scott Reynolds
@@ -90,10 +90,11 @@ splraiseipl(ipl_cookie_t icookie)
 #include <sys/spl.h>
 
 /* intr.c */
+struct clockframe;
 void	intr_init(void);
 void	intr_establish(int (*)(void *), void *, int);
 void	intr_disestablish(int);
-void	intr_dispatch(int);
+void	intr_dispatch(struct clockframe);
 
 /* locore.s */
 int	spl0(void);

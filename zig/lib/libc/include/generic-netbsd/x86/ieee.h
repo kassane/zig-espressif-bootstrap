@@ -1,4 +1,4 @@
-/*	$NetBSD: ieee.h,v 1.11 2010/09/15 16:11:28 christos Exp $ */
+/*	$NetBSD: ieee.h,v 1.13 2024/01/02 19:28:25 christos Exp $ */
 
 /*
  * Copyright (c) 1992, 1993
@@ -39,6 +39,8 @@
  *
  *	@(#)ieee.h	8.1 (Berkeley) 6/11/93
  */
+#ifndef _X86_IEEE_H_
+#define _X86_IEEE_H_
 
 /*
  * ieee.h defines the machine-dependent layout of the machine's IEEE
@@ -67,13 +69,13 @@
  *   i386:  16 bits.
  */
 struct ieee_ext {
-	u_int	ext_fracl:EXT_FRACLBITS;
-	u_int	ext_frach:EXT_FRACHBITS;
+	uint32_t	ext_fracl:EXT_FRACLBITS;
+	uint32_t	ext_frach:EXT_FRACHBITS;
 #if 0
-	u_int	ext_int:1;
+	uint32_t	ext_int:1;
 #endif
-	u_int	ext_exp:EXT_EXPBITS;
-	u_int	ext_sign:1;
+	uint32_t	ext_exp:EXT_EXPBITS;
+	uint32_t	ext_sign:1;
 };
 
 /*
@@ -115,3 +117,5 @@ union ieee_ext_u {
 
 #define LDBL_NBIT	0x80000000
 #define mask_nbit_l(u)	((u).extu_frach &= ~LDBL_NBIT)
+
+#endif /* _X86_IEEE_H_ */

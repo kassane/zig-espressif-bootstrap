@@ -442,10 +442,12 @@ pub fn cacheLineForCpu(cpu: std.Target.Cpu) u16 {
         // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/sparc/include/asm/cache.h#L14
         // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/microblaze/include/asm/cache.h#L15
         // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/sh/include/cpu-sh4/cpu/cache.h#L10
+        // - https://github.com/openbsd/src/blob/1957873d2063db11dab780eca75b5e629d1e838d/sys/arch/m88k/m88k/atomic.S#L22
         .arm,
         .armeb,
         .thumb,
         .thumbeb,
+        .m88k,
         .microblaze,
         .microblazeel,
         .mips,

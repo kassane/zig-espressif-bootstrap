@@ -337,6 +337,8 @@ fn acosBinary128(x: f128) f128 {
 }
 
 test "acosBinary16.special" {
+    if (builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag == .macos) return error.SkipZigTest;
+
     try testing.expectApproxEqAbs(0x1.92p0, acosBinary16(0x0p+0), math.floatEpsAt(f16, 0x1.92p0));
     try testing.expectApproxEqAbs(0x1.92p1, acosBinary16(-0x1p+0), math.floatEpsAt(f16, 0x1.92p1));
     try testing.expectEqual(0x0p+0, acosBinary16(0x1p+0));
@@ -348,6 +350,8 @@ test "acosBinary16.special" {
 }
 
 test "acosBinary16" {
+    if (builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag == .macos) return error.SkipZigTest;
+
     try testing.expectApproxEqAbs(0x1.834p0, acosBinary16(0x1.db4p-5), math.floatEpsAt(f16, 0x1.834p0));
     try testing.expectApproxEqAbs(0x1.d48p0, acosBinary16(-0x1.068p-2), math.floatEpsAt(f16, 0x1.d48p0));
     try testing.expectApproxEqAbs(0x1.b7cp0, acosBinary16(-0x1.2c4p-3), math.floatEpsAt(f16, 0x1.b7cp0));
@@ -444,6 +448,8 @@ test "acosBinary128.special" {
 }
 
 test "acosBinary128" {
+    if (builtin.cpu.arch.isSPARC()) return error.SkipZigTest;
+
     try testing.expectApproxEqAbs(0x1.250e9a58f049eeafa99db4360c88p1, acosBinary128(-0x1.511bdb99a3c4373bedf834ef4f68p-1), math.floatEpsAt(f128, 0x1.250e9a58f049eeafa99db4360c88p1));
     try testing.expectApproxEqAbs(0x1.2786664b1c676c99437b68590004p1, acosBinary128(-0x1.5879cc3ad6dfd2a52e9891c69808p-1), math.floatEpsAt(f128, 0x1.2786664b1c676c99437b68590004p1));
     try testing.expectApproxEqAbs(0x1.cb190cd361c7c03a09c470b4caebp-1, acosBinary128(0x1.3f988ba64a7eb97a751c5f0b3077p-1), math.floatEpsAt(f128, 0x1.cb190cd361c7c03a09c470b4caebp-1));

@@ -387,7 +387,7 @@ exports:
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libcorecrypto.dylib'
-current-version: 1922.101.2
+current-version: 1922.121.1
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
     umbrella:        System
@@ -1107,7 +1107,7 @@ exports:
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libquarantine.dylib'
-current-version: 196.100.8
+current-version: 196.120.2
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
     umbrella:        System
@@ -1260,7 +1260,7 @@ exports:
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_c.dylib'
-current-version: 1752.100.10
+current-version: 1752.120.2
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
     umbrella:        System
@@ -1512,7 +1512,7 @@ exports:
                        _tre_ast_new_iter, _tre_ast_new_literal, _tre_ast_new_node, 
                        _tre_ast_new_union, _tre_compile, _tre_fill_pmatch, _tre_free, 
                        _tre_mem_alloc_impl, _tre_mem_destroy, _tre_mem_new_impl, 
-                       _tre_parse, _tre_stack_destroy, _tre_stack_new, _tre_stack_num_objects, 
+                       _tre_parse, _tre_stack_destroy, _tre_stack_new, _tre_stack_num_items, 
                        _tre_tnfa_run_backtrack, _tre_tnfa_run_parallel, _tsearch, 
                        _ttyname, _ttyname_r, _ttyslot, _twalk, _tzname, _tzset, _tzsetwall, 
                        _ualarm, _ulimit, _umaskx_np, _uname, _ungetc, _ungetwc, _ungetwc_l, 
@@ -1557,7 +1557,7 @@ reexports:
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_collections.dylib'
-current-version: 1752.100.10
+current-version: 1752.120.2
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
     umbrella:        System
@@ -1584,7 +1584,7 @@ exports:
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_configuration.dylib'
-current-version: 1405.100.8
+current-version: 1405.120.5
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
     umbrella:        System
@@ -1887,7 +1887,7 @@ exports:
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_dnssd.dylib'
-current-version: 2881.100.56
+current-version: 2881.120.11
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
     umbrella:        System
@@ -1922,7 +1922,7 @@ exports:
 tbd-version:     4
 targets:         [ x86_64-macos, arm64e-macos ]
 install-name:    '/usr/lib/system/libsystem_eligibility.dylib'
-current-version: 319.101.1
+current-version: 319.121.1
 parent-umbrella:
   - targets:         [ x86_64-macos, arm64e-macos ]
     umbrella:        System
@@ -2073,7 +2073,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_kernel.dylib'
-current-version: 12377.101.14
+current-version: 12377.121.6
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -2438,75 +2438,76 @@ exports:
                        _posix_spawnattr_getmacpolicyinfo_np, _posix_spawnattr_getpcontrol_np, 
                        _posix_spawnattr_getpgroup, _posix_spawnattr_getprocesstype_np, 
                        _posix_spawnattr_getsigdefault, _posix_spawnattr_getsigmask, 
-                       _posix_spawnattr_init, _posix_spawnattr_set_alt_rosetta_np, 
-                       _posix_spawnattr_set_conclave_id_np, _posix_spawnattr_set_conclavememlimit_ext, 
-                       _posix_spawnattr_set_crash_behavior_deadline_np, _posix_spawnattr_set_crash_behavior_np, 
-                       _posix_spawnattr_set_crash_count_np, _posix_spawnattr_set_csm_np, 
-                       _posix_spawnattr_set_darwin_role_np, _posix_spawnattr_set_filedesclimit_ext, 
-                       _posix_spawnattr_set_gid_np, _posix_spawnattr_set_groups_np, 
-                       _posix_spawnattr_set_importancewatch_port_np, _posix_spawnattr_set_jetsam_ttr_np, 
-                       _posix_spawnattr_set_kqworklooplimit_ext, _posix_spawnattr_set_launch_type_np, 
-                       _posix_spawnattr_set_login_np, _posix_spawnattr_set_max_addr_np, 
-                       _posix_spawnattr_set_persona_gid_np, _posix_spawnattr_set_persona_groups_np, 
-                       _posix_spawnattr_set_persona_np, _posix_spawnattr_set_persona_uid_np, 
-                       _posix_spawnattr_set_platform_np, _posix_spawnattr_set_portlimits_ext, 
-                       _posix_spawnattr_set_ptrauth_task_port_np, _posix_spawnattr_set_qos_clamp_np, 
-                       _posix_spawnattr_set_registered_ports_np, _posix_spawnattr_set_subsystem_root_path_np, 
-                       _posix_spawnattr_set_telemetry_np, _posix_spawnattr_set_threadlimit_ext, 
-                       _posix_spawnattr_set_uid_np, _posix_spawnattr_set_use_sec_transition_shims_np, 
-                       _posix_spawnattr_setarchpref_np, _posix_spawnattr_setauditsessionport_np, 
-                       _posix_spawnattr_setbinpref_np, _posix_spawnattr_setcoalition_np, 
-                       _posix_spawnattr_setcpumonitor, _posix_spawnattr_setcpumonitor_default, 
-                       _posix_spawnattr_setdataless_iopolicy_np, _posix_spawnattr_setexceptionports_np, 
-                       _posix_spawnattr_setflags, _posix_spawnattr_setjetsam_ext, 
-                       _posix_spawnattr_setmacpolicyinfo_np, _posix_spawnattr_setnosmt_np, 
-                       _posix_spawnattr_setpcontrol_np, _posix_spawnattr_setpgroup, 
-                       _posix_spawnattr_setprocesstype_np, _posix_spawnattr_setsigdefault, 
-                       _posix_spawnattr_setsigmask, _posix_spawnattr_setspecialport_np, 
-                       _pread, '_pread$NOCANCEL', _preadv, '_preadv$NOCANCEL', _proc_clear_cpulimits, 
-                       _proc_clear_delayidlesleep, _proc_clear_dirty, _proc_clear_vmpressure, 
-                       _proc_current_thread_schedinfo, _proc_denap_assertion_begin_with_msg, 
-                       _proc_denap_assertion_complete, _proc_disable_apptype, _proc_disable_cpumon, 
-                       _proc_disable_wakemon, _proc_donate_importance_boost, _proc_enable_apptype, 
-                       _proc_get_cpumon_params, _proc_get_dirty, _proc_get_wakemon_params, 
-                       _proc_importance_assertion_begin_with_msg, _proc_importance_assertion_complete, 
-                       _proc_kmsgbuf, _proc_libversion, _proc_list_dynkqueueids, 
-                       _proc_list_uptrs, _proc_listallpids, _proc_listchildpids, 
-                       _proc_listcoalitions, _proc_listpgrppids, _proc_listpids, 
-                       _proc_listpidspath, _proc_name, _proc_pid_rusage, _proc_piddynkqueueinfo, 
-                       _proc_pidfdinfo, _proc_pidfileportinfo, _proc_pidinfo, _proc_pidoriginatorinfo, 
-                       _proc_pidpath, _proc_pidpath_audittoken, _proc_regionfilename, 
-                       _proc_reset_footprint_interval, _proc_resume_cpumon, _proc_rlimit_control, 
-                       _proc_set_cpumon_defaults, _proc_set_cpumon_params, _proc_set_cpumon_params_fatal, 
-                       _proc_set_csm, _proc_set_delayidlesleep, _proc_set_dirty, 
-                       _proc_set_no_smt, _proc_set_owner_vmpressure, _proc_set_wakemon_defaults, 
-                       _proc_set_wakemon_params, _proc_setcpu_percentage, _proc_setpcontrol, 
-                       _proc_setthread_cpupercent, _proc_setthread_csm, _proc_setthread_no_smt, 
-                       _proc_signal_delegate, _proc_signal_with_audittoken, _proc_suppress, 
-                       _proc_terminate, _proc_terminate_all_rsr, _proc_terminate_delegate, 
-                       _proc_terminate_with_audittoken, _proc_trace_log, _proc_track_dirty, 
-                       _proc_udata_info, _proc_uuid_policy, _processor_assign, _processor_control, 
-                       _processor_exit, _processor_get_assignment, _processor_info, 
-                       _processor_set_create, _processor_set_default, _processor_set_destroy, 
-                       _processor_set_info, _processor_set_max_priority, _processor_set_policy_control, 
-                       _processor_set_policy_disable, _processor_set_policy_enable, 
-                       _processor_set_stack_usage, _processor_set_statistics, _processor_set_tasks, 
-                       _processor_set_tasks_with_flavor, _processor_set_threads, 
-                       _processor_start, _pselect, '_pselect$DARWIN_EXTSN', '_pselect$DARWIN_EXTSN$NOCANCEL', 
-                       '_pselect$NOCANCEL', _pthread_getugid_np, _pthread_setugid_np, 
-                       _ptrace, _pwrite, '_pwrite$NOCANCEL', _pwritev, '_pwritev$NOCANCEL', 
-                       _quota, _quotactl, _read, '_read$NOCANCEL', _readlink, _readlinkat, 
-                       _readv, '_readv$NOCANCEL', _reboot, _reboot_np, _record_system_event_as_kernel, 
-                       _recvfrom, '_recvfrom$NOCANCEL', _recvmsg, '_recvmsg$NOCANCEL', 
-                       _recvmsg_x, _register_uexc_handler, _removexattr, _rename, 
-                       _rename_ext, _renameat, _renameatx_np, _renamex_np, _revoke, 
-                       _rmdir, _searchfs, _select, '_select$DARWIN_EXTSN', '_select$DARWIN_EXTSN$NOCANCEL', 
-                       '_select$NOCANCEL', _sem_close, _sem_destroy, _sem_getvalue, 
-                       _sem_init, _sem_open, _sem_post, _sem_trywait, _sem_unlink, 
-                       _sem_wait, '_sem_wait$NOCANCEL', _semaphore_create, _semaphore_destroy, 
-                       _semaphore_signal, _semaphore_signal_all, _semaphore_signal_all_trap, 
-                       _semaphore_signal_thread, _semaphore_signal_thread_trap, _semaphore_signal_trap, 
-                       _semaphore_timedwait, _semaphore_timedwait_signal, _semaphore_timedwait_signal_trap, 
+                       _posix_spawnattr_init, _posix_spawnattr_set_4k_page_size_np, 
+                       _posix_spawnattr_set_alt_rosetta_np, _posix_spawnattr_set_conclave_id_np, 
+                       _posix_spawnattr_set_conclavememlimit_ext, _posix_spawnattr_set_crash_behavior_deadline_np, 
+                       _posix_spawnattr_set_crash_behavior_np, _posix_spawnattr_set_crash_count_np, 
+                       _posix_spawnattr_set_csm_np, _posix_spawnattr_set_darwin_role_np, 
+                       _posix_spawnattr_set_filedesclimit_ext, _posix_spawnattr_set_gid_np, 
+                       _posix_spawnattr_set_groups_np, _posix_spawnattr_set_importancewatch_port_np, 
+                       _posix_spawnattr_set_jetsam_ttr_np, _posix_spawnattr_set_kqworklooplimit_ext, 
+                       _posix_spawnattr_set_launch_type_np, _posix_spawnattr_set_login_np, 
+                       _posix_spawnattr_set_max_addr_np, _posix_spawnattr_set_persona_gid_np, 
+                       _posix_spawnattr_set_persona_groups_np, _posix_spawnattr_set_persona_np, 
+                       _posix_spawnattr_set_persona_uid_np, _posix_spawnattr_set_platform_np, 
+                       _posix_spawnattr_set_portlimits_ext, _posix_spawnattr_set_ptrauth_task_port_np, 
+                       _posix_spawnattr_set_qos_clamp_np, _posix_spawnattr_set_registered_ports_np, 
+                       _posix_spawnattr_set_subsystem_root_path_np, _posix_spawnattr_set_telemetry_np, 
+                       _posix_spawnattr_set_threadlimit_ext, _posix_spawnattr_set_uid_np, 
+                       _posix_spawnattr_set_use_sec_transition_shims_np, _posix_spawnattr_setarchpref_np, 
+                       _posix_spawnattr_setauditsessionport_np, _posix_spawnattr_setbinpref_np, 
+                       _posix_spawnattr_setcoalition_np, _posix_spawnattr_setcpumonitor, 
+                       _posix_spawnattr_setcpumonitor_default, _posix_spawnattr_setdataless_iopolicy_np, 
+                       _posix_spawnattr_setexceptionports_np, _posix_spawnattr_setflags, 
+                       _posix_spawnattr_setjetsam_ext, _posix_spawnattr_setmacpolicyinfo_np, 
+                       _posix_spawnattr_setnosmt_np, _posix_spawnattr_setpcontrol_np, 
+                       _posix_spawnattr_setpgroup, _posix_spawnattr_setprocesstype_np, 
+                       _posix_spawnattr_setsigdefault, _posix_spawnattr_setsigmask, 
+                       _posix_spawnattr_setspecialport_np, _pread, '_pread$NOCANCEL', 
+                       _preadv, '_preadv$NOCANCEL', _proc_clear_cpulimits, _proc_clear_delayidlesleep, 
+                       _proc_clear_dirty, _proc_clear_vmpressure, _proc_current_thread_schedinfo, 
+                       _proc_denap_assertion_begin_with_msg, _proc_denap_assertion_complete, 
+                       _proc_disable_apptype, _proc_disable_cpumon, _proc_disable_wakemon, 
+                       _proc_donate_importance_boost, _proc_enable_apptype, _proc_get_cpumon_params, 
+                       _proc_get_dirty, _proc_get_wakemon_params, _proc_importance_assertion_begin_with_msg, 
+                       _proc_importance_assertion_complete, _proc_kmsgbuf, _proc_libversion, 
+                       _proc_list_dynkqueueids, _proc_list_uptrs, _proc_listallpids, 
+                       _proc_listchildpids, _proc_listcoalitions, _proc_listpgrppids, 
+                       _proc_listpids, _proc_listpidspath, _proc_name, _proc_pid_rusage, 
+                       _proc_piddynkqueueinfo, _proc_pidfdinfo, _proc_pidfileportinfo, 
+                       _proc_pidinfo, _proc_pidoriginatorinfo, _proc_pidpath, _proc_pidpath_audittoken, 
+                       _proc_regionfilename, _proc_reset_footprint_interval, _proc_resume_cpumon, 
+                       _proc_rlimit_control, _proc_set_cpumon_defaults, _proc_set_cpumon_params, 
+                       _proc_set_cpumon_params_fatal, _proc_set_csm, _proc_set_delayidlesleep, 
+                       _proc_set_dirty, _proc_set_no_smt, _proc_set_owner_vmpressure, 
+                       _proc_set_wakemon_defaults, _proc_set_wakemon_params, _proc_setcpu_percentage, 
+                       _proc_setpcontrol, _proc_setthread_cpupercent, _proc_setthread_csm, 
+                       _proc_setthread_no_smt, _proc_signal_delegate, _proc_signal_with_audittoken, 
+                       _proc_suppress, _proc_terminate, _proc_terminate_all_rsr, 
+                       _proc_terminate_delegate, _proc_terminate_with_audittoken, 
+                       _proc_trace_log, _proc_track_dirty, _proc_udata_info, _proc_uuid_policy, 
+                       _processor_assign, _processor_control, _processor_exit, _processor_get_assignment, 
+                       _processor_info, _processor_set_create, _processor_set_default, 
+                       _processor_set_destroy, _processor_set_info, _processor_set_max_priority, 
+                       _processor_set_policy_control, _processor_set_policy_disable, 
+                       _processor_set_policy_enable, _processor_set_stack_usage, 
+                       _processor_set_statistics, _processor_set_tasks, _processor_set_tasks_with_flavor, 
+                       _processor_set_threads, _processor_start, _pselect, '_pselect$DARWIN_EXTSN', 
+                       '_pselect$DARWIN_EXTSN$NOCANCEL', '_pselect$NOCANCEL', _pthread_getugid_np, 
+                       _pthread_setugid_np, _ptrace, _pwrite, '_pwrite$NOCANCEL', 
+                       _pwritev, '_pwritev$NOCANCEL', _quota, _quotactl, _read, '_read$NOCANCEL', 
+                       _readlink, _readlinkat, _readv, '_readv$NOCANCEL', _reboot, 
+                       _reboot_np, _record_system_event_as_kernel, _recvfrom, '_recvfrom$NOCANCEL', 
+                       _recvmsg, '_recvmsg$NOCANCEL', _recvmsg_x, _register_uexc_handler, 
+                       _removexattr, _rename, _rename_ext, _renameat, _renameatx_np, 
+                       _renamex_np, _revoke, _rmdir, _searchfs, _select, '_select$DARWIN_EXTSN', 
+                       '_select$DARWIN_EXTSN$NOCANCEL', '_select$NOCANCEL', _sem_close, 
+                       _sem_destroy, _sem_getvalue, _sem_init, _sem_open, _sem_post, 
+                       _sem_trywait, _sem_unlink, _sem_wait, '_sem_wait$NOCANCEL', 
+                       _semaphore_create, _semaphore_destroy, _semaphore_signal, 
+                       _semaphore_signal_all, _semaphore_signal_all_trap, _semaphore_signal_thread, 
+                       _semaphore_signal_thread_trap, _semaphore_signal_trap, _semaphore_timedwait, 
+                       _semaphore_timedwait_signal, _semaphore_timedwait_signal_trap, 
                        _semaphore_timedwait_trap, _semaphore_wait, _semaphore_wait_signal, 
                        _semaphore_wait_signal_trap, _semaphore_wait_trap, _semctl, 
                        _semget, _semop, _semsys, _sendfile, _sendmsg, '_sendmsg$NOCANCEL', 
@@ -2591,8 +2592,8 @@ exports:
   - targets:         [ arm64-macos, arm64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
     symbols:         [ ___fstat, ___fstatat, ___fstatfs, ___getfsstat, ___lstat, 
                        ___stat, ___statfs, __current_pid, _mach_absolute_time_kernel, 
-                       _mach_continuous_time_kernel, _os_custom_x18_abi, _os_custom_x18_abi_get, 
-                       _update_tpidr ]
+                       _mach_continuous_time_kernel, _os_custom_x18_abi_enabled, 
+                       _os_set_custom_x18_abi_enabled, _update_tpidr ]
 --- !tapi-tbd
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, x86_64h-macos, x86_64h-maccatalyst, 
@@ -2928,8 +2929,8 @@ exports:
                        _ne_session_policy_copy_flow_divert_token, _ne_session_policy_copy_flow_divert_token_with_key, 
                        _ne_session_policy_match_get_service, _ne_session_policy_match_get_service_action, 
                        _ne_session_policy_match_get_service_type, _ne_session_relay_configs_present, 
-                       _ne_session_release, _ne_session_reset_cache, _ne_session_retain, 
-                       _ne_session_send_barrier, _ne_session_service_copy_cached_match_domains, 
+                       _ne_session_release, _ne_session_requires_flow_divert, _ne_session_reset_cache, 
+                       _ne_session_retain, _ne_session_send_barrier, _ne_session_service_copy_cached_match_domains, 
                        _ne_session_service_get_dns_service_id, _ne_session_service_get_dns_service_id_for_interface, 
                        _ne_session_service_matches_address, _ne_session_service_matches_address_for_interface, 
                        _ne_session_set_device_communication_exception, _ne_session_set_event_handler, 
@@ -2960,7 +2961,7 @@ exports:
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_notify.dylib'
-current-version: 348.100.7
+current-version: 348.120.4
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
     umbrella:        System
@@ -2978,7 +2979,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_platform.dylib'
-current-version: 375.100.10
+current-version: 375.120.2
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -3153,7 +3154,7 @@ exports:
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_sandbox.dylib'
-current-version: 2680.100.174
+current-version: 2680.120.12
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
     umbrella:        System
@@ -3300,7 +3301,7 @@ exports:
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_trace.dylib'
-current-version: 1861.100.19
+current-version: 1861.120.4
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
     umbrella:        System
@@ -3422,7 +3423,7 @@ exports:
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libxpc.dylib'
-current-version: 3102.100.102
+current-version: 3102.120.13
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
     umbrella:        System

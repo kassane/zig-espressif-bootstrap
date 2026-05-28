@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const math = std.math;
+const ld = math.long_double;
 const mem = std.mem;
 const expect = std.testing.expect;
 const expectApproxEqAbs = std.testing.expectApproxEqAbs;
@@ -9,7 +10,6 @@ const trig = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 const rem_pio2l = @import("rem_pio2l.zig").rem_pio2l;
-const ld = @import("long_double.zig");
 const compiler_rt = @import("../compiler_rt.zig");
 const symbol = compiler_rt.symbol;
 
@@ -292,8 +292,6 @@ pub fn sincosq(x: f128, r_sin: *f128, r_cos: *f128) callconv(.c) void {
 
 pub fn sincosl(x: c_longdouble, r_sin: *c_longdouble, r_cos: *c_longdouble) callconv(.c) void {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return sincosh(x, r_sin, r_cos),
-        32 => return sincosf(x, r_sin, r_cos),
         64 => return sincos(x, r_sin, r_cos),
         80 => return sincosx(x, r_sin, r_cos),
         128 => return sincosq(x, r_sin, r_cos),

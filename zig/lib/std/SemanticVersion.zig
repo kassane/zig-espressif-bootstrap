@@ -146,7 +146,7 @@ fn parseNum(text: []const u8) error{ InvalidVersion, Overflow }!usize {
 
     return std.fmt.parseUnsigned(usize, text, 10) catch |err| switch (err) {
         error.InvalidCharacter => return error.InvalidVersion,
-        error.Overflow => return error.Overflow,
+        error.Overflow => |e| return e,
     };
 }
 

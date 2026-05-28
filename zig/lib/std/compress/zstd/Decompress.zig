@@ -173,8 +173,7 @@ fn discardDirect(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
     }
     const n = r.stream(&writer, limit) catch |err| switch (err) {
         error.WriteFailed => unreachable,
-        error.ReadFailed => return error.ReadFailed,
-        error.EndOfStream => return error.EndOfStream,
+        error.ReadFailed, error.EndOfStream => |e| return e,
     };
     assert(n <= @intFromEnum(limit));
     return n;
@@ -252,8 +251,7 @@ fn stream(d: *Decompress, w: *Writer, limit: Limit) Reader.StreamError!usize {
         },
         .in_frame => |*in_frame| {
             return readInFrame(d, w, limit, in_frame) catch |err| switch (err) {
-                error.ReadFailed => return error.ReadFailed,
-                error.WriteFailed => return error.WriteFailed,
+                error.ReadFailed, error.WriteFailed => |e| return e,
                 else => |e| {
                     d.err = e;
                     return error.ReadFailed;
@@ -535,7 +533,7 @@ pub const Frame = struct {
                     table: Table,
                     accuracy_log: u8,
 
-                    const State = std.meta.Int(.unsigned, max_accuracy_log);
+                    const State = @Int(.unsigned, max_accuracy_log);
                 };
             }
 
@@ -1785,7 +1783,7 @@ const ReverseBitReader = struct {
     }
 
     fn initBits(comptime T: type, out: anytype, num: u16) Bits(T) {
-        const UT = std.meta.Int(.unsigned, @bitSizeOf(T));
+        const UT = @Int(.unsigned, @bitSizeOf(T));
         return .{
             @bitCast(@as(UT, @intCast(out))),
             num,
@@ -1805,7 +1803,7 @@ const ReverseBitReader = struct {
     }
 
     fn readBitsTuple(self: *ReverseBitReader, comptime T: type, num: u16) !Bits(T) {
-        const UT = std.meta.Int(.unsigned, @bitSizeOf(T));
+        const UT = @Int(.unsigned, @bitSizeOf(T));
         const U = if (@bitSizeOf(T) < 8) u8 else UT;
 
         if (num <= self.count) return initBits(T, self.removeBits(@intCast(num)), num);
@@ -1873,7 +1871,7 @@ const BitReader = struct {
     count: u4 = 0,
 
     fn initBits(comptime T: type, out: anytype, num: u16) Bits(T) {
-        const UT = std.meta.Int(.unsigned, @bitSizeOf(T));
+        const UT = @Int(.unsigned, @bitSizeOf(T));
         return .{
             @bitCast(@as(UT, @intCast(out))),
             num,
@@ -1893,7 +1891,7 @@ const BitReader = struct {
     }
 
     fn readBitsTuple(self: *@This(), comptime T: type, num: u16) !Bits(T) {
-        const UT = std.meta.Int(.unsigned, @bitSizeOf(T));
+        const UT = @Int(.unsigned, @bitSizeOf(T));
         const U = if (@bitSizeOf(T) < 8) u8 else UT;
 
         if (num <= self.count) return initBits(T, self.removeBits(@intCast(num)), num);

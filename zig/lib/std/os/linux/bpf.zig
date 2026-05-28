@@ -58,6 +58,12 @@ pub const JGT = 0x20;
 pub const JGE = 0x30;
 pub const JSET = 0x40;
 
+// misc fields
+/// copy A into X
+pub const TAX = 0x00;
+/// copy X into A
+pub const TXA = 0x80;
+
 //#define BPF_SRC(code)   ((code) & 0x08)
 pub const K = 0x00;
 pub const X = 0x08;

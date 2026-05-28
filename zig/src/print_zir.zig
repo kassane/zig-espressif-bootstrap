@@ -416,8 +416,6 @@ const Writer = struct {
 
             .for_len => try self.writePlNodeMultiOp(stream, inst),
 
-            .array_mul => try self.writeArrayMul(stream, inst),
-
             .elem_val_imm => try self.writeElemValImm(stream, inst),
 
             .@"export" => try self.writePlNodeExport(stream, inst),
@@ -429,7 +427,6 @@ const Writer = struct {
             .block_inline,
             .suspend_block,
             .loop,
-            .c_import,
             .typeof_builtin,
             => try self.writeBlock(stream, inst),
 
@@ -478,7 +475,6 @@ const Writer = struct {
             .decl_ref,
             .decl_val,
             .ret_err_value,
-            .ret_err_value_code,
             .param_anytype,
             .param_anytype_comptime,
             => try self.writeStrTok(stream, inst),
@@ -498,7 +494,6 @@ const Writer = struct {
             .dbg_stmt => try self.writeDbgStmt(stream, inst),
 
             .@"defer" => try self.writeDefer(stream, inst),
-            .defer_err_code => try self.writeDeferErrCode(stream, inst),
 
             .declaration => try self.writeDeclaration(stream, inst),
 
@@ -555,8 +550,6 @@ const Writer = struct {
 
             .tuple_decl => try self.writeTupleDecl(stream, extended),
 
-            .c_undef,
-            .c_include,
             .set_float_mode,
             .wasm_memory_size,
             .int_from_error,
@@ -579,7 +572,6 @@ const Writer = struct {
             },
 
             .builtin_extern,
-            .c_define,
             .error_cast,
             .wasm_memory_grow,
             .prefetch,
@@ -701,7 +693,7 @@ const Writer = struct {
             .restore_err_ret_index => try self.writeRestoreErrRetIndex(stream, extended),
             .closure_get => try self.writeClosureGet(stream, extended),
             .field_parent_ptr => try self.writeFieldParentPtr(stream, extended),
-            .builtin_value => try self.writeBuiltinValue(stream, extended),
+            .std_lang_value => try self.writeStdLangValue(stream, extended),
             .inplace_arith_result_ty => try self.writeInplaceArithResultTy(stream, extended),
 
             .dbg_empty_stmt => try stream.writeAll("))"),
@@ -1052,18 +1044,6 @@ const Writer = struct {
         try self.writeSrcNode(stream, inst_data.src_node);
     }
 
-    fn writeArrayMul(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-        const extra = self.code.extraData(Zir.Inst.ArrayMul, inst_data.payload_index).data;
-        try self.writeInstRef(stream, extra.res_ty);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.lhs);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.rhs);
-        try stream.writeAll(") ");
-        try self.writeSrcNode(stream, inst_data.src_node);
-    }
-
     fn writeElemValImm(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].elem_val_imm;
         try self.writeInstRef(stream, inst_data.operand);
@@ -1360,7 +1340,7 @@ const Writer = struct {
         if (extra.data.flags.ensure_result_used) {
             try stream.writeAll("nodiscard ");
         }
-        try stream.print(".{s}, ", .{@tagName(@as(std.builtin.CallModifier, @enumFromInt(extra.data.flags.packed_modifier)))});
+        try stream.print(".{s}, ", .{@tagName(@as(std.lang.CallModifier, @enumFromInt(extra.data.flags.packed_modifier)))});
         switch (kind) {
             .direct => try self.writeInstRef(stream, extra.data.callee),
             .field => {
@@ -2190,19 +2170,6 @@ const Writer = struct {
         try stream.writeByte(')');
     }
 
-    fn writeDeferErrCode(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].defer_err_code;
-        const extra = self.code.extraData(Zir.Inst.DeferErrCode, inst_data.payload_index).data;
-
-        try self.writeInstRef(stream, extra.remapped_err_code.toRef());
-        try stream.writeAll(" = ");
-        try self.writeInstRef(stream, inst_data.err_code);
-        try stream.writeAll(", ");
-        const body = self.code.bodySlice(extra.index, extra.len);
-        try self.writeBracedBody(stream, body);
-        try stream.writeByte(')');
-    }
-
     fn writeDeclaration(self: *Writer, stream: *std.Io.Writer, inst: Zir.Inst.Index) !void {
         const decl = self.code.getDeclaration(inst);
 
@@ -2265,8 +2232,8 @@ const Writer = struct {
         try self.writeSrcNode(stream, src_node);
     }
 
-    fn writeBuiltinValue(self: *Writer, stream: *std.Io.Writer, extended: Zir.Inst.Extended.InstData) !void {
-        const val: Zir.Inst.BuiltinValue = @enumFromInt(extended.small);
+    fn writeStdLangValue(self: *Writer, stream: *std.Io.Writer, extended: Zir.Inst.Extended.InstData) !void {
+        const val: Zir.Inst.StdLangValue = @enumFromInt(extended.small);
         try stream.print("{s})) ", .{@tagName(val)});
         const src_node: Ast.Node.Offset = @enumFromInt(@as(i32, @bitCast(extended.operand)));
         try self.writeSrcNode(stream, src_node);

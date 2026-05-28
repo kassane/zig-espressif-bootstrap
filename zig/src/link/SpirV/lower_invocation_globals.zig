@@ -208,7 +208,7 @@ const ModuleInfo = struct {
     /// For each function, extend the list of `invocation_globals` with the
     /// invocation globals that ALL of its dependencies use.
     fn resolveInvocationGlobalUsage(self: *ModuleInfo, arena: Allocator) !void {
-        var seen = try std.DynamicBitSetUnmanaged.initEmpty(arena, self.functions.count());
+        var seen: std.bit_set.Dynamic = try .initEmpty(arena, self.functions.count());
 
         for (self.functions.keys()) |id| {
             try self.resolveInvocationGlobalUsageStep(arena, id, &seen);
@@ -219,7 +219,7 @@ const ModuleInfo = struct {
         self: *ModuleInfo,
         arena: Allocator,
         id: ResultId,
-        seen: *std.DynamicBitSetUnmanaged,
+        seen: *std.bit_set.Dynamic,
     ) !void {
         const index = self.functions.getIndex(id) orelse {
             log.err("function calls invalid function {f}", .{id});
@@ -247,7 +247,7 @@ const ModuleInfo = struct {
         self: *ModuleInfo,
         arena: Allocator,
     ) !void {
-        var seen = try std.DynamicBitSetUnmanaged.initEmpty(arena, self.invocation_globals.count());
+        var seen: std.bit_set.Dynamic = try .initEmpty(arena, self.invocation_globals.count());
 
         for (self.invocation_globals.keys()) |id| {
             try self.resolveInvocationGlobalDependenciesStep(arena, id, &seen);
@@ -258,7 +258,7 @@ const ModuleInfo = struct {
         self: *ModuleInfo,
         arena: Allocator,
         id: ResultId,
-        seen: *std.DynamicBitSetUnmanaged,
+        seen: *std.bit_set.Dynamic,
     ) !void {
         const index = self.invocation_globals.getIndex(id) orelse {
             log.err("invalid invocation global {f}", .{id});

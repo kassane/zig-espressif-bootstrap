@@ -207,7 +207,9 @@ typedef struct vm_purgeable_info        *host_purgable_info_t;
 
 /* size of the latest version of the structure */
 #define HOST_VM_INFO64_LATEST_COUNT HOST_VM_INFO64_COUNT
-#define HOST_VM_INFO64_REV2_COUNT HOST_VM_INFO64_COUNT
+#define HOST_VM_INFO64_REV3_COUNT HOST_VM_INFO64_COUNT
+#define HOST_VM_INFO64_REV2_COUNT ((mach_msg_type_number_t) \
+	 (offsetof(vm_statistics64_data_t, total_tag_storage_pages) / sizeof(integer_t)))
 #define HOST_VM_INFO64_REV1_COUNT ((mach_msg_type_number_t) \
 	 (offsetof(vm_statistics64_data_t, swapped_count) / sizeof(integer_t)))
 /* previous versions: adjust the size according to what was added each time */

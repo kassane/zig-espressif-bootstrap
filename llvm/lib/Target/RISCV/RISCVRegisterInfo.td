@@ -75,6 +75,18 @@ def ABIRegAltName : RegAltNameIndex;
 
 def sub_vrm4_0 : SubRegIndex<256>;
 def sub_vrm4_1 : SubRegIndex<256, 256>;
+def sub_vrm2_0 : SubRegIndex<128>;
+def sub_vrm2_1 : SubRegIndex<128, 128>;
+def sub_vrm2_2 : ComposedSubRegIndex<sub_vrm4_1, sub_vrm2_0>;
+def sub_vrm2_3 : ComposedSubRegIndex<sub_vrm4_1, sub_vrm2_1>;
+def sub_vrm1_0 : SubRegIndex<64>;
+def sub_vrm1_1 : SubRegIndex<64, 64>;
+def sub_vrm1_2 : ComposedSubRegIndex<sub_vrm2_1, sub_vrm1_0>;
+def sub_vrm1_3 : ComposedSubRegIndex<sub_vrm2_1, sub_vrm1_1>;
+def sub_vrm1_4 : ComposedSubRegIndex<sub_vrm2_2, sub_vrm1_0>;
+def sub_vrm1_5 : ComposedSubRegIndex<sub_vrm2_2, sub_vrm1_1>;
+def sub_vrm1_6 : ComposedSubRegIndex<sub_vrm2_3, sub_vrm1_0>;
+def sub_vrm1_7 : ComposedSubRegIndex<sub_vrm2_3, sub_vrm1_1>;
 
 // QACC subregister indices (256-bit)
 def sub_qacc_l : SubRegIndex<256, 0>;    // Low 256-bit [255:0]
@@ -99,18 +111,6 @@ def sub_qacc_vrm2_1 : SubRegIndex<256, 256>;  // QACC[511:256] -> QACC_H (high 2
 // - XACC[39:32] (high 8 bits) - accessed via ESP.MOVX.R.XACC.H / ESP.MOVX.W.XACC.H
 def sub_xacc_lo : SubRegIndex<32, 0>;      // XACC[31:0] (low 32 bits)
 def sub_xacc_hi : SubRegIndex<8, 32>;      // XACC[39:32] (high 8 bits)
-def sub_vrm2_0 : SubRegIndex<128>;
-def sub_vrm2_1 : SubRegIndex<128, 128>;
-def sub_vrm2_2 : ComposedSubRegIndex<sub_vrm4_1, sub_vrm2_0>;
-def sub_vrm2_3 : ComposedSubRegIndex<sub_vrm4_1, sub_vrm2_1>;
-def sub_vrm1_0 : SubRegIndex<64>;
-def sub_vrm1_1 : SubRegIndex<64, 64>;
-def sub_vrm1_2 : ComposedSubRegIndex<sub_vrm2_1, sub_vrm1_0>;
-def sub_vrm1_3 : ComposedSubRegIndex<sub_vrm2_1, sub_vrm1_1>;
-def sub_vrm1_4 : ComposedSubRegIndex<sub_vrm2_2, sub_vrm1_0>;
-def sub_vrm1_5 : ComposedSubRegIndex<sub_vrm2_2, sub_vrm1_1>;
-def sub_vrm1_6 : ComposedSubRegIndex<sub_vrm2_3, sub_vrm1_0>;
-def sub_vrm1_7 : ComposedSubRegIndex<sub_vrm2_3, sub_vrm1_1>;
 
 // GPR sizes change with HwMode.
 def sub_gpr_even : SubRegIndex<32> {
@@ -424,6 +424,14 @@ def XLenFVT : ValueTypeByHwMode<[RV64],
                                 [f64]>;
 def XLenPairFVT : ValueTypeByHwMode<[RV32],
                                     [f64]>;
+
+// P extension
+def XLenVecI8VT : ValueTypeByHwMode<[RV32, RV64],
+                                    [v4i8, v8i8]>;
+def XLenVecI16VT : ValueTypeByHwMode<[RV32,  RV64],
+                                     [v2i16, v4i16]>;
+def XLenVecI32VT : ValueTypeByHwMode<[RV64],
+                                     [v2i32]>;
 def XLenRI : RegInfoByHwMode<
       [RV32,              RV64],
       [RegInfo<32,32,32>, RegInfo<64,64,64>]>;
@@ -440,7 +448,9 @@ class RISCVRegisterClass<list<ValueType> regTypes, int align, dag regList>
 }
 
 class GPRRegisterClass<dag regList>
-    : RISCVRegisterClass<[XLenVT, XLenFVT, i32, i16], 32, regList> {
+    : RISCVRegisterClass<[XLenVT, XLenFVT,
+                          // P extension packed vector types:
+                          XLenVecI8VT, XLenVecI16VT, XLenVecI32VT], 32, regList> {
   let RegInfos = XLenRI;
 }
 
@@ -471,6 +481,11 @@ def GPRX5 : GPRRegisterClass<(add X5)> {
 def GPRNoX0 : GPRRegisterClass<(sub GPR, X0)> {
   let DiagnosticType = "InvalidRegClassGPRNoX0";
   let DiagnosticString = "register must be a GPR excluding zero (x0)";
+}
+
+def GPRNoX2 : GPRRegisterClass<(sub GPR, X2)> {
+  let DiagnosticType = "InvalidRegClassGPRNoX2";
+  let DiagnosticString = "register must be a GPR excluding sp (x2)";
 }
 
 def GPRNoX0X2 : GPRRegisterClass<(sub GPR, X0, X2)> {
@@ -558,8 +573,7 @@ let RegAltNameIndices = [ABIRegAltName] in {
   }
 }
 
-let RegInfos = XLenPairRI, CopyCost = 2,
-    DecoderMethod = "DecodeGPRPairRegisterClass" in {
+let RegInfos = XLenPairRI, CopyCost = 2 in {
 def GPRPair : RISCVRegisterClass<[XLenPairVT, XLenPairFVT], 64, (add
     X10_X11, X12_X13, X14_X15, X16_X17,
     X6_X7,
@@ -570,12 +584,11 @@ def GPRPair : RISCVRegisterClass<[XLenPairVT, XLenPairFVT], 64, (add
 )>;
 
 def GPRPairNoX0 : RISCVRegisterClass<[XLenPairVT, XLenPairFVT], 64, (sub GPRPair, X0_Pair)>;
-} // let RegInfos = XLenPairRI, DecoderMethod = "DecodeGPRPairRegisterClass"
 
-let RegInfos = XLenPairRI, CopyCost = 2 in
 def GPRPairC : RISCVRegisterClass<[XLenPairVT, XLenPairFVT], 64, (add
   X10_X11, X12_X13, X14_X15, X8_X9
 )>;
+} // let RegInfos = XLenPairRI, CopyCost = 2
 
 //===----------------------------------------------------------------------===//
 // Floating Point registers
@@ -958,6 +971,13 @@ class VReg<list<ValueType> regTypes, dag regList, int Vlmul, int nf = 1>
 defvar VMaskVTs = [vbool1_t, vbool2_t, vbool4_t, vbool8_t, vbool16_t,
                    vbool32_t, vbool64_t];
 
+defvar VMF8VTs = [vint8mf8_t];
+
+defvar VMF4VTs = [vint8mf4_t, vint16mf4_t, vfloat16mf4_t, vbfloat16mf4_t];
+
+defvar VMF2VTs = [vint8mf2_t, vint16mf2_t, vint32mf2_t,
+                 vfloat16mf2_t, vbfloat16mf2_t, vfloat32mf2_t];
+
 defvar VM1VTs = [vint8m1_t, vint16m1_t, vint32m1_t, vint64m1_t,
                  vbfloat16m1_t, vfloat16m1_t, vfloat32m1_t,
                  vfloat64m1_t, vint8mf2_t, vint8mf4_t, vint8mf8_t,
@@ -1001,10 +1021,27 @@ def VRM8 : VReg<VM8VTs, (add V8M8, V16M8, V24M8, V0M8), 8>;
 
 def VRM8NoV0 : VReg<VM8VTs, (sub VRM8, V0M8), 8>;
 
+// Fractional LMUL register classes for inline assembly.
+// The ZZZ_ prefix is to make sure these are ordered after VR/VRNoV0 in the
+// regclass enum. Tablegen uses the name to break ties. This is important
+// because only VR/VRNoV0 have the full type lists.
+def ZZZ_VRMF8 : VReg<VMF8VTs, (add VR), 1>;
+def ZZZ_VRMF8NoV0 : VReg<VMF8VTs, (add VRNoV0), 1>;
+
+def ZZZ_VRMF4 : VReg<VMF4VTs, (add VR), 1>;
+def ZZZ_VRMF4NoV0 : VReg<VMF4VTs, (add VRNoV0), 1>;
+
+def ZZZ_VRMF2 : VReg<VMF2VTs, (add VR), 1>;
+def ZZZ_VRMF2NoV0 : VReg<VMF2VTs, (add VRNoV0), 1>;
+
 def VMV0 : VReg<VMaskVTs, (add V0), 1>;
 
 // The register class is added for inline assembly for vector mask types.
-def VM : VReg<VMaskVTs, (add VR), 1>;
+// The ZZZ_ prefix is to make sure these are ordered after VR/VRNoV0 in the
+// regclass enum. Tablegen uses the name to break ties. This is important
+// because only VR/VRNoV0 have the full type lists.
+def ZZZ_VM : VReg<VMaskVTs, (add VR), 1>;
+def ZZZ_VMNoV0 : VReg<VMaskVTs, (add VRNoV0), 1>;
 
 defvar VTupM1N2VTs = [riscv_nxv8i8x2, riscv_nxv4i8x2, riscv_nxv2i8x2, riscv_nxv1i8x2];
 defvar VTupM1N3VTs = [riscv_nxv8i8x3, riscv_nxv4i8x3, riscv_nxv2i8x3, riscv_nxv1i8x3];

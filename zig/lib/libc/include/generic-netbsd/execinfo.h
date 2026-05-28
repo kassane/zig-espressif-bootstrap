@@ -1,4 +1,4 @@
-/*	$NetBSD: execinfo.h,v 1.3 2017/06/30 21:39:43 christos Exp $	*/
+/*	$NetBSD: execinfo.h,v 1.5 2025/01/23 12:08:12 christos Exp $	*/
 
 /*-
  * Copyright (c) 2012 The NetBSD Foundation, Inc.
@@ -34,13 +34,15 @@
 #include <sys/cdefs.h>
 #include <sys/featuretest.h>
 #include <sys/ansi.h>
-  
+
 #ifdef  _BSD_SIZE_T_
 typedef _BSD_SIZE_T_    size_t;
 #undef  _BSD_SIZE_T_
 #endif
 
 __BEGIN_DECLS
+int backtrace_sandbox_init(void);
+void backtrace_sandbox_fini(void);
 size_t backtrace(void **, size_t);
 char **backtrace_symbols(void *const *, size_t);
 int backtrace_symbols_fd(void *const *, size_t, int);

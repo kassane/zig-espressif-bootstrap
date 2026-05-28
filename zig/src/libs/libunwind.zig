@@ -29,7 +29,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     const io = comp.io;
     const output_mode = .Lib;
     const target = &comp.root_mod.resolved_target.result;
-    const unwind_tables: std.builtin.UnwindTables =
+    const unwind_tables: std.lang.UnwindTables =
         if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .async;
     const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
@@ -104,6 +104,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .assembly_with_cpp => {},
             else => unreachable, // See `unwind_src_list`.
         }
+        try cflags.append("-w"); // Disable all warnings.
         try cflags.append("-I");
         try cflags.append(try comp.dirs.zig_lib.join(arena, &.{ "libunwind", "include" }));
         try cflags.append("-D_LIBUNWIND_HIDE_SYMBOLS");
@@ -125,13 +126,6 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         }
         if (target.cpu.arch.isArm() and target.abi.float() == .hard) {
             try cflags.append("-DCOMPILER_RT_ARMHF_TARGET");
-        }
-        try cflags.append("-Wno-bitwise-conditional-parentheses");
-        try cflags.append("-Wno-visibility");
-        try cflags.append("-Wno-incompatible-pointer-types");
-
-        if (target.os.tag == .windows) {
-            try cflags.append("-Wno-dll-attribute-on-redeclaration");
         }
 
         c_source_files[i] = .{
@@ -163,7 +157,6 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
-        .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
@@ -178,7 +171,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     defer sub_compilation.destroy();
 
     comp.updateSubCompilation(sub_compilation, misc_task, prog_node) catch |err| switch (err) {
-        error.AlreadyReported => return error.AlreadyReported,
+        error.AlreadyReported => |e| return e,
         else => |e| {
             comp.lockAndSetMiscFailure(misc_task, "unable to build {t}: compilation failed: {s}", .{ misc_task, @errorName(e) });
             return error.AlreadyReported;
@@ -186,7 +179,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     };
 
     const crt_file = try sub_compilation.toCrtFile();
-    try comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
+    try comp.queuePrelinkTaskMode(crt_file.full_object_path, false, &config);
     assert(comp.libunwind_static_lib == null);
     comp.libunwind_static_lib = crt_file;
 }

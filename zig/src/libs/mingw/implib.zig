@@ -387,7 +387,7 @@ const first_string_table_entry = getNameBytesForStringTableOffset(first_string_t
 const byte_size_of_relocation = 10;
 
 fn getNameBytesForStringTableOffset(offset: u32) [8]u8 {
-    var bytes = [_]u8{0} ** 8;
+    var bytes: [8]u8 = @splat(0);
     std.mem.writeInt(u32, bytes[4..8], offset, .little);
     return bytes;
 }

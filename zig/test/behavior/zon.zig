@@ -541,33 +541,60 @@ test "anon" {
     try expectEqual(expected[1], actual[1]);
     const expected_struct = expected[0];
     const actual_struct = actual[0];
-    const expected_fields = @typeInfo(@TypeOf(expected_struct)).@"struct".fields;
-    const actual_fields = @typeInfo(@TypeOf(actual_struct)).@"struct".fields;
+    const expected_fields = @typeInfo(@TypeOf(expected_struct)).@"struct".field_names;
+    const actual_fields = @typeInfo(@TypeOf(actual_struct)).@"struct".field_names;
     try expectEqual(expected_fields.len, actual_fields.len);
-    inline for (expected_fields) |field| {
-        try expectEqual(@field(expected_struct, field.name), @field(actual_struct, field.name));
+    inline for (expected_fields) |field_name| {
+        try expectEqual(@field(expected_struct, field_name), @field(actual_struct, field_name));
     }
 }
 
 test "build.zig.zon" {
     const build = @import("zon/build.zig.zon");
 
-    try expectEqual(4, @typeInfo(@TypeOf(build)).@"struct".fields.len);
+    try expectEqual(4, @typeInfo(@TypeOf(build)).@"struct".field_names.len);
     try expectEqualStrings("temp", build.name);
     try expectEqualStrings("0.0.0", build.version);
 
     const dependencies = build.dependencies;
-    try expectEqual(2, @typeInfo(@TypeOf(dependencies)).@"struct".fields.len);
+    try expectEqual(2, @typeInfo(@TypeOf(dependencies)).@"struct".field_names.len);
 
     const example_0 = dependencies.example_0;
-    try expectEqual(2, @typeInfo(@TypeOf(dependencies)).@"struct".fields.len);
+    try expectEqual(2, @typeInfo(@TypeOf(dependencies)).@"struct".field_names.len);
     try expectEqualStrings("https://example.com/foo.tar.gz", example_0.url);
     try expectEqualStrings("...", example_0.hash);
 
     const example_1 = dependencies.example_1;
-    try expectEqual(2, @typeInfo(@TypeOf(dependencies)).@"struct".fields.len);
+    try expectEqual(2, @typeInfo(@TypeOf(dependencies)).@"struct".field_names.len);
     try expectEqualStrings("../foo", example_1.path);
     try expectEqual(false, example_1.lazy);
 
     try expectEqual(.{ "build.zig", "build.zig.zon", "src" }, build.paths);
+}
+
+test "packed" {
+    {
+        const U = packed union {
+            x: f32,
+            y: u32,
+        };
+
+        const u: U = @import("zon/packed_union.zon");
+
+        try expectEqual(0.5, u.x);
+        try expectEqual(@as(u32, @bitCast(@as(f32, 0.5))), u.y);
+    }
+    {
+        const S = packed struct {
+            x: u3,
+            y: f32,
+            z: i7,
+        };
+
+        const s: S = @import("zon/packed_struct.zon");
+
+        try expectEqual(2, s.x);
+        try expectEqual(0.5, s.y);
+        try expectEqual(-10, s.z);
+    }
 }

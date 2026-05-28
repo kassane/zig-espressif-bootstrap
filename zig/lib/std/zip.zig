@@ -143,7 +143,7 @@ pub const EndRecord = extern struct {
                 const read_buf: []u8 = buf[buf.len - new_loaded_len ..][0..read_len];
                 fr.interface.readSliceAll(read_buf) catch |err| switch (err) {
                     error.ReadFailed => return fr.err.?,
-                    error.EndOfStream => return error.EndOfStream,
+                    error.EndOfStream => |e| return e,
                 };
                 loaded_len = new_loaded_len;
             }
@@ -310,7 +310,7 @@ pub const Iterator = struct {
         try input.seekTo(stream_len - locator_end_offset);
         const locator = input.interface.takeStruct(EndLocator64, .little) catch |err| switch (err) {
             error.ReadFailed => return input.err.?,
-            error.EndOfStream => return error.EndOfStream,
+            error.EndOfStream => |e| return e,
         };
         if (!std.mem.eql(u8, &locator.signature, &end_locator64_sig))
             return error.ZipBadLocatorSig;
@@ -323,7 +323,7 @@ pub const Iterator = struct {
 
         const record64 = input.interface.takeStruct(EndRecord64, .little) catch |err| switch (err) {
             error.ReadFailed => return input.err.?,
-            error.EndOfStream => return error.EndOfStream,
+            error.EndOfStream => |e| return e,
         };
 
         if (!std.mem.eql(u8, &record64.signature, &end_record64_sig))
@@ -379,7 +379,7 @@ pub const Iterator = struct {
         try input.seekTo(header_zip_offset);
         const header = input.interface.takeStruct(CentralDirectoryFileHeader, .little) catch |err| switch (err) {
             error.ReadFailed => return input.err.?,
-            error.EndOfStream => return error.EndOfStream,
+            error.EndOfStream => |e| return e,
         };
         if (!std.mem.eql(u8, &header.signature, &central_file_header_sig))
             return error.ZipBadCdOffset;
@@ -410,7 +410,7 @@ pub const Iterator = struct {
             try input.seekTo(header_zip_offset + @sizeOf(CentralDirectoryFileHeader) + header.filename_len);
             input.interface.readSliceAll(extra) catch |err| switch (err) {
                 error.ReadFailed => return input.err.?,
-                error.EndOfStream => return error.EndOfStream,
+                error.EndOfStream => |e| return e,
             };
 
             var extra_offset: usize = 0;

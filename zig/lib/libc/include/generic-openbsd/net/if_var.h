@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_var.h,v 1.139 2025/07/19 16:40:40 mvs Exp $	*/
+/*	$OpenBSD: if_var.h,v 1.148 2026/03/22 23:14:00 bluhm Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -40,7 +40,7 @@
 
 #include <sys/queue.h>
 #include <sys/mbuf.h>
-#include <sys/srp.h>
+#include <sys/smr.h>
 #include <sys/refcnt.h>
 #include <sys/task.h>
 #include <sys/timeout.h>
@@ -81,6 +81,7 @@
  *	K	kernel lock
  *	N	net lock
  *	T	if_tmplist_lock
+ *	m	interface multicast rwlock if_maddrlock
  *
  *  For SRP related structures that allow lock-free reads, the write lock
  *  is indicated below.
@@ -92,9 +93,12 @@ struct task;
 struct cpumem;
 
 struct netstack {
-	struct route		ns_route;
-	struct mbuf_list	ns_tcp_ml;
-	struct mbuf_list	ns_tcp6_ml;
+	struct mbuf_list	 ns_input;
+	struct mbuf_list	 ns_proto;
+
+	struct route		 ns_route;
+	struct mbuf_list	 ns_tcp_ml;
+	struct mbuf_list	 ns_tcp6_ml;
 };
 
 /*
@@ -141,6 +145,8 @@ enum if_counters {
  * (Would like to call this struct ``if'', but C isn't PL/1.)
  */
 TAILQ_HEAD(ifnet_head, ifnet);		/* the actual queue head */
+struct carp_softc;
+SMR_LIST_HEAD(carp_iflist, carp_softc);
 
 struct ifnet {				/* and the entries */
 	void	*if_softc;		/* [I] lower-level data for this if */
@@ -148,8 +154,9 @@ struct ifnet {				/* and the entries */
 	TAILQ_ENTRY(ifnet) if_list;	/* [NK] all struct ifnets are chained */
 	TAILQ_ENTRY(ifnet) if_tmplist;	/* [T] temporary list */
 	TAILQ_HEAD(, ifaddr) if_addrlist; /* [N] list of addresses per if */
-	TAILQ_HEAD(, ifmaddr) if_maddrlist; /* [N] list of multicast records */
+	TAILQ_HEAD(, ifmaddr) if_maddrlist; /* [m] list of multicast records */
 	TAILQ_HEAD(, ifg_list) if_groups; /* [N] list of groups per if */
+	struct rwlock if_maddrlock;
 	struct task_list if_addrhooks;	/* [I] address change callbacks */
 	struct task_list if_linkstatehooks; /* [I] link change callbacks*/
 	struct task_list if_detachhooks; /* [I] detach callbacks */
@@ -163,9 +170,11 @@ struct ifnet {				/* and the entries */
 	caddr_t if_mcast6;		/* used by IPv6 multicast code */
 	caddr_t	if_pf_kif;		/* pf interface abstraction */
 	union {
-		struct srpl carp_s;	/* carp if list (used by !carp ifs) */
-		unsigned int carp_idx;	/* index of carpdev (used by carp
-						ifs) */
+		/* carp if list (used by IFT_ETHER) */
+		struct carp_iflist carp_s;
+
+		/* index of carpdev (used by IFT_CARP) */
+		unsigned int carp_idx;
 	} if_carp_ptr;
 #define if_carp		if_carp_ptr.carp_s
 #define if_carpdevidx	if_carp_ptr.carp_idx
@@ -254,6 +263,7 @@ struct ifaddr {
 	struct	ifnet *ifa_ifp;		/* back-pointer to interface */
 	TAILQ_ENTRY(ifaddr) ifa_list;	/* [N] list of addresses for
 					    interface */
+	TAILQ_ENTRY(ifaddr) ifa_tmplist;/* [T] temporary list */
 	u_int	ifa_flags;		/* interface flags, see below */
 	struct	refcnt ifa_refcnt;	/* number of `rt_ifa` references */
 	int	ifa_metric;		/* cost of going out this interface */
@@ -265,10 +275,10 @@ struct ifaddr {
  * Interface multicast address.
  */
 struct ifmaddr {
-	struct sockaddr		*ifma_addr;	/* Protocol address */
-	unsigned int		 ifma_ifidx;	/* Index of the interface */
+	TAILQ_ENTRY(ifmaddr)	 ifma_list;	/* [m] Per-interface list */
+	struct sockaddr		*ifma_addr;	/* [I] Protocol address */
 	struct refcnt		 ifma_refcnt;	/* Count of references */
-	TAILQ_ENTRY(ifmaddr)	 ifma_list;	/* Per-interface list */
+	unsigned int		 ifma_ifidx;	/* [I] Index of the interface */
 };
 
 /*
@@ -337,6 +347,9 @@ int	if_enqueue_ifq(struct ifnet *, struct mbuf *);
 void	if_input(struct ifnet *, struct mbuf_list *);
 void	if_vinput(struct ifnet *, struct mbuf *, struct netstack *);
 void	if_input_process(struct ifnet *, struct mbuf_list *, unsigned int);
+void	if_input_proto(struct ifnet *, struct mbuf *,
+	    void (*)(struct ifnet *, struct mbuf *, struct netstack *),
+	    struct netstack *);
 int	if_input_local(struct ifnet *, struct mbuf *, sa_family_t,
 	    struct netstack *);
 int	if_output_ml(struct ifnet *, struct mbuf_list *,
@@ -350,6 +363,15 @@ void	if_rtrequest_dummy(struct ifnet *, int, struct rtentry *);
 void	p2p_rtrequest(struct ifnet *, int, struct rtentry *);
 void	p2p_input(struct ifnet *, struct mbuf *, struct netstack *);
 int	p2p_bpf_mtap(caddr_t, const struct mbuf *, u_int);
+
+/* this is a helper for if_input_process and similar functions */
+static inline void
+if_input_process_proto(struct ifnet *ifp, struct mbuf *m, struct netstack *ns)
+{
+	void (*input)(struct ifnet *, struct mbuf *, struct netstack *);
+	input = m->m_pkthdr.ph_cookie;
+	(*input)(ifp, m, ns);
+}
 
 struct	ifaddr *ifa_ifwithaddr(const struct sockaddr *, u_int);
 struct	ifaddr *ifa_ifwithdstaddr(const struct sockaddr *, u_int);

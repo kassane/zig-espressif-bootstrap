@@ -1,3 +1,3 @@
-/*	$NetBSD: int_limits.h,v 1.1 2002/12/09 12:16:05 scw Exp $	*/
+/* $NetBSD: int_limits.h,v 1.1 2014/09/19 17:36:26 matt Exp $ */
 
-#include <powerpc/int_limits.h>
+#include <sys/common_int_limits.h>

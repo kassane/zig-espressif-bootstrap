@@ -63,7 +63,7 @@ fn DoubleInt(comptime T: type) type {
     };
 }
 
-fn muldXi(comptime T: type, a: T, b: T) DoubleInt(T) {
+pub fn muldXi(comptime T: type, a: T, b: T) DoubleInt(T) {
     const DT = DoubleInt(T);
     const word_t = compiler_rt.HalveInt(DT, false);
     const bits_in_word_2 = @sizeOf(T) * 8 / 2;

@@ -1073,8 +1073,6 @@ pub fn ensureMemoizedStateUpToDate(
 
     const unit: AnalUnit = .wrap(.{ .memoized_state = stage });
 
-    log.debug("ensureMemoizedStateUpToDate", .{});
-
     assert(!zcu.analysis_in_progress.contains(unit));
 
     const was_outdated = zcu.clearOutdatedState(unit);
@@ -1085,13 +1083,13 @@ pub fn ensureMemoizedStateUpToDate(
     } else {
         if (prev_failed) return error.AnalysisFail;
         // We use an arbitrary element to check if the state has been resolved yet.
-        const to_check: Zcu.BuiltinDecl = switch (stage) {
+        const to_check: Zcu.StdLangDecl = switch (stage) {
             .main => .Type,
             .panic => .panic,
             .va_list => .VaList,
             .assembly => .assembly,
         };
-        if (zcu.builtin_decl_values.get(to_check) != .none) return;
+        if (zcu.std_lang_decl_values.get(to_check) != .none) return;
     }
 
     if (zcu.comp.debugIncremental()) {
@@ -1142,6 +1140,8 @@ fn analyzeMemoizedState(
     const comp = zcu.comp;
     const gpa = comp.gpa;
 
+    log.debug("analyzeMemoizedState({t})", .{stage});
+
     const unit: AnalUnit = .wrap(.{ .memoized_state = stage });
 
     try zcu.analysis_in_progress.putNoClobber(gpa, unit, reason);
@@ -1181,8 +1181,6 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
     const gpa = zcu.gpa;
 
     const anal_unit: AnalUnit = .wrap(.{ .@"comptime" = cu_id });
-
-    log.debug("ensureComptimeUnitUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     assert(!zcu.analysis_in_progress.contains(anal_unit));
 
@@ -1345,8 +1343,6 @@ pub fn ensureTypeLayoutUpToDate(
 
     const anal_unit: AnalUnit = .wrap(.{ .type_layout = ty.toIntern() });
 
-    log.debug("ensureTypeLayoutUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
-
     assert(!zcu.analysis_in_progress.contains(anal_unit));
 
     const was_outdated: bool = outdated: {
@@ -1413,6 +1409,8 @@ pub fn ensureTypeLayoutUpToDate(
     };
     defer sema.deinit();
 
+    log.debug("ensureTypeLayoutUpToDate {f} (out of date, resolving)", .{zcu.fmtAnalUnit(anal_unit)});
+
     const result = switch (ty.zigTypeTag(zcu)) {
         .@"enum" => Sema.type_resolution.resolveEnumLayout(&sema, ty),
         .@"struct" => Sema.type_resolution.resolveStructLayout(&sema, ty),
@@ -1478,8 +1476,6 @@ pub fn ensureStructDefaultsUpToDate(
 
     const anal_unit: AnalUnit = .wrap(.{ .struct_defaults = ty.toIntern() });
 
-    log.debug("ensureStructDefaultsUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
-
     assert(!zcu.analysis_in_progress.contains(anal_unit));
 
     const was_outdated: bool = outdated: {
@@ -1536,6 +1532,8 @@ pub fn ensureStructDefaultsUpToDate(
     };
     defer sema.deinit();
 
+    log.debug("ensureStructDefaultsUpToDate {f} (out of date, resolving)", .{zcu.fmtAnalUnit(anal_unit)});
+
     const new_failed: bool = if (Sema.type_resolution.resolveStructDefaults(&sema, ty)) failed: {
         break :failed false;
     } else |err| switch (err) {
@@ -1583,8 +1581,6 @@ pub fn ensureNavValUpToDate(
 
     const anal_unit: AnalUnit = .wrap(.{ .nav_val = nav_id });
     const nav = ip.getNav(nav_id);
-
-    log.debug("ensureNavValUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     assert(!zcu.analysis_in_progress.contains(anal_unit));
 
@@ -1876,15 +1872,22 @@ fn analyzeNavVal(
     // that case and invalidate the dependee right now.
     if (zcu.clearOutdatedState(.wrap(.{ .nav_ty = nav_id }))) {
         assert(zir_decl.type_body == null); // otherwise we already resolved it with `Sema.ensureNavResolved`
-        zcu.resetUnit(.wrap(.{ .nav_ty = nav_id }));
-        try pt.addDependency(.wrap(.{ .nav_ty = nav_id }), .{ .nav_val = nav_id }); // inferred type depends on the value (that's us!)
+        const type_unit: AnalUnit = .wrap(.{ .nav_ty = nav_id });
+        const prev_type_failed = zcu.failed_analysis.contains(type_unit) or
+            zcu.transitive_failed_analysis.contains(type_unit);
+        zcu.resetUnit(type_unit);
+        try pt.addDependency(type_unit, .{ .nav_val = nav_id }); // inferred type depends on the value (that's us!)
         if (comp.debugIncremental()) {
-            const info = try zcu.incremental_debug_state.getUnitInfo(gpa, .wrap(.{ .nav_ty = nav_id }));
+            const info = try zcu.incremental_debug_state.getUnitInfo(gpa, type_unit);
             info.last_update_gen = zcu.generation;
             info.deps.clearRetainingCapacity();
         }
-        const type_changed: bool = if (old_nav.resolved) |r| r.type != nav_ty.toIntern() else true;
-        if (type_changed) {
+        const type_outdated: bool = type_outdated: {
+            if (prev_type_failed) break :type_outdated true;
+            const r = old_nav.resolved orelse break :type_outdated true;
+            break :type_outdated r.type != nav_ty.toIntern();
+        };
+        if (type_outdated) {
             try zcu.markDependeeOutdated(.marked_po, .{ .nav_ty = nav_id });
         } else {
             try zcu.markPoDependeeUpToDate(.{ .nav_ty = nav_id });
@@ -1945,8 +1948,6 @@ pub fn ensureNavTypeUpToDate(
 
     const anal_unit: AnalUnit = .wrap(.{ .nav_ty = nav_id });
     const nav = ip.getNav(nav_id);
-
-    log.debug("ensureNavTypeUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     assert(!zcu.analysis_in_progress.contains(anal_unit));
 
@@ -2191,8 +2192,6 @@ pub fn ensureFuncBodyUpToDate(
 
     const anal_unit: AnalUnit = .wrap(.{ .func = func_index });
 
-    log.debug("ensureFuncBodyUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
-
     assert(!zcu.analysis_in_progress.contains(anal_unit));
 
     const func = zcu.funcInfo(func_index);
@@ -2282,7 +2281,7 @@ fn analyzeFuncBody(
     else
         .none;
 
-    log.debug("analyze and generate fn body {f}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("analyzeFuncBody {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     var air = try pt.analyzeFuncBodyInner(func_index, reason);
     var air_owned = true;
@@ -3345,7 +3344,7 @@ fn analyzeFuncBodyInner(
     ip.funcSetHasErrorTrace(io, func_index, fn_ty_info.cc == .auto);
 
     // First few indexes of extra are reserved and set at the end.
-    const reserved_count = @typeInfo(Air.ExtraIndex).@"enum".fields.len;
+    const reserved_count = @typeInfo(Air.ExtraIndex).@"enum".field_names.len;
     try sema.air_extra.ensureTotalCapacity(gpa, reserved_count);
     sema.air_extra.items.len += reserved_count;
 
@@ -3478,7 +3477,7 @@ fn analyzeFuncBodyInner(
     }
 
     // Copy the block into place and mark that as the main block.
-    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len +
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".field_names.len +
         inner_block.instructions.items.len);
     const main_block_index = sema.addExtraAssumeCapacity(Air.Block{
         .body_len = @intCast(inner_block.instructions.items.len),
@@ -3759,7 +3758,7 @@ pub fn populateTestFunctions(pt: Zcu.PerThread) Allocator.Error!void {
 
     // Our job is to correctly set the value of the `test_functions` declaration if it has been
     // analyzed and sent to codegen, It usually will have been, because the test runner will
-    // reference it, and `std.builtin` shouldn't have type errors. However, if it hasn't been
+    // reference it, and `std.lang` shouldn't have type errors. However, if it hasn't been
     // analyzed, we will just terminate early, since clearly the test runner hasn't referenced
     // `test_functions` so there's no point populating it. More to the the point, we potentially
     // *can't* populate it without doing some type resolution, and... let's try to leave Sema in
@@ -3973,7 +3972,7 @@ pub fn getCoerced(pt: Zcu.PerThread, val: Value, new_ty: Type) Allocator.Error!V
     return .fromInterned(try ip.getCoerced(gpa, io, pt.tid, val.toIntern(), new_ty.toIntern()));
 }
 
-pub fn intType(pt: Zcu.PerThread, signedness: std.builtin.Signedness, bits: u16) Allocator.Error!Type {
+pub fn intType(pt: Zcu.PerThread, signedness: std.lang.Signedness, bits: u16) Allocator.Error!Type {
     return Type.fromInterned(try pt.intern(.{ .int_type = .{
         .signedness = signedness,
         .bits = bits,
@@ -4590,7 +4589,7 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
         defer verify.deinit();
 
         verify.verify() catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
             else => return zcu.codegenFail(nav, "invalid liveness: {t}", .{err}),
         };
     }

@@ -6,7 +6,7 @@ const expect = std.testing.expect;
 pub inline fn isPositiveZero(x: anytype) bool {
     const T = @TypeOf(x);
     const bit_count = @typeInfo(T).float.bits;
-    const TBits = std.meta.Int(.unsigned, bit_count);
+    const TBits = @Int(.unsigned, bit_count);
     return @as(TBits, @bitCast(x)) == @as(TBits, 0);
 }
 
@@ -14,7 +14,7 @@ pub inline fn isPositiveZero(x: anytype) bool {
 pub inline fn isNegativeZero(x: anytype) bool {
     const T = @TypeOf(x);
     const bit_count = @typeInfo(T).float.bits;
-    const TBits = std.meta.Int(.unsigned, bit_count);
+    const TBits = @Int(.unsigned, bit_count);
     return @as(TBits, @bitCast(x)) == @as(TBits, 1) << (bit_count - 1);
 }
 

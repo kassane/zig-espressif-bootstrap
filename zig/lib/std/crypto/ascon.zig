@@ -681,6 +681,8 @@ pub const AsconXof128 = struct {
 
     st: AsconState,
     squeezed: bool,
+    buf: [block_length]u8,
+    buf_len: usize,
 
     pub const Options = struct {};
 
@@ -698,7 +700,7 @@ pub const AsconXof128 = struct {
         const words: [5]u64 = .{ iv, 0, 0, 0, 0 };
         var st = AsconState.initFromWords(words);
         st.permuteR(12);
-        return AsconXof128{ .st = st, .squeezed = false };
+        return AsconXof128{ .st = st, .squeezed = false, .buf = @splat(0), .buf_len = 0 };
     }
 
     /// Hash a slice of bytes with variable-length output.
@@ -726,24 +728,26 @@ pub const AsconXof128 = struct {
 
         var i: usize = 0;
 
-        // Process full 64-bit blocks
-        while (i + 8 <= b.len) : (i += 8) {
-            self.st.addBytes(b[i..][0..8]);
+        if (self.buf_len > 0) {
+            const to_fill = @min(block_length - self.buf_len, b.len);
+            @memcpy(self.buf[self.buf_len..][0..to_fill], b[0..to_fill]);
+            self.buf_len += to_fill;
+            i += to_fill;
+            if (self.buf_len == block_length) {
+                self.st.addBytes(&self.buf);
+                self.st.permuteR(12);
+                self.buf_len = 0;
+            }
+        }
+
+        while (i + block_length <= b.len) : (i += block_length) {
+            self.st.addBytes(b[i..][0..block_length]);
             self.st.permuteR(12);
         }
 
-        // Store partial block for finalization
         if (i < b.len) {
-            var padded: [8]u8 = @splat(0);
-            const remaining = b.len - i;
-            @memcpy(padded[0..remaining], b[i..]);
-            padded[remaining] = 0x01;
-            self.st.addBytes(&padded);
-        } else {
-            // Add padding block
-            var padded: [8]u8 = @splat(0);
-            padded[0] = 0x01;
-            self.st.addBytes(&padded);
+            self.buf_len = b.len - i;
+            @memcpy(self.buf[0..self.buf_len], b[i..]);
         }
     }
 
@@ -756,7 +760,10 @@ pub const AsconXof128 = struct {
     /// After first call, no more data can be absorbed with update().
     pub fn squeeze(self: *AsconXof128, out: []u8) void {
         if (!self.squeezed) {
-            // First squeeze - apply final permutation
+            var padded: [block_length]u8 = @splat(0);
+            @memcpy(padded[0..self.buf_len], self.buf[0..self.buf_len]);
+            padded[self.buf_len] = 0x01;
+            self.st.addBytes(&padded);
             self.st.permuteR(12);
             self.squeezed = true;
         }
@@ -783,6 +790,8 @@ pub const AsconCxof128 = struct {
 
     st: AsconState,
     squeezed: bool,
+    buf: [block_length]u8,
+    buf_len: usize,
 
     pub const Options = struct { custom: []const u8 = "" };
 
@@ -804,7 +813,7 @@ pub const AsconCxof128 = struct {
         var st = AsconState.initFromWords(words);
         st.permuteR(12);
 
-        var self = AsconCxof128{ .st = st, .squeezed = false };
+        var self = AsconCxof128{ .st = st, .squeezed = false, .buf = @splat(0), .buf_len = 0 };
 
         // Process customization string - always process length and padding
         // First block: length of customization string
@@ -867,28 +876,30 @@ pub const AsconCxof128 = struct {
     ///
     /// Note: Cannot be called after squeeze() has been called
     pub fn update(self: *AsconCxof128, b: []const u8) void {
-        debug.assert(!self.squeezed);
+        debug.assert(!self.squeezed); // Cannot update after squeezing
 
         var i: usize = 0;
 
-        // Process full 64-bit blocks
-        while (i + 8 <= b.len) : (i += 8) {
-            self.st.addBytes(b[i..][0..8]);
+        if (self.buf_len > 0) {
+            const to_fill = @min(block_length - self.buf_len, b.len);
+            @memcpy(self.buf[self.buf_len..][0..to_fill], b[0..to_fill]);
+            self.buf_len += to_fill;
+            i += to_fill;
+            if (self.buf_len == block_length) {
+                self.st.addBytes(&self.buf);
+                self.st.permuteR(12);
+                self.buf_len = 0;
+            }
+        }
+
+        while (i + block_length <= b.len) : (i += block_length) {
+            self.st.addBytes(b[i..][0..block_length]);
             self.st.permuteR(12);
         }
 
-        // Store partial block for finalization
         if (i < b.len) {
-            var padded: [8]u8 = @splat(0);
-            const remaining = b.len - i;
-            @memcpy(padded[0..remaining], b[i..]);
-            padded[remaining] = 0x01;
-            self.st.addBytes(&padded);
-        } else {
-            // Add padding block
-            var padded: [8]u8 = @splat(0);
-            padded[0] = 0x01;
-            self.st.addBytes(&padded);
+            self.buf_len = b.len - i;
+            @memcpy(self.buf[0..self.buf_len], b[i..]);
         }
     }
 
@@ -901,7 +912,10 @@ pub const AsconCxof128 = struct {
     /// After first call, no more data can be absorbed with update().
     pub fn squeeze(self: *AsconCxof128, out: []u8) void {
         if (!self.squeezed) {
-            // First squeeze - apply final permutation
+            var padded: [block_length]u8 = @splat(0);
+            @memcpy(padded[0..self.buf_len], self.buf[0..self.buf_len]);
+            padded[self.buf_len] = 0x01;
+            self.st.addBytes(&padded);
             self.st.permuteR(12);
             self.squeezed = true;
         }
@@ -966,8 +980,6 @@ test "Ascon-CXOF128 with customization" {
 }
 
 test "Ascon-AEAD128 round trip with various data sizes" {
-    if (builtin.cpu.has(.riscv, .v) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-
     const key = [_]u8{ 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10 };
     const nonce = [_]u8{ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF };
 
@@ -1265,6 +1277,34 @@ test "Ascon-XOF128 official test vectors" {
         _ = std.fmt.hexToBytes(&expected, "A05383077AF971D3830BD37E7B981497A773D441DB077C6494CC73125953846EB6427FBA4CD308FF90A11385D51101341BF5379249217BFDACE9CCA1148CC966") catch unreachable;
         try testing.expectEqualSlices(u8, &expected, &output);
     }
+}
+
+test "Ascon-XOF128/CXOF128 streaming chunking invariance" {
+    const msg = "Hello, World!";
+
+    // XOF128: one-shot vs split must match
+    var out1: [32]u8 = undefined;
+    var out2: [32]u8 = undefined;
+    var xof1 = AsconXof128.init(.{});
+    xof1.update(msg);
+    xof1.squeeze(&out1);
+    var xof2 = AsconXof128.init(.{});
+    xof2.update("Hello, ");
+    xof2.update("World!");
+    xof2.squeeze(&out2);
+    try testing.expectEqualSlices(u8, &out1, &out2);
+
+    // CXOF128: one-shot vs split must match
+    var cout1: [32]u8 = undefined;
+    var cout2: [32]u8 = undefined;
+    var cxof1 = AsconCxof128.init(.{ .custom = "cust" });
+    cxof1.update(msg);
+    cxof1.squeeze(&cout1);
+    var cxof2 = AsconCxof128.init(.{ .custom = "cust" });
+    cxof2.update("Hello, ");
+    cxof2.update("World!");
+    cxof2.squeeze(&cout2);
+    try testing.expectEqualSlices(u8, &cout1, &cout2);
 }
 
 test "Ascon-CXOF128 official test vectors" {

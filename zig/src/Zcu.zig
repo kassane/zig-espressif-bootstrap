@@ -48,12 +48,12 @@ const ZonGen = std.zig.ZonGen;
 comptime {
     @setEvalBranchQuota(4000);
     for (
-        @typeInfo(Zir.Inst.Ref).@"enum".fields,
-        @typeInfo(Air.Inst.Ref).@"enum".fields,
-        @typeInfo(InternPool.Index).@"enum".fields,
-    ) |zir_field, air_field, ip_field| {
-        assert(mem.eql(u8, zir_field.name, ip_field.name));
-        assert(mem.eql(u8, air_field.name, ip_field.name));
+        @typeInfo(Zir.Inst.Ref).@"enum".field_names,
+        @typeInfo(Air.Inst.Ref).@"enum".field_names,
+        @typeInfo(InternPool.Index).@"enum".field_names,
+    ) |zir_field_name, air_field_name, ip_field_name| {
+        assert(mem.eql(u8, zir_field_name, ip_field_name));
+        assert(mem.eql(u8, air_field_name, ip_field_name));
     }
 }
 
@@ -333,7 +333,7 @@ all_type_references: std.ArrayList(TypeReference) = .empty,
 free_type_references: std.ArrayList(u32) = .empty,
 
 /// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = s })`, where `s` depends on the element.
-builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
+std_lang_decl_values: StdLangDecl.Memoized = .initFill(.none),
 
 incremental_debug_state: if (build_options.enable_debug_extensions) IncrementalDebugState else void =
     if (build_options.enable_debug_extensions) .init else {},
@@ -425,11 +425,11 @@ pub const EmbedTableAdapter = struct {
     }
 };
 
-/// Names of declarations in `std.builtin` whose values are memoized in a `BuiltinDecl.Memoized`.
+/// Names of declarations in `std.lang` whose values are memoized in a `StdLangDecl.Memoized`.
 /// The name must exactly match the declaration name, as comptime logic is used to compute the namespace accesses.
 /// Parent namespaces must be before their children in this enum. For instance, `.Type` must be before `.@"Type.Fn"`.
-/// Additionally, parent namespaces must be resolved in the same stage as their children; see `BuiltinDecl.stage`.
-pub const BuiltinDecl = enum {
+/// Additionally, parent namespaces must be resolved in the same stage as their children; see `StdLangDecl.stage`.
+pub const StdLangDecl = enum {
     Signedness,
     AddressSpace,
     CallingConvention,
@@ -448,8 +448,7 @@ pub const BuiltinDecl = enum {
 
     Type,
     @"Type.Fn",
-    @"Type.Fn.Param",
-    @"Type.Fn.Param.Attributes",
+    @"Type.Fn.ParamAttributes",
     @"Type.Fn.Attributes",
     @"Type.Int",
     @"Type.Float",
@@ -459,20 +458,16 @@ pub const BuiltinDecl = enum {
     @"Type.Array",
     @"Type.Vector",
     @"Type.Optional",
-    @"Type.Error",
     @"Type.ErrorUnion",
-    @"Type.EnumField",
+    @"Type.ErrorSet",
     @"Type.Enum",
     @"Type.Enum.Mode",
     @"Type.Union",
-    @"Type.UnionField",
-    @"Type.UnionField.Attributes",
+    @"Type.Union.FieldAttributes",
     @"Type.Struct",
-    @"Type.StructField",
-    @"Type.StructField.Attributes",
+    @"Type.Struct.FieldAttributes",
     @"Type.ContainerLayout",
     @"Type.Opaque",
-    @"Type.Declaration",
 
     panic,
     @"panic.call",
@@ -508,7 +503,7 @@ pub const BuiltinDecl = enum {
     @"assembly.Clobbers",
 
     /// Determines what kind of validation will be done to the decl's value.
-    pub fn kind(decl: BuiltinDecl) enum { type, func, string } {
+    pub fn kind(decl: StdLangDecl) enum { type, func, string } {
         return switch (decl) {
             .returnError => .func,
 
@@ -533,8 +528,7 @@ pub const BuiltinDecl = enum {
 
             .Type,
             .@"Type.Fn",
-            .@"Type.Fn.Param",
-            .@"Type.Fn.Param.Attributes",
+            .@"Type.Fn.ParamAttributes",
             .@"Type.Fn.Attributes",
             .@"Type.Int",
             .@"Type.Float",
@@ -544,20 +538,16 @@ pub const BuiltinDecl = enum {
             .@"Type.Array",
             .@"Type.Vector",
             .@"Type.Optional",
-            .@"Type.Error",
             .@"Type.ErrorUnion",
-            .@"Type.EnumField",
+            .@"Type.ErrorSet",
             .@"Type.Enum",
             .@"Type.Enum.Mode",
             .@"Type.Union",
-            .@"Type.UnionField",
-            .@"Type.UnionField.Attributes",
+            .@"Type.Union.FieldAttributes",
             .@"Type.Struct",
-            .@"Type.StructField",
-            .@"Type.StructField.Attributes",
+            .@"Type.Struct.FieldAttributes",
             .@"Type.ContainerLayout",
             .@"Type.Opaque",
-            .@"Type.Declaration",
             => .type,
 
             .panic => .type,
@@ -593,7 +583,7 @@ pub const BuiltinDecl = enum {
     }
 
     /// Resolution of these values is done in three distinct stages:
-    /// * Resolution of `std.builtin.Panic` and everything under it
+    /// * Resolution of `std.lang.Panic` and everything under it
     /// * Resolution of `VaList`
     /// * Resolution of `assembly`
     /// * Everything else
@@ -606,12 +596,12 @@ pub const BuiltinDecl = enum {
     /// by itself.
     ///
     /// `assembly` is separate because its value depends on the target.
-    pub fn stage(decl: BuiltinDecl) InternPool.MemoizedStateStage {
+    pub fn stage(decl: StdLangDecl) InternPool.MemoizedStateStage {
         return switch (decl) {
             .VaList => .va_list,
             .assembly, .@"assembly.Clobbers" => .assembly,
             else => {
-                if (@intFromEnum(decl) <= @intFromEnum(BuiltinDecl.@"Type.Declaration")) {
+                if (@intFromEnum(decl) <= @intFromEnum(StdLangDecl.@"Type.Opaque")) {
                     return .main;
                 } else {
                     return .panic;
@@ -621,24 +611,24 @@ pub const BuiltinDecl = enum {
     }
 
     /// Based on the tag name, determines how to access this decl; either as a direct child of the
-    /// `std.builtin` namespace, or as a child of some preceding `BuiltinDecl` value.
-    pub fn access(decl: BuiltinDecl) union(enum) {
+    /// `std.lang` namespace, or as a child of some preceding `StdLangDecl` value.
+    pub fn access(decl: StdLangDecl) union(enum) {
         direct: []const u8,
-        nested: struct { BuiltinDecl, []const u8 },
+        nested: struct { StdLangDecl, []const u8 },
     } {
         @setEvalBranchQuota(2000);
         return switch (decl) {
             inline else => |tag| {
                 const name = @tagName(tag);
                 const split = (comptime std.mem.lastIndexOfScalar(u8, name, '.')) orelse return .{ .direct = name };
-                const parent = @field(BuiltinDecl, name[0..split]);
+                const parent = @field(StdLangDecl, name[0..split]);
                 comptime assert(@intFromEnum(parent) < @intFromEnum(tag)); // dependencies ordered correctly
                 return .{ .nested = .{ parent, name[split + 1 ..] } };
             },
         };
     }
 
-    const Memoized = std.enums.EnumArray(BuiltinDecl, InternPool.Index);
+    const Memoized = std.enums.EnumArray(StdLangDecl, InternPool.Index);
 };
 
 pub const SimplePanicId = enum {
@@ -662,7 +652,7 @@ pub const SimplePanicId = enum {
     memcpy_alias,
     noreturn_returned,
 
-    pub fn toBuiltin(id: SimplePanicId) BuiltinDecl {
+    pub fn toStdLangDecl(id: SimplePanicId) StdLangDecl {
         return switch (id) {
             // zig fmt: off
             .reached_unreachable        => .@"panic.reachedUnreachable",
@@ -744,9 +734,9 @@ pub const Export = struct {
 
     pub const Options = struct {
         name: InternPool.NullTerminatedString,
-        linkage: std.builtin.GlobalLinkage = .strong,
+        linkage: std.lang.GlobalLinkage = .strong,
         section: InternPool.OptionalNullTerminatedString = .none,
-        visibility: std.builtin.SymbolVisibility = .default,
+        visibility: std.lang.SymbolVisibility = .default,
     };
 
     /// Index into `all_exports`.
@@ -3361,8 +3351,8 @@ pub fn mapOldZirToNew(
         old_inst: Zir.Inst.Index,
         new_inst: Zir.Inst.Index,
     };
-    var match_stack: std.ArrayList(MatchedZirDecl) = .empty;
-    defer match_stack.deinit(gpa);
+    var pending_matched_type_decls: std.ArrayList(MatchedZirDecl) = .empty;
+    defer pending_matched_type_decls.deinit(gpa);
 
     // Used as temporary buffers for namespace declaration instructions
     var old_contents: Zir.DeclContents = .init;
@@ -3370,42 +3360,13 @@ pub fn mapOldZirToNew(
     var new_contents: Zir.DeclContents = .init;
     defer new_contents.deinit(gpa);
 
-    // Map the main struct inst (and anything in its fields)
-    {
-        try old_zir.findTrackableRoot(gpa, &old_contents);
-        try new_zir.findTrackableRoot(gpa, &new_contents);
+    // Map the main struct inst to start off with.
+    try pending_matched_type_decls.append(gpa, .{
+        .old_inst = .main_struct_inst,
+        .new_inst = .main_struct_inst,
+    });
 
-        assert(old_contents.explicit_types.items[0] == .main_struct_inst);
-        assert(new_contents.explicit_types.items[0] == .main_struct_inst);
-
-        assert(old_contents.func_decl == null);
-        assert(new_contents.func_decl == null);
-
-        // We don't have any smart way of matching up these instructions, so we correlate them based on source order
-        // in their respective arrays.
-
-        const num_explicit_types = @min(old_contents.explicit_types.items.len, new_contents.explicit_types.items.len);
-        try match_stack.ensureUnusedCapacity(gpa, @intCast(num_explicit_types));
-        for (
-            old_contents.explicit_types.items[0..num_explicit_types],
-            new_contents.explicit_types.items[0..num_explicit_types],
-        ) |old_inst, new_inst| {
-            // Here we use `match_stack`, so that we will recursively consider declarations on these types.
-            match_stack.appendAssumeCapacity(.{ .old_inst = old_inst, .new_inst = new_inst });
-        }
-
-        const num_other = @min(old_contents.other.items.len, new_contents.other.items.len);
-        try inst_map.ensureUnusedCapacity(gpa, @intCast(num_other));
-        for (
-            old_contents.other.items[0..num_other],
-            new_contents.other.items[0..num_other],
-        ) |old_inst, new_inst| {
-            // These instructions don't have declarations, so we just modify `inst_map` directly.
-            inst_map.putAssumeCapacity(old_inst, new_inst);
-        }
-    }
-
-    while (match_stack.pop()) |match_item| {
+    while (pending_matched_type_decls.pop()) |match_item| {
         // There are some properties of type declarations which cannot change across incremental
         // updates. If they have, we need to ignore this mapping. These properties are essentially
         // everything passed into `InternPool.getDeclaredStructType` (likewise for unions, enums,
@@ -3461,8 +3422,40 @@ pub fn mapOldZirToNew(
             else => unreachable,
         }
 
-        // Match the namespace declaration itself
+        // Match the container declaration itself
         try inst_map.put(gpa, match_item.old_inst, match_item.new_inst);
+
+        {
+            // First, map the fields...
+            try old_zir.findTrackableFields(gpa, &old_contents, match_item.old_inst);
+            try new_zir.findTrackableFields(gpa, &new_contents, match_item.new_inst);
+
+            // This isn't a `.declaration`, so we shouldn't see a function declaration.
+            assert(old_contents.func_decl == null);
+            assert(new_contents.func_decl == null);
+
+            // We don't have any smart way of matching up these instructions, so we correlate them based on source order
+            // in their respective arrays.
+
+            const num_type_decls = @min(old_contents.type_decls.items.len, new_contents.type_decls.items.len);
+            try pending_matched_type_decls.ensureUnusedCapacity(gpa, @intCast(num_type_decls));
+            for (
+                old_contents.type_decls.items[0..num_type_decls],
+                new_contents.type_decls.items[0..num_type_decls],
+            ) |old_inst, new_inst| {
+                pending_matched_type_decls.appendAssumeCapacity(.{ .old_inst = old_inst, .new_inst = new_inst });
+            }
+
+            const num_other = @min(old_contents.other.items.len, new_contents.other.items.len);
+            try inst_map.ensureUnusedCapacity(gpa, @intCast(num_other));
+            for (
+                old_contents.other.items[0..num_other],
+                new_contents.other.items[0..num_other],
+            ) |old_inst, new_inst| {
+                // These instructions don't have declarations, so we just modify `inst_map` directly.
+                inst_map.putAssumeCapacity(old_inst, new_inst);
+            }
+        }
 
         // Maps decl name to `declaration` instruction.
         var named_decls: std.StringHashMapUnmanaged(Zir.Inst.Index) = .empty;
@@ -3537,14 +3530,13 @@ pub fn mapOldZirToNew(
             // We don't have any smart way of matching up these instructions, so we correlate them based on source order
             // in their respective arrays.
 
-            const num_explicit_types = @min(old_contents.explicit_types.items.len, new_contents.explicit_types.items.len);
-            try match_stack.ensureUnusedCapacity(gpa, @intCast(num_explicit_types));
+            const num_type_decls = @min(old_contents.type_decls.items.len, new_contents.type_decls.items.len);
+            try pending_matched_type_decls.ensureUnusedCapacity(gpa, @intCast(num_type_decls));
             for (
-                old_contents.explicit_types.items[0..num_explicit_types],
-                new_contents.explicit_types.items[0..num_explicit_types],
+                old_contents.type_decls.items[0..num_type_decls],
+                new_contents.type_decls.items[0..num_type_decls],
             ) |old_inst, new_inst| {
-                // Here we use `match_stack`, so that we will recursively consider declarations on these types.
-                match_stack.appendAssumeCapacity(.{ .old_inst = old_inst, .new_inst = new_inst });
+                pending_matched_type_decls.appendAssumeCapacity(.{ .old_inst = old_inst, .new_inst = new_inst });
             }
 
             const num_other = @min(old_contents.other.items.len, new_contents.other.items.len);
@@ -3906,13 +3898,6 @@ pub fn getTarget(zcu: *const Zcu) *const Target {
     return &zcu.root_mod.resolved_target.result;
 }
 
-/// Deprecated. There is no global optimization mode for a Zig Compilation
-/// Unit. Instead, look up the optimization mode based on the Module that
-/// contains the source code being analyzed.
-pub fn optimizeMode(zcu: *const Zcu) std.builtin.OptimizeMode {
-    return zcu.root_mod.optimize_mode;
-}
-
 pub fn handleUpdateExports(
     zcu: *Zcu,
     export_indices: []const Export.Index,
@@ -3920,7 +3905,7 @@ pub fn handleUpdateExports(
 ) Allocator.Error!void {
     const gpa = zcu.gpa;
     result catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         error.AnalysisFail => {
             const export_idx = export_indices[0];
             const new_export = export_idx.ptr(zcu);
@@ -3946,7 +3931,7 @@ pub fn addGlobalAssembly(zcu: *Zcu, unit: AnalUnit, source: []const u8) !void {
 
 pub const Feature = enum {
     /// When this feature is enabled, Sema will emit calls to
-    /// `std.builtin.panic` functions for things like safety checks and
+    /// `std.lang.panic` functions for things like safety checks and
     /// unreachables. Otherwise traps will be emitted.
     panic_fn,
     /// When this feature is enabled, Sema will insert tracer functions for gathering a stack
@@ -4020,6 +4005,9 @@ pub fn atomicPtrAlignment(
 ) AtomicPtrAlignmentError!Alignment {
     const target = zcu.getTarget();
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
+        .ez80,
+        => 8,
+
         .aarch64,
         .aarch64_be,
         => 128,
@@ -4526,10 +4514,10 @@ fn formatDependee(data: FormatDependee, writer: *Io.Writer) Io.Writer.Error!void
     }
 }
 
-pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enum) {
+pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) {
     ok,
     bad_arch: []const std.Target.Cpu.Arch, // value is allowed archs for cc
-    bad_backend: std.builtin.CompilerBackend, // value is current backend
+    bad_backend: std.lang.CompilerBackend, // value is current backend
 } {
     const target = zcu.getTarget();
     const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);
@@ -4612,6 +4600,8 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 .avr_interrupt,
                 .avr_signal,
                 => true,
+
+                .ez80_tiflags => true,
 
                 .naked => true,
 
@@ -4995,7 +4985,7 @@ fn addDependencyLoopErrorLine(
         }),
         .memoized_state => |stage| switch (stage) {
             .panic => try eb.printString("{f} requires panic handler for call here", .{fmt_source}),
-            else => try eb.printString("{f} requires 'std.builtin' declarations here", .{fmt_source}),
+            else => try eb.printString("{f} requires 'std.lang' declarations here", .{fmt_source}),
         },
         .func => |func| try eb.printString("{f} uses inferred error set of function '{f}' here", .{
             fmt_source, ip.getNav(zcu.funcInfo(func).owner_nav).fqn.fmt(ip),
@@ -5046,7 +5036,7 @@ fn formatDependencyLoopSourceUnit(data: FormatAnalUnit, w: *Io.Writer) Io.Writer
         .nav_ty => |nav| try w.print("type of declaration '{f}'", .{ip.getNav(nav).fqn.fmt(ip)}),
         .memoized_state => |stage| switch (stage) {
             .panic => try w.writeAll("panic handler"),
-            else => try w.writeAll("'std.builtin' declarations"),
+            else => try w.writeAll("'std.lang' declarations"),
         },
         .type_layout => |ty| try w.print("type '{f}'", .{
             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),

@@ -868,20 +868,25 @@ test "bcrypt crypt format" {
         strVerify(s, "invalid password", verify_options),
     );
 
+    const password_100: []const u8 = password: {
+        const arr: [100][8]u8 = @splat("password".*);
+        break :password @ptrCast(&arr);
+    };
+
     var long_buf: [hash_length]u8 = undefined;
-    var long_s = try strHash("password" ** 100, hash_options, &long_buf, io);
+    var long_s = try strHash(password_100, hash_options, &long_buf, io);
 
     try testing.expect(mem.startsWith(u8, long_s, crypt_format.prefix));
-    try strVerify(long_s, "password" ** 100, verify_options);
+    try strVerify(long_s, password_100, verify_options);
     try testing.expectError(
         error.PasswordVerificationFailed,
-        strVerify(long_s, "password" ** 101, verify_options),
+        strVerify(long_s, password_100 ++ "password", verify_options),
     );
 
     hash_options.params.silently_truncate_password = true;
     verify_options.silently_truncate_password = true;
-    long_s = try strHash("password" ** 100, hash_options, &long_buf, io);
-    try strVerify(long_s, "password" ** 101, verify_options);
+    long_s = try strHash(password_100, hash_options, &long_buf, io);
+    try strVerify(long_s, password_100 ++ "password", verify_options);
 
     try strVerify(
         "$2b$08$WUQKyBCaKpziCwUXHiMVvu40dYVjkTxtWJlftl0PpjY2BxWSvFIEe",
@@ -909,20 +914,25 @@ test "bcrypt phc format" {
         strVerify(s, "invalid password", verify_options),
     );
 
+    const password_100: []const u8 = password: {
+        const arr: [100][8]u8 = @splat("password".*);
+        break :password @ptrCast(&arr);
+    };
+
     var long_buf: [hash_length * 2]u8 = undefined;
-    var long_s = try strHash("password" ** 100, hash_options, &long_buf, io);
+    var long_s = try strHash(password_100, hash_options, &long_buf, io);
 
     try testing.expect(mem.startsWith(u8, long_s, prefix));
-    try strVerify(long_s, "password" ** 100, verify_options);
+    try strVerify(long_s, password_100, verify_options);
     try testing.expectError(
         error.PasswordVerificationFailed,
-        strVerify(long_s, "password" ** 101, verify_options),
+        strVerify(long_s, password_100 ++ "password", verify_options),
     );
 
     hash_options.params.silently_truncate_password = true;
     verify_options.silently_truncate_password = true;
-    long_s = try strHash("password" ** 100, hash_options, &long_buf, io);
-    try strVerify(long_s, "password" ** 101, verify_options);
+    long_s = try strHash(password_100, hash_options, &long_buf, io);
+    try strVerify(long_s, password_100 ++ "password", verify_options);
 
     try strVerify(
         "$bcrypt$r=5$2NopntlgE2lX3cTwr4qz8A$r3T7iKYQNnY4hAhGjk9RmuyvgrYJZwc",

@@ -1,6 +1,6 @@
 pub const A = B;
 export fn foo() void {
-    _ = @typeInfo(@This()).@"struct".decls[0];
+    _ = @typeInfo(@This()).@"struct".decl_names[0];
 }
 
 // error

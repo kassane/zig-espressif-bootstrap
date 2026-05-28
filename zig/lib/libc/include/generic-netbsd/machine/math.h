@@ -1,3 +1,4 @@
-/*	$NetBSD: math.h,v 1.1 2002/12/09 12:16:09 scw Exp $	*/
+/* $NetBSD: math.h,v 1.3 2019/04/16 07:40:02 maya Exp $ */
 
-#include <powerpc/math.h>
+#define __HAVE_NANF
+#define	__HAVE_LONG_DOUBLE	128

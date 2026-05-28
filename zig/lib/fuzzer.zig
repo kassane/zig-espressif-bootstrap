@@ -39,10 +39,10 @@ fn logOverride(
     fw.interface.flush() catch panic("failed to write to fuzzer log: {t}", .{fw.err.?});
 }
 
-var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+var safe_allocator: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
 const gpa = switch (builtin.mode) {
-    .Debug => debug_allocator.allocator(),
-    .ReleaseFast, .ReleaseSmall, .ReleaseSafe => std.heap.smp_allocator,
+    .Debug, .ReleaseSafe => safe_allocator.allocator(),
+    .ReleaseFast, .ReleaseSmall => std.heap.smp_allocator,
 };
 
 // Seperate from `exec` to allow initialization before `exec` is.
@@ -171,6 +171,8 @@ const Executable = struct {
 
         const cache_dir = Io.Dir.cwd().createDirPathOpen(io, cache_dir_path, .{}) catch |e|
             panic("failed to open directory '{s}': {t}", .{ cache_dir_path, e });
+        cache_dir.createDirPath(io, "tmp") catch |e|
+            panic("failed to create directory 'tmp': {t}", .{e});
         log_f = cache_dir.createFile(io, "tmp/libfuzzer.log", .{ .truncate = false }) catch |e|
             panic("failed to create file 'tmp/libfuzzer.log': {t}", .{e});
         self.cache_f = cache_dir.createDirPathOpen(io, "f", .{}) catch |e|

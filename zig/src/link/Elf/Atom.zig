@@ -350,7 +350,13 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
-            .riscv64, .riscv64be => riscv.scanReloc(self, elf_file, rel, symbol, code, &it) catch |err| switch (err) {
+            .riscv32, .riscv32be,
+            .riscv64, .riscv64be,
+            => riscv.scanReloc(self, elf_file, rel, symbol, code, &it) catch |err| switch (err) {
+                error.RelocFailure => has_reloc_errors = true,
+                else => |e| return e,
+            },
+            .xtensa, .xtensaeb => xtensa.scanReloc(self, elf_file, rel, symbol, code, &it) catch |err| switch (err) {
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
@@ -677,10 +683,16 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
                 => has_reloc_errors = true,
                 else => |e| return e,
             },
-            .riscv64, .riscv64be => riscv.resolveRelocAlloc(self, elf_file, rel, target, args, &it, code) catch |err| switch (err) {
+            .riscv32, .riscv32be,
+            .riscv64, .riscv64be,
+            => riscv.resolveRelocAlloc(self, elf_file, rel, target, args, &it, code) catch |err| switch (err) {
                 error.RelocFailure,
                 error.RelaxFailure,
                 => has_reloc_errors = true,
+                else => |e| return e,
+            },
+            .xtensa, .xtensaeb => xtensa.resolveRelocAlloc(self, elf_file, rel, target, args, &it, code) catch |err| switch (err) {
+                error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
             else => return error.UnsupportedCpuArch,
@@ -864,7 +876,13 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
-            .riscv64, .riscv64be => riscv.resolveRelocNonAlloc(self, elf_file, rel, target, args, code[r_offset..]) catch |err| switch (err) {
+            .riscv32, .riscv32be,
+            .riscv64, .riscv64be,
+            => riscv.resolveRelocNonAlloc(self, elf_file, rel, target, args, code[r_offset..]) catch |err| switch (err) {
+                error.RelocFailure => has_reloc_errors = true,
+                else => |e| return e,
+            },
+            .xtensa, .xtensaeb => xtensa.resolveRelocNonAlloc(self, elf_file, rel, target, args, code[r_offset..]) catch |err| switch (err) {
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
@@ -878,9 +896,9 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
 pub fn addExtra(atom: *Atom, opts: Extra.AsOptionals, elf_file: *Elf) void {
     const file_ptr = atom.file(elf_file).?;
     var extras = file_ptr.atomExtra(atom.extra_index);
-    inline for (@typeInfo(@TypeOf(opts)).@"struct".fields) |field| {
-        if (@field(opts, field.name)) |x| {
-            @field(extras, field.name) = x;
+    inline for (@typeInfo(@TypeOf(opts)).@"struct".field_names) |field_name| {
+        if (@field(opts, field_name)) |x| {
+            @field(extras, field_name) = x;
         }
     }
     file_ptr.setAtomExtra(atom.extra_index, extras);
@@ -983,9 +1001,7 @@ const x86_64 = struct {
                 }
             },
 
-            .PC32,
-            .PC64,
-            => {
+            .PC32, .PC64 => {
                 try atom.scanReloc(symbol, rel, pcRelocAction(symbol, elf_file), elf_file);
             },
 
@@ -1991,6 +2007,87 @@ const riscv = struct {
     }
 
     const riscv_util = @import("../riscv.zig");
+};
+
+const xtensa = struct {
+    fn scanReloc(
+        atom: Atom,
+        elf_file: *Elf,
+        rel: elf.Elf64_Rela,
+        symbol: *Symbol,
+        code: ?[]const u8,
+        it: *RelocsIterator,
+    ) !void {
+        _ = code;
+        _ = it;
+
+        const r_type: elf.R_XTENSA = @enumFromInt(rel.r_type());
+        switch (r_type) {
+            .@"32" => try atom.scanReloc(symbol, rel, absRelocAction(symbol, elf_file), elf_file),
+            .@"32_PCREL",
+            .SLOT0_OP,
+            .DIFF8,
+            .DIFF16,
+            .DIFF32,
+            .PDIFF8,
+            .PDIFF16,
+            .PDIFF32,
+            .NDIFF8,
+            .NDIFF16,
+            .NDIFF32,
+            .NONE,
+            => {},
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
+        }
+    }
+
+    fn resolveRelocAlloc(
+        atom: Atom,
+        elf_file: *Elf,
+        rel: elf.Elf64_Rela,
+        target: *const Symbol,
+        args: ResolveArgs,
+        it: *RelocsIterator,
+        code: []u8,
+    ) !void {
+        _ = target;
+        _ = it;
+
+        const r_type: elf.R_XTENSA = @enumFromInt(rel.r_type());
+        const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
+        const P, const A, const S, _, _, _, _ = args;
+
+        switch (r_type) {
+            .NONE => unreachable,
+            .@"32" => mem.writeInt(u32, code[r_offset..][0..4], @as(u32, @truncate(@as(u64, @intCast(S + A)))), .little),
+            .@"32_PCREL" => mem.writeInt(i32, code[r_offset..][0..4], math.cast(i32, S + A - P) orelse return error.Overflow, .little),
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
+        }
+    }
+
+    fn resolveRelocNonAlloc(
+        atom: Atom,
+        elf_file: *Elf,
+        rel: elf.Elf64_Rela,
+        target: *const Symbol,
+        args: ResolveArgs,
+        code: []u8,
+    ) !void {
+        _ = target;
+
+        const r_type: elf.R_XTENSA = @enumFromInt(rel.r_type());
+        const P, const A, const S, _, _, _, _ = args;
+
+        switch (r_type) {
+            .NONE => unreachable,
+            .@"32" => mem.writeInt(i32, code[0..4], @intCast(S + A), .little),
+            .@"32_PCREL" => mem.writeInt(i32, code[0..4], math.cast(i32, S + A - P) orelse return error.Overflow, .little),
+            .DIFF8 => mem.writeInt(i8, code[0..1], @as(i8, @truncate(S + A)), .little),
+            .DIFF16 => mem.writeInt(i16, code[0..2], @as(i16, @truncate(S + A)), .little),
+            .DIFF32 => mem.writeInt(i32, code[0..4], @as(i32, @truncate(S + A)), .little),
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
+        }
+    }
 };
 
 const ResolveArgs = struct { i64, i64, i64, i64, i64, i64, i64 };

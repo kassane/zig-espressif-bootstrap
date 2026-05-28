@@ -5,6 +5,7 @@ const wint_t = std.c.wint_t;
 const wchar_t = std.c.wchar_t;
 
 const symbol = @import("../c.zig").symbol;
+const c = std.c;
 
 comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
@@ -30,6 +31,7 @@ comptime {
         symbol(&wcspbrk, "wcspbrk");
         symbol(&wcstok, "wcstok");
         symbol(&wcsstr, "wcsstr");
+        symbol(&wcsdup, "wcsdup");
         symbol(&wcswcs, "wcswcs");
     }
 
@@ -188,4 +190,12 @@ fn wcsstr(noalias haystack: [*:0]const wchar_t, noalias needle: [*:0]const wchar
 
 fn wcswcs(noalias haystack: [*:0]const wchar_t, noalias needle: [*:0]const wchar_t) callconv(.c) ?[*:0]wchar_t {
     return wcsstr(haystack, needle);
+}
+
+fn wcsdup(str: [*:0]const wchar_t) callconv(.c) ?[*:0]wchar_t {
+    const len = wcslen(str);
+    const size = (len + 1) * @sizeOf(wchar_t);
+    const d_opaque = c.malloc(size) orelse return null;
+    const d: [*]wchar_t = @ptrCast(@alignCast(d_opaque));
+    return @ptrCast(wmemcpy(d, str, len + 1));
 }

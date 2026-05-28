@@ -25,10 +25,4 @@ pub fn build(b: *std.Build) void {
     });
     exe.link_gc_sections = false;
     exe.bundle_compiler_rt = true;
-
-    // Verify compiler_rt hasn't pulled in any debug handlers
-    const check_exe = exe.checkObject();
-    check_exe.checkInSymtab();
-    check_exe.checkNotPresent("debug.readElfDebugInfo");
-    test_step.dependOn(&check_exe.step);
 }

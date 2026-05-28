@@ -1,4 +1,4 @@
-/*	$NetBSD: float.h,v 1.18 2020/07/26 08:08:41 simonb Exp $ */
+/*	$NetBSD: float.h,v 1.20 2024/10/30 15:56:11 riastradh Exp $ */
 
 /*-
  * Copyright (c) 2013 The NetBSD Foundation, Inc.
@@ -29,6 +29,7 @@
 #define	_MIPS_FLOAT_H_
 
 #include <sys/cdefs.h>
+#include <sys/featuretest.h>
 
 #if defined(__mips_n32) || defined(__mips_n64)
 
@@ -55,7 +56,7 @@
 #if __STDC_VERSION__ >= 199901L
 #define	LDBL_EPSILON	0x1p-112L
 #define	LDBL_MIN	0x1p-16382L
-#define	LDBL_MAX	0x1.ffffffffffffffffffffffffffffp+16383L,
+#define	LDBL_MAX	0x1.ffffffffffffffffffffffffffffp+16383L
 #else
 #define	LDBL_EPSILON	1.9259299443872358530559779425849273E-34L
 #define	LDBL_MIN	3.3621031431120935062626778173217526E-4932L

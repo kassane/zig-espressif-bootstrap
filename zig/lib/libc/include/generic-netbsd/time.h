@@ -1,4 +1,4 @@
-/*	$NetBSD: time.h,v 1.48 2022/10/23 15:43:40 jschauma Exp $	*/
+/*	$NetBSD: time.h,v 1.56.2.1 2026/05/07 15:43:06 martin Exp $	*/
 
 /*
  * Copyright (c) 1989, 1993
@@ -81,10 +81,21 @@ struct tm {
 	int	tm_year;	/* years since 1900 */
 	int	tm_wday;	/* days since Sunday [0-6] */
 	int	tm_yday;	/* days since January 1 [0-365] */
-	int	tm_isdst;	/* Daylight Savings Time flag */
+	int	tm_isdst;	/* Daylight Saving Time flag */
 	long	tm_gmtoff;	/* offset from UTC in seconds */
 	__aconst char *tm_zone;	/* timezone abbreviation */
 };
+
+/*
+ * This represents the minimum value for how long a timezone abbreviation
+ * name is allowed to be, it is also (if >= 254) the default for the max length
+ * we currently allow (that can be changed by compiling libc(localtime.c)
+ * with  -DTZNAME_MAXIMUM=N specifying a value at least this long, no less).
+ *
+ * This one should probably be made less, and localtime then use a longer value
+ * (it will use 254 at least), so this would never need to change in the future.
+ */
+#define	_TZNAME_MAXIMUM	254
 
 __BEGIN_DECLS
 char *asctime(const struct tm *);
@@ -137,7 +148,7 @@ struct tm *getdate(const char *);
 extern int getdate_err;
 #endif
 
-/* ISO/IEC 9899:201x 7.27.1/3 Components of time */
+/* ISO/IEC 9899:2011 7.27.1/3 Components of time */
 #include <sys/timespec.h>
 
 #if (_POSIX_C_SOURCE - 0) >= 199309L || (_XOPEN_SOURCE - 0) >= 500 || \
@@ -171,11 +182,17 @@ int timer_delete(timer_t);
 int timer_getoverrun(timer_t);
 #endif /* _POSIX_C_SOURCE >= 199309 || _XOPEN_SOURCE >= 500 || ... */
 
-#if (_POSIX_C_SOURCE - 0) >= 199506L || (_XOPEN_SOURCE - 0) >= 500 || \
-    defined(_REENTRANT) || defined(_NETBSD_SOURCE)
+#if ((_POSIX_C_SOURCE - 0) >= 199506L && (_POSIX_C_SOURCE - 0) < 202405L) || \
+    (_XOPEN_SOURCE - 0) >= 500 || defined(_REENTRANT) || defined(_NETBSD_SOURCE)
 char *asctime_r(const struct tm * __restrict, char * __restrict);
 #ifndef __LIBC12_SOURCE__
 char *ctime_r(const time_t *, char *) __RENAME(__ctime_r50);
+#endif
+#endif
+
+#if (_POSIX_C_SOURCE - 0) >= 199506L || \
+    (_XOPEN_SOURCE - 0) >= 500 || defined(_REENTRANT) || defined(_NETBSD_SOURCE)
+#ifndef __LIBC12_SOURCE__
 struct tm *gmtime_r(const time_t * __restrict, struct tm * __restrict)
     __RENAME(__gmtime_r50);
 struct tm *localtime_r(const time_t * __restrict, struct tm * __restrict)
@@ -193,14 +210,19 @@ size_t strftime_l(char * __restrict, size_t, const char * __restrict,
     __attribute__((__format__(__strftime__, 3, 0)));
 #endif
 
-#if defined(_NETBSD_SOURCE)
+#if (__STDC_VERSION__ - 0 >= 202311L) || defined(_ISOC23_SOURCE) || \
+    defined(_NETBSD_SOURCE)
+#ifndef __LIBC12_SOURCE__
+time_t timegm(struct tm *) __RENAME(__timegm50);
+#endif
+#endif
 
+#if defined(_NETBSD_SOURCE)
 typedef struct __state *timezone_t;
 
 #ifndef __LIBC12_SOURCE__
 time_t time2posix(time_t) __RENAME(__time2posix50);
 time_t posix2time(time_t) __RENAME(__posix2time50);
-time_t timegm(struct tm *) __RENAME(__timegm50);
 time_t timeoff(struct tm *, long) __RENAME(__timeoff50);
 time_t timelocal(struct tm *) __RENAME(__timelocal50);
 struct tm *offtime(const time_t *, long) __RENAME(__offtime50);
@@ -234,9 +256,23 @@ char *strptime_l(const char * __restrict, const char * __restrict,
 
 #endif /* _NETBSD_SOURCE */
 
-/* ISO/IEC 9899:201x 7.27.2.5 The timespec_get function */
+/* ISO/IEC 9899:2011 7.27.2.5 The timespec_get function */
+#if defined(_ISOC11_SOURCE) || (__STDC_VERSION__ - 0) >= 201101L || \
+    defined(_NETBSD_SOURCE) || (__cplusplus - 0) >= 201103L || \
+    (_POSIX_C_SOURCE - 0) >= 202405L
+
 #define TIME_UTC	1	/* time elapsed since epoch */
+#if (__STDC_VERSION__ - 0 >= 202311L) || defined(_ISOC23_SOURCE) || \
+    defined(_NETBSD_SOURCE)
+#define TIME_MONOTONIC	2
+#endif
+
 int timespec_get(struct timespec *ts, int base);
+#if (__STDC_VERSION__ - 0 >= 202311L) || defined(_ISOC23_SOURCE) || \
+    defined(_NETBSD_SOURCE)
+int timespec_getres(struct timespec *ts, int base);
+#endif
+#endif
 
 __END_DECLS
 

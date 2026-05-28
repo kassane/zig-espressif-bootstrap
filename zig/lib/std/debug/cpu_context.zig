@@ -5,6 +5,7 @@ pub const Native = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "CpuCont
     root.debug.CpuContext
 else switch (native_arch) {
     .aarch64, .aarch64_be => Aarch64,
+    .alpha => Alpha,
     .arc, .arceb => Arc,
     .arm, .armeb, .thumb, .thumbeb => Arm,
     .csky => Csky,
@@ -13,6 +14,7 @@ else switch (native_arch) {
     .lanai => Lanai,
     .loongarch32, .loongarch64 => LoongArch,
     .m68k => M68k,
+    .m88k => M88k,
     .mips, .mipsel, .mips64, .mips64el => Mips,
     .or1k => Or1k,
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => Powerpc,
@@ -62,6 +64,13 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
             },
             .pc = @truncate(uc.mcontext.pc),
         };
+    } else if (native_arch == .m88k and native_os == .openbsd) {
+        // OpenBSD makes no effort to clear the V and E bits of the SXIP register when presenting it
+        // to user space, so we need to do that here.
+        return .{
+            .r = uc.mcontext.r,
+            .xip = uc.mcontext.xip & ~@as(u32, 0b11),
+        };
     } else if (native_arch.isMIPS32() and native_os == .linux) {
         // The O32 kABI uses 64-bit fields for some reason.
         return .{
@@ -102,6 +111,10 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
         .aarch64, .aarch64_be => .{
             .x = uc.mcontext.x ++ [_]u64{uc.mcontext.lr},
             .sp = uc.mcontext.sp,
+            .pc = uc.mcontext.pc,
+        },
+        .alpha => .{
+            .r = uc.mcontext.r,
             .pc = uc.mcontext.pc,
         },
         .csky => .{
@@ -288,6 +301,75 @@ const Aarch64 = extern struct {
             48...63 => return error.UnsupportedRegister, // P0 - P15
             64...95 => return error.UnsupportedRegister, // V0 - V31
             96...127 => return error.UnsupportedRegister, // Z0 - Z31
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+const Alpha = extern struct {
+    /// The numbered general-purpose registers R0 - R31.
+    r: [32]u64,
+    pc: u64,
+
+    pub inline fn current() Alpha {
+        var ctx: Alpha = undefined;
+        asm volatile (
+            \\ stq $0 , 0x000($0)
+            \\ stq $1 , 0x008($0)
+            \\ stq $2 , 0x010($0)
+            \\ stq $3 , 0x018($0)
+            \\ stq $4 , 0x020($0)
+            \\ stq $5 , 0x028($0)
+            \\ stq $6 , 0x030($0)
+            \\ stq $7 , 0x038($0)
+            \\ stq $8 , 0x040($0)
+            \\ stq $9 , 0x048($0)
+            \\ stq $10, 0x050($0)
+            \\ stq $11, 0x058($0)
+            \\ stq $12, 0x060($0)
+            \\ stq $13, 0x068($0)
+            \\ stq $14, 0x070($0)
+            \\ stq $15, 0x078($0)
+            \\ stq $16, 0x080($0)
+            \\ stq $17, 0x088($0)
+            \\ stq $18, 0x090($0)
+            \\ stq $19, 0x098($0)
+            \\ stq $20, 0x0a0($0)
+            \\ stq $21, 0x0a8($0)
+            \\ stq $22, 0x0b0($0)
+            \\ stq $23, 0x0b8($0)
+            \\ stq $24, 0x0c0($0)
+            \\ stq $25, 0x0c8($0)
+            \\ stq $26, 0x0d0($0)
+            \\ stq $27, 0x0d8($0)
+            \\ stq $28, 0x0e0($0)
+            \\ stq $29, 0x0e8($0)
+            \\ stq $30, 0x0f0($0)
+            \\
+            \\ br $1, 1f
+            \\1:
+            \\ stq $1, 0x100($0)
+            :
+            : [ctx] "{r0}" (&ctx),
+            : .{ .r1 = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn getFp(ctx: *const Alpha) u64 {
+        return ctx.r[15];
+    }
+    pub fn getPc(ctx: *const Alpha) u64 {
+        return ctx.pc;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Aarch64, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            64 => return @ptrCast(&ctx.pc),
+
+            32...63 => return error.UnsupportedRegister, // f0 - f31
+            66 => return error.UnsupportedRegister, // uniq
 
             else => return error.InvalidRegister,
         }
@@ -815,6 +897,75 @@ const M68k = extern struct {
 
             16...23 => return error.UnsupportedRegister, // fp0 - fp7
             24...25 => return error.UnsupportedRegister, // Return columns in GCC...?
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const M88k = extern struct {
+    /// The numbered general-purpose registers r0 - r31.
+    r: [32]u32,
+    xip: u32,
+
+    pub inline fn current() M88k {
+        var ctx: M88k = undefined;
+        asm volatile (
+            \\ st %%r0, %%r2, 0
+            \\ st %%r1, %%r2, 4
+            \\ st %%r2, %%r2, 8
+            \\ st %%r3, %%r2, 12
+            \\ st %%r4, %%r2, 16
+            \\ st %%r5, %%r2, 20
+            \\ st %%r6, %%r2, 24
+            \\ st %%r7, %%r2, 28
+            \\ st %%r8, %%r2, 32
+            \\ st %%r9, %%r2, 36
+            \\ st %%r10, %%r2, 40
+            \\ st %%r11, %%r2, 44
+            \\ st %%r12, %%r2, 48
+            \\ st %%r13, %%r2, 52
+            \\ st %%r14, %%r2, 56
+            \\ st %%r15, %%r2, 60
+            \\ st %%r16, %%r2, 64
+            \\ st %%r17, %%r2, 68
+            \\ st %%r18, %%r2, 72
+            \\ st %%r19, %%r2, 76
+            \\ st %%r20, %%r2, 80
+            \\ st %%r21, %%r2, 84
+            \\ st %%r22, %%r2, 88
+            \\ st %%r23, %%r2, 92
+            \\ st %%r24, %%r2, 96
+            \\ st %%r25, %%r2, 100
+            \\ st %%r26, %%r2, 104
+            \\ st %%r27, %%r2, 108
+            \\ st %%r28, %%r2, 112
+            \\ st %%r29, %%r2, 116
+            \\ st %%r30, %%r2, 120
+            \\ st %%r31, %%r2, 124
+            \\ bsr.n 1f
+            \\1:
+            \\ st %%r1, %%r2, 128
+            :
+            : [ctx] "{r2}" (&ctx),
+            : .{ .r1 = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn getFp(ctx: *const M88k) u32 {
+        return ctx.r[30];
+    }
+    pub fn getPc(ctx: *const M88k) u32 {
+        return ctx.xip;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *M88k, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...31 => return @ptrCast(&ctx.r[register_num]),
+            64 => return @ptrCast(&ctx.xip),
+
+            32...63 => return error.UnsupportedRegister, // x0 - x31
 
             else => return error.InvalidRegister,
         }
@@ -1733,54 +1884,6 @@ const X86_64 = struct {
     }
 };
 
-/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
-const Xtensa = extern struct {
-    /// Address registers a0 - a15 (DWARF numbers 0-15).
-    a: [16]u32,
-    /// The program counter. Set to a0 (return address) which is the caller's PC in call0 ABI.
-    pc: u32,
-
-    pub inline fn current() Xtensa {
-        var ctx: Xtensa = undefined;
-        asm volatile (
-            \\ s32i a0,  %[ctx],  0
-            \\ s32i a1,  %[ctx],  4
-            \\ s32i a2,  %[ctx],  8
-            \\ s32i a3,  %[ctx], 12
-            \\ s32i a4,  %[ctx], 16
-            \\ s32i a5,  %[ctx], 20
-            \\ s32i a6,  %[ctx], 24
-            \\ s32i a7,  %[ctx], 28
-            \\ s32i a8,  %[ctx], 32
-            \\ s32i a9,  %[ctx], 36
-            \\ s32i a10, %[ctx], 40
-            \\ s32i a11, %[ctx], 44
-            \\ s32i a12, %[ctx], 48
-            \\ s32i a13, %[ctx], 52
-            \\ s32i a14, %[ctx], 56
-            \\ s32i a15, %[ctx], 60
-            \\ s32i a0,  %[ctx], 64
-            :
-            : [ctx] "r" (&ctx),
-            : .{ .memory = true });
-        return ctx;
-    }
-
-    pub fn getFp(ctx: *const Xtensa) u32 {
-        return ctx.a[15]; // a15 = frame pointer in call0 ABI
-    }
-    pub fn getPc(ctx: *const Xtensa) u32 {
-        return ctx.pc;
-    }
-
-    pub fn dwarfRegisterBytes(ctx: *Xtensa, register_num: u16) DwarfRegisterError![]u8 {
-        switch (register_num) {
-            0...15 => return @ptrCast(&ctx.a[register_num]),
-            else => return error.InvalidRegister,
-        }
-    }
-};
-
 /// The native operating system's `ucontext_t` as seen in the third argument to signal handlers.
 ///
 /// These are dramatically simplified since we only need general-purpose registers and don't care
@@ -1878,6 +1981,8 @@ const signal_ucontext_t = switch (native_os) {
         .thumbeb,
         .csky,
         .hexagon,
+        .hppa,
+        .hppa64,
         .m68k,
         .mips,
         .mipsel,
@@ -1949,19 +2054,19 @@ const signal_ucontext_t = switch (native_os) {
                     pc: u32,
                 },
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/parisc/include/uapi/asm/sigcontext.h
-                .hppa => extern struct {
-                    _flags: u32,
-                    _psw: u32,
-                    r1_19: [19]u32,
-                    r20: u32,
-                    r21: u32,
-                    r22: u32,
-                    r23_29: [7]u32,
-                    r30: u32,
-                    r31: u32,
+                .hppa, .hppa64 => extern struct {
+                    _flags: usize,
+                    _psw: usize,
+                    r1_19: [19]usize,
+                    r20: usize,
+                    r21: usize,
+                    r22: usize,
+                    r23_29: [7]usize,
+                    r30: usize,
+                    r31: usize,
                     _fr: [32]f64,
-                    _iasq: [2]u32,
-                    iaoq: [2]u32,
+                    _iasq: [2]usize,
+                    iaoq: [2]usize,
                 },
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/m68k/include/asm/ucontext.h
                 .m68k => extern struct {
@@ -2051,7 +2156,7 @@ const signal_ucontext_t = switch (native_os) {
                 },
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/xtensa/include/uapi/asm/sigcontext.h
                 .xtensa, .xtensaeb => extern struct {
-                    _sc_ucontext: u32, // back-pointer to ucontext_t (struct ucontext __user *)
+                    _sc_ucontext: u32,
                     pc: u32,
                     _ps: u32,
                     _l: extern struct {
@@ -2158,8 +2263,30 @@ const signal_ucontext_t = switch (native_os) {
                 pc: u64,
             },
             // https://github.com/freebsd/freebsd-src/blob/55c28005f544282b984ae0e15dacd0c108d8ab12/sys/x86/include/ucontext.h
+            .x86 => extern struct {
+                _onstack: i32 align(16),
+                _gs: i32,
+                _fs: i32,
+                _es: i32,
+                _ds: i32,
+                edi: u32,
+                esi: u32,
+                ebp: u32,
+                _isp: i32,
+                ebx: u32,
+                edx: u32,
+                ecx: u32,
+                eax: u32,
+                _trapno: i32,
+                _err: i32,
+                eip: u32,
+                _cs: i32,
+                _eflags: i32,
+                esp: u32,
+            },
+            // https://github.com/freebsd/freebsd-src/blob/55c28005f544282b984ae0e15dacd0c108d8ab12/sys/x86/include/ucontext.h
             .x86_64 => extern struct {
-                _onstack: i64,
+                _onstack: i64 align(16),
                 rdi: u64,
                 rsi: u64,
                 rdx: u64,
@@ -2306,9 +2433,11 @@ const signal_ucontext_t = switch (native_os) {
         .alpha => extern struct {
             _cookie: i64,
             _mask: i64,
-            pc: u64,
-            _ps: i64,
-            r: [32]u64,
+            mcontext: extern struct {
+                pc: u64,
+                _ps: i64,
+                r: [32]u64,
+            },
         },
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/arm/include/signal.h
         .arm => extern struct {
@@ -2336,6 +2465,18 @@ const signal_ucontext_t = switch (native_os) {
             r1_19: [19]u32,
             r23_29: [7]u32,
             r31: u32,
+        },
+        // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/m88k/include/signal.h
+        .m88k => extern struct {
+            _cookie: i32,
+            _mask: i32,
+            mcontext: extern struct {
+                r: [32]u32,
+                _epsr: u32,
+                _fpsr: u32,
+                _fpcr: u32,
+                xip: u32,
+            },
         },
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/mips64/include/signal.h
         .mips64, .mips64el => extern struct {
@@ -2377,7 +2518,7 @@ const signal_ucontext_t = switch (native_os) {
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/sparc64/include/signal.h
         .sparc64 => @compileError("sparc64-openbsd ucontext_t missing"),
         // https://github.com/openbsd/src/blob/42468faed8369d07ae49ae02dd71ec34f59b66cd/sys/arch/sh/include/signal.h
-        .sh, .sheb => extern struct {
+        .sh => extern struct {
             pc: u32,
             _sr: i32,
             _gbr: i32,
@@ -2464,6 +2605,20 @@ const signal_ucontext_t = switch (native_os) {
                 r: [15]u32 align(8),
                 pc: u32,
             },
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/hppa/include/mcontext.h
+            .hppa => extern struct {
+                r1_19: [19]u32 align(8),
+                r20: u32,
+                r21: u32,
+                r22: u32,
+                r23_29: [7]u32,
+                r30: u32,
+                r31: u32,
+                _sar: u32,
+                _pcsqh: u32,
+                _pcsqt: u32,
+                iaoq: [2]u32,
+            },
             // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/m68k/include/mcontext.h
             .m68k => extern struct {
                 d: [8]u32,
@@ -2486,6 +2641,16 @@ const signal_ucontext_t = switch (native_os) {
                 _cr: i32,
                 lr: u32,
                 pc: u32,
+            },
+            // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/riscv/include/mcontext.h
+            .riscv32, .riscv64 => extern struct {
+                ra_sp_gp_tp: [4]usize align(8),
+                t0_2: [3]usize,
+                s0_1: [2]usize,
+                a: [8]usize,
+                s2_11: [10]usize,
+                t3_6: [4]usize,
+                pc: usize,
             },
             // https://github.com/NetBSD/src/blob/861008c62187bf7bc0aac4d81e52ed6eee4d0c74/sys/arch/sparc/include/mcontext.h
             .sparc => @compileError("sparc-netbsd mcontext_t missing"),
@@ -2650,25 +2815,6 @@ const signal_ucontext_t = switch (native_os) {
                 sp: u64,
                 pc: u64,
             },
-            // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/m68k/signal.h
-            .m68k => extern struct {
-                pc: u32 align(8),
-                d: [8]u32,
-                a: [8]u32,
-            },
-            // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/ppc/signal.h
-            .powerpc => extern struct {
-                pc: u32 align(8),
-                r: [13]u32, // Um, are you okay, Haiku?
-                _f: [14]f64,
-                _reserved: u32,
-                _fpscr: u32,
-                _ctr: u32,
-                _xer: u32,
-                _cr: u32,
-                _msr: u32,
-                lr: u32,
-            },
             // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/riscv64/signal.h
             .riscv64 => extern struct {
                 ra_sp_gp_tp: [4]u64,
@@ -2679,8 +2825,6 @@ const signal_ucontext_t = switch (native_os) {
                 t3_6: [4]u64,
                 pc: u64,
             },
-            // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/sparc64/signal.h
-            .sparc64 => @compileError("sparc64-haiku mcontext_t missing"),
             // https://github.com/haiku/haiku/blob/47538c534fe0aadc626c09d121773fee8ea10d71/headers/posix/arch/x86/signal.h
             .x86 => extern struct {
                 eip: u32,
@@ -2747,6 +2891,51 @@ const signal_ucontext_t = switch (native_os) {
         },
     },
     else => void,
+};
+
+const Xtensa = extern struct {
+    a: [16]u32,
+    pc: u32,
+
+    pub fn current() Xtensa {
+        var ctx: Xtensa = undefined;
+        ctx.pc = @returnAddress();
+        asm volatile (
+            \\s32i a0, %[base], 0
+            \\s32i a1, %[base], 4
+            \\s32i a2, %[base], 8
+            \\s32i a3, %[base], 12
+            \\s32i a4, %[base], 16
+            \\s32i a5, %[base], 20
+            \\s32i a6, %[base], 24
+            \\s32i a7, %[base], 28
+            \\s32i a8, %[base], 32
+            \\s32i a9, %[base], 36
+            \\s32i a10, %[base], 40
+            \\s32i a11, %[base], 44
+            \\s32i a12, %[base], 48
+            \\s32i a13, %[base], 52
+            \\s32i a14, %[base], 56
+            \\s32i a15, %[base], 60
+            :
+            : [base] "r" (&ctx.a[0]),
+            : "memory"
+        );
+        return ctx;
+    }
+
+    pub fn getFp(ctx: *const Xtensa) usize {
+        return ctx.a[15];
+    }
+
+    pub fn getPc(ctx: *const Xtensa) usize {
+        return ctx.pc;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *const Xtensa, reg_num: u8) ?[]const u8 {
+        if (reg_num > 15) return null;
+        return std.mem.asBytes(&ctx.a[reg_num]);
+    }
 };
 
 const std = @import("../std.zig");

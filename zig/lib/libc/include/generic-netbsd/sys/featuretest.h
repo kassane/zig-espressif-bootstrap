@@ -1,4 +1,4 @@
-/*	$NetBSD: featuretest.h,v 1.10.66.1 2024/10/11 18:51:20 martin Exp $	*/
+/*	$NetBSD: featuretest.h,v 1.13 2024/09/09 15:05:39 riastradh Exp $	*/
 
 /*
  * Written by Klaus Klein <kleink@NetBSD.org>, February 2, 1998.
@@ -29,6 +29,14 @@
  * _POSIX_C_SOURCE == 199506L	ISO/IEC 9945-1:1996
  * _POSIX_C_SOURCE == 200112L	IEEE Std 1003.1-2001
  * _POSIX_C_SOURCE == 200809L   IEEE Std 1003.1-2008
+ * _POSIX_C_SOURCE == 202405L   IEEE Std 1003.1-2024
+ *
+ * Reference:
+ *
+ *	The Open Group Base Specifications Issue 8, IEEE Std
+ *	1003.1-2024, IEEE and The Open Group, 2024, Sec. 2.2.1.1 `The
+ *	_POSIX_C_SOURCE Feature Test Macro'.
+ *	https://pubs.opengroup.org/onlinepubs/9799919799.2024edition/functions/V2_chap02.html#tag_16_02_01_01
  *
  * X/Open macros:
  * _XOPEN_SOURCE		System Interfaces and Headers, Issue 4, Ver 2
@@ -37,6 +45,14 @@
  * _XOPEN_SOURCE == 520		Networking Services (XNS), Issue 5.2
  * _XOPEN_SOURCE == 600		IEEE Std 1003.1-2001, XSI option
  * _XOPEN_SOURCE == 700		IEEE Std 1003.1-2008, XSI option
+ * _XOPEN_SOURCE == 800		IEEE Std 1003.1-2024, XSI option
+ *
+ * Reference:
+ *
+ *	The Open Group Base Specifications Issue 8, IEEE Std
+ *	1003.1-2024, IEEE and The Open Group, 2024, Sec. 2.2.1.2 `The
+ *	_XOPEN_SOURCE Feature Test Macro'.
+ *	https://pubs.opengroup.org/onlinepubs/9799919799.2024edition/functions/V2_chap02.html#tag_16_02_01_02
  *
  * NetBSD macros:
  * _NETBSD_SOURCE == 1		Make all NetBSD features available.
@@ -54,11 +70,13 @@
  * defined along with one of the "major" macros.  The "minor" macros
  * are:
  *
- * _REENTRANT
- * _ISOC99_SOURCE
- * _ISOC11_SOURCE
- * _LARGEFILE_SOURCE		Large File Support
- *		<http://ftp.sas.com/standards/large.file/x_open.20Mar96.html>
+ * _REENTRANT		Some thread-safety extensions like lgamma_r(3)
+ *			  (mostly subsumed by _POSIX_C_SOURCE >= 199506L)
+ * _ISOC99_SOURCE	C99 extensions like snprintf without -std=c99
+ * _ISOC11_SOURCE	C11 extensions like aligned_alloc without -std=c11
+ * _ISOC23_SOURCE	C23 extensions like mbrtoc8 without -std=c23
+ * _OPENBSD_SOURCE	Nonstandard OpenBSD extensions like strtonum(3)
+ * _GNU_SOURCE		Nonstandard GNU extensions like feenableexcept(3)
  */
 
 #if defined(_POSIX_SOURCE) && !defined(_POSIX_C_SOURCE)

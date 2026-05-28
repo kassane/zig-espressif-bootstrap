@@ -1,4 +1,4 @@
-/*	$OpenBSD: apmvar.h,v 1.6 2019/01/22 02:36:30 phessler Exp $	*/
+/*	$OpenBSD: apmvar.h,v 1.8 2026/04/09 05:03:42 miod Exp $	*/
 
 /*
  *  Copyright (c) 2001 Alexander Guy

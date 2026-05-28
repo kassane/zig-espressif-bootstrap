@@ -1,4 +1,4 @@
-/*	$NetBSD: ctlreg.h,v 1.67 2019/11/13 10:06:38 nakayama Exp $ */
+/*	$NetBSD: ctlreg.h,v 1.71 2024/03/10 17:34:47 rillig Exp $ */
 
 /*
  * Copyright (c) 1996-2002 Eduardo Horvath
@@ -286,14 +286,14 @@
 
 /* SFSR bits for both D_SFSR and I_SFSR */
 #define	SFSR_ASI(x)		((x)>>16)
-#define	SFSR_FT_VA_OOR_2	0x02000 /* IMMU: jumpl or return to unsupportd VA */
+#define	SFSR_FT_VA_OOR_2	0x02000 /* IMMU: jumpl or return to unsupported VA */
 #define	SFSR_FT_VA_OOR_1	0x01000 /* fault at unsupported VA */
 #define	SFSR_FT_NFO		0x00800	/* DMMU: Access to page marked NFO */
 #define	SFSR_ILL_ASI		0x00400	/* DMMU: Illegal (unsupported) ASI */
 #define	SFSR_FT_IO_ATOMIC	0x00200	/* DMMU: Atomic access to noncacheable page */
 #define	SFSR_FT_ILL_NF		0x00100	/* DMMU: NF load or flush to page marked E (has side effects) */
 #define	SFSR_FT_PRIV		0x00080	/* Privilege violation */
-#define	SFSR_FT_E		0x00040	/* DMUU: value of E bit associated address */
+#define	SFSR_FT_E		0x00040	/* DMMU: value of E bit associated address */
 #define	SFSR_CTXT(x)		(((x)>>4)&0x3)
 #define	SFSR_CTXT_IS_PRIM(x)	(SFSR_CTXT(x)==0x00)
 #define	SFSR_CTXT_IS_SECOND(x)	(SFSR_CTXT(x)==0x01)
@@ -306,9 +306,10 @@
 		SFSR_ILL_ASI|SFSR_FT_IO_ATOMIC|SFSR_FT_ILL_NF|SFSR_FT_PRIV)
 
 #define	SFSR_BITS "\177\20" \
-	"f\20\30ASI\0" "b\16VAT\0" "b\15VAD\0" "b\14NFO\0" "b\13ASI\0" "b\12A\0" \
-	"b\11NF\0" "b\10PRIV\0" "b\7E\0" "b\6NUCLEUS\0" "b\5SECONDCTX\0" "b\4PRIV\0" \
-	"b\3W\0" "b\2OW\0" "b\1FV\0"
+	"f\20\30ASI\0"			"b\15VAT\0"	"b\14VAD\0" \
+	"b\13NFO\0"	"b\12ASI\0"	"b\11A\0"	"b\10NF\0" \
+	"b\07PRIV\0"	"b\06E\0"	"b\05NUCLEUS\0"	"b\04SECONDCTX\0" \
+	"b\03PRIV\0"	"b\02W\0"	"b\01OW\0"	"b\00FV\0"
 
 /* ASFR bits */
 #define	ASFR_ME			0x100000000LL
@@ -396,7 +397,7 @@
  * Interrupt registers.  This really gets hairy.
  */
 
-/* IRSR -- Interrupt Receive Status Ragister */
+/* IRSR -- Interrupt Receive Status Register */
 #define	ASI_IRSR	0x49
 #define	IRSR		0x00
 #define	IRSR_BUSY	0x020

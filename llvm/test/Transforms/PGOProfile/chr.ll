@@ -478,12 +478,12 @@ define i32 @test_chr_5(ptr %i, i32 %sum0) !prof !14 {
 ; CHECK-NEXT:    [[TMP12:%.*]] = icmp eq i32 [[TMP11]], 0
 ; CHECK-NEXT:    [[TMP13:%.*]] = and i32 [[DOTFR1]], 8
 ; CHECK-NEXT:    [[TMP14:%.*]] = icmp eq i32 [[TMP13]], 0
-; CHECK-NEXT:    [[SUM4_NONCHR_V:%.*]] = select i1 [[TMP14]], i32 44, i32 88
+; CHECK-NEXT:    [[SUM4_NONCHR_V:%.*]] = select i1 [[TMP14]], i32 44, i32 88, !prof [[PROF16]]
 ; CHECK-NEXT:    [[SUM4_NONCHR:%.*]] = add i32 [[SUM2_NONCHR]], [[SUM4_NONCHR_V]]
 ; CHECK-NEXT:    [[SUM5_NONCHR:%.*]] = select i1 [[TMP12]], i32 [[SUM2_NONCHR]], i32 [[SUM4_NONCHR]], !prof [[PROF16]]
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
-; CHECK-NEXT:    [[SUM6:%.*]] = phi i32 [ [[TMP3]], [[BB1]] ], [ [[SUM0]], [[ENTRY_SPLIT_NONCHR]] ], [ [[SUM5_NONCHR]], [[BB0_NONCHR]] ]
+; CHECK-NEXT:    [[SUM6:%.*]] = phi i32 [ [[SUM5_NONCHR]], [[BB0_NONCHR]] ], [ [[TMP3]], [[BB1]] ], [ [[SUM0]], [[ENTRY_SPLIT_NONCHR]] ]
 ; CHECK-NEXT:    ret i32 [[SUM6]]
 ;
 entry:
@@ -579,12 +579,12 @@ define i32 @test_chr_5_1(ptr %i, i32 %sum0) !prof !14 {
 ; CHECK-NEXT:    [[TMP15:%.*]] = icmp eq i32 [[TMP14]], 0
 ; CHECK-NEXT:    [[TMP16:%.*]] = and i32 [[DOTFR1]], 8
 ; CHECK-NEXT:    [[TMP17:%.*]] = icmp eq i32 [[TMP16]], 0
-; CHECK-NEXT:    [[SUM4_NONCHR_V:%.*]] = select i1 [[TMP17]], i32 44, i32 88
+; CHECK-NEXT:    [[SUM4_NONCHR_V:%.*]] = select i1 [[TMP17]], i32 44, i32 88, !prof [[PROF16]]
 ; CHECK-NEXT:    [[SUM4_NONCHR:%.*]] = add i32 [[SUM2_NONCHR]], [[SUM4_NONCHR_V]]
 ; CHECK-NEXT:    [[SUM5_NONCHR:%.*]] = select i1 [[TMP15]], i32 [[SUM2_NONCHR]], i32 [[SUM4_NONCHR]], !prof [[PROF16]]
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
-; CHECK-NEXT:    [[SUM6:%.*]] = phi i32 [ [[TMP6]], [[BB1]] ], [ [[SUM0_FR]], [[ENTRY_SPLIT_NONCHR]] ], [ [[SUM5_NONCHR]], [[BB0_NONCHR]] ]
+; CHECK-NEXT:    [[SUM6:%.*]] = phi i32 [ [[SUM5_NONCHR]], [[BB0_NONCHR]] ], [ [[TMP6]], [[BB1]] ], [ [[SUM0_FR]], [[ENTRY_SPLIT_NONCHR]] ]
 ; CHECK-NEXT:    ret i32 [[SUM6]]
 ;
 entry:
@@ -677,12 +677,12 @@ define i32 @test_chr_6(ptr %i, ptr %j, i32 %sum0) !prof !14 {
 ; CHECK-NEXT:    [[V10_NONCHR:%.*]] = icmp eq i32 [[V9_NONCHR]], 0
 ; CHECK-NEXT:    [[V11_NONCHR:%.*]] = and i32 [[I0_FR]], 8
 ; CHECK-NEXT:    [[V12_NONCHR:%.*]] = icmp eq i32 [[V11_NONCHR]], 0
-; CHECK-NEXT:    [[SUM4_NONCHR_V:%.*]] = select i1 [[V12_NONCHR]], i32 44, i32 88
+; CHECK-NEXT:    [[SUM4_NONCHR_V:%.*]] = select i1 [[V12_NONCHR]], i32 44, i32 88, !prof [[PROF16]]
 ; CHECK-NEXT:    [[SUM4_NONCHR:%.*]] = add i32 [[SUM2_NONCHR]], [[SUM4_NONCHR_V]]
 ; CHECK-NEXT:    [[SUM5_NONCHR:%.*]] = select i1 [[V10_NONCHR]], i32 [[SUM2_NONCHR]], i32 [[SUM4_NONCHR]], !prof [[PROF16]]
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
-; CHECK-NEXT:    [[SUM6:%.*]] = phi i32 [ [[V13]], [[BB1]] ], [ [[SUM0]], [[ENTRY_SPLIT_NONCHR]] ], [ [[SUM5_NONCHR]], [[BB0_NONCHR]] ]
+; CHECK-NEXT:    [[SUM6:%.*]] = phi i32 [ [[SUM5_NONCHR]], [[BB0_NONCHR]] ], [ [[V13]], [[BB1]] ], [ [[SUM0]], [[ENTRY_SPLIT_NONCHR]] ]
 ; CHECK-NEXT:    ret i32 [[SUM6]]
 ;
 entry:
@@ -974,7 +974,7 @@ define i32 @test_chr_9(ptr %i, ptr %j) !prof !14 {
 ; CHECK-NEXT:    call void @foo()
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
-; CHECK-NEXT:    [[TMP8:%.*]] = phi i32 [ [[TMP3]], [[BB0]] ], [ [[DOTFR1]], [[BB1_NONCHR]] ], [ [[TMP7]], [[BB2_NONCHR]] ]
+; CHECK-NEXT:    [[TMP8:%.*]] = phi i32 [ [[TMP7]], [[BB2_NONCHR]] ], [ [[TMP3]], [[BB0]] ], [ [[DOTFR1]], [[BB1_NONCHR]] ]
 ; CHECK-NEXT:    ret i32 [[TMP8]]
 ;
 entry:
@@ -1056,7 +1056,7 @@ define i32 @test_chr_10(ptr %i, ptr %j) !prof !14 {
 ; CHECK-NEXT:    call void @foo()
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
-; CHECK-NEXT:    [[TMP8:%.*]] = phi i32 [ [[TMP3]], [[BB0]] ], [ [[TMP5]], [[BB2_NONCHR]] ], [ [[TMP5]], [[BB1_NONCHR]] ]
+; CHECK-NEXT:    [[TMP8:%.*]] = phi i32 [ [[TMP3]], [[BB0]] ], [ [[TMP5]], [[BB1_NONCHR]] ], [ [[TMP5]], [[BB2_NONCHR]] ]
 ; CHECK-NEXT:    [[TMP9:%.*]] = mul i32 [[TMP8]], 42
 ; CHECK-NEXT:    [[TMP10:%.*]] = add i32 [[TMP8]], -99
 ; CHECK-NEXT:    [[TMP11:%.*]] = add i32 [[TMP9]], [[TMP10]]
@@ -1218,7 +1218,7 @@ define i32 @test_chr_12(ptr %i, i32 %sum0) !prof !14 {
 ; CHECK-NEXT:    [[SUM4_NONCHR:%.*]] = add i32 [[SUM2]], [[SUM4_NONCHR_V]]
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
-; CHECK-NEXT:    [[SUM6:%.*]] = phi i32 [ [[SUM0]], [[ENTRY:%.*]] ], [ [[TMP14]], [[BB1]] ], [ [[SUM2]], [[BB0_SPLIT_NONCHR]] ], [ [[SUM4_NONCHR]], [[BB1_NONCHR]] ]
+; CHECK-NEXT:    [[SUM6:%.*]] = phi i32 [ [[SUM0]], [[ENTRY:%.*]] ], [ [[SUM4_NONCHR]], [[BB1_NONCHR]] ], [ [[TMP14]], [[BB1]] ], [ [[SUM2]], [[BB0_SPLIT_NONCHR]] ]
 ; CHECK-NEXT:    ret i32 [[SUM6]]
 ;
 entry:
@@ -1392,7 +1392,7 @@ define i32 @test_chr_15(ptr %i, ptr %j, i32 %sum0, i1 %pred, i32 %z) !prof !14 {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[I0:%.*]] = load i32, ptr [[I:%.*]], align 4
 ; CHECK-NEXT:    [[V0:%.*]] = icmp eq i32 [[Z:%.*]], 0
-; CHECK-NEXT:    [[V3:%.*]] = select i1 [[V0]], i1 [[PRED:%.*]], i1 false
+; CHECK-NEXT:    [[V3:%.*]] = select i1 [[V0]], i1 [[PRED:%.*]], i1 false, !prof [[PROF19:![0-9]+]]
 ; CHECK-NEXT:    br i1 [[V3]], label [[BB0:%.*]], label [[BB1:%.*]], !prof [[PROF16]]
 ; CHECK:       bb0:
 ; CHECK-NEXT:    call void @foo()
@@ -1514,8 +1514,8 @@ define i32 @test_chr_16(ptr %i) !prof !14 {
 ; CHECK-NEXT:    call void @foo()
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
-; CHECK-NEXT:    [[TMP6:%.*]] = phi i32 [ [[V40]], [[BB0]] ], [ [[V40_NONCHR]], [[BB2_NONCHR]] ], [ [[V40_NONCHR]], [[BB1_NONCHR]] ]
-; CHECK-NEXT:    [[V42:%.*]] = phi i32 [ [[V41]], [[BB0]] ], [ [[V41_NONCHR]], [[BB2_NONCHR]] ], [ [[V40_NONCHR]], [[BB1_NONCHR]] ]
+; CHECK-NEXT:    [[TMP6:%.*]] = phi i32 [ [[V40]], [[BB0]] ], [ [[V40_NONCHR]], [[BB1_NONCHR]] ], [ [[V40_NONCHR]], [[BB2_NONCHR]] ]
+; CHECK-NEXT:    [[V42:%.*]] = phi i32 [ [[V41]], [[BB0]] ], [ [[V40_NONCHR]], [[BB1_NONCHR]] ], [ [[V41_NONCHR]], [[BB2_NONCHR]] ]
 ; CHECK-NEXT:    [[V43:%.*]] = add i32 [[V42]], [[TMP6]]
 ; CHECK-NEXT:    ret i32 [[V43]]
 ;
@@ -1690,8 +1690,8 @@ define i32 @test_chr_18(ptr %i, i32 %sum0) !prof !14 {
 ; CHECK-NEXT:    [[SUM3_NONCHR:%.*]] = add i32 [[SUM2_NONCHR]], 44
 ; CHECK-NEXT:    br label [[BB2]]
 ; CHECK:       bb2:
-; CHECK-NEXT:    [[TMP2]] = phi i32 [ [[INC2]], [[BB1]] ], [ [[INC2_NONCHR]], [[BB1_NONCHR]] ], [ [[INC2_NONCHR]], [[BB0_SPLIT_NONCHR]] ]
-; CHECK-NEXT:    [[SUM4:%.*]] = phi i32 [ [[SUM3]], [[BB1]] ], [ [[SUM3_NONCHR]], [[BB1_NONCHR]] ], [ [[SUM1]], [[BB0_SPLIT_NONCHR]] ]
+; CHECK-NEXT:    [[TMP2]] = phi i32 [ [[INC2]], [[BB1]] ], [ [[INC2_NONCHR]], [[BB0_SPLIT_NONCHR]] ], [ [[INC2_NONCHR]], [[BB1_NONCHR]] ]
+; CHECK-NEXT:    [[SUM4:%.*]] = phi i32 [ [[SUM3]], [[BB1]] ], [ [[SUM1]], [[BB0_SPLIT_NONCHR]] ], [ [[SUM3_NONCHR]], [[BB1_NONCHR]] ]
 ; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[TMP2]], 100
 ; CHECK-NEXT:    br i1 [[CMP]], label [[BB3:%.*]], label [[BB0]], !prof [[PROF16]]
 ; CHECK:       bb3:
@@ -1777,12 +1777,12 @@ define i32 @test_chr_19(ptr %i, i32 %sum0) !prof !14 {
 ; CHECK-NEXT:    [[SUM2_NONCHR:%.*]] = select i1 [[TMP6]], i32 [[SUM0]], i32 [[TMP7]], !prof [[PROF16]]
 ; CHECK-NEXT:    [[TMP8:%.*]] = and i32 [[DOTFR1]], 8
 ; CHECK-NEXT:    [[TMP9:%.*]] = icmp eq i32 [[TMP8]], 0
-; CHECK-NEXT:    [[SUM4_NONCHR_V:%.*]] = select i1 [[TMP9]], i32 44, i32 88
+; CHECK-NEXT:    [[SUM4_NONCHR_V:%.*]] = select i1 [[TMP9]], i32 44, i32 88, !prof [[PROF16]]
 ; CHECK-NEXT:    [[SUM4_NONCHR:%.*]] = add i32 [[SUM2_NONCHR]], [[SUM4_NONCHR_V]]
 ; CHECK-NEXT:    [[SUM5_NONCHR:%.*]] = select i1 [[TMP6]], i32 [[SUM2_NONCHR]], i32 [[SUM4_NONCHR]], !prof [[PROF16]]
 ; CHECK-NEXT:    br label [[BB3]]
 ; CHECK:       bb3:
-; CHECK-NEXT:    [[SUM6:%.*]] = phi i32 [ [[TMP3]], [[BB1]] ], [ [[SUM0]], [[ENTRY_SPLIT_NONCHR]] ], [ [[SUM5_NONCHR]], [[BB0_NONCHR]] ]
+; CHECK-NEXT:    [[SUM6:%.*]] = phi i32 [ [[SUM5_NONCHR]], [[BB0_NONCHR]] ], [ [[TMP3]], [[BB1]] ], [ [[SUM0]], [[ENTRY_SPLIT_NONCHR]] ]
 ; CHECK-NEXT:    ret i32 [[SUM6]]
 ;
 entry:
@@ -1931,21 +1931,21 @@ bb4:
 define i32 @test_chr_21(i64 %i, i64 %k, i64 %j) "instcombine-no-verify-fixpoint" !prof !14 {
 ; CHECK-LABEL: @test_chr_21(
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    [[I_FR:%.*]] = freeze i64 [[I:%.*]]
-; CHECK-NEXT:    [[CMP0:%.*]] = icmp ne i64 [[J:%.*]], [[K:%.*]]
-; CHECK-NEXT:    [[TMP0:%.*]] = freeze i1 [[CMP0]]
-; CHECK-NEXT:    [[CMP3:%.*]] = icmp ne i64 [[J]], [[I_FR]]
-; CHECK-NEXT:    [[CMP_I:%.*]] = icmp ne i64 [[I_FR]], 86
-; CHECK-NEXT:    [[TMP1:%.*]] = freeze i1 [[CMP3]]
-; CHECK-NEXT:    [[TMP2:%.*]] = and i1 [[TMP0]], [[TMP1]]
+; CHECK-NEXT:    [[K:%.*]] = freeze i64 [[K1:%.*]]
+; CHECK-NEXT:    [[CMP1:%.*]] = icmp ne i64 [[J:%.*]], [[K2:%.*]]
+; CHECK-NEXT:    [[CMP0:%.*]] = freeze i1 [[CMP1]]
+; CHECK-NEXT:    [[CMP4:%.*]] = icmp ne i64 [[J]], [[K]]
+; CHECK-NEXT:    [[CMP_I:%.*]] = icmp ne i64 [[K]], 86
+; CHECK-NEXT:    [[CMP3:%.*]] = freeze i1 [[CMP4]]
+; CHECK-NEXT:    [[TMP2:%.*]] = and i1 [[CMP0]], [[CMP3]]
 ; CHECK-NEXT:    [[TMP3:%.*]] = and i1 [[TMP2]], [[CMP_I]]
 ; CHECK-NEXT:    br i1 [[TMP3]], label [[BB1:%.*]], label [[ENTRY_SPLIT_NONCHR:%.*]], !prof [[PROF15]]
 ; CHECK:       bb1:
-; CHECK-NEXT:    [[CMP2:%.*]] = icmp ne i64 [[I_FR]], 2
-; CHECK-NEXT:    switch i64 [[I_FR]], label [[BB2:%.*]] [
+; CHECK-NEXT:    [[CMP2:%.*]] = icmp ne i64 [[K]], 2
+; CHECK-NEXT:    switch i64 [[K]], label [[BB2:%.*]] [
 ; CHECK-NEXT:      i64 2, label [[BB3_NONCHR2:%.*]]
 ; CHECK-NEXT:      i64 86, label [[BB2_NONCHR1:%.*]]
-; CHECK-NEXT:    ], !prof [[PROF19:![0-9]+]]
+; CHECK-NEXT:    ], !prof [[PROF20:![0-9]+]]
 ; CHECK:       bb2:
 ; CHECK-NEXT:    call void @foo()
 ; CHECK-NEXT:    call void @foo()
@@ -1963,15 +1963,15 @@ define i32 @test_chr_21(i64 %i, i64 %k, i64 %j) "instcombine-no-verify-fixpoint"
 ; CHECK-NEXT:    call void @foo()
 ; CHECK-NEXT:    br label [[BB10:%.*]]
 ; CHECK:       entry.split.nonchr:
-; CHECK-NEXT:    br i1 [[TMP0]], label [[BB1_NONCHR:%.*]], label [[BB10]], !prof [[PROF18]]
+; CHECK-NEXT:    br i1 [[CMP0]], label [[BB1_NONCHR:%.*]], label [[BB10]], !prof [[PROF18]]
 ; CHECK:       bb1.nonchr:
-; CHECK-NEXT:    [[CMP2_NONCHR:%.*]] = icmp eq i64 [[I_FR]], 2
+; CHECK-NEXT:    [[CMP2_NONCHR:%.*]] = icmp eq i64 [[K]], 2
 ; CHECK-NEXT:    br i1 [[CMP2_NONCHR]], label [[BB3_NONCHR:%.*]], label [[BB2_NONCHR:%.*]], !prof [[PROF16]]
 ; CHECK:       bb3.nonchr:
-; CHECK-NEXT:    [[CMP_I_NONCHR:%.*]] = icmp eq i64 [[I_FR]], 86
+; CHECK-NEXT:    [[CMP_I_NONCHR:%.*]] = icmp eq i64 [[K]], 86
 ; CHECK-NEXT:    br i1 [[CMP_I_NONCHR]], label [[BB6_NONCHR:%.*]], label [[BB4_NONCHR:%.*]], !prof [[PROF16]]
 ; CHECK:       bb6.nonchr:
-; CHECK-NEXT:    [[CMP3_NONCHR:%.*]] = icmp eq i64 [[J]], [[I_FR]]
+; CHECK-NEXT:    [[CMP3_NONCHR:%.*]] = icmp eq i64 [[J]], [[K]]
 ; CHECK-NEXT:    br i1 [[CMP3_NONCHR]], label [[BB8_NONCHR:%.*]], label [[BB7_NONCHR:%.*]], !prof [[PROF16]]
 ; CHECK:       bb8.nonchr:
 ; CHECK-NEXT:    br i1 [[CMP_I_NONCHR]], label [[BB10]], label [[BB9_NONCHR:%.*]], !prof [[PROF16]]
@@ -2527,14 +2527,14 @@ define void @test_chr_24(ptr %i) !prof !14 {
 ; CHECK-NEXT:    [[TMP0:%.*]] = load i32, ptr [[I:%.*]], align 4
 ; CHECK-NEXT:    [[TMP1:%.*]] = and i32 [[TMP0]], 1
 ; CHECK-NEXT:    [[TMP2:%.*]] = icmp eq i32 [[TMP1]], 0
-; CHECK-NEXT:    br i1 [[TMP2]], label [[BB1:%.*]], label [[BB0:%.*]], !prof [[PROF20:![0-9]+]]
+; CHECK-NEXT:    br i1 [[TMP2]], label [[BB1:%.*]], label [[BB0:%.*]], !prof [[PROF21:![0-9]+]]
 ; CHECK:       bb0:
 ; CHECK-NEXT:    call void @foo()
 ; CHECK-NEXT:    br label [[BB1]]
 ; CHECK:       bb1:
 ; CHECK-NEXT:    [[TMP3:%.*]] = and i32 [[TMP0]], 2
 ; CHECK-NEXT:    [[TMP4:%.*]] = icmp eq i32 [[TMP3]], 0
-; CHECK-NEXT:    br i1 [[TMP4]], label [[BB3:%.*]], label [[BB2:%.*]], !prof [[PROF20]]
+; CHECK-NEXT:    br i1 [[TMP4]], label [[BB3:%.*]], label [[BB2:%.*]], !prof [[PROF21]]
 ; CHECK:       bb2:
 ; CHECK-NEXT:    call void @foo()
 ; CHECK-NEXT:    br label [[BB3]]

@@ -270,6 +270,10 @@ namespace llvm {
     HADD,
     HSUB,
 
+    /// Integer horizontal saturating add/sub.
+    HADDS,
+    HSUBS,
+
     /// Floating point horizontal add/sub.
     FHADD,
     FHSUB,
@@ -471,8 +475,7 @@ namespace llvm {
     // VBMI2 Concat & Shift.
     VSHLD,
     VSHRD,
-    VSHLDV,
-    VSHRDV,
+
     // Shuffle Packed Values at 128-bit granularity.
     SHUF128,
     MOVDDUP,
@@ -1004,13 +1007,14 @@ namespace llvm {
     /// Current rounding mode is represented in bits 11:10 of FPSR. These
     /// values are same as corresponding constants for rounding mode used
     /// in glibc.
-    enum RoundingMode {
-      rmToNearest   = 0,        // FE_TONEAREST
-      rmDownward    = 1 << 10,  // FE_DOWNWARD
-      rmUpward      = 2 << 10,  // FE_UPWARD
-      rmTowardZero  = 3 << 10,  // FE_TOWARDZERO
-      rmMask        = 3 << 10   // Bit mask selecting rounding mode
-    };
+  enum RoundingMode {
+    rmInvalid = -1,         // For handle Invalid rounding mode
+    rmToNearest = 0,        // FE_TONEAREST
+    rmDownward = 1 << 10,   // FE_DOWNWARD
+    rmUpward = 2 << 10,     // FE_UPWARD
+    rmTowardZero = 3 << 10, // FE_TOWARDZERO
+    rmMask = 3 << 10        // Bit mask selecting rounding mode
+  };
   }
 
   /// Define some predicates that are used for node matching.
@@ -1038,7 +1042,8 @@ namespace llvm {
     /// Check if Op is a load operation that could be folded into some other x86
     /// instruction as a memory operand. Example: vpaddd (%rdi), %xmm0, %xmm0.
     bool mayFoldLoad(SDValue Op, const X86Subtarget &Subtarget,
-                     bool AssumeSingleUse = false);
+                     bool AssumeSingleUse = false,
+                     bool IgnoreAlignment = false);
 
     /// Check if Op is a load operation that could be folded into a vector splat
     /// instruction as a memory operand. Example: vbroadcastss 16(%rdi), %xmm2.
@@ -1058,11 +1063,28 @@ namespace llvm {
     /// functions.
     bool isExtendedSwiftAsyncFrameSupported(const X86Subtarget &Subtarget,
                                             const MachineFunction &MF);
+
+    /// Convert LLVM rounding mode to X86 rounding mode.
+    int getRoundingModeX86(unsigned RM);
+
   } // end namespace X86
 
   //===--------------------------------------------------------------------===//
   //  X86 Implementation of the TargetLowering interface
   class X86TargetLowering final : public TargetLowering {
+    // Copying needed for an outgoing byval argument.
+    enum ByValCopyKind {
+      // Argument is already in the correct location, no copy needed.
+      NoCopy,
+      // Argument value is currently in the local stack frame, needs copying to
+      // outgoing arguemnt area.
+      CopyOnce,
+      // Argument value is currently in the outgoing argument area, but not at
+      // the correct offset, so needs copying via a temporary in local stack
+      // space.
+      CopyViaTemp,
+    };
+
   public:
     explicit X86TargetLowering(const X86TargetMachine &TM,
                                const X86Subtarget &STI);
@@ -1240,8 +1262,7 @@ namespace llvm {
     getJumpConditionMergingParams(Instruction::BinaryOps Opc, const Value *Lhs,
                                   const Value *Rhs) const override;
 
-    bool shouldFoldConstantShiftPairToMask(const SDNode *N,
-                                           CombineLevel Level) const override;
+    bool shouldFoldConstantShiftPairToMask(const SDNode *N) const override;
 
     bool shouldFoldMaskToVariableShiftPair(SDValue Y) const override;
 
@@ -1364,8 +1385,6 @@ namespace llvm {
 
     SDValue getReturnAddressFrameIndex(SelectionDAG &DAG) const;
 
-    bool ExpandInlineAsm(CallInst *CI) const override;
-
     ConstraintType getConstraintType(StringRef Constraint) const override;
 
     /// Examine constraint string and operand type and determine a weight value.
@@ -1477,7 +1496,7 @@ namespace llvm {
     /// to a MemIntrinsicNode (touches memory). If this is the case, it returns
     /// true and stores the intrinsic information into the IntrinsicInfo that was
     /// passed to the function.
-    bool getTgtMemIntrinsic(IntrinsicInfo &Info, const CallInst &I,
+    bool getTgtMemIntrinsic(IntrinsicInfo &Info, const CallBase &I,
                             MachineFunction &MF,
                             unsigned Intrinsic) const override;
 
@@ -1591,8 +1610,6 @@ namespace llvm {
     bool useLoadStackGuardNode(const Module &M) const override;
     bool useStackGuardXorFP() const override;
     void insertSSPDeclarations(Module &M) const override;
-    Value *getSDagStackGuard(const Module &M) const override;
-    Function *getSSPStackGuardCheck(const Module &M) const override;
     SDValue emitStackGuardXorFP(SelectionDAG &DAG, SDValue Val,
                                 const SDLoc &DL) const override;
 
@@ -1610,8 +1627,6 @@ namespace llvm {
 
     /// Customize the preferred legalization strategy for certain types.
     LegalizeTypeAction getPreferredVectorAction(MVT VT) const override;
-
-    bool softPromoteHalfType() const override { return true; }
 
     MVT getRegisterTypeForCallingConv(LLVMContext &Context, CallingConv::ID CC,
                                       EVT VT) const override;
@@ -1661,15 +1676,16 @@ namespace llvm {
 
     /// Lower interleaved load(s) into target specific
     /// instructions/intrinsics.
-    bool lowerInterleavedLoad(LoadInst *LI,
+    bool lowerInterleavedLoad(Instruction *Load, Value *Mask,
                               ArrayRef<ShuffleVectorInst *> Shuffles,
-                              ArrayRef<unsigned> Indices,
-                              unsigned Factor) const override;
+                              ArrayRef<unsigned> Indices, unsigned Factor,
+                              const APInt &GapMask) const override;
 
     /// Lower interleaved store(s) into target specific
     /// instructions/intrinsics.
-    bool lowerInterleavedStore(StoreInst *SI, ShuffleVectorInst *SVI,
-                               unsigned Factor) const override;
+    bool lowerInterleavedStore(Instruction *Store, Value *Mask,
+                               ShuffleVectorInst *SVI, unsigned Factor,
+                               const APInt &GapMask) const override;
 
     SDValue expandIndirectJTBranch(const SDLoc &dl, SDValue Value, SDValue Addr,
                                    int JTI, SelectionDAG &DAG) const override;
@@ -1774,6 +1790,9 @@ namespace llvm {
     SDValue LowerADDROFRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerFRAME_TO_ARGS_OFFSET(SDValue Op, SelectionDAG &DAG) const;
+    ByValCopyKind ByValNeedsCopyForTailCall(SelectionDAG &DAG, SDValue Src,
+                                            SDValue Dst,
+                                            ISD::ArgFlagsTy Flags) const;
     SDValue LowerEH_RETURN(SDValue Op, SelectionDAG &DAG) const;
     SDValue lowerEH_SJLJ_SETJMP(SDValue Op, SelectionDAG &DAG) const;
     SDValue lowerEH_SJLJ_LONGJMP(SDValue Op, SelectionDAG &DAG) const;

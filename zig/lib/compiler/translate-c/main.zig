@@ -225,7 +225,7 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: []const [:0]const u8, zig
     const source = d.inputs.items[0];
 
     tc.discover() catch |er| switch (er) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         error.TooManyMultilibs => return d.fatal("found more than one multilib with the same priority", .{}),
     };
     try tc.defineSystemIncludes();

@@ -280,8 +280,7 @@ pub fn Custom(
                 if (it.index >= it.len) return null;
                 const result = Entry{
                     .key_ptr = &it.keys[it.index],
-                    // workaround for #6974
-                    .value_ptr = if (@sizeOf(*V) == 0) undefined else &it.values[it.index],
+                    .value_ptr = &it.values[it.index],
                 };
                 it.index += 1;
                 return result;
@@ -323,8 +322,7 @@ pub fn Custom(
                 const slice = self.entries.slice();
                 return GetOrPutResult{
                     .key_ptr = &slice.items(.key)[index],
-                    // workaround for #6974
-                    .value_ptr = if (@sizeOf(*V) == 0) undefined else &slice.items(.value)[index],
+                    .value_ptr = &slice.items(.value)[index],
                     .found_existing = true,
                     .index = index,
                 };
@@ -369,8 +367,7 @@ pub fn Custom(
                     if (hashes_array[i] == h and checkedEql(ctx, key, item_key.*, i)) {
                         return GetOrPutResult{
                             .key_ptr = item_key,
-                            // workaround for #6974
-                            .value_ptr = if (@sizeOf(*V) == 0) undefined else &slice.items(.value)[i],
+                            .value_ptr = &slice.items(.value)[i],
                             .found_existing = true,
                             .index = i,
                         };
@@ -383,8 +380,7 @@ pub fn Custom(
 
                 return GetOrPutResult{
                     .key_ptr = &keys_array.ptr[index],
-                    // workaround for #6974
-                    .value_ptr = if (@sizeOf(*V) == 0) undefined else &slice.items(.value).ptr[index],
+                    .value_ptr = &slice.items(.value).ptr[index],
                     .found_existing = false,
                     .index = index,
                 };
@@ -569,8 +565,7 @@ pub fn Custom(
             const slice = self.entries.slice();
             return Entry{
                 .key_ptr = &slice.items(.key)[index],
-                // workaround for #6974
-                .value_ptr = if (@sizeOf(*V) == 0) undefined else &slice.items(.value)[index],
+                .value_ptr = &slice.items(.value)[index],
             };
         }
 
@@ -634,8 +629,7 @@ pub fn Custom(
         }
         pub fn getPtrAdapted(self: Self, key: anytype, ctx: anytype) ?*V {
             const index = self.getIndexAdapted(key, ctx) orelse return null;
-            // workaround for #6974
-            return if (@sizeOf(*V) == 0) @as(*V, undefined) else &self.values()[index];
+            return &self.values()[index];
         }
 
         /// Find the actual key associated with an adapted key
@@ -893,17 +887,25 @@ pub fn Custom(
         }
 
         /// Modify an entry's key without reordering any entries.
-        pub fn setKey(self: *Self, gpa: Allocator, index: usize, new_key: K) Oom!void {
+        pub fn setKey(self: *Self, index: usize, new_key: K) void {
             if (@sizeOf(ByIndexContext) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call setKeyContext instead.");
-            return setKeyContext(self, gpa, index, new_key, undefined);
+            return setKeyContext(self, index, new_key, undefined);
         }
 
-        pub fn setKeyContext(self: *Self, gpa: Allocator, index: usize, new_key: K, ctx: Context) Oom!void {
-            const key_ptr = &self.entries.items(.key)[index];
-            key_ptr.* = new_key;
-            if (store_hash) self.entries.items(.hash)[index] = checkedHash(ctx, key_ptr.*);
-            try rebuildIndex(self, gpa, undefined);
+        pub fn setKeyContext(self: *Self, index: usize, new_key: K, ctx: Context) void {
+            if (self.index_header) |header| {
+                self.removeFromIndexByIndex(index, if (store_hash) {} else ctx, header);
+
+                self.entries.items(.key)[index] = new_key;
+                const h = checkedHash(ctx, new_key);
+                if (store_hash) self.entries.items(.hash)[index] = h;
+
+                insertEntryIntoNewHeader(header, h, index);
+            } else {
+                self.entries.items(.key)[index] = new_key;
+                if (store_hash) self.entries.items(.hash)[index] = checkedHash(ctx, new_key);
+            }
         }
 
         fn rebuildIndex(self: *Self, gpa: Allocator, ctx: Context) Oom!void {
@@ -1314,8 +1316,7 @@ pub fn Custom(
                     return .{
                         .found_existing = false,
                         .key_ptr = &keys_array.ptr[new_index],
-                        // workaround for #6974
-                        .value_ptr = if (@sizeOf(*V) == 0) undefined else &values_array.ptr[new_index],
+                        .value_ptr = &values_array.ptr[new_index],
                         .index = new_index,
                     };
                 }
@@ -1328,8 +1329,7 @@ pub fn Custom(
                     return .{
                         .found_existing = true,
                         .key_ptr = &keys_array[slot_data.entry_index],
-                        // workaround for #6974
-                        .value_ptr = if (@sizeOf(*V) == 0) undefined else &values_array[slot_data.entry_index],
+                        .value_ptr = &values_array[slot_data.entry_index],
                         .index = slot_data.entry_index,
                     };
                 }
@@ -1370,8 +1370,7 @@ pub fn Custom(
                             return .{
                                 .found_existing = false,
                                 .key_ptr = &keys_array.ptr[new_index],
-                                // workaround for #6974
-                                .value_ptr = if (@sizeOf(*V) == 0) undefined else &values_array.ptr[new_index],
+                                .value_ptr = &values_array.ptr[new_index],
                                 .index = new_index,
                             };
                         }
@@ -1429,39 +1428,50 @@ pub fn Custom(
         fn insertAllEntriesIntoNewHeaderGeneric(self: *Self, ctx: ByIndexContext, header: *IndexHeader, comptime I: type) void {
             const slice = self.entries.slice();
             const items = if (store_hash) slice.items(.hash) else slice.items(.key);
-            const indexes = header.indexes(I);
 
-            entry_loop: for (items, 0..) |key, i| {
-                const h = if (store_hash) key else checkedHash(ctx, key);
-                const start_index = safeTruncate(usize, h);
-                const end_index = start_index +% indexes.len;
-                var index = start_index;
-                var entry_index = @as(I, @intCast(i));
-                var distance_from_start_index: I = 0;
-                while (index != end_index) : ({
-                    index +%= 1;
-                    distance_from_start_index += 1;
-                }) {
-                    const slot = header.constrainIndex(index);
-                    const next_index = indexes[slot];
-                    if (next_index.isEmpty()) {
-                        indexes[slot] = .{
-                            .distance_from_start_index = distance_from_start_index,
-                            .entry_index = entry_index,
-                        };
-                        continue :entry_loop;
-                    }
-                    if (next_index.distance_from_start_index < distance_from_start_index) {
-                        indexes[slot] = .{
-                            .distance_from_start_index = distance_from_start_index,
-                            .entry_index = entry_index,
-                        };
-                        distance_from_start_index = next_index.distance_from_start_index;
-                        entry_index = next_index.entry_index;
-                    }
-                }
-                unreachable;
+            for (items, 0..) |hash_or_key, i| {
+                const h = if (store_hash) hash_or_key else checkedHash(ctx, hash_or_key);
+                insertEntryIntoNewHeaderGeneric(header, h, i, I);
             }
+        }
+
+        fn insertEntryIntoNewHeader(header: *IndexHeader, h: u32, i: usize) void {
+            switch (header.capacityIndexType()) {
+                .u8 => insertEntryIntoNewHeaderGeneric(header, h, i, u8),
+                .u16 => insertEntryIntoNewHeaderGeneric(header, h, i, u16),
+                .u32 => insertEntryIntoNewHeaderGeneric(header, h, i, u32),
+            }
+        }
+        fn insertEntryIntoNewHeaderGeneric(header: *IndexHeader, h: u32, i: usize, comptime I: type) void {
+            const indexes = header.indexes(I);
+            const start_index = safeTruncate(usize, h);
+            const end_index = start_index +% indexes.len;
+            var index = start_index;
+            var entry_index: I = @intCast(i);
+            var distance_from_start_index: I = 0;
+            while (index != end_index) : ({
+                index +%= 1;
+                distance_from_start_index += 1;
+            }) {
+                const slot = header.constrainIndex(index);
+                const next_index = indexes[slot];
+                if (next_index.isEmpty()) {
+                    indexes[slot] = .{
+                        .distance_from_start_index = distance_from_start_index,
+                        .entry_index = entry_index,
+                    };
+                    return;
+                }
+                if (next_index.distance_from_start_index < distance_from_start_index) {
+                    indexes[slot] = .{
+                        .distance_from_start_index = distance_from_start_index,
+                        .entry_index = entry_index,
+                    };
+                    distance_from_start_index = next_index.distance_from_start_index;
+                    entry_index = next_index.entry_index;
+                }
+            }
+            unreachable;
         }
 
         fn checkedHash(ctx: anytype, key: anytype) u32 {
@@ -2127,7 +2137,7 @@ test "setKey storehash true" {
     try map.put(gpa, 12, 34);
     try map.put(gpa, 56, 78);
 
-    try map.setKey(gpa, 0, 42);
+    map.setKey(0, 42);
     try testing.expectEqual(2, map.count());
     try testing.expectEqual(false, map.contains(12));
     try testing.expectEqual(34, map.get(42));
@@ -2143,11 +2153,47 @@ test "setKey storehash false" {
     try map.put(gpa, 12, 34);
     try map.put(gpa, 56, 78);
 
-    try map.setKey(gpa, 0, 42);
+    map.setKey(0, 42);
     try testing.expectEqual(2, map.count());
     try testing.expectEqual(false, map.contains(12));
     try testing.expectEqual(34, map.get(42));
     try testing.expectEqual(78, map.get(56));
+}
+
+test "setKey storehash false with index" {
+    const gpa = std.testing.allocator;
+
+    const T = ArrayHashMap(usize, usize, AutoContext(usize), false);
+
+    var map: T = .empty;
+    defer map.deinit(gpa);
+
+    for (0..T.linear_scan_max + 1) |i| try map.put(gpa, i, i);
+
+    map.setKey(0, 42);
+    try testing.expectEqual(T.linear_scan_max + 1, map.count());
+    try testing.expectEqual(false, map.contains(0));
+    try testing.expectEqual(0, map.get(42));
+
+    for (1..T.linear_scan_max + 1) |i| try testing.expectEqual(i, map.get(i));
+}
+
+test "setKey storehash true with index" {
+    const gpa = std.testing.allocator;
+
+    const T = ArrayHashMap(usize, usize, AutoContext(usize), false);
+
+    var map: ArrayHashMap(usize, usize, AutoContext(usize), true) = .empty;
+    defer map.deinit(gpa);
+
+    for (0..T.linear_scan_max + 1) |i| try map.put(gpa, i, i);
+
+    map.setKey(0, 42);
+    try testing.expectEqual(T.linear_scan_max + 1, map.count());
+    try testing.expectEqual(false, map.contains(0));
+    try testing.expectEqual(0, map.get(42));
+
+    for (1..T.linear_scan_max + 1) |i| try testing.expectEqual(i, map.get(i));
 }
 
 pub fn getHashPtrAddrFn(comptime K: type, comptime Context: type) (fn (Context, K) u32) {

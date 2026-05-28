@@ -67,8 +67,8 @@ pub const Inst = struct {
         },
         reloc: struct {
             register: Register,
-            atom_index: u32,
-            sym_index: u32,
+            atom_index: link.File.AtomId,
+            sym_index: link.File.SymbolId,
         },
         fence: struct {
             pred: Barrier,
@@ -109,7 +109,7 @@ pub fn emit(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    atom_index: u32,
+    atom_index: link.File.AtomId,
     w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
 ) (codegen.CodeGenError || std.Io.Writer.Error)!void {
@@ -183,8 +183,8 @@ pub const FcvtOp = enum(u5) {
 
 pub const LoadSymbolPayload = struct {
     register: u32,
-    atom_index: u32,
-    sym_index: u32,
+    atom_index: link.File.AtomId,
+    sym_index: link.File.SymbolId,
 };
 
 /// Used in conjunction with payload to transfer a list of used registers in a compact manner.
@@ -238,7 +238,7 @@ const Immediate = bits.Immediate;
 const Memory = bits.Memory;
 const FrameIndex = bits.FrameIndex;
 const FrameAddr = @import("CodeGen.zig").FrameAddr;
-const IntegerBitSet = std.bit_set.IntegerBitSet;
+const IntegerBitSet = std.bit_set.Integer;
 const Mnemonic = @import("mnem.zig").Mnemonic;
 
 const InternPool = @import("../../InternPool.zig");

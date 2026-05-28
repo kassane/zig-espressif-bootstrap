@@ -1,4 +1,4 @@
-/*	$NetBSD: wchar.h,v 1.44 2020/03/20 01:08:42 joerg Exp $	*/
+/*	$NetBSD: wchar.h,v 1.46 2024/11/01 16:36:58 nia Exp $	*/
 
 /*-
  * Copyright (c)1999 Citrus Project,
@@ -130,10 +130,15 @@ wchar_t	*wcswcs(const wchar_t *, const wchar_t *);
 wchar_t	*wmemchr(const wchar_t *, wchar_t, size_t);
 int	wmemcmp(const wchar_t *, const wchar_t *, size_t);
 wchar_t	*wmemcpy(wchar_t * __restrict, const wchar_t * __restrict, size_t);
+wchar_t	*wmempcpy(wchar_t * __restrict, const wchar_t * __restrict, size_t);
 wchar_t	*wmemmove(wchar_t *, const wchar_t *, size_t);
 wchar_t	*wmemset(wchar_t *, wchar_t, size_t);
 
-#if defined(_NETBSD_SOURCE)
+/*
+ * IEEE Std 1003.1-2024 (POSIX.1-2024)
+ */
+#if (_POSIX_C_SOURCE - 0) >= 202405L || (_XOPEN_SOURCE - 0 >= 800) || \
+    defined(_NETBSD_SOURCE)
 size_t	wcslcat(wchar_t *, const wchar_t *, size_t);
 size_t	wcslcpy(wchar_t *, const wchar_t *, size_t);
 #endif

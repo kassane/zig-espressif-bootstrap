@@ -21,6 +21,9 @@ comptime {
         symbol(&chrootLinux, "chroot");
         symbol(&ctermidLinux, "ctermid");
         symbol(&dupLinux, "dup");
+        symbol(&dup2Linux, "dup2");
+        symbol(&dup3Linux, "dup3");
+        symbol(&dup3Linux, "__dup3");
 
         symbol(&getegidLinux, "getegid");
         symbol(&geteuidLinux, "geteuid");
@@ -99,6 +102,31 @@ fn ctermidLinux(maybe_path: ?[*]c_char) callconv(.c) [*:0]c_char {
 
 fn dupLinux(fd: c_int) callconv(.c) c_int {
     return errno(linux.dup(fd));
+}
+
+fn dup2Linux(old: c_int, new: c_int) callconv(.c) c_int {
+    const busy: usize = @bitCast(-@as(isize, @intFromEnum(linux.E.BUSY)));
+    var res = busy;
+    while (res == busy) res = linux.dup2(old, new);
+    return errno(res);
+}
+
+fn dup3Linux(old: c_int, new: c_int, flags: c_int) callconv(.c) c_int {
+    const busy: usize = @bitCast(-@as(isize, @intFromEnum(linux.E.BUSY)));
+    var res = busy;
+
+    if (@hasField(linux.SYS, "dup3")) {
+        while (res == busy) res = linux.dup3(old, new, @intCast(flags));
+    } else if (@hasField(linux.SYS, "dup2")) {
+        const cloexec: c_int = @bitCast(linux.O{ .CLOEXEC = true });
+        const inval: usize = @bitCast(-@as(isize, @intFromEnum(linux.E.INVAL)));
+        if (old == new or (flags & ~cloexec != 0)) return errno(inval);
+        while (res == busy) res = linux.dup2(old, new);
+        _ = if (res >= 0 and (flags & cloexec == cloexec)) linux.fcntl(new, linux.F.SETFD, linux.FD_CLOEXEC);
+    } else {
+        return errno(@bitCast(-@as(isize, @intFromEnum(linux.E.NOSYS))));
+    }
+    return errno(res);
 }
 
 fn getegidLinux() callconv(.c) linux.gid_t {
@@ -204,32 +232,6 @@ fn swab(noalias src_ptr: *const anyopaque, noalias dest_ptr: *anyopaque, n: isiz
         dest += 2;
         src += 2;
     }
-}
-
-test swab {
-    var a: [4]u8 = undefined;
-    @memset(a[0..], '\x00');
-    swab("abcd", &a, 4);
-    try std.testing.expectEqualSlices(u8, "badc", &a);
-
-    // Partial copy
-    @memset(a[0..], '\x00');
-    swab("abcd", &a, 2);
-    try std.testing.expectEqualSlices(u8, "ba\x00\x00", &a);
-
-    // n < 1
-    @memset(a[0..], '\x00');
-    swab("abcd", &a, 0);
-    try std.testing.expectEqualSlices(u8, "\x00" ** 4, &a);
-    swab("abcd", &a, -1);
-    try std.testing.expectEqualSlices(u8, "\x00" ** 4, &a);
-
-    // Odd n
-    @memset(a[0..], '\x00');
-    swab("abcd", &a, 1);
-    try std.testing.expectEqualSlices(u8, "\x00" ** 4, &a);
-    swab("abcd", &a, 3);
-    try std.testing.expectEqualSlices(u8, "ba\x00\x00", &a);
 }
 
 fn close(fd: std.c.fd_t) callconv(.c) c_int {

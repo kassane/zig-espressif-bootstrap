@@ -1,4 +1,4 @@
-/*	$NetBSD: if.h,v 1.304 2022/11/25 08:39:32 knakahara Exp $	*/
+/*	$NetBSD: if.h,v 1.308.2.1 2026/05/07 18:17:32 martin Exp $	*/
 
 /*-
  * Copyright (c) 1999, 2000, 2001 The NetBSD Foundation, Inc.
@@ -420,7 +420,12 @@ typedef struct ifnet {
 			*if_percpuq;	/* :: we should remove it in the future */
 	struct work	if_link_work;	/* q: linkage on link state work queue */
 	uint16_t	if_link_queue;	/* q: masked link state change queue */
-					/* q: is link state work scheduled? */
+#define	LINK_QUEUE_LOCKED	(1 << 0)
+#define	LINK_QUEUE_SCHEDULED	(1 << 1)
+#define	LINK_QUEUE_DOWN		(1 << 2)
+#define	LINK_QUEUE_UNKNOWN	(1 << 3)
+#define	LINK_QUEUE_UP		(1 << 4)
+					/* if_link_scheduled is unused */
 	bool		if_link_scheduled;
 	struct pslist_entry
 			if_pslist_entry;/* i: */
@@ -451,7 +456,7 @@ typedef struct ifnet {
 /*			0x0020		   was IFF_NOTRAILERS */
 #else
 /*
- * sys/compat/svr4 is remvoed on 19 Dec 2018.
+ * sys/compat/svr4 is removed on 19 Dec 2018.
  * And then, IFF_NOTRAILERS itself is removed by if.h:r1.268 on 5 Feb 2019.
  */
 #define	IFF_UNNUMBERED	0x0020		/* explicit unnumbered */
@@ -459,7 +464,15 @@ typedef struct ifnet {
 #define	IFF_RUNNING	0x0040		/* resources allocated */
 #define	IFF_NOARP	0x0080		/* no address resolution protocol */
 #define	IFF_PROMISC	0x0100		/* receive all packets */
-#define	IFF_ALLMULTI	0x0200		/* receive all multicast packets */
+#define	IFF_ALLMULTI	0x0200		/* OBSOLETE -- DO NOT USE */
+/*
+ * IFF_ALLMULTI obsoleted on 2019-05-15 -- existing non-MP-safe drivers
+ * can use it for themselves under IFNET_LOCK, but they should be
+ * converted to use ETHER_F_ALLMULTI under ETHER_LOCK instead.  For
+ * compatibility with existing drivers, if_ethersubr and if_arcsubr
+ * will set IFF_ALLMULTI according to other flags, but you should not
+ * rely on this.
+ */
 #define	IFF_OACTIVE	0x0400		/* transmission in progress */
 #define	IFF_SIMPLEX	0x0800		/* can't hear own transmissions */
 #define	IFF_LINK0	0x1000		/* per link layer defined bit */
@@ -1216,7 +1229,6 @@ void	ifafree(struct ifaddr *);
 
 struct	ifaddr *ifa_ifwithaddr(const struct sockaddr *);
 struct	ifaddr *ifa_ifwithaddr_psref(const struct sockaddr *, struct psref *);
-struct	ifaddr *ifa_ifwithaf(int);
 struct	ifaddr *ifa_ifwithdstaddr(const struct sockaddr *);
 struct	ifaddr *ifa_ifwithdstaddr_psref(const struct sockaddr *,
 	    struct psref *);
@@ -1229,6 +1241,9 @@ struct	ifaddr *ifaof_ifpforaddr_psref(const struct sockaddr *, struct ifnet *,
 	    struct psref *);
 void	link_rtrequest(int, struct rtentry *, const struct rt_addrinfo *);
 void	p2p_rtrequest(int, struct rtentry *, const struct rt_addrinfo *);
+
+struct ifaddr *if_first_addr(const struct ifnet *ifp, const int af);
+struct ifaddr *if_first_addr_psref(const struct ifnet *ifp, const int af, struct psref *psref);
 
 void	if_clone_attach(struct if_clone *);
 void	if_clone_detach(struct if_clone *);

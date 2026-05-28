@@ -1,4 +1,4 @@
-/* $NetBSD: hd44780var.h,v 1.8 2015/09/06 06:01:00 dholland Exp $ */
+/* $NetBSD: hd44780var.h,v 1.11 2023/08/08 17:31:13 nat Exp $ */
 
 /*
  * Copyright (c) 2002 Dennis I. Chernoivanov
@@ -97,6 +97,7 @@ struct hd44780_chip {
 #define HD_UP			0x10	/* if set, lcd has been initialized */
 #define HD_TIMEDOUT		0x20	/* lcd has recently stopped talking */
 #define HD_MULTICHIP		0x40	/* two HD44780 controllers (4-line) */
+#define HD_WRITEONLY		0x80	/* write only if set */
 	uint8_t sc_flags;
 
 	uint8_t sc_cols;		/* visible columns */
@@ -136,6 +137,7 @@ struct hd44780_chip {
 	(sc)->sc_readreg((sc), (en), 1)
 
 void hd44780_attach_subr(struct hd44780_chip *);
+void hd44780_detach(struct hd44780_chip *);
 void hd44780_busy_wait(struct hd44780_chip *, uint32_t);
 int  hd44780_init(struct hd44780_chip *);
 int  hd44780_chipinit(struct hd44780_chip *, uint32_t);

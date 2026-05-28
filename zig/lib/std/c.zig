@@ -1664,12 +1664,12 @@ pub const MSF = switch (native_os) {
         pub const ASYNC = 1;
         pub const INVALIDATE = 2;
     },
-    .openbsd => struct {
+    .openbsd, .haiku => struct {
         pub const ASYNC = 1;
         pub const SYNC = 2;
         pub const INVALIDATE = 4;
     },
-    .haiku, .netbsd, .illumos => struct {
+    .netbsd, .illumos => struct {
         pub const ASYNC = 1;
         pub const INVALIDATE = 2;
         pub const SYNC = 4;
@@ -2610,7 +2610,8 @@ pub const SHUT = switch (native_os) {
 
 /// Signal types
 pub const SIG = switch (native_os) {
-    .linux, .emscripten => linux.SIG,
+    .linux => linux.SIG,
+    .emscripten => emscripten.SIG,
     .windows => enum(u32) {
         /// interrupt
         INT = 2,
@@ -3260,8 +3261,8 @@ pub const Sigaction = switch (native_os) {
 
         /// signal handler
         handler: extern union {
-            handler: handler_fn,
-            sigaction: sigaction_fn,
+            handler: ?handler_fn,
+            sigaction: ?sigaction_fn,
         },
 
         /// signal mask to apply
@@ -7185,7 +7186,7 @@ pub const RTLD = switch (native_os) {
         NOW: bool = false,
         GLOBAL: bool = false,
         LOCAL: bool = false,
-        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 6) = 0,
+        _: @Int(.unsigned, @bitSizeOf(c_int) - 6) = 0,
     },
     else => void,
 };
@@ -7365,7 +7366,7 @@ pub const AI = if (builtin.abi.isAndroid()) packed struct(u32) {
         V4MAPPED: bool = false,
         ALL: bool = false,
         ADDRCONFIG: bool = false,
-        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 7) = 0,
+        _: @Int(.unsigned, @bitSizeOf(c_int) - 7) = 0,
     },
     else => void,
 };
@@ -7398,7 +7399,7 @@ pub const NI = switch (native_os) {
         NAMEREQD: bool = false,
         NOFQDN: bool = false,
         DGRAM: bool = false,
-        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 5) = 0,
+        _: @Int(.unsigned, @bitSizeOf(c_int) - 5) = 0,
     },
     .freebsd, .haiku => packed struct(u32) {
         NOFQDN: bool = false,
@@ -7898,9 +7899,23 @@ pub const Stat = switch (native_os) {
     else => void,
 };
 
+pub const pthread_spinlock_t = switch (native_os) {
+    .openbsd => openbsd.pthread_spinlock_t,
+    .freebsd => extern struct {
+        inner: ?*anyopaque = null,
+    },
+    .netbsd => extern struct {
+        pts_magic: c_uint,
+        spin: pthread_spin_t,
+        pts_flags: c_int,
+    },
+    .windows => isize,
+    else => c_int,
+};
+
 pub const pthread_mutex_t = switch (native_os) {
     .linux => extern struct {
-        data: [data_len]u8 align(@alignOf(usize)) = [_]u8{0} ** data_len,
+        data: [data_len]u8 align(@alignOf(usize)) = @splat(0),
 
         const data_len = switch (native_abi) {
             .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
@@ -7916,7 +7931,7 @@ pub const pthread_mutex_t = switch (native_os) {
     },
     .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => extern struct {
         sig: c_long = 0x32AAABA7,
-        data: [data_len]u8 = [_]u8{0} ** data_len,
+        data: [data_len]u8 = @splat(0),
 
         const data_len = if (@sizeOf(usize) == 8) 56 else 40;
     },
@@ -7952,10 +7967,10 @@ pub const pthread_mutex_t = switch (native_os) {
         data: u64 = 0,
     },
     .fuchsia => extern struct {
-        data: [40]u8 align(@alignOf(usize)) = [_]u8{0} ** 40,
+        data: [40]u8 align(@alignOf(usize)) = @splat(0),
     },
     .emscripten => extern struct {
-        data: [24]u8 align(4) = [_]u8{0} ** 24,
+        data: [24]u8 align(4) = @splat(0),
     },
     // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L68-L73
     .serenity => extern struct {
@@ -7969,11 +7984,11 @@ pub const pthread_mutex_t = switch (native_os) {
 
 pub const pthread_cond_t = switch (native_os) {
     .linux => extern struct {
-        data: [48]u8 align(@alignOf(usize)) = [_]u8{0} ** 48,
+        data: [48]u8 align(@alignOf(usize)) = @splat(0),
     },
     .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => extern struct {
         sig: c_long = 0x3CB0B1BB,
-        data: [data_len]u8 = [_]u8{0} ** data_len,
+        data: [data_len]u8 = @splat(0),
         const data_len = if (@sizeOf(usize) == 8) 40 else 24;
     },
     .freebsd, .dragonfly, .openbsd => extern struct {
@@ -7998,13 +8013,13 @@ pub const pthread_cond_t = switch (native_os) {
         lock: i32 = 0,
     },
     .illumos => extern struct {
-        flag: [4]u8 = [_]u8{0} ** 4,
+        flag: [4]u8 = @splat(0),
         type: u16 = 0,
         magic: u16 = 0x4356,
         data: u64 = 0,
     },
     .fuchsia, .emscripten => extern struct {
-        data: [48]u8 align(@alignOf(usize)) = [_]u8{0} ** 48,
+        data: [48]u8 align(@alignOf(usize)) = @splat(0),
     },
     // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L80-L84
     .serenity => extern struct {
@@ -8019,20 +8034,20 @@ pub const pthread_rwlock_t = switch (native_os) {
     .linux => switch (native_abi) {
         .android, .androideabi => switch (@sizeOf(usize)) {
             4 => extern struct {
-                data: [40]u8 align(@alignOf(usize)) = [_]u8{0} ** 40,
+                data: [40]u8 align(@alignOf(usize)) = @splat(0),
             },
             8 => extern struct {
-                data: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
+                data: [56]u8 align(@alignOf(usize)) = @splat(0),
             },
             else => @compileError("impossible pointer size"),
         },
         else => extern struct {
-            data: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
+            data: [56]u8 align(@alignOf(usize)) = @splat(0),
         },
     },
     .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => extern struct {
         sig: c_long = 0x2DA8B3B4,
-        data: [192]u8 = [_]u8{0} ** 192,
+        data: [192]u8 = @splat(0),
     },
     .freebsd, .dragonfly, .openbsd => extern struct {
         ptr: ?*anyopaque = null,
@@ -8065,10 +8080,10 @@ pub const pthread_rwlock_t = switch (native_os) {
         writercv: pthread_cond_t = .{},
     },
     .fuchsia => extern struct {
-        size: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
+        size: [56]u8 align(@alignOf(usize)) = @splat(0),
     },
     .emscripten => extern struct {
-        size: [32]u8 align(4) = [_]u8{0} ** 32,
+        size: [32]u8 align(4) = @splat(0),
     },
     // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L86
     .serenity => extern struct {
@@ -8156,8 +8171,8 @@ pub const sem_t = switch (native_os) {
         count: u32 = 0,
         type: u16 = 0,
         magic: u16 = 0x534d,
-        __pad1: [3]u64 = [_]u64{0} ** 3,
-        __pad2: [2]u64 = [_]u64{0} ** 2,
+        __pad1: [3]u64 = @splat(0),
+        __pad2: [2]u64 = @splat(0),
     },
     .openbsd, .netbsd, .dragonfly => ?*opaque {},
     .haiku => extern struct {
@@ -8221,7 +8236,7 @@ pub const Kevent = switch (native_os) {
         /// Opaque user data identifier.
         udata: usize,
         /// Future extensions.
-        _ext: [4]u64 = [_]u64{0} ** 4,
+        _ext: [4]u64 = @splat(0),
     },
     .dragonfly => extern struct {
         ident: usize,
@@ -8620,7 +8635,7 @@ pub const O = switch (native_os) {
         CLOEXEC: bool = false,
         DIRECT: bool = false,
         SYNC: bool = false,
-        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 14) = 0,
+        _: @Int(.unsigned, @bitSizeOf(c_int) - 14) = 0,
     },
     else => void,
 };
@@ -8774,7 +8789,7 @@ pub const MAP = switch (native_os) {
         RANDOMIZED: bool = false,
         PURGEABLE: bool = false,
         FIXED_NOREPLACE: bool = false,
-        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 11) = 0,
+        _: @Int(.unsigned, @bitSizeOf(c_int) - 11) = 0,
     },
     else => void,
 };
@@ -10956,6 +10971,19 @@ pub extern "c" fn dn_expand(
     length: c_int,
 ) c_int;
 
+pub const PTHREAD_PROCESS_PRIVATE: c_int = if (native_os.isDarwin())
+    2
+else
+    0;
+
+pub const PTHREAD_PROCESS_SHARED: c_int = 1;
+
+pub extern "c" fn pthread_spin_init(spin: *pthread_spinlock_t, pshared: c_int) c_int;
+pub extern "c" fn pthread_spin_lock(spin: *pthread_spinlock_t) c_int;
+pub extern "c" fn pthread_spin_unlock(spin: *pthread_spinlock_t) c_int;
+pub extern "c" fn pthread_spin_trylock(spin: *pthread_spinlock_t) c_int;
+pub extern "c" fn pthread_spin_destroy(spin: *pthread_spinlock_t) c_int;
+
 pub const PTHREAD_MUTEX_INITIALIZER: pthread_mutex_t = .{};
 pub extern "c" fn pthread_mutex_lock(mutex: *pthread_mutex_t) E;
 pub extern "c" fn pthread_mutex_unlock(mutex: *pthread_mutex_t) E;
@@ -11102,6 +11130,71 @@ pub const ioctl = switch (native_os) {
     else => private.ioctl,
 };
 
+pub extern "c" fn bzero(s: *anyopaque, n: usize) void;
+
+pub extern "c" fn swab(noalias from: *const anyopaque, noalias to: *anyopaque, n: isize) void;
+
+pub extern "c" fn strncmp(a: [*:0]const c_char, b: [*:0]const c_char, max: usize) c_int;
+pub extern "c" fn strcasecmp(a: [*:0]const c_char, b: [*:0]const c_char) c_int;
+pub extern "c" fn strncasecmp(a: [*:0]const c_char, b: [*:0]const c_char, max: usize) c_int;
+pub extern "c" fn strdup(s: [*:0]const c_char) ?[*:0]c_char;
+pub extern "c" fn strndup(s: [*:0]const c_char, n: usize) ?[*:0]c_char;
+pub extern "c" fn wcsdup(s: [*:0]const wchar_t) ?[*:0]wchar_t;
+
+pub extern "c" fn ffs(i: c_int) c_int;
+pub extern "c" fn ffsl(i: c_long) c_long;
+pub extern "c" fn ffsll(i: c_longlong) c_longlong;
+
+pub extern "c" fn erand48(xsubi: *[3]c_ushort) f64;
+pub extern "c" fn jrand48(xsubi: *[3]c_ushort) c_long;
+pub extern "c" fn nrand48(xsubi: *[3]c_ushort) c_long;
+
+pub extern "c" fn insque(element: *anyopaque, pred: ?*anyopaque) void;
+pub extern "c" fn remque(element: *anyopaque) void;
+
+pub extern "c" fn imaxabs(a: intmax_t) intmax_t;
+pub extern "c" fn imaxdiv(a: intmax_t, b: intmax_t) imaxdiv_t;
+
+pub extern "c" fn abs(a: c_int) c_int;
+pub extern "c" fn labs(a: c_long) c_long;
+pub extern "c" fn llabs(a: c_longlong) c_longlong;
+
+pub extern "c" fn div(a: c_int, b: c_int) div_t;
+pub extern "c" fn ldiv(a: c_long, b: c_long) ldiv_t;
+pub extern "c" fn lldiv(a: c_longlong, b: c_longlong) lldiv_t;
+
+pub extern "c" fn atoi(str: [*:0]const c_char) c_int;
+pub extern "c" fn atol(str: [*:0]const c_char) c_long;
+pub extern "c" fn atoll(str: [*:0]const c_char) c_longlong;
+
+pub extern "c" fn strtol(noalias str: [*:0]const c_char, noalias str_end: ?*[*:0]c_char, base: c_int) callconv(.c) c_long;
+pub extern "c" fn strtoll(noalias str: [*:0]const c_char, noalias str_end: ?*[*:0]c_char, base: c_int) callconv(.c) c_longlong;
+pub extern "c" fn strtoul(noalias str: [*:0]const c_char, noalias str_end: ?*[*:0]c_char, base: c_int) callconv(.c) c_ulong;
+pub extern "c" fn strtoull(noalias str: [*:0]const c_char, noalias str_end: ?*[*:0]c_char, base: c_int) callconv(.c) c_ulonglong;
+pub extern "c" fn strtoimax(noalias str: [*:0]const c_char, noalias str_end: ?*[*:0]c_char, base: c_int) callconv(.c) intmax_t;
+pub extern "c" fn strtoumax(noalias str: [*:0]const c_char, noalias str_end: ?*[*:0]c_char, base: c_int) callconv(.c) uintmax_t;
+
+pub extern "c" fn bsearch(
+    key: *const anyopaque,
+    base: *const anyopaque,
+    n: usize,
+    size: usize,
+    compare: *const fn (a: *const anyopaque, b: *const anyopaque) callconv(.c) c_int,
+) ?*anyopaque;
+
+// Math
+pub extern "c" fn atan(x: f64) f64;
+pub extern "c" fn copysign(x: f64, y: f64) f64;
+pub extern "c" fn fdim(x: f64, y: f64) f64;
+pub extern "c" fn frexp(x: f64, e: *c_int) f64;
+pub extern "c" fn hypot(x: f64, y: f64) f64;
+pub extern "c" fn modff(x: f32, iptr: *f32) f32;
+pub extern "c" fn modf(x: f64, iptr: *f64) f64;
+pub extern "c" fn modfl(x: c_longdouble, iptr: *c_longdouble) c_longdouble;
+pub extern "c" fn rintf(x: f32) f32;
+pub extern "c" fn rint(x: f64) f64;
+pub extern "c" fn rintl(x: c_longdouble) c_longdouble;
+
 // OS-specific bits. These are protected from being used on the wrong OS by
 // comptime assertions inside each OS-specific file.
 
@@ -11142,6 +11235,8 @@ pub const _kern_open_dir = haiku._kern_open_dir;
 pub const _kern_read_dir = haiku._kern_read_dir;
 pub const _kern_read_stat = haiku._kern_read_stat;
 pub const _kern_rewind_dir = haiku._kern_rewind_dir;
+pub const readv_pos = haiku.readv_pos;
+pub const writev_pos = haiku.writev_pos;
 pub const area_id = haiku.area_id;
 pub const area_info = haiku.area_info;
 pub const directory_which = haiku.directory_which;
@@ -11211,7 +11306,6 @@ pub const login_getcaptime = openbsd.login_getcaptime;
 pub const login_getclass = openbsd.login_getclass;
 pub const login_getstyle = openbsd.login_getstyle;
 pub const pledge = openbsd.pledge;
-pub const pthread_spinlock_t = openbsd.pthread_spinlock_t;
 pub const pw_dup = openbsd.pw_dup;
 pub const setclasscontext = openbsd.setclasscontext;
 pub const setpassent = openbsd.setpassent;
@@ -11449,15 +11543,11 @@ pub const disown = serenity.disown;
 pub const profiling_enable = serenity.profiling_enable;
 pub const profiling_disable = serenity.profiling_disable;
 pub const profiling_free_buffer = serenity.profiling_free_buffer;
-pub const futex_wait = serenity.futex_wait;
-pub const futex_wake = serenity.futex_wake;
 pub const purge = serenity.purge;
 pub const perf_event = serenity.perf_event;
 pub const perf_register_string = serenity.perf_register_string;
 pub const get_stack_bounds = serenity.get_stack_bounds;
 pub const anon_create = serenity.anon_create;
-pub const serenity_readlink = serenity.serenity_readlink;
-pub const serenity_open = serenity.serenity_open;
 pub const getkeymap = serenity.getkeymap;
 pub const setkeymap = serenity.setkeymap;
 
@@ -11530,6 +11620,7 @@ const private = struct {
     extern "c" fn @"fstatat$INODE64"(dirfd: fd_t, path: [*:0]const u8, buf: *Stat, flag: u32) c_int;
     extern "c" fn @"readdir$INODE64"(dir: *DIR) ?*dirent;
     extern "c" fn @"stat$INODE64"(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
+    extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
 
     /// macos modernized symbols.
     extern "c" fn @"realpath$DARWIN_EXTSN"(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;

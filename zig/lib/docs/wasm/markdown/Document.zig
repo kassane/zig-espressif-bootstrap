@@ -170,11 +170,11 @@ pub fn ExtraData(comptime T: type) type {
 }
 
 pub fn extraData(doc: Document, comptime T: type, index: ExtraIndex) ExtraData(T) {
-    const fields = @typeInfo(T).@"struct".fields;
+    const info = @typeInfo(T).@"struct";
     var i: usize = @intFromEnum(index);
     var result: T = undefined;
-    inline for (fields) |field| {
-        @field(result, field.name) = switch (field.type) {
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        @field(result, field_name) = switch (field_type) {
             u32 => doc.extra[i],
             else => @compileError("bad field type"),
         };

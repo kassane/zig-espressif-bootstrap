@@ -161,15 +161,10 @@ pub fn __exp2x(x: f80) callconv(.c) f80 {
     return @floatCast(exp2q(x));
 }
 
-pub fn exp2q(x: f128) callconv(.c) f128 {
-    // TODO: more correct implementation
-    return exp2(@floatCast(x));
-}
+pub const exp2q = @import("exp_f128.zig").exp2;
 
 pub fn exp2l(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return __exp2h(x),
-        32 => return exp2f(x),
         64 => return exp2(x),
         80 => return __exp2x(x),
         128 => return exp2q(x),

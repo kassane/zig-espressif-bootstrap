@@ -20,6 +20,7 @@
 #include "HexagonTargetTransformInfo.h"
 #include "HexagonVectorLoopCarriedReuse.h"
 #include "TargetInfo/HexagonTargetInfo.h"
+#include "llvm/CodeGen/MIRParser/MIParser.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/CodeGen/VLIWMachineScheduler.h"
@@ -220,6 +221,7 @@ LLVMInitializeHexagonTarget() {
   initializeHexagonPeepholePass(PR);
   initializeHexagonSplitConst32AndConst64Pass(PR);
   initializeHexagonVectorPrintPass(PR);
+  initializeHexagonQFPOptimizerPass(PR);
 }
 
 HexagonTargetMachine::HexagonTargetMachine(const Target &T, const Triple &TT,
@@ -231,14 +233,10 @@ HexagonTargetMachine::HexagonTargetMachine(const Target &T, const Triple &TT,
     // Specify the vector alignment explicitly. For v512x1, the calculated
     // alignment would be 512*alignment(i1), which is 512 bytes, instead of
     // the required minimum of 64 bytes.
-    : CodeGenTargetMachineImpl(
-          T,
-          "e-m:e-p:32:32:32-a:0-n16:32-"
-          "i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-"
-          "v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048",
-          TT, CPU, FS, Options, getEffectiveRelocModel(RM),
-          getEffectiveCodeModel(CM, CodeModel::Small),
-          (HexagonNoOpt ? CodeGenOptLevel::None : OL)),
+    : CodeGenTargetMachineImpl(T, TT.computeDataLayout(), TT, CPU, FS, Options,
+                               getEffectiveRelocModel(RM),
+                               getEffectiveCodeModel(CM, CodeModel::Small),
+                               (HexagonNoOpt ? CodeGenOptLevel::None : OL)),
       TLOF(std::make_unique<HexagonTargetObjectFile>()),
       Subtarget(Triple(TT), CPU, FS, *this) {
   initAsmInfo();
@@ -254,13 +252,6 @@ HexagonTargetMachine::getSubtargetImpl(const Function &F) const {
       CPUAttr.isValid() ? CPUAttr.getValueAsString().str() : TargetCPU;
   std::string FS =
       FSAttr.isValid() ? FSAttr.getValueAsString().str() : TargetFS;
-  // Append the preexisting target features last, so that +mattr overrides
-  // the "unsafe-fp-math" function attribute.
-  // Creating a separate target feature is not strictly necessary, it only
-  // exists to make "unsafe-fp-math" force creating a new subtarget.
-
-  if (F.getFnAttribute("unsafe-fp-math").getValueAsBool())
-    FS = FS.empty() ? "+unsafe-fp" : "+unsafe-fp," + FS;
 
   auto &I = SubtargetMap[CPU + FS];
   if (!I) {
@@ -297,6 +288,41 @@ MachineFunctionInfo *HexagonTargetMachine::createMachineFunctionInfo(
     const TargetSubtargetInfo *STI) const {
   return HexagonMachineFunctionInfo::create<HexagonMachineFunctionInfo>(
       Allocator, F, STI);
+}
+
+yaml::MachineFunctionInfo *
+HexagonTargetMachine::createDefaultFuncInfoYAML() const {
+  return new yaml::HexagonFunctionInfo();
+}
+
+yaml::MachineFunctionInfo *
+HexagonTargetMachine::convertFuncInfoToYAML(const MachineFunction &MF) const {
+  const auto *MFI = MF.getInfo<HexagonMachineFunctionInfo>();
+  const auto &TRI = *MF.getSubtarget().getRegisterInfo();
+  return new yaml::HexagonFunctionInfo(*MFI, TRI);
+}
+
+bool HexagonTargetMachine::parseMachineFunctionInfo(
+    const yaml::MachineFunctionInfo &MFI_, PerFunctionMIParsingState &PFS,
+    SMDiagnostic &Error, SMRange &SourceRange) const {
+  const auto &YamlMFI = static_cast<const yaml::HexagonFunctionInfo &>(MFI_);
+  MachineFunction &MF = PFS.MF;
+  HexagonMachineFunctionInfo *MFI = MF.getInfo<HexagonMachineFunctionInfo>();
+
+  MFI->initializeBaseYamlFields(YamlMFI);
+
+  // Parse StackAlignBaseReg register name
+  if (!YamlMFI.StackAlignBaseReg.Value.empty()) {
+    Register Reg;
+    if (parseNamedRegisterReference(PFS, Reg, YamlMFI.StackAlignBaseReg.Value,
+                                    Error)) {
+      SourceRange = YamlMFI.StackAlignBaseReg.SourceRange;
+      return true;
+    }
+    MFI->setStackAlignBaseReg(Reg);
+  }
+
+  return false;
 }
 
 HexagonTargetMachine::~HexagonTargetMachine() = default;
@@ -397,6 +423,7 @@ bool HexagonPassConfig::addInstSelector() {
       addPass(createHexagonGenInsert());
     if (EnableEarlyIf)
       addPass(createHexagonEarlyIfConversion());
+    addPass(createHexagonQFPOptimizer());
   }
 
   return false;

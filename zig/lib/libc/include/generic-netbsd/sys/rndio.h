@@ -1,4 +1,4 @@
-/*	$NetBSD: rndio.h,v 1.2.50.1 2023/08/11 14:35:25 martin Exp $	*/
+/*	$NetBSD: rndio.h,v 1.3 2023/07/16 10:36:21 riastradh Exp $	*/
 
 /*-
  * Copyright (c) 1997 The NetBSD Foundation, Inc.

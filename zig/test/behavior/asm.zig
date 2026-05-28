@@ -67,7 +67,6 @@ test "alternative constraints" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isLoongArch()) return error.SkipZigTest; // https://github.com/llvm/llvm-project/issues/159200
 
     if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // MSVC doesn't support inline assembly
 
@@ -247,12 +246,9 @@ test "extern output types (x86_64)" {
     }
 }
 
-test "riscv abi register aliases as clobbers" {
+test "abi register aliases as clobbers (RISC-V)" {
     if (!builtin.target.cpu.arch.isRISCV()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest;
-
-    if (!comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
 
     // Verify that ABI alias names are accepted as clobbers for RISC-V.
     asm volatile ("" ::: .{ .ra = true, .sp = true, .gp = true, .tp = true });

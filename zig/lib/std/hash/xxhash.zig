@@ -780,8 +780,6 @@ fn testExpect(comptime H: type, seed: anytype, input: []const u8, expected: u64)
 }
 
 test "xxhash3" {
-    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23807
-
     const H = XxHash3;
     // Non-Seeded Tests
     try testExpect(H, 0, "", 0x2d06800538d394c2);
@@ -813,8 +811,6 @@ test "xxhash3" {
 }
 
 test "xxhash3 smhasher" {
-    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23807
-
     const Test = struct {
         fn do() !void {
             try expectEqual(verify.smhasher(XxHash3.hash), 0x9a636405);
@@ -826,8 +822,6 @@ test "xxhash3 smhasher" {
 }
 
 test "xxhash3 iterative api" {
-    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23807
-
     const Test = struct {
         fn do() !void {
             try verify.iterativeApi(XxHash3);

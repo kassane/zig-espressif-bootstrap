@@ -1,4 +1,4 @@
-/*	$NetBSD: vmparam.h,v 1.56 2020/10/08 12:49:06 he Exp $	*/
+/*	$NetBSD: vmparam.h,v 1.58 2024/09/07 06:17:37 andvar Exp $	*/
 
 /*
  * Copyright (c) 2001, 2002 Wasabi Systems, Inc.
@@ -54,7 +54,7 @@
 #define	USRSTACK	VM_MAXUSER_ADDRESS
 
 /*
- * ARMv4 systems are normaly configured for 256MB KVA only, so restrict
+ * ARMv4 systems are normally configured for 256MB KVA only, so restrict
  * the size of the pager map to 4MB.
  */
 #ifndef _ARM_ARCH_5
@@ -131,7 +131,7 @@
 #define VM_KERNEL_KASAN_END	(VM_KERNEL_KASAN_BASE + VM_KERNEL_KASAN_SIZE)
 #define VM_KERNEL_VM_END	VM_KERNEL_KASAN_BASE
 #else
-#define VM_KERNEL_VM_END	VM_KERNEL_IO_ADDRESS
+#define VM_KERNEL_VM_END	VM_KERNEL_IO_BASE
 #endif
 
 #ifdef __HAVE_MM_MD_DIRECT_MAPPED_PHYS
@@ -146,8 +146,8 @@
 #define VM_KERNEL_ADDR_SIZE	(VM_KERNEL_VM_END - KERNEL_BASE)
 #define VM_KERNEL_VM_SIZE	(VM_KERNEL_VM_END - VM_KERNEL_VM_BASE)
 
-#define VM_KERNEL_IO_ADDRESS	0xf0000000
-#define VM_KERNEL_IO_SIZE	(VM_MAX_KERNEL_ADDRESS - VM_KERNEL_IO_ADDRESS)
+#define VM_KERNEL_IO_BASE	0xf0000000
+#define VM_KERNEL_IO_SIZE	(VM_MAX_KERNEL_ADDRESS - VM_KERNEL_IO_BASE)
 #endif
 
 #endif /* _ARM_ARM32_VMPARAM_H_ */

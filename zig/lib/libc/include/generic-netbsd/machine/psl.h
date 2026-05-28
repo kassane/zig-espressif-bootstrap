@@ -1,3 +1,3 @@
-/*	$NetBSD: psl.h,v 1.4 2011/06/20 07:23:36 matt Exp $	*/
+/*	$NetBSD: psl.h,v 1.1 2002/03/07 14:44:01 simonb Exp $	*/
 
-#include <powerpc/psl.h>
+#include <mips/psl.h>

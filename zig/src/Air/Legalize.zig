@@ -713,8 +713,6 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .is_non_err,
             .is_err_ptr,
             .is_non_err_ptr,
-            .bool_and,
-            .bool_or,
             => {},
             .load => if (l.features.has(.expand_packed_load)) {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -855,14 +853,24 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                     .@"union" => unreachable,
                     .@"struct" => switch (agg_ty.containerLayout(zcu)) {
                         .auto, .@"extern" => {},
-                        .@"packed" => switch (agg_ty.structFieldCount(zcu)) {
-                            0 => unreachable,
-                            // An `aggregate_init` of a packed struct with 1 field is just a fancy bitcast.
-                            1 => continue :inst l.replaceInst(inst, .bitcast, .{ .ty_op = .{
-                                .ty = .fromType(agg_ty),
-                                .operand = @enumFromInt(l.air_extra.items[ty_pl.payload]),
-                            } }),
-                            else => continue :inst l.replaceInst(inst, .block, try l.packedAggregateInitBlockPayload(inst)),
+                        .@"packed" => {
+                            // If any field accounts for the full bit size of the struct, this init
+                            // is just equivalent to a bitcast of that field. This usually means the
+                            // field count is 1, but not always, as there could be zero-bit fields.
+                            const struct_bits = agg_ty.bitSize(zcu);
+                            for (0..agg_ty.structFieldCount(zcu)) |field_index| {
+                                const field_bits = agg_ty.fieldType(field_index, zcu).bitSize(zcu);
+                                if (field_bits == struct_bits) {
+                                    // Just bitcast this field.
+                                    continue :inst l.replaceInst(inst, .bitcast, .{ .ty_op = .{
+                                        .ty = .fromType(agg_ty),
+                                        .operand = @enumFromInt(l.air_extra.items[ty_pl.payload + field_index]),
+                                    } });
+                                }
+                            }
+                            // Otherwise, we will need to use a sequence of bitcasts and shifts to
+                            // combine multiple values' bits.
+                            continue :inst l.replaceInst(inst, .block, try l.packedAggregateInitBlockPayload(inst));
                         },
                     },
                 }
@@ -1122,14 +1130,15 @@ fn scalarizeShuffleOneBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Erro
     //
     // So we must first compute `out_idxs` and `in_idxs`.
 
-    var sfba_state = std.heap.stackFallback(512, gpa);
-    const sfba = sfba_state.get();
+    var bfa_buf: [512]u8 = undefined;
+    var bfa_state: std.heap.BufferFirstAllocator = .init(&bfa_buf, gpa);
+    const bfa = bfa_state.allocator();
 
-    const out_idxs_buf = try sfba.alloc(InternPool.Index, shuffle.mask.len);
-    defer sfba.free(out_idxs_buf);
+    const out_idxs_buf = try bfa.alloc(InternPool.Index, shuffle.mask.len);
+    defer bfa.free(out_idxs_buf);
 
-    const in_idxs_buf = try sfba.alloc(InternPool.Index, shuffle.mask.len);
-    defer sfba.free(in_idxs_buf);
+    const in_idxs_buf = try bfa.alloc(InternPool.Index, shuffle.mask.len);
+    defer bfa.free(in_idxs_buf);
 
     var n: usize = 0;
     for (shuffle.mask, 0..) |mask, out_idx| switch (mask.unwrap()) {
@@ -1143,8 +1152,8 @@ fn scalarizeShuffleOneBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Erro
 
     const init_val: Value = init: {
         const undef_val = try pt.undefValue(shuffle.result_ty.childType(zcu));
-        const elems = try sfba.alloc(InternPool.Index, shuffle.mask.len);
-        defer sfba.free(elems);
+        const elems = try bfa.alloc(InternPool.Index, shuffle.mask.len);
+        defer bfa.free(elems);
         for (shuffle.mask, elems) |mask, *elem| elem.* = switch (mask.unwrap()) {
             .value => |ip_index| ip_index,
             .elem => undef_val.toIntern(),
@@ -1212,14 +1221,15 @@ fn scalarizeShuffleTwoBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Erro
     //     %8 = br(%1, %7)
     //   })
 
-    var sfba_state = std.heap.stackFallback(512, gpa);
-    const sfba = sfba_state.get();
+    var bfa_buf: [512]u8 = undefined;
+    var bfa_state: std.heap.BufferFirstAllocator = .init(&bfa_buf, gpa);
+    const bfa = bfa_state.allocator();
 
-    const out_idxs_buf = try sfba.alloc(InternPool.Index, shuffle.mask.len);
-    defer sfba.free(out_idxs_buf);
+    const out_idxs_buf = try bfa.alloc(InternPool.Index, shuffle.mask.len);
+    defer bfa.free(out_idxs_buf);
 
-    const in_idxs_buf = try sfba.alloc(InternPool.Index, shuffle.mask.len);
-    defer sfba.free(in_idxs_buf);
+    const in_idxs_buf = try bfa.alloc(InternPool.Index, shuffle.mask.len);
+    defer bfa.free(in_idxs_buf);
 
     // Iterate `shuffle.mask` before doing anything, because modifying AIR invalidates it.
     const out_idxs_a, const in_idxs_a, const out_idxs_b, const in_idxs_b = idxs: {
@@ -1503,7 +1513,7 @@ fn scalarizeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?
             l,
             .store,
             index_ptr,
-            .fromValue(try pt.intValue(.usize, operand_ty.arrayLen(zcu))),
+            .fromValue(try pt.intValue(.usize, operand_ty.arrayLen(zcu) - 1)),
         );
         _ = uint_block.addBinOp(l, .store, result_ptr, .fromValue(try pt.intValue(uint_ty, 0)));
 
@@ -1811,6 +1821,7 @@ fn scalarizeReduceBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimize
         .Or, .Xor, .Add => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => try pt.intValue(scalar_ty, 0),
             .float => try pt.floatValue(scalar_ty, 0.0),
+            .bool => .false,
             else => unreachable,
         },
         // identity for multiplication is 1
@@ -1820,9 +1831,13 @@ fn scalarizeReduceBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimize
             else => unreachable,
         },
         // identity for AND is all 1 bits
-        .And => switch (scalar_ty.intInfo(zcu).signedness) {
-            .unsigned => try scalar_ty.maxIntScalar(pt, scalar_ty),
-            .signed => try pt.intValue(scalar_ty, -1),
+        .And => switch (scalar_ty.zigTypeTag(zcu)) {
+            .int => switch (scalar_ty.intInfo(zcu).signedness) {
+                .unsigned => try scalar_ty.maxIntScalar(pt, scalar_ty),
+                .signed => try pt.intValue(scalar_ty, -1),
+            },
+            .bool => .true,
+            else => unreachable,
         },
         // identity for @min is maximum value
         .Min => switch (scalar_ty.zigTypeTag(zcu)) {
@@ -2016,7 +2031,7 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
         } else undefined;
         const out_of_range_inst: Air.Inst.Index = inst: {
             if (have_min_check and have_max_check) break :inst cur_block.add(l, .{
-                .tag = .bool_or,
+                .tag = .bit_or,
                 .data = .{ .bin_op = .{
                     .lhs = below_min_inst.toRef(),
                     .rhs = above_max_inst.toRef(),
@@ -2154,7 +2169,7 @@ fn safeIntFromFloatBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimiz
 
     // Combine the conditions.
     const out_of_bounds_inst: Air.Inst.Index = main_block.add(l, .{
-        .tag = .bool_or,
+        .tag = .bit_or,
         .data = .{ .bin_op = .{
             .lhs = below_min_inst.toRef(),
             .rhs = above_max_inst.toRef(),
@@ -2394,9 +2409,9 @@ fn packedStoreBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
                                 }).toRef(),
                                 .rhs = Air.internedToRef((keep_mask: {
                                     const ExpectedContents = [std.math.big.int.calcTwosCompLimbCount(256)]std.math.big.Limb;
-                                    var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
-                                        std.heap.stackFallback(@sizeOf(ExpectedContents), zcu.gpa);
-                                    const gpa = stack.get();
+                                    var bfa_buf: ExpectedContents = undefined;
+                                    var bfa: std.heap.BufferFirstAllocator = .init(@ptrCast(&bfa_buf), zcu.gpa);
+                                    const gpa = bfa.allocator();
 
                                     var mask_big_int: std.math.big.int.Mutable = .{
                                         .limbs = try gpa.alloc(
@@ -2489,11 +2504,12 @@ fn packedAggregateInitBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Erro
     const agg_ty = orig_ty_pl.ty.toType();
     const agg_field_count = agg_ty.structFieldCount(zcu);
 
-    var sfba_state = std.heap.stackFallback(@sizeOf([4 * 32 + 2]Air.Inst.Index), gpa);
-    const sfba = sfba_state.get();
+    var bfa_buf: [4 * 32 + 2]Air.Inst.Index = undefined;
+    var bfa_state: std.heap.BufferFirstAllocator = .init(@ptrCast(&bfa_buf), gpa);
+    const bfa = bfa_state.allocator();
 
-    const inst_buf = try sfba.alloc(Air.Inst.Index, 4 * agg_field_count + 2);
-    defer sfba.free(inst_buf);
+    const inst_buf = try bfa.alloc(Air.Inst.Index, 4 * agg_field_count + 2);
+    defer bfa.free(inst_buf);
 
     var main_block: Block = .init(inst_buf);
     try l.air_instructions.ensureUnusedCapacity(gpa, inst_buf.len);
@@ -2507,8 +2523,10 @@ fn packedAggregateInitBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Erro
     while (field_idx > 0) {
         field_idx -= 1;
         const field_ty = agg_ty.fieldType(field_idx, zcu);
-        const field_uint_ty = try pt.intType(.unsigned, @intCast(field_ty.bitSize(zcu)));
-        const field_bit_size_ref: Air.Inst.Ref = .fromValue(try pt.intValue(shift_ty, field_ty.bitSize(zcu)));
+        const field_bits: u16 = @intCast(field_ty.bitSize(zcu));
+        assert(field_bits < num_bits);
+        const field_uint_ty = try pt.intType(.unsigned, field_bits);
+        const field_bit_size_ref: Air.Inst.Ref = .fromValue(try pt.intValue(shift_ty, field_bits));
         const field_val: Air.Inst.Ref = @enumFromInt(l.air_extra.items[orig_ty_pl.payload + field_idx]);
 
         const shifted = main_block.addBinOp(l, .shl_exact, cur_uint, field_bit_size_ref).toRef();
@@ -2617,7 +2635,7 @@ const Block = struct {
             .data = .{ .legalize_compiler_rt_call = .{
                 .func = func,
                 .payload = payload: {
-                    const extra_len = @typeInfo(Air.Call).@"struct".fields.len + args.len;
+                    const extra_len = @typeInfo(Air.Call).@"struct".field_names.len + args.len;
                     try l.air_extra.ensureUnusedCapacity(l.pt.zcu.gpa, extra_len);
                     const index = l.addExtra(Air.Call, .{ .args_len = @intCast(args.len) }) catch unreachable;
                     l.air_extra.appendSliceAssumeCapacity(@ptrCast(args));
@@ -2638,7 +2656,7 @@ const Block = struct {
             });
             return;
         }
-        const panic_fn_val = zcu.builtin_decl_values.get(panic_id.toBuiltin());
+        const panic_fn_val = zcu.std_lang_decl_values.get(panic_id.toStdLangDecl());
         _ = b.add(l, .{
             .tag = .call,
             .data = .{ .pl_op = .{
@@ -2895,12 +2913,12 @@ fn addInstAssumeCapacity(l: *Legalize, inst: Air.Inst) Air.Inst.Index {
 }
 
 fn addExtra(l: *Legalize, comptime Extra: type, extra: Extra) Error!u32 {
-    const extra_fields = @typeInfo(Extra).@"struct".fields;
-    try l.air_extra.ensureUnusedCapacity(l.pt.zcu.gpa, extra_fields.len);
-    defer inline for (extra_fields) |field| l.air_extra.appendAssumeCapacity(switch (field.type) {
-        u32 => @field(extra, field.name),
-        Air.Inst.Ref => @intFromEnum(@field(extra, field.name)),
-        else => @compileError(@typeName(field.type)),
+    const extra_info = @typeInfo(Extra).@"struct";
+    try l.air_extra.ensureUnusedCapacity(l.pt.zcu.gpa, extra_info.field_names.len);
+    defer inline for (extra_info.field_names, extra_info.field_types) |field_name, field_type| l.air_extra.appendAssumeCapacity(switch (field_type) {
+        u32 => @field(extra, field_name),
+        Air.Inst.Ref => @intFromEnum(@field(extra, field_name)),
+        else => @compileError(@typeName(field_type)),
     });
     return @intCast(l.air_extra.items.len);
 }
@@ -2936,7 +2954,7 @@ fn compilerRtCall(
     const func_ret_ty = func.returnType();
 
     if (func_ret_ty.toIntern() == result_ty.toIntern()) {
-        try l.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).@"struct".fields.len + args.len);
+        try l.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).@"struct".field_names.len + args.len);
         const payload = l.addExtra(Air.Call, .{ .args_len = @intCast(args.len) }) catch unreachable;
         l.air_extra.appendSliceAssumeCapacity(@ptrCast(args));
         return l.replaceInst(orig_inst, .legalize_compiler_rt_call, .{ .legalize_compiler_rt_call = .{

@@ -9,7 +9,9 @@ pub const StaticStringMapWithEql = static_string_map.StaticStringMapWithEql;
 pub const Deque = @import("deque.zig").Deque;
 pub const DoublyLinkedList = @import("DoublyLinkedList.zig");
 pub const DynLib = @import("dynamic_library.zig").DynLib;
+/// Deprecated: use `bit_set.DynamicManaged`.
 pub const DynamicBitSet = bit_set.DynamicBitSet;
+/// Deprecated: use `bit_set.Dynamic`.
 pub const DynamicBitSetUnmanaged = bit_set.DynamicBitSetUnmanaged;
 pub const EnumArray = enums.EnumArray;
 pub const EnumMap = enums.EnumMap;
@@ -24,6 +26,7 @@ pub const Progress = @import("Progress.zig");
 pub const Random = @import("Random.zig");
 pub const SemanticVersion = @import("SemanticVersion.zig");
 pub const SinglyLinkedList = @import("SinglyLinkedList.zig");
+/// Deprecated: use `bit_set.Static`.
 pub const StaticBitSet = bit_set.StaticBitSet;
 pub const StringHashMap = hash_map.StringHashMap;
 pub const StringHashMapUnmanaged = hash_map.StringHashMapUnmanaged;
@@ -62,7 +65,11 @@ pub const array_hash_map = @import("array_hash_map.zig");
 pub const atomic = @import("atomic.zig");
 pub const base64 = @import("base64.zig");
 pub const bit_set = @import("bit_set.zig");
-pub const builtin = @import("builtin.zig");
+/// Deprecated; use `lang`.
+///
+/// To be removed after Zig 0.17.0.
+pub const builtin = lang;
+pub const lang = @import("lang.zig");
 pub const c = @import("c.zig");
 pub const coff = @import("coff.zig");
 pub const compress = @import("compress.zig");

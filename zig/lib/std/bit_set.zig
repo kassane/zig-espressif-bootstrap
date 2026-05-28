@@ -8,50 +8,55 @@
 //!
 //! There are five variants defined here:
 //!
-//! IntegerBitSet:
+//! Integer:
 //!   A bit set with static size, which is backed by a single integer.
 //!   This set is good for sets with a small size, but may generate
 //!   inefficient code for larger sets, especially in debug mode.
 //!
-//! ArrayBitSet:
+//! Array:
 //!   A bit set with static size, which is backed by an array of usize.
 //!   This set is good for sets with a larger size, but may use
 //!   more bytes than necessary if your set is small.
 //!
-//! StaticBitSet:
-//!   Picks either IntegerBitSet or ArrayBitSet depending on the requested
+//! Static:
+//!   Picks either Integer or Array depending on the requested
 //!   size.  The interfaces of these two types match exactly, except for fields.
 //!
-//! DynamicBitSet:
+//! Dynamic:
 //!   A bit set with runtime-known size, backed by an allocated slice
 //!   of usize.
 //!
-//! DynamicBitSetUnmanaged:
-//!   A variant of DynamicBitSet which does not store a pointer to its
-//!   allocator, in order to save space.
+//! DynamicManaged:
+//!   A variant of Dynamic which stores an allocator, using it when needed.
 
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
 
+/// Deprecated: use `Static`.
+pub const StaticBitSet = Static;
+
 /// Returns the optimal static bit set type for the specified number
 /// of elements: either `IntegerBitSet` or `ArrayBitSet`,
 /// both of which fulfill the same interface.
 /// The returned type will perform no allocations,
 /// can be copied by value, and does not require deinitialization.
-pub fn StaticBitSet(comptime size: usize) type {
+pub fn Static(comptime size: usize) type {
     if (size <= @bitSizeOf(usize)) {
-        return IntegerBitSet(size);
+        return Integer(size);
     } else {
-        return ArrayBitSet(usize, size);
+        return Array(usize, size);
     }
 }
+
+/// Deprecated: use `Integer`.
+pub const IntegerBitSet = Integer;
 
 /// A bit set with static size, which is backed by a single integer.
 /// This set is good for sets with a small size, but may generate
 /// inefficient code for larger sets, especially in debug mode.
-pub fn IntegerBitSet(comptime size: u16) type {
+pub fn Integer(comptime size: u16) type {
     return packed struct(MaskInt) {
         const Self = @This();
 
@@ -60,25 +65,13 @@ pub fn IntegerBitSet(comptime size: u16) type {
         pub const bit_length: usize = size;
 
         /// The integer type used to represent a mask in this bit set
-        pub const MaskInt = std.meta.Int(.unsigned, size);
+        pub const MaskInt = @Int(.unsigned, size);
 
         /// The integer type used to shift a mask in this bit set
         pub const ShiftInt = std.math.Log2Int(MaskInt);
 
         /// The bit mask, as a single integer
         mask: MaskInt,
-
-        /// Deprecated: use `.empty`.
-        /// Creates a bit set with no elements present.
-        pub fn initEmpty() Self {
-            return .{ .mask = 0 };
-        }
-
-        /// Deprecated: use `.full`.
-        /// Creates a bit set with all elements present.
-        pub fn initFull() Self {
-            return .{ .mask = ~@as(MaskInt, 0) };
-        }
 
         /// A bit set with no elements present.
         pub const empty: Self = .{ .mask = 0 };
@@ -328,21 +321,24 @@ pub fn IntegerBitSet(comptime size: u16) type {
     };
 }
 
+/// Deprecated: use `Array`.
+pub const ArrayBitSet = Array;
+
 /// A bit set with static size, which is backed by an array of usize.
 /// This set is good for sets with a larger size, but may use
 /// more bytes than necessary if your set is small.
-pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
+pub fn Array(comptime MaskIntType: type, comptime size: usize) type {
     const mask_info: std.builtin.Type = @typeInfo(MaskIntType);
 
     // Make sure the mask int is indeed an int
-    if (mask_info != .int) @compileError("ArrayBitSet can only operate on integer masks, but was passed " ++ @typeName(MaskIntType));
+    if (mask_info != .int) @compileError("Array can only operate on integer masks, but was passed " ++ @typeName(MaskIntType));
 
     // It must also be unsigned.
-    if (mask_info.int.signedness != .unsigned) @compileError("ArrayBitSet requires an unsigned integer mask type, but was passed " ++ @typeName(MaskIntType));
+    if (mask_info.int.signedness != .unsigned) @compileError("Array requires an unsigned integer mask type, but was passed " ++ @typeName(MaskIntType));
 
     // And it must not be empty.
     if (MaskIntType == u0)
-        @compileError("ArrayBitSet requires a sized integer for its mask int.  u0 does not work.");
+        @compileError("Array requires a sized integer for its mask int.  u0 does not work.");
 
     const byte_size = std.mem.byte_size_in_bits;
 
@@ -351,8 +347,8 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
     if (!std.math.isPowerOfTwo(@bitSizeOf(MaskIntType))) {
         var desired_bits = std.math.ceilPowerOfTwoAssert(usize, @bitSizeOf(MaskIntType));
         if (desired_bits < byte_size) desired_bits = byte_size;
-        const FixedMaskType = std.meta.Int(.unsigned, desired_bits);
-        @compileError("ArrayBitSet was passed integer type " ++ @typeName(MaskIntType) ++
+        const FixedMaskType = @Int(.unsigned, desired_bits);
+        @compileError("Array was passed integer type " ++ @typeName(MaskIntType) ++
             ", which is not a power of two.  Please round this up to a power of two integer size (i.e. " ++ @typeName(FixedMaskType) ++ ").");
     }
 
@@ -362,8 +358,8 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
     if (@bitSizeOf(MaskIntType) != @sizeOf(MaskIntType) * byte_size) {
         var desired_bits = @sizeOf(MaskIntType) * byte_size;
         desired_bits = std.math.ceilPowerOfTwoAssert(usize, desired_bits);
-        const FixedMaskType = std.meta.Int(.unsigned, desired_bits);
-        @compileError("ArrayBitSet was passed integer type " ++ @typeName(MaskIntType) ++
+        const FixedMaskType = @Int(.unsigned, desired_bits);
+        @compileError("Array was passed integer type " ++ @typeName(MaskIntType) ++
             ", which contains padding bits.  Please round this up to an unpadded integer size (i.e. " ++ @typeName(FixedMaskType) ++ ").");
     }
 
@@ -395,27 +391,15 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// Padding bits at the end are undefined.
         masks: [num_masks]MaskInt,
 
-        /// Deprecated: use `.empty`.
-        /// Creates a bit set with no elements present.
-        pub fn initEmpty() Self {
-            return .{ .masks = [_]MaskInt{0} ** num_masks };
-        }
-
-        /// Deprecated: use `.full`.
-        /// Creates a bit set with all elements present.
-        pub fn initFull() Self {
-            if (num_masks == 0) {
-                return .{ .masks = .{} };
-            } else {
-                return .{ .masks = [_]MaskInt{~@as(MaskInt, 0)} ** (num_masks - 1) ++ [_]MaskInt{last_item_mask} };
-            }
-        }
-
         /// A bit set with no elements present.
         pub const empty: Self = .{ .masks = @splat(0) };
 
         /// A bit set with all elements present.
-        pub const full: Self = .{ .masks = if (num_masks == 0) .{} else ([_]MaskInt{~@as(MaskInt, 0)} ** (num_masks - 1) ++ [_]MaskInt{last_item_mask}) };
+        pub const full: Self = full: {
+            var masks: [num_masks]MaskInt = @splat(~@as(MaskInt, 0));
+            if (num_masks > 0) masks[num_masks - 1] = last_item_mask;
+            break :full .{ .masks = masks };
+        };
 
         /// Returns the number of bits in this bit set
         pub inline fn capacity(self: Self) usize {
@@ -673,7 +657,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         }
 
         pub fn Iterator(comptime options: IteratorOptions) type {
-            return BitSetIterator(MaskInt, options);
+            return GenericIterator(MaskInt, options);
         }
 
         fn maskBit(index: usize) MaskInt {
@@ -688,9 +672,12 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
     };
 }
 
+/// Deprecated: use `Dynamic`.
+pub const DynamicBitSetUnmanaged = Dynamic;
+
 /// A bit set with runtime-known size, backed by an allocated slice
 /// of usize.  The allocator must be tracked externally by the user.
-pub const DynamicBitSetUnmanaged = struct {
+pub const Dynamic = struct {
     const Self = @This();
 
     /// The integer type used to represent a mask in this bit set
@@ -1074,7 +1061,7 @@ pub const DynamicBitSetUnmanaged = struct {
     }
 
     pub fn Iterator(comptime options: IteratorOptions) type {
-        return BitSetIterator(MaskInt, options);
+        return GenericIterator(MaskInt, options);
     }
 
     fn maskBit(index: usize) MaskInt {
@@ -1091,10 +1078,16 @@ pub const DynamicBitSetUnmanaged = struct {
     }
 };
 
+/// Deprecated: use `DynamicManaged` or `Dynamic` (will need to update callsites).
+pub const DynamicBitSet = DynamicManaged;
+
 /// A bit set with runtime-known size, backed by an allocated slice
-/// of usize.  Thin wrapper around DynamicBitSetUnmanaged which keeps
+/// of usize.  Thin wrapper around Dynamic which keeps
 /// track of the allocator instance.
-pub const DynamicBitSet = struct {
+///
+/// Deprecated in favor of `Dynamic` which accepts an `Allocator`
+/// as a parameter when needed instead of storing it.
+pub const DynamicManaged = struct {
     const Self = @This();
 
     /// The integer type used to represent a mask in this bit set
@@ -1104,12 +1097,12 @@ pub const DynamicBitSet = struct {
     pub const ShiftInt = std.math.Log2Int(MaskInt);
 
     allocator: Allocator,
-    unmanaged: DynamicBitSetUnmanaged = .{},
+    unmanaged: Dynamic = .{},
 
     /// Creates a bit set with no elements present.
     pub fn initEmpty(allocator: Allocator, bit_length: usize) !Self {
         return Self{
-            .unmanaged = try DynamicBitSetUnmanaged.initEmpty(allocator, bit_length),
+            .unmanaged = try .initEmpty(allocator, bit_length),
             .allocator = allocator,
         };
     }
@@ -1117,7 +1110,7 @@ pub const DynamicBitSet = struct {
     /// Creates a bit set with all elements present.
     pub fn initFull(allocator: Allocator, bit_length: usize) !Self {
         return Self{
-            .unmanaged = try DynamicBitSetUnmanaged.initFull(allocator, bit_length),
+            .unmanaged = try .initFull(allocator, bit_length),
             .allocator = allocator,
         };
     }
@@ -1247,7 +1240,7 @@ pub const DynamicBitSet = struct {
         return self.unmanaged.iterator(options);
     }
 
-    pub const Iterator = DynamicBitSetUnmanaged.Iterator;
+    pub const Iterator = Dynamic.Iterator;
 };
 
 /// Options for configuring an iterator over a bit set
@@ -1274,7 +1267,7 @@ pub const IteratorOptions = struct {
 };
 
 // The iterator is reusable between several bit set types
-fn BitSetIterator(comptime MaskInt: type, comptime options: IteratorOptions) type {
+fn GenericIterator(comptime MaskInt: type, comptime options: IteratorOptions) type {
     const ShiftInt = std.math.Log2Int(MaskInt);
     const kind = options.kind;
     const direction = options.direction;
@@ -1713,37 +1706,36 @@ fn testStaticBitSet(comptime Set: type) !void {
     try testPureBitSet(Set);
 }
 
-test IntegerBitSet {
+test Integer {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (comptime builtin.cpu.has(.riscv, .v) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24300
 
-    try testStaticBitSet(IntegerBitSet(0));
-    try testStaticBitSet(IntegerBitSet(1));
-    try testStaticBitSet(IntegerBitSet(2));
-    try testStaticBitSet(IntegerBitSet(5));
-    try testStaticBitSet(IntegerBitSet(8));
-    try testStaticBitSet(IntegerBitSet(32));
-    try testStaticBitSet(IntegerBitSet(64));
-    try testStaticBitSet(IntegerBitSet(127));
+    try testStaticBitSet(Integer(0));
+    try testStaticBitSet(Integer(1));
+    try testStaticBitSet(Integer(2));
+    try testStaticBitSet(Integer(5));
+    try testStaticBitSet(Integer(8));
+    try testStaticBitSet(Integer(32));
+    try testStaticBitSet(Integer(64));
+    try testStaticBitSet(Integer(127));
 }
 
-test ArrayBitSet {
+test Array {
     inline for (.{ 0, 1, 2, 31, 32, 33, 63, 64, 65, 254, 500, 3000 }) |size| {
-        try testStaticBitSet(ArrayBitSet(u8, size));
-        try testStaticBitSet(ArrayBitSet(u16, size));
-        try testStaticBitSet(ArrayBitSet(u32, size));
-        try testStaticBitSet(ArrayBitSet(u64, size));
-        try testStaticBitSet(ArrayBitSet(u128, size));
+        try testStaticBitSet(Array(u8, size));
+        try testStaticBitSet(Array(u16, size));
+        try testStaticBitSet(Array(u32, size));
+        try testStaticBitSet(Array(u64, size));
+        try testStaticBitSet(Array(u128, size));
     }
 }
 
-test DynamicBitSetUnmanaged {
+test Dynamic {
     const allocator = std.testing.allocator;
-    var a = try DynamicBitSetUnmanaged.initEmpty(allocator, 300);
+    var a: Dynamic = try .initEmpty(allocator, 300);
     try testing.expectEqual(@as(usize, 0), a.count());
     a.deinit(allocator);
 
-    a = try DynamicBitSetUnmanaged.initEmpty(allocator, 0);
+    a = try .initEmpty(allocator, 0);
     defer a.deinit(allocator);
     for ([_]usize{ 1, 2, 31, 32, 33, 0, 65, 64, 63, 500, 254, 3000 }) |size| {
         const old_len = a.capacity();
@@ -1769,17 +1761,17 @@ test DynamicBitSetUnmanaged {
         }
         try testing.expectEqual(@as(usize, 0), empty.count());
 
-        var full = try DynamicBitSetUnmanaged.initFull(allocator, size);
+        var full: Dynamic = try .initFull(allocator, size);
         defer full.deinit(allocator);
         try testing.expectEqual(@as(usize, size), full.count());
 
         try testEql(empty, full, size);
         {
-            var even = try DynamicBitSetUnmanaged.initEmpty(allocator, size);
+            var even: Dynamic = try .initEmpty(allocator, size);
             defer even.deinit(allocator);
             fillEven(&even, size);
 
-            var odd = try DynamicBitSetUnmanaged.initEmpty(allocator, size);
+            var odd: Dynamic = try .initEmpty(allocator, size);
             defer odd.deinit(allocator);
             fillOdd(&odd, size);
 
@@ -1790,13 +1782,13 @@ test DynamicBitSetUnmanaged {
     }
 }
 
-test DynamicBitSet {
+test DynamicManaged {
     const allocator = std.testing.allocator;
-    var a = try DynamicBitSet.initEmpty(allocator, 300);
+    var a: DynamicManaged = try .initEmpty(allocator, 300);
     try testing.expectEqual(@as(usize, 0), a.count());
     a.deinit();
 
-    a = try DynamicBitSet.initEmpty(allocator, 0);
+    a = try .initEmpty(allocator, 0);
     defer a.deinit();
     for ([_]usize{ 1, 2, 31, 32, 33, 0, 65, 64, 63, 500, 254, 3000 }) |size| {
         const old_len = a.capacity();
@@ -1822,7 +1814,7 @@ test DynamicBitSet {
         }
         try testing.expectEqual(@as(usize, 0), tmp.count());
 
-        var b = try DynamicBitSet.initFull(allocator, size);
+        var b: DynamicManaged = try .initFull(allocator, size);
         defer b.deinit();
         try testing.expectEqual(@as(usize, size), b.count());
 
@@ -1831,10 +1823,10 @@ test DynamicBitSet {
     }
 }
 
-test StaticBitSet {
-    try testing.expectEqual(IntegerBitSet(0), StaticBitSet(0));
-    try testing.expectEqual(IntegerBitSet(5), StaticBitSet(5));
-    try testing.expectEqual(IntegerBitSet(@bitSizeOf(usize)), StaticBitSet(@bitSizeOf(usize)));
-    try testing.expectEqual(ArrayBitSet(usize, @bitSizeOf(usize) + 1), StaticBitSet(@bitSizeOf(usize) + 1));
-    try testing.expectEqual(ArrayBitSet(usize, 500), StaticBitSet(500));
+test Static {
+    try testing.expectEqual(Integer(0), Static(0));
+    try testing.expectEqual(Integer(5), Static(5));
+    try testing.expectEqual(Integer(@bitSizeOf(usize)), Static(@bitSizeOf(usize)));
+    try testing.expectEqual(Array(usize, @bitSizeOf(usize) + 1), Static(@bitSizeOf(usize) + 1));
+    try testing.expectEqual(Array(usize, 500), Static(500));
 }

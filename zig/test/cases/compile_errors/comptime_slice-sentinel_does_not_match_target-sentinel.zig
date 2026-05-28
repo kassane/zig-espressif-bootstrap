@@ -1,13 +1,13 @@
 export fn foo_array() void {
     comptime {
-        var target = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        var target = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ undef_10_u8;
         const slice = target[0..14 :255];
         _ = slice;
     }
 }
 export fn foo_ptr_array() void {
     comptime {
-        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ undef_10_u8;
         var target = &buf;
         const slice = target[0..14 :255];
         _ = slice;
@@ -15,7 +15,7 @@ export fn foo_ptr_array() void {
 }
 export fn foo_vector_ConstPtrSpecialBaseArray() void {
     comptime {
-        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ undef_10_u8;
         var target: [*]u8 = &buf;
         const slice = target[0..14 :255];
         _ = slice;
@@ -23,7 +23,7 @@ export fn foo_vector_ConstPtrSpecialBaseArray() void {
 }
 export fn foo_vector_ConstPtrSpecialRef() void {
     comptime {
-        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ undef_10_u8;
         var target: [*]u8 = @ptrCast(&buf);
         const slice = target[0..14 :255];
         _ = slice;
@@ -31,7 +31,7 @@ export fn foo_vector_ConstPtrSpecialRef() void {
 }
 export fn foo_cvector_ConstPtrSpecialBaseArray() void {
     comptime {
-        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ undef_10_u8;
         var target: [*c]u8 = &buf;
         const slice = target[0..14 :255];
         _ = slice;
@@ -39,7 +39,7 @@ export fn foo_cvector_ConstPtrSpecialBaseArray() void {
 }
 export fn foo_cvector_ConstPtrSpecialRef() void {
     comptime {
-        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ undef_10_u8;
         var target: [*c]u8 = @ptrCast(&buf);
         const slice = target[0..14 :255];
         _ = slice;
@@ -47,12 +47,13 @@ export fn foo_cvector_ConstPtrSpecialRef() void {
 }
 export fn foo_slice() void {
     comptime {
-        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
+        var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ undef_10_u8;
         var target: []u8 = &buf;
         const slice = target[0..14 :255];
         _ = slice;
     }
 }
+const undef_10_u8: [10]u8 = @splat(undefined);
 export fn undefined_slice() void {
     const arr: [100]u16 = undefined;
     const slice = arr[0..12 :0];
@@ -85,9 +86,9 @@ export fn typeName_slice() void {
 // :44:29: note: expected '255', found '0'
 // :52:29: error: value in memory does not match slice sentinel
 // :52:29: note: expected '255', found '0'
-// :58:22: error: value in memory does not match slice sentinel
-// :58:22: note: expected '0', found 'undefined'
-// :63:22: error: value in memory does not match slice sentinel
-// :63:22: note: expected '12', found '98'
-// :68:22: error: value in memory does not match slice sentinel
-// :68:22: note: expected '0', found '105'
+// :59:22: error: value in memory does not match slice sentinel
+// :59:22: note: expected '0', found 'undefined'
+// :64:22: error: value in memory does not match slice sentinel
+// :64:22: note: expected '12', found '98'
+// :69:22: error: value in memory does not match slice sentinel
+// :69:22: note: expected '0', found '105'

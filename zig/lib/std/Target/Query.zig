@@ -253,7 +253,7 @@ pub fn parse(args: ParseOptions) !Query {
             } else if (abi.isAndroid()) {
                 result.android_api_level = std.fmt.parseUnsigned(u32, abi_ver_text, 10) catch |err| switch (err) {
                     error.InvalidCharacter => return error.InvalidVersion,
-                    error.Overflow => return error.Overflow,
+                    error.Overflow => |e| return e,
                 };
             } else {
                 return error.InvalidAbiVersion;
@@ -282,7 +282,7 @@ pub fn parse(args: ParseOptions) !Query {
         } else if (mem.eql(u8, cpu_name, "baseline")) {
             result.cpu_model = .baseline;
         } else {
-            result.cpu_model = .{ .explicit = try arch.parseCpuModel(cpu_name) };
+            result.cpu_model = .{ .explicit = arch.parseCpuModel(cpu_name) orelse return error.UnknownCpuModel };
         }
 
         while (index < cpu_features.len) {
@@ -346,7 +346,7 @@ pub fn parseVersion(ver: []const u8) error{ InvalidVersion, Overflow }!SemanticV
         fn parseVersionComponentInner(component: []const u8) error{ InvalidVersion, Overflow }!usize {
             return std.fmt.parseUnsigned(usize, component, 10) catch |err| switch (err) {
                 error.InvalidCharacter => return error.InvalidVersion,
-                error.Overflow => return error.Overflow,
+                error.Overflow => |e| return e,
             };
         }
     }).parseVersionComponentInner;
@@ -533,9 +533,8 @@ pub fn serializeCpuAlloc(q: Query, ally: Allocator) Allocator.Error![]u8 {
     return buffer.toOwnedSlice();
 }
 
+/// Deprecated; use `zigTriple` instead. Will be removed in 0.18.0.
 pub fn allocDescription(self: Query, allocator: Allocator) ![]u8 {
-    // TODO is there anything else worthy of the description that is not
-    // already captured in the triple?
     return self.zigTriple(allocator);
 }
 

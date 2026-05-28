@@ -106,51 +106,6 @@ test "mixing normal and error defers" {
     try expect(result[2] == 'a');
 }
 
-test "errdefer with payload" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    const S = struct {
-        fn foo() !i32 {
-            errdefer |a| {
-                expectEqual(error.One, a) catch @panic("test failure");
-            }
-            return error.One;
-        }
-        fn doTheTest() !void {
-            try expectError(error.One, foo());
-        }
-    };
-    try S.doTheTest();
-    try comptime S.doTheTest();
-}
-
-test "reference to errdefer payload" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    const S = struct {
-        fn foo() !i32 {
-            errdefer |a| {
-                const ptr = &a;
-                const ptr2 = &ptr;
-                expectEqual(error.One, ptr2.*.*) catch @panic("test failure");
-                expectEqual(error.One, ptr.*) catch @panic("test failure");
-            }
-            return error.One;
-        }
-        fn doTheTest() !void {
-            try expectError(error.One, foo());
-        }
-    };
-    try S.doTheTest();
-    try comptime S.doTheTest();
-}
-
 test "simple else prong doesn't emit an error for unreachable else prong" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -192,47 +147,8 @@ comptime {
     if (defer_assign != 0) @compileError("defer_assign failed!");
 }
 
-test "errdefer capture" {
-    const S = struct {
-        fail: bool = undefined,
-        fn bar0(self: *@This()) error{a}!void {
-            self.fail = false;
-            errdefer |err| if (@TypeOf(err) != error{a}) {
-                self.fail = true;
-            };
-            return error.a;
-        }
-        fn bar1(self: *@This()) error{a}!void {
-            self.fail = false;
-            errdefer |err| if (@TypeOf(err) != error{a}) {
-                self.fail = true;
-            };
-            const rv: error{a}!void = @errorCast(@as(error{a}!void, error.a));
-            return rv;
-        }
-        // https://github.com/ziglang/zig/issues/20371
-        fn bar2(self: *@This()) error{a}!void {
-            self.fail = false;
-            errdefer |err| if (@TypeOf(err) != error{a}) {
-                self.fail = true;
-            };
-            return @errorCast(@as(error{a}!void, error.a));
-        }
-    };
-
-    var s: S = .{};
-    s.bar0() catch {};
-    if (s.fail) return error.TestExpectedError;
-    s.bar1() catch {};
-    if (s.fail) return error.TestExpectedError;
-    s.bar2() catch {};
-    if (s.fail) return error.TestExpectedError;
-}
-
 test "errdefer in test block" {
-    errdefer |err| {
-        _ = &err;
-    }
+    errdefer {}
     var x: bool = false;
     _ = &x;
     if (x) return error.Something;

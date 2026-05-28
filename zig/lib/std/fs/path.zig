@@ -894,9 +894,10 @@ pub fn resolve(allocator: Allocator, paths: []const []const u8) Allocator.Error!
 pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) Allocator.Error![]u8 {
     // Avoid heap allocation when paths.len is <= @bitSizeOf(usize) * 2
     // (we use `* 3` because stackFallback uses 1 usize as a length)
-    var bit_set_allocator_state = std.heap.stackFallback(@sizeOf(usize) * 3, allocator);
-    const bit_set_allocator = bit_set_allocator_state.get();
-    var relevant_paths = try std.bit_set.DynamicBitSetUnmanaged.initEmpty(bit_set_allocator, paths.len);
+    var buf: [3]usize = undefined;
+    var bit_set_allocator_state: std.heap.BufferFirstAllocator = .init(@ptrCast(&buf), allocator);
+    const bit_set_allocator = bit_set_allocator_state.allocator();
+    var relevant_paths: std.bit_set.Dynamic = try .initEmpty(bit_set_allocator, paths.len);
     defer relevant_paths.deinit(bit_set_allocator);
 
     // Iterate the paths backwards, marking the relevant paths along the way.
@@ -1642,7 +1643,8 @@ fn windowsResolveAgainstCwd(
     parsed: WindowsPath2(u8),
 ) ![]u8 {
     // Space for 256 WTF-16 code units; potentially 3 WTF-8 bytes per WTF-16 code unit
-    var temp_allocator_state = std.heap.stackFallback(256 * 3, gpa);
+    var buf: [256 * 3]u8 = undefined;
+    var temp_allocator_state: std.heap.BufferFirstAllocator = .init(&buf, gpa);
     return switch (parsed.kind) {
         .drive_absolute,
         .unc_absolute,
@@ -1668,7 +1670,7 @@ fn windowsResolveAgainstCwd(
             }
         },
         .drive_relative => blk: {
-            const temp_allocator = temp_allocator_state.get();
+            const temp_allocator = temp_allocator_state.allocator();
             const drive_cwd = drive_cwd: {
                 const parsed_cwd = parsePathWindows(u8, cwd);
 

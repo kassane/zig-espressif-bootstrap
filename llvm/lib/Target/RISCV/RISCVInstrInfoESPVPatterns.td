@@ -290,11 +290,11 @@ class EspVectorStRegOffsetPat64<PatFrag StoreOp, RegisterClass StTy, ValueType v
           (ESP_VST_L_64_XP GPRPIE:$rs2, StTy:$qu, GPRPIE:$rs1)>;
 
 let hasSideEffects = 0, mayLoad = 0, mayStore = 1, isCodeGenOnly = 1 in {
-def PseudoESP_VSPILL_128 : Pseudo<(outs), (ins QR:$qu, GPR:$rs1, simm12:$imm12), []>;
+def PseudoESP_VSPILL_128 : Pseudo<(outs), (ins QR:$qu, GPR:$rs1, simm12_lo:$imm12), []>;
 }
 
 let hasSideEffects = 0, mayLoad = 1, mayStore = 0, isCodeGenOnly = 1 in {
-def PseudoESP_VRELOAD_128 : Pseudo<(outs QR:$qu), (ins GPR:$rs1, simm12:$imm12), []>;
+def PseudoESP_VRELOAD_128 : Pseudo<(outs QR:$qu), (ins GPR:$rs1, simm12_lo:$imm12), []>;
 }
 
 def riscv_esp_vunzip_16_uzp1 : SDNode<"RISCVISD::ESP_VUNZIP_16_UZP1", 
@@ -695,4 +695,16 @@ let Predicates = [HasVendorXespv1v] in {
   def : EspVectorReduceUminDirectPat<v8i16, i32, ESP_MIN_U16_A>;
   def : EspVectorReduceUminDirectPat<v4i32, i32, ESP_MIN_U32_A>;
 
+  // GPR ALU *_m only (PIE/AR = GPRPIE). Non-_m intrinsics keep pseudo + custom inserter (unchanged in InstrInfo).
+  def : Pat<(i32 (int_riscv_esp_addx2_m GPRPIE:$rs1, GPRPIE:$rs2)),
+            (ESP_ADDX2 GPRPIE:$rs1, GPRPIE:$rs2)>;
+  def : Pat<(i32 (int_riscv_esp_addx4_m GPRPIE:$rs1, GPRPIE:$rs2)),
+            (ESP_ADDX4 GPRPIE:$rs1, GPRPIE:$rs2)>;
+  def : Pat<(i32 (int_riscv_esp_subx2_m GPRPIE:$rs1, GPRPIE:$rs2)),
+            (ESP_SUBX2 GPRPIE:$rs1, GPRPIE:$rs2)>;
+  def : Pat<(i32 (int_riscv_esp_subx4_m GPRPIE:$rs1, GPRPIE:$rs2)),
+            (ESP_SUBX4 GPRPIE:$rs1, GPRPIE:$rs2)>;
+  // No (set ...) on rhs: GlobalISel Pat rejects (set dst, (inst...)); single-def inst like ADDX2.
+  def : Pat<(i32 (int_riscv_esp_sat_m GPRPIE:$rs0, GPRPIE:$rs1, GPRPIE:$rsd)),
+            (ESP_SAT GPRPIE:$rs0, GPRPIE:$rs1, GPRPIE:$rsd)>;
 }

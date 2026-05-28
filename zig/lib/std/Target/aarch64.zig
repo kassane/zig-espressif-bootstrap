@@ -9,6 +9,7 @@ pub const Feature = enum {
     addr_lsl_slow_14,
     aes,
     aggressive_fma,
+    aggressive_interleaving,
     alternate_sextload_cvt_f32_pattern,
     altnzcv,
     alu_lsl_fast,
@@ -22,6 +23,7 @@ pub const Feature = enum {
     bf16,
     brbe,
     bti,
+    btie,
     call_saved_x10,
     call_saved_x11,
     call_saved_x12,
@@ -36,6 +38,7 @@ pub const Feature = enum {
     ccpp,
     chk,
     clrbhb,
+    cmh,
     cmp_bcc_fusion,
     cmpbr,
     complxnum,
@@ -48,7 +51,9 @@ pub const Feature = enum {
     disable_fast_inc_vl,
     disable_latency_sched_heuristic,
     disable_ldp,
+    disable_maximize_scalable_bandwidth,
     disable_stp,
+    disable_unpredicated_ld_st_lower,
     dit,
     dotprod,
     ecv,
@@ -58,6 +63,9 @@ pub const Feature = enum {
     ete,
     execute_only,
     exynos_cheap_as_move,
+    f16f32dot,
+    f16f32mm,
+    f16mm,
     f32mm,
     f64mm,
     f8f16mm,
@@ -86,7 +94,9 @@ pub const Feature = enum {
     fuse_arith_logic,
     fuse_crypto_eor,
     fuse_csel,
+    fuse_cset,
     fuse_literals,
+    gcie,
     gcs,
     harden_sls_blr,
     harden_sls_nocomdat,
@@ -99,22 +109,27 @@ pub const Feature = enum {
     ldp_aligned_only,
     lor,
     ls64,
+    lscp,
     lse,
     lse128,
     lse2,
     lsfe,
     lsui,
     lut,
+    max_interleave_factor_4,
     mec,
     mops,
+    mops_go,
     mpam,
+    mpamv2,
     mte,
+    mtetc,
     neon,
     nmi,
     no_bti_at_return_twice,
     no_neg_immediates,
     no_sve_fp_ld1r,
-    no_zcz_fp,
+    no_zcz_fpr64,
     nv,
     occmo,
     olympus,
@@ -125,6 +140,7 @@ pub const Feature = enum {
     pauth_lr,
     pcdphint,
     perfmon,
+    poe2,
     pops,
     predictable_select_expensive,
     predres,
@@ -174,6 +190,7 @@ pub const Feature = enum {
     sme2,
     sme2p1,
     sme2p2,
+    sme2p3,
     sme_b16b16,
     sme_f16f16,
     sme_f64f64,
@@ -206,19 +223,22 @@ pub const Feature = enum {
     sve2_sm4,
     sve2p1,
     sve2p2,
+    sve2p3,
     sve_aes,
     sve_aes2,
     sve_b16b16,
+    sve_b16mm,
     sve_bfscale,
     sve_bitperm,
     sve_f16f32mm,
     sve_sha3,
     sve_sm4,
     tagged_globals,
+    tev,
     the,
     tlb_rmi,
+    tlbid,
     tlbiw,
-    tme,
     tpidr_el1,
     tpidr_el2,
     tpidr_el3,
@@ -230,6 +250,7 @@ pub const Feature = enum {
     use_fixed_over_scalable_if_equal_cost,
     use_postra_scheduler,
     use_reciprocal_square_root,
+    use_wzr_to_vec_move,
     v8_1a,
     v8_2a,
     v8_3a,
@@ -247,17 +268,20 @@ pub const Feature = enum {
     v9_4a,
     v9_5a,
     v9_6a,
+    v9_7a,
     v9a,
     vh,
     wfxt,
     xs,
+    zcm_fpr128,
     zcm_fpr32,
     zcm_fpr64,
     zcm_gpr32,
     zcm_gpr64,
-    zcz,
     zcz_fp_workaround,
-    zcz_gp,
+    zcz_fpr128,
+    zcz_gpr32,
+    zcz_gpr64,
 };
 
 pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
@@ -267,16 +291,19 @@ pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
     @setEvalBranchQuota(2000);
-    const len = @typeInfo(Feature).@"enum".fields.len;
+    const len = @typeInfo(Feature).@"enum".field_names.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.a320)] = .{
         .llvm_name = "a320",
         .description = "Cortex-A320 ARM processors",
         .dependencies = featureSet(&[_]Feature{
+            .aggressive_interleaving,
             .fuse_adrp_add,
             .fuse_aes,
+            .use_fixed_over_scalable_if_equal_cost,
             .use_postra_scheduler,
+            .use_wzr_to_vec_move,
         }),
     };
     result[@intFromEnum(Feature.addr_lsl_slow_14)] = .{
@@ -294,6 +321,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.aggressive_fma)] = .{
         .llvm_name = "aggressive-fma",
         .description = "Enable Aggressive FMA for floating-point.",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.aggressive_interleaving)] = .{
+        .llvm_name = "aggressive-interleaving",
+        .description = "Make use of aggressive interleaving during vectorization",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.alternate_sextload_cvt_f32_pattern)] = .{
@@ -365,6 +397,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.bti)] = .{
         .llvm_name = "bti",
         .description = "Enable Branch Target Identification",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.btie)] = .{
+        .llvm_name = "btie",
+        .description = "Enable Enhanced Branch Target Identification extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.call_saved_x10)] = .{
@@ -439,6 +476,11 @@ pub const all_features = blk: {
         .description = "Enable Clear BHB instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.cmh)] = .{
+        .llvm_name = "cmh",
+        .description = "Enable Armv9.7-A Contention Management Hints",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.cmp_bcc_fusion)] = .{
         .llvm_name = "cmp-bcc-fusion",
         .description = "CPU fuses cmp+bcc operations",
@@ -506,9 +548,19 @@ pub const all_features = blk: {
         .description = "Do not emit ldp",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.disable_maximize_scalable_bandwidth)] = .{
+        .llvm_name = "disable-maximize-scalable-bandwidth",
+        .description = "Determine the maximum scalable vector length for a loop by the largest scalar type rather than the smallest",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.disable_stp)] = .{
         .llvm_name = "disable-stp",
         .description = "Do not emit stp",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.disable_unpredicated_ld_st_lower)] = .{
+        .llvm_name = "disable-unpredicated-ld-st-lower",
+        .description = "Disable lowering unpredicated loads/stores as LDR/STR",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.dit)] = .{
@@ -559,6 +611,30 @@ pub const all_features = blk: {
         .llvm_name = "exynos-cheap-as-move",
         .description = "Use Exynos specific handling of cheap instructions",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.f16f32dot)] = .{
+        .llvm_name = "f16f32dot",
+        .description = "Enable Armv9.7-A Advanced SIMD half-precision dot product accumulate to single-precision",
+        .dependencies = featureSet(&[_]Feature{
+            .fullfp16,
+            .neon,
+        }),
+    };
+    result[@intFromEnum(Feature.f16f32mm)] = .{
+        .llvm_name = "f16f32mm",
+        .description = "Enable Armv9.7-A Advanced SIMD half-precision matrix multiply-accumulate to single-precision",
+        .dependencies = featureSet(&[_]Feature{
+            .fullfp16,
+            .neon,
+        }),
+    };
+    result[@intFromEnum(Feature.f16mm)] = .{
+        .llvm_name = "f16mm",
+        .description = "Enable Armv9.7-A non-widening half-precision matrix multiply-accumulate",
+        .dependencies = featureSet(&[_]Feature{
+            .fullfp16,
+            .neon,
+        }),
     };
     result[@intFromEnum(Feature.f32mm)] = .{
         .llvm_name = "f32mm",
@@ -729,12 +805,22 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.fuse_csel)] = .{
         .llvm_name = "fuse-csel",
-        .description = "CPU fuses conditional select operations",
+        .description = "CPU can fuse CMP and CSEL operations",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.fuse_cset)] = .{
+        .llvm_name = "fuse-cset",
+        .description = "CPU can fuse CMP and CSET operations",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fuse_literals)] = .{
         .llvm_name = "fuse-literals",
         .description = "CPU fuses literal generation operations",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.gcie)] = .{
+        .llvm_name = "gcie",
+        .description = "Enable GICv5 (Generic Interrupt Controller) CPU Interface Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.gcs)] = .{
@@ -805,6 +891,11 @@ pub const all_features = blk: {
         .description = "Enable Armv8.7-A LD64B/ST64B Accelerator Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.lscp)] = .{
+        .llvm_name = "lscp",
+        .description = "Enable Armv9.7-A Load-acquire and store-release pair extension",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.lse)] = .{
         .llvm_name = "lse",
         .description = "Enable Armv8.1-A Large System Extension (LSE) atomic instructions",
@@ -841,6 +932,11 @@ pub const all_features = blk: {
             .neon,
         }),
     };
+    result[@intFromEnum(Feature.max_interleave_factor_4)] = .{
+        .llvm_name = "max-interleave-factor-4",
+        .description = "Set the MaxInterleaveFactor to 4 (from the default 2)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.mec)] = .{
         .llvm_name = "mec",
         .description = "Enable Memory Encryption Contexts Extension",
@@ -853,15 +949,35 @@ pub const all_features = blk: {
         .description = "Enable Armv8.8-A memcpy and memset acceleration instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.mops_go)] = .{
+        .llvm_name = "mops-go",
+        .description = "Enable memset acceleration granule only",
+        .dependencies = featureSet(&[_]Feature{
+            .mops,
+            .mte,
+        }),
+    };
     result[@intFromEnum(Feature.mpam)] = .{
         .llvm_name = "mpam",
         .description = "Enable Armv8.4-A Memory system Partitioning and Monitoring extension",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.mpamv2)] = .{
+        .llvm_name = "mpamv2",
+        .description = "Enable Armv9.7-A MPAMv2 Lookaside Buffer Invalidate instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mte)] = .{
         .llvm_name = "mte",
         .description = "Enable Memory Tagging Extension",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.mtetc)] = .{
+        .llvm_name = "mtetc",
+        .description = "Enable Virtual Memory Tagging Extension",
+        .dependencies = featureSet(&[_]Feature{
+            .mte,
+        }),
     };
     result[@intFromEnum(Feature.neon)] = .{
         .llvm_name = "neon",
@@ -890,9 +1006,9 @@ pub const all_features = blk: {
         .description = "Avoid using LD1RX instructions for FP",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.no_zcz_fp)] = .{
-        .llvm_name = "no-zcz-fp",
-        .description = "Has no zero-cycle zeroing instructions for FP registers",
+    result[@intFromEnum(Feature.no_zcz_fpr64)] = .{
+        .llvm_name = "no-zcz-fpr64",
+        .description = "Has no zero-cycle zeroing instructions for FPR64 registers",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.nv)] = .{
@@ -914,6 +1030,7 @@ pub const all_features = blk: {
             .enable_select_opt,
             .fuse_adrp_add,
             .fuse_aes,
+            .max_interleave_factor_4,
             .predictable_select_expensive,
             .use_fixed_over_scalable_if_equal_cost,
             .use_postra_scheduler,
@@ -954,6 +1071,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.perfmon)] = .{
         .llvm_name = "perfmon",
         .description = "Enable Armv8.0-A PMUv3 Performance Monitors extension",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.poe2)] = .{
+        .llvm_name = "poe2",
+        .description = "Enable Stage 1 Permission Overlays Extension 2 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.pops)] = .{
@@ -1224,6 +1346,13 @@ pub const all_features = blk: {
             .sme2p1,
         }),
     };
+    result[@intFromEnum(Feature.sme2p3)] = .{
+        .llvm_name = "sme2p3",
+        .description = "Enable Armv9.7-A Scalable Matrix Extension 2.3 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sme2p2,
+        }),
+    };
     result[@intFromEnum(Feature.sme_b16b16)] = .{
         .llvm_name = "sme-b16b16",
         .description = "Enable SME2.1 ZA-targeting non-widening BFloat16 instructions",
@@ -1447,6 +1576,13 @@ pub const all_features = blk: {
             .sve2p1,
         }),
     };
+    result[@intFromEnum(Feature.sve2p3)] = .{
+        .llvm_name = "sve2p3",
+        .description = "Enable Armv9.7-A Scalable Vector Extension 2.3 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sve2p2,
+        }),
+    };
     result[@intFromEnum(Feature.sve_aes)] = .{
         .llvm_name = "sve-aes",
         .description = "Enable SVE AES and quadword SVE polynomial multiply instructions",
@@ -1463,6 +1599,13 @@ pub const all_features = blk: {
         .llvm_name = "sve-b16b16",
         .description = "Enable SVE2 non-widening and SME2 Z-targeting non-widening BFloat16 instructions",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.sve_b16mm)] = .{
+        .llvm_name = "sve-b16mm",
+        .description = "Enable Armv9.7-A SVE non-widening BFloat16 matrix multiply-accumulate",
+        .dependencies = featureSet(&[_]Feature{
+            .sve,
+        }),
     };
     result[@intFromEnum(Feature.sve_bfscale)] = .{
         .llvm_name = "sve-bfscale",
@@ -1500,6 +1643,11 @@ pub const all_features = blk: {
         .description = "Use an instruction sequence for taking the address of a global that allows a memory tag in the upper address bits",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.tev)] = .{
+        .llvm_name = "tev",
+        .description = "Enable TIndex Exception-like Vector instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.the)] = .{
         .llvm_name = "the",
         .description = "Enable Armv8.9-A Translation Hardening Extension",
@@ -1510,14 +1658,14 @@ pub const all_features = blk: {
         .description = "Enable Armv8.4-A TLB Range and Maintenance instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.tlbid)] = .{
+        .llvm_name = "tlbid",
+        .description = "Enable Armv9.7-A TLBI Domains extension",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.tlbiw)] = .{
         .llvm_name = "tlbiw",
         .description = "Enable Armv9.5-A TLBI VMALL for Dirty State",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.tme)] = .{
-        .llvm_name = "tme",
-        .description = "Enable Transactional Memory Extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.tpidr_el1)] = .{
@@ -1573,6 +1721,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.use_reciprocal_square_root)] = .{
         .llvm_name = "use-reciprocal-square-root",
         .description = "Use the reciprocal square root approximation",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.use_wzr_to_vec_move)] = .{
+        .llvm_name = "use-wzr-to-vec-move",
+        .description = "Move from WZR to insert 0 into vector registers",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.v8_1a)] = .{
@@ -1783,6 +1936,16 @@ pub const all_features = blk: {
             .v9_5a,
         }),
     };
+    result[@intFromEnum(Feature.v9_7a)] = .{
+        .llvm_name = "v9.7a",
+        .description = "Support ARM v9.7a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .f16f32dot,
+            .fprcvt,
+            .sve2p3,
+            .v9_6a,
+        }),
+    };
     result[@intFromEnum(Feature.v9a)] = .{
         .llvm_name = "v9a",
         .description = "Support ARM v9a architecture",
@@ -1808,6 +1971,11 @@ pub const all_features = blk: {
         .description = "Enable Armv8.7-A limited-TLB-maintenance instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.zcm_fpr128)] = .{
+        .llvm_name = "zcm-fpr128",
+        .description = "Has zero-cycle register moves for FPR128 registers",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.zcm_fpr32)] = .{
         .llvm_name = "zcm-fpr32",
         .description = "Has zero-cycle register moves for FPR32 registers",
@@ -1828,27 +1996,30 @@ pub const all_features = blk: {
         .description = "Has zero-cycle register moves for GPR64 registers",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.zcz)] = .{
-        .llvm_name = "zcz",
-        .description = "Has zero-cycle zeroing instructions",
-        .dependencies = featureSet(&[_]Feature{
-            .zcz_gp,
-        }),
-    };
     result[@intFromEnum(Feature.zcz_fp_workaround)] = .{
         .llvm_name = "zcz-fp-workaround",
         .description = "The zero-cycle floating-point zeroing instruction has a bug",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.zcz_gp)] = .{
-        .llvm_name = "zcz-gp",
-        .description = "Has zero-cycle zeroing instructions for generic registers",
+    result[@intFromEnum(Feature.zcz_fpr128)] = .{
+        .llvm_name = "zcz-fpr128",
+        .description = "Has zero-cycle zeroing instructions for FPR128 registers",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.zcz_gpr32)] = .{
+        .llvm_name = "zcz-gpr32",
+        .description = "Has zero-cycle zeroing instructions for GPR32 registers",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.zcz_gpr64)] = .{
+        .llvm_name = "zcz-gpr64",
+        .description = "Has zero-cycle zeroing instructions for GPR64 registers",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.@"enum".fields[i].name;
+        elem.name = ti.@"enum".field_names[i];
     }
     break :blk result;
 };
@@ -1862,6 +2033,8 @@ pub const cpu = struct {
             .aggressive_fma,
             .arith_bcc_fusion,
             .complxnum,
+            .disable_unpredicated_ld_st_lower,
+            .max_interleave_factor_4,
             .perfmon,
             .predictable_select_expensive,
             .sha2,
@@ -1886,6 +2059,7 @@ pub const cpu = struct {
             .fuse_aes,
             .fuse_literals,
             .ldp_aligned_only,
+            .max_interleave_factor_4,
             .perfmon,
             .rand,
             .sha3,
@@ -1911,6 +2085,7 @@ pub const cpu = struct {
             .fuse_aes,
             .fuse_literals,
             .ldp_aligned_only,
+            .max_interleave_factor_4,
             .mte,
             .perfmon,
             .rand,
@@ -1939,6 +2114,7 @@ pub const cpu = struct {
             .fuse_aes,
             .fuse_literals,
             .ldp_aligned_only,
+            .max_interleave_factor_4,
             .mte,
             .perfmon,
             .predictable_select_expensive,
@@ -1949,6 +2125,38 @@ pub const cpu = struct {
             .stp_aligned_only,
             .use_postra_scheduler,
             .v8_7a,
+        }),
+    };
+    pub const ampere1c: CpuModel = .{
+        .name = "ampere1c",
+        .llvm_name = "ampere1c",
+        .features = featureSet(&[_]Feature{
+            .aggressive_fma,
+            .alu_lsl_fast,
+            .arith_bcc_fusion,
+            .cmp_bcc_fusion,
+            .cssc,
+            .enable_select_opt,
+            .faminmax,
+            .fp16fml,
+            .fp8fma,
+            .fuse_address,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .fuse_literals,
+            .lut,
+            .max_interleave_factor_4,
+            .mte,
+            .perfmon,
+            .predictable_select_expensive,
+            .rand,
+            .store_pair_suppress,
+            .sve_aes,
+            .sve_b16b16,
+            .sve_sha3,
+            .sve_sm4,
+            .use_postra_scheduler,
+            .v9_2a,
         }),
     };
     pub const apple_a10: CpuModel = .{
@@ -1964,6 +2172,7 @@ pub const cpu = struct {
             .fuse_aes,
             .fuse_crypto_eor,
             .lor,
+            .no_zcz_fpr64,
             .pan,
             .perfmon,
             .rdm,
@@ -1971,9 +2180,11 @@ pub const cpu = struct {
             .store_pair_suppress,
             .v8a,
             .vh,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_a11: CpuModel = .{
@@ -1988,13 +2199,16 @@ pub const cpu = struct {
             .fullfp16,
             .fuse_aes,
             .fuse_crypto_eor,
+            .no_zcz_fpr64,
             .perfmon,
             .sha2,
             .store_pair_suppress,
             .v8_2a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_a12: CpuModel = .{
@@ -2009,13 +2223,16 @@ pub const cpu = struct {
             .fullfp16,
             .fuse_aes,
             .fuse_crypto_eor,
+            .no_zcz_fpr64,
             .perfmon,
             .sha2,
             .store_pair_suppress,
             .v8_3a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_a13: CpuModel = .{
@@ -2030,13 +2247,16 @@ pub const cpu = struct {
             .fp16fml,
             .fuse_aes,
             .fuse_crypto_eor,
+            .no_zcz_fpr64,
             .perfmon,
             .sha3,
             .store_pair_suppress,
             .v8_4a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_a14: CpuModel = .{
@@ -2059,6 +2279,8 @@ pub const cpu = struct {
             .fuse_crypto_eor,
             .fuse_csel,
             .fuse_literals,
+            .max_interleave_factor_4,
+            .no_zcz_fpr64,
             .perfmon,
             .predres,
             .sb,
@@ -2067,9 +2289,11 @@ pub const cpu = struct {
             .ssbs,
             .store_pair_suppress,
             .v8_4a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_a15: CpuModel = .{
@@ -2090,13 +2314,17 @@ pub const cpu = struct {
             .fuse_crypto_eor,
             .fuse_csel,
             .fuse_literals,
+            .max_interleave_factor_4,
+            .no_zcz_fpr64,
             .perfmon,
             .sha3,
             .store_pair_suppress,
             .v8_6a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_a16: CpuModel = .{
@@ -2118,13 +2346,17 @@ pub const cpu = struct {
             .fuse_csel,
             .fuse_literals,
             .hcx,
+            .max_interleave_factor_4,
+            .no_zcz_fpr64,
             .perfmon,
             .sha3,
             .store_pair_suppress,
             .v8_6a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_a17: CpuModel = .{
@@ -2146,13 +2378,17 @@ pub const cpu = struct {
             .fuse_csel,
             .fuse_literals,
             .hcx,
+            .max_interleave_factor_4,
+            .no_zcz_fpr64,
             .perfmon,
             .sha3,
             .store_pair_suppress,
             .v8_6a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_a18: CpuModel = .{
@@ -2173,15 +2409,58 @@ pub const cpu = struct {
             .fuse_crypto_eor,
             .fuse_csel,
             .fuse_literals,
+            .max_interleave_factor_4,
+            .no_zcz_fpr64,
             .perfmon,
             .sha3,
             .sme2,
             .sme_f64f64,
             .sme_i16i64,
             .v8_7a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
+        }),
+    };
+    pub const apple_a19: CpuModel = .{
+        .name = "apple_a19",
+        .llvm_name = "apple-a19",
+        .features = featureSet(&[_]Feature{
+            .aes,
+            .alternate_sextload_cvt_f32_pattern,
+            .arith_bcc_fusion,
+            .arith_cbz_fusion,
+            .cssc,
+            .disable_latency_sched_heuristic,
+            .fp16fml,
+            .fpac,
+            .fuse_address,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .fuse_arith_logic,
+            .fuse_crypto_eor,
+            .fuse_csel,
+            .fuse_literals,
+            .hbc,
+            .max_interleave_factor_4,
+            .mte,
+            .no_zcz_fpr64,
+            .perfmon,
+            .sha3,
+            .sme2p1,
+            .sme_b16b16,
+            .sme_f16f16,
+            .sme_f64f64,
+            .sme_i16i64,
+            .specres2,
+            .v8_7a,
+            .zcm_fpr128,
+            .zcm_gpr64,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_a7: CpuModel = .{
@@ -2195,14 +2474,17 @@ pub const cpu = struct {
             .disable_latency_sched_heuristic,
             .fuse_aes,
             .fuse_crypto_eor,
+            .no_zcz_fpr64,
             .perfmon,
             .sha2,
             .store_pair_suppress,
             .v8a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
             .zcz_fp_workaround,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_a8: CpuModel = .{
@@ -2216,14 +2498,17 @@ pub const cpu = struct {
             .disable_latency_sched_heuristic,
             .fuse_aes,
             .fuse_crypto_eor,
+            .no_zcz_fpr64,
             .perfmon,
             .sha2,
             .store_pair_suppress,
             .v8a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
             .zcz_fp_workaround,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_a9: CpuModel = .{
@@ -2237,14 +2522,17 @@ pub const cpu = struct {
             .disable_latency_sched_heuristic,
             .fuse_aes,
             .fuse_crypto_eor,
+            .no_zcz_fpr64,
             .perfmon,
             .sha2,
             .store_pair_suppress,
             .v8a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
             .zcz_fp_workaround,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_m1: CpuModel = .{
@@ -2267,6 +2555,8 @@ pub const cpu = struct {
             .fuse_crypto_eor,
             .fuse_csel,
             .fuse_literals,
+            .max_interleave_factor_4,
+            .no_zcz_fpr64,
             .perfmon,
             .predres,
             .sb,
@@ -2275,9 +2565,11 @@ pub const cpu = struct {
             .ssbs,
             .store_pair_suppress,
             .v8_4a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_m2: CpuModel = .{
@@ -2298,13 +2590,17 @@ pub const cpu = struct {
             .fuse_crypto_eor,
             .fuse_csel,
             .fuse_literals,
+            .max_interleave_factor_4,
+            .no_zcz_fpr64,
             .perfmon,
             .sha3,
             .store_pair_suppress,
             .v8_6a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_m3: CpuModel = .{
@@ -2326,13 +2622,17 @@ pub const cpu = struct {
             .fuse_csel,
             .fuse_literals,
             .hcx,
+            .max_interleave_factor_4,
+            .no_zcz_fpr64,
             .perfmon,
             .sha3,
             .store_pair_suppress,
             .v8_6a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_m4: CpuModel = .{
@@ -2353,15 +2653,58 @@ pub const cpu = struct {
             .fuse_crypto_eor,
             .fuse_csel,
             .fuse_literals,
+            .max_interleave_factor_4,
+            .no_zcz_fpr64,
             .perfmon,
             .sha3,
             .sme2,
             .sme_f64f64,
             .sme_i16i64,
             .v8_7a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
+        }),
+    };
+    pub const apple_m5: CpuModel = .{
+        .name = "apple_m5",
+        .llvm_name = "apple-m5",
+        .features = featureSet(&[_]Feature{
+            .aes,
+            .alternate_sextload_cvt_f32_pattern,
+            .arith_bcc_fusion,
+            .arith_cbz_fusion,
+            .cssc,
+            .disable_latency_sched_heuristic,
+            .fp16fml,
+            .fpac,
+            .fuse_address,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .fuse_arith_logic,
+            .fuse_crypto_eor,
+            .fuse_csel,
+            .fuse_literals,
+            .hbc,
+            .max_interleave_factor_4,
+            .mte,
+            .no_zcz_fpr64,
+            .perfmon,
+            .sha3,
+            .sme2p1,
+            .sme_b16b16,
+            .sme_f16f16,
+            .sme_f64f64,
+            .sme_i16i64,
+            .specres2,
+            .v8_7a,
+            .zcm_fpr128,
+            .zcm_gpr64,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_s10: CpuModel = .{
@@ -2383,13 +2726,17 @@ pub const cpu = struct {
             .fuse_csel,
             .fuse_literals,
             .hcx,
+            .max_interleave_factor_4,
+            .no_zcz_fpr64,
             .perfmon,
             .sha3,
             .store_pair_suppress,
             .v8_6a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_s4: CpuModel = .{
@@ -2404,13 +2751,16 @@ pub const cpu = struct {
             .fullfp16,
             .fuse_aes,
             .fuse_crypto_eor,
+            .no_zcz_fpr64,
             .perfmon,
             .sha2,
             .store_pair_suppress,
             .v8_3a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_s5: CpuModel = .{
@@ -2425,13 +2775,16 @@ pub const cpu = struct {
             .fullfp16,
             .fuse_aes,
             .fuse_crypto_eor,
+            .no_zcz_fpr64,
             .perfmon,
             .sha2,
             .store_pair_suppress,
             .v8_3a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_s6: CpuModel = .{
@@ -2446,13 +2799,16 @@ pub const cpu = struct {
             .fp16fml,
             .fuse_aes,
             .fuse_crypto_eor,
+            .no_zcz_fpr64,
             .perfmon,
             .sha3,
             .store_pair_suppress,
             .v8_4a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_s7: CpuModel = .{
@@ -2467,13 +2823,16 @@ pub const cpu = struct {
             .fp16fml,
             .fuse_aes,
             .fuse_crypto_eor,
+            .no_zcz_fpr64,
             .perfmon,
             .sha3,
             .store_pair_suppress,
             .v8_4a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_s8: CpuModel = .{
@@ -2488,13 +2847,16 @@ pub const cpu = struct {
             .fp16fml,
             .fuse_aes,
             .fuse_crypto_eor,
+            .no_zcz_fpr64,
             .perfmon,
             .sha3,
             .store_pair_suppress,
             .v8_4a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const apple_s9: CpuModel = .{
@@ -2516,13 +2878,126 @@ pub const cpu = struct {
             .fuse_csel,
             .fuse_literals,
             .hcx,
+            .max_interleave_factor_4,
+            .no_zcz_fpr64,
             .perfmon,
             .sha3,
             .store_pair_suppress,
             .v8_6a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
+        }),
+    };
+    pub const c1_nano: CpuModel = .{
+        .name = "c1_nano",
+        .llvm_name = "c1-nano",
+        .features = featureSet(&[_]Feature{
+            .chk,
+            .clrbhb,
+            .ete,
+            .fp16fml,
+            .fpac,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .mte,
+            .perfmon,
+            .rcpc3,
+            .sme2,
+            .specres2,
+            .sve_bitperm,
+            .use_fixed_over_scalable_if_equal_cost,
+            .use_postra_scheduler,
+            .use_wzr_to_vec_move,
+            .v9_3a,
+        }),
+    };
+    pub const c1_premium: CpuModel = .{
+        .name = "c1_premium",
+        .llvm_name = "c1-premium",
+        .features = featureSet(&[_]Feature{
+            .alu_lsl_fast,
+            .avoid_ldapur,
+            .chk,
+            .clrbhb,
+            .enable_select_opt,
+            .ete,
+            .fp16fml,
+            .fpac,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
+            .mte,
+            .perfmon,
+            .predictable_select_expensive,
+            .rcpc3,
+            .sme2,
+            .spe,
+            .specres2,
+            .sve_bitperm,
+            .use_fixed_over_scalable_if_equal_cost,
+            .use_postra_scheduler,
+            .v9_3a,
+        }),
+    };
+    pub const c1_pro: CpuModel = .{
+        .name = "c1_pro",
+        .llvm_name = "c1-pro",
+        .features = featureSet(&[_]Feature{
+            .alu_lsl_fast,
+            .chk,
+            .clrbhb,
+            .cmp_bcc_fusion,
+            .enable_select_opt,
+            .ete,
+            .fp16fml,
+            .fpac,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
+            .mte,
+            .perfmon,
+            .predictable_select_expensive,
+            .rcpc3,
+            .sme2,
+            .spe,
+            .specres2,
+            .sve_bitperm,
+            .use_postra_scheduler,
+            .v9_3a,
+        }),
+    };
+    pub const c1_ultra: CpuModel = .{
+        .name = "c1_ultra",
+        .llvm_name = "c1-ultra",
+        .features = featureSet(&[_]Feature{
+            .alu_lsl_fast,
+            .avoid_ldapur,
+            .chk,
+            .clrbhb,
+            .enable_select_opt,
+            .ete,
+            .fp16fml,
+            .fpac,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
+            .mte,
+            .perfmon,
+            .predictable_select_expensive,
+            .rcpc3,
+            .sme2,
+            .spe,
+            .specres2,
+            .sve_bitperm,
+            .use_fixed_over_scalable_if_equal_cost,
+            .use_postra_scheduler,
+            .v9_3a,
         }),
     };
     pub const carmel: CpuModel = .{
@@ -2541,12 +3016,15 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .alu_lsl_fast,
             .bf16,
+            .disable_maximize_scalable_bandwidth,
             .enable_select_opt,
             .ete,
             .fp16fml,
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .i8mm,
             .mte,
             .perfmon,
@@ -2607,6 +3085,7 @@ pub const cpu = struct {
             .sve_bitperm,
             .use_fixed_over_scalable_if_equal_cost,
             .use_postra_scheduler,
+            .use_wzr_to_vec_move,
             .v9a,
         }),
     };
@@ -2624,6 +3103,7 @@ pub const cpu = struct {
             .sve_bitperm,
             .use_fixed_over_scalable_if_equal_cost,
             .use_postra_scheduler,
+            .use_wzr_to_vec_move,
             .v9_2a,
         }),
     };
@@ -2640,6 +3120,7 @@ pub const cpu = struct {
             .perfmon,
             .sve_bitperm,
             .use_postra_scheduler,
+            .use_wzr_to_vec_move,
             .v9_2a,
         }),
     };
@@ -2655,6 +3136,7 @@ pub const cpu = struct {
             .perfmon,
             .sha2,
             .use_postra_scheduler,
+            .use_wzr_to_vec_move,
             .v8a,
         }),
     };
@@ -2672,6 +3154,7 @@ pub const cpu = struct {
             .rcpc,
             .sha2,
             .use_postra_scheduler,
+            .use_wzr_to_vec_move,
             .v8_2a,
         }),
     };
@@ -2687,6 +3170,7 @@ pub const cpu = struct {
             .fuse_adrp_add,
             .fuse_aes,
             .fuse_literals,
+            .max_interleave_factor_4,
             .perfmon,
             .predictable_select_expensive,
             .sha2,
@@ -2747,6 +3231,8 @@ pub const cpu = struct {
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .i8mm,
             .mte,
             .perfmon,
@@ -2769,6 +3255,8 @@ pub const cpu = struct {
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .i8mm,
             .mte,
             .perfmon,
@@ -2808,6 +3296,8 @@ pub const cpu = struct {
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .mte,
             .perfmon,
             .predictable_select_expensive,
@@ -2829,6 +3319,8 @@ pub const cpu = struct {
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .mte,
             .perfmon,
             .predictable_select_expensive,
@@ -2850,6 +3342,8 @@ pub const cpu = struct {
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .mte,
             .perfmon,
             .predictable_select_expensive,
@@ -2967,6 +3461,8 @@ pub const cpu = struct {
             .fullfp16,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .perfmon,
             .predictable_select_expensive,
             .rcpc,
@@ -2990,6 +3486,8 @@ pub const cpu = struct {
             .fullfp16,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .perfmon,
             .predictable_select_expensive,
             .rcpc,
@@ -3014,6 +3512,8 @@ pub const cpu = struct {
             .fullfp16,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .pauth,
             .perfmon,
             .predictable_select_expensive,
@@ -3157,6 +3657,8 @@ pub const cpu = struct {
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .mte,
             .perfmon,
             .predictable_select_expensive,
@@ -3179,6 +3681,8 @@ pub const cpu = struct {
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .mte,
             .perfmon,
             .predictable_select_expensive,
@@ -3200,14 +3704,17 @@ pub const cpu = struct {
             .disable_latency_sched_heuristic,
             .fuse_aes,
             .fuse_crypto_eor,
+            .no_zcz_fpr64,
             .perfmon,
             .sha2,
             .store_pair_suppress,
             .v8a,
-            .zcm_fpr64,
+            .zcm_fpr128,
             .zcm_gpr64,
-            .zcz,
             .zcz_fp_workaround,
+            .zcz_fpr128,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const emag: CpuModel = .{
@@ -3267,6 +3774,7 @@ pub const cpu = struct {
             .fuse_aes,
             .fuse_csel,
             .fuse_literals,
+            .max_interleave_factor_4,
             .perfmon,
             .predictable_select_expensive,
             .sha2,
@@ -3293,12 +3801,14 @@ pub const cpu = struct {
             .fuse_arith_logic,
             .fuse_csel,
             .fuse_literals,
+            .max_interleave_factor_4,
             .perfmon,
             .sha2,
             .store_pair_suppress,
             .use_postra_scheduler,
             .v8_2a,
-            .zcz,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const exynos_m5: CpuModel = .{
@@ -3319,12 +3829,14 @@ pub const cpu = struct {
             .fuse_arith_logic,
             .fuse_csel,
             .fuse_literals,
+            .max_interleave_factor_4,
             .perfmon,
             .sha2,
             .store_pair_suppress,
             .use_postra_scheduler,
             .v8_2a,
-            .zcz,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const falkor: CpuModel = .{
@@ -3334,6 +3846,7 @@ pub const cpu = struct {
             .aes,
             .alu_lsl_fast,
             .crc,
+            .max_interleave_factor_4,
             .perfmon,
             .predictable_select_expensive,
             .rdm,
@@ -3342,7 +3855,8 @@ pub const cpu = struct {
             .store_pair_suppress,
             .use_postra_scheduler,
             .v8a,
-            .zcz,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const fujitsu_monaka: CpuModel = .{
@@ -3382,6 +3896,8 @@ pub const cpu = struct {
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .mte,
             .perfmon,
             .predictable_select_expensive,
@@ -3422,11 +3938,13 @@ pub const cpu = struct {
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .i8mm,
+            .max_interleave_factor_4,
             .mte,
             .perfmon,
             .predictable_select_expensive,
-            .rand,
             .spe,
             .sve_aes,
             .sve_bitperm,
@@ -3444,13 +3962,15 @@ pub const cpu = struct {
             .aes,
             .alu_lsl_fast,
             .crc,
+            .max_interleave_factor_4,
             .perfmon,
             .predictable_select_expensive,
             .sha2,
             .store_pair_suppress,
             .use_postra_scheduler,
             .v8a,
-            .zcz,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const neoverse_512tvb: CpuModel = .{
@@ -3467,6 +3987,7 @@ pub const cpu = struct {
             .fuse_adrp_add,
             .fuse_aes,
             .i8mm,
+            .max_interleave_factor_4,
             .perfmon,
             .predictable_select_expensive,
             .rand,
@@ -3524,12 +4045,15 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .alu_lsl_fast,
             .bf16,
+            .disable_maximize_scalable_bandwidth,
             .enable_select_opt,
             .ete,
             .fp16fml,
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .i8mm,
             .mte,
             .perfmon,
@@ -3550,6 +4074,8 @@ pub const cpu = struct {
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .mte,
             .perfmon,
             .predictable_select_expensive,
@@ -3569,10 +4095,13 @@ pub const cpu = struct {
             .alu_lsl_fast,
             .bf16,
             .ccdp,
+            .disable_maximize_scalable_bandwidth,
             .enable_select_opt,
             .fp16fml,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .i8mm,
             .no_sve_fp_ld1r,
             .perfmon,
@@ -3602,7 +4131,10 @@ pub const cpu = struct {
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .i8mm,
+            .max_interleave_factor_4,
             .mte,
             .perfmon,
             .predictable_select_expensive,
@@ -3627,7 +4159,10 @@ pub const cpu = struct {
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .ls64,
+            .max_interleave_factor_4,
             .mte,
             .perfmon,
             .predictable_select_expensive,
@@ -3651,7 +4186,10 @@ pub const cpu = struct {
             .fpac,
             .fuse_adrp_add,
             .fuse_aes,
+            .fuse_csel,
+            .fuse_cset,
             .ls64,
+            .max_interleave_factor_4,
             .mte,
             .perfmon,
             .predictable_select_expensive,
@@ -3700,6 +4238,7 @@ pub const cpu = struct {
             .fuse_adrp_add,
             .fuse_aes,
             .fuse_crypto_eor,
+            .max_interleave_factor_4,
             .perfmon,
             .rand,
             .sha3,
@@ -3715,6 +4254,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .aes,
             .alu_lsl_fast,
+            .max_interleave_factor_4,
             .perfmon,
             .predictable_select_expensive,
             .sha2,
@@ -3722,7 +4262,8 @@ pub const cpu = struct {
             .store_pair_suppress,
             .use_postra_scheduler,
             .v8_4a,
-            .zcz,
+            .zcz_gpr32,
+            .zcz_gpr64,
         }),
     };
     pub const thunderx: CpuModel = .{
@@ -3746,6 +4287,7 @@ pub const cpu = struct {
             .aes,
             .aggressive_fma,
             .arith_bcc_fusion,
+            .max_interleave_factor_4,
             .predictable_select_expensive,
             .sha2,
             .store_pair_suppress,
@@ -3761,6 +4303,7 @@ pub const cpu = struct {
             .aggressive_fma,
             .arith_bcc_fusion,
             .balance_fp_ops,
+            .max_interleave_factor_4,
             .perfmon,
             .predictable_select_expensive,
             .sha2,

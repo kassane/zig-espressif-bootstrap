@@ -644,12 +644,12 @@ test "non-exhaustive enum" {
                 else => true,
             });
 
-            try expect(@typeInfo(E).@"enum".fields.len == 2);
+            try expect(@typeInfo(E).@"enum".field_names.len == 2);
             e = @as(E, @enumFromInt(12));
             try expect(@intFromEnum(e) == 12);
             e = @as(E, @enumFromInt(y));
             try expect(@intFromEnum(e) == 52);
-            try expect(@typeInfo(E).@"enum".is_exhaustive == false);
+            try expect(@typeInfo(E).@"enum".mode == .nonexhaustive);
         }
     };
     try S.doTheTest(52);
@@ -668,8 +668,9 @@ test "empty non-exhaustive enum" {
             });
             try expect(@intFromEnum(e) == y);
 
-            try expect(@typeInfo(E).@"enum".fields.len == 0);
-            try expect(@typeInfo(E).@"enum".is_exhaustive == false);
+            try expect(@typeInfo(E).@"enum".field_names.len == 0);
+            try expect(@typeInfo(E).@"enum".field_values.len == 0);
+            try expect(@typeInfo(E).@"enum".mode == .nonexhaustive);
         }
     };
     try S.doTheTest(42);
@@ -704,8 +705,9 @@ test "single field non-exhaustive enum" {
             });
 
             try expect(@intFromEnum(@as(E, @enumFromInt(y))) == y);
-            try expect(@typeInfo(E).@"enum".fields.len == 1);
-            try expect(@typeInfo(E).@"enum".is_exhaustive == false);
+            try expect(@typeInfo(E).@"enum".field_names.len == 1);
+            try expect(@typeInfo(E).@"enum".field_values.len == 1);
+            try expect(@typeInfo(E).@"enum".mode == .nonexhaustive);
         }
     };
     try S.doTheTest(23);
@@ -1057,7 +1059,6 @@ test "tag name with signed enum values" {
 test "tag name with large enum values" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     const Kdf = enum(u128) {
         aes_kdf = 0xea4f8ac1080d74bf60448a629af3d9c9,
@@ -1072,6 +1073,104 @@ test "tag name with large enum values" {
     try expect(mem.eql(u8, @tagName(kdf), "argon2d"));
     kdf = .argon2id;
     try expect(mem.eql(u8, @tagName(kdf), "argon2id"));
+}
+
+test "@tagName with exotic integer enum types" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    const S = struct {
+        fn testEnumSigned(comptime T: type) !void {
+            {
+                const E1 = enum(T) {
+                    a = -125,
+                    b = 125,
+                    c = std.math.minInt(T),
+                    d = std.math.maxInt(T),
+                };
+
+                var e: E1 = .a;
+                try expect(mem.eql(u8, @tagName(e), "a"));
+                e = .b;
+                try expect(mem.eql(u8, @tagName(e), "b"));
+                e = .c;
+                try expect(mem.eql(u8, @tagName(e), "c"));
+                e = .d;
+                try expect(mem.eql(u8, @tagName(e), "d"));
+            }
+            {
+                const E2 = enum(T) {
+                    a = -125,
+                    b = 125,
+                    c = std.math.minInt(T),
+                    d = std.math.maxInt(T),
+                    _,
+                };
+
+                var e: E2 = .a;
+                try expect(mem.eql(u8, @tagName(e), "a"));
+                e = .b;
+                try expect(mem.eql(u8, @tagName(e), "b"));
+                e = .c;
+                try expect(mem.eql(u8, @tagName(e), "c"));
+                e = .d;
+                try expect(mem.eql(u8, @tagName(e), "d"));
+            }
+        }
+
+        fn testEnumUnsigned(comptime T: type) !void {
+            {
+                const E1 = enum(T) {
+                    a = std.math.maxInt(T) - 125,
+                    b = 125,
+                    c = std.math.minInt(T),
+                    d = std.math.maxInt(T),
+                };
+
+                var e: E1 = .a;
+                try expect(mem.eql(u8, @tagName(e), "a"));
+                e = .b;
+                try expect(mem.eql(u8, @tagName(e), "b"));
+                e = .c;
+                try expect(mem.eql(u8, @tagName(e), "c"));
+                e = .d;
+                try expect(mem.eql(u8, @tagName(e), "d"));
+            }
+            {
+                const E2 = enum(T) {
+                    a = std.math.maxInt(T) - 125,
+                    b = 125,
+                    c = std.math.minInt(T),
+                    d = std.math.maxInt(T),
+                    _,
+                };
+
+                var e: E2 = .a;
+                try expect(mem.eql(u8, @tagName(e), "a"));
+                e = .b;
+                try expect(mem.eql(u8, @tagName(e), "b"));
+                e = .c;
+                try expect(mem.eql(u8, @tagName(e), "c"));
+                e = .d;
+                try expect(mem.eql(u8, @tagName(e), "d"));
+            }
+        }
+
+        fn doTheTest() !void {
+            try testEnumSigned(i33);
+            try testEnumSigned(i95);
+            try testEnumSigned(i127);
+            try testEnumSigned(i257);
+
+            try testEnumUnsigned(u33);
+            try testEnumUnsigned(u95);
+            try testEnumUnsigned(u127);
+            try testEnumUnsigned(u257);
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@tagName in callconv(.c) function" {

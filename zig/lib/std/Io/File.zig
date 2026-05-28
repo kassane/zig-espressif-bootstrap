@@ -142,20 +142,11 @@ pub fn stat(file: File, io: Io) StatError!Stat {
     return io.vtable.fileStat(io.userdata, file);
 }
 
-/// Deprecated, renamed to `Dir.OpenFileOptions.Mode`.
-pub const OpenMode = Dir.OpenFileOptions.Mode;
-
 pub const Lock = enum {
     none,
     shared,
     exclusive,
 };
-
-/// Deprecated, renamed to `Dir.OpenFileOptions`
-pub const OpenFlags = Dir.OpenFileOptions;
-
-/// Deprecated, renamed to `Dir.CreateFileOptions`.
-pub const CreateFlags = Dir.CreateFileOptions;
 
 pub const OpenError = error{
     PipeBusy,
@@ -277,6 +268,12 @@ pub const SetLengthError = error{
 /// Truncates or expands the file, populating any new data with zeroes.
 ///
 /// The file offset after this call is left unchanged.
+///
+/// This function operates on an open file handle. There is not an equivalent
+/// function in `Dir` which operates on paths because generally, such
+/// functionality will introduce Time-Of-Check, Time-Of-Use (TOCTOU) bugs. In
+/// the rare case when those semantics are actually needed, it is reasonable to
+/// open the file with the truncate flag.
 pub fn setLength(file: File, io: Io, new_length: u64) SetLengthError!void {
     return io.vtable.fileSetLength(io.userdata, file, new_length);
 }

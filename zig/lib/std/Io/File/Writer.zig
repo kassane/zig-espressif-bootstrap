@@ -162,9 +162,10 @@ fn sendFilePositional(w: *Writer, file_reader: *Io.File.Reader, limit: Io.Limit)
             w.err = error.Canceled;
             return error.WriteFailed;
         },
-        error.EndOfStream => return error.EndOfStream,
-        error.Unimplemented => return error.Unimplemented,
-        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream,
+        error.Unimplemented,
+        error.ReadFailed,
+        => |e| return e,
         else => |e| {
             w.write_file_err = e;
             return error.WriteFailed;
@@ -182,9 +183,10 @@ fn sendFileStreaming(w: *Writer, file_reader: *Io.File.Reader, limit: Io.Limit) 
             w.err = error.Canceled;
             return error.WriteFailed;
         },
-        error.EndOfStream => return error.EndOfStream,
-        error.Unimplemented => return error.Unimplemented,
-        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream,
+        error.Unimplemented,
+        error.ReadFailed,
+        => |e| return e,
         else => |e| {
             w.write_file_err = e;
             return error.WriteFailed;

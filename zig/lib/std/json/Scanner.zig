@@ -1401,7 +1401,7 @@ pub fn validate(allocator: Allocator, s: []const u8) Allocator.Error!bool {
     while (true) {
         const token = scanner.next() catch |err| switch (err) {
             error.SyntaxError, error.UnexpectedEndOfInput => return false,
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
             error.BufferUnderrun => unreachable,
         };
         if (token == .end_of_document) break;
@@ -1734,7 +1734,7 @@ pub const Reader = struct {
 
     fn refillBuffer(self: *@This()) std.Io.Reader.Error!void {
         const input = self.reader.peekGreedy(1) catch |err| switch (err) {
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
             error.EndOfStream => return self.scanner.endInput(),
         };
         self.reader.toss(input.len);

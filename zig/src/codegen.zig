@@ -29,7 +29,7 @@ pub const CodeGenError = GenerateSymbolError || error{
     CodegenFail,
 };
 
-fn devFeatureForBackend(backend: std.builtin.CompilerBackend) dev.Feature {
+fn devFeatureForBackend(backend: std.lang.CompilerBackend) dev.Feature {
     return switch (backend) {
         .other, .stage1 => unreachable,
         .stage2_aarch64 => .aarch64_backend,
@@ -47,7 +47,7 @@ fn devFeatureForBackend(backend: std.builtin.CompilerBackend) dev.Feature {
     };
 }
 
-fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
+fn importBackend(comptime backend: std.lang.CompilerBackend) type {
     return switch (backend) {
         .other, .stage1 => unreachable,
         .stage2_aarch64 => aarch64,
@@ -105,7 +105,7 @@ pub const AnyMir = union {
     wasm: if (dev.env.supports(.wasm_backend)) @import("codegen/wasm/Mir.zig") else noreturn,
     c: if (dev.env.supports(.c_backend)) @import("codegen/c.zig").Mir else noreturn,
 
-    pub inline fn tag(comptime backend: std.builtin.CompilerBackend) []const u8 {
+    pub inline fn tag(comptime backend: std.lang.CompilerBackend) []const u8 {
         return switch (backend) {
             .stage2_aarch64 => "aarch64",
             .stage2_riscv64 => "riscv64",
@@ -178,7 +178,7 @@ pub fn emitFunction(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    atom_index: u32,
+    atom_id: link.File.AtomId,
     any_mir: *const AnyMir,
     w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
@@ -195,7 +195,7 @@ pub fn emitFunction(
         => |backend| {
             dev.check(devFeatureForBackend(backend));
             const mir = &@field(any_mir, AnyMir.tag(backend));
-            return mir.emit(lf, pt, src_loc, func_index, atom_index, w, debug_output);
+            return mir.emit(lf, pt, src_loc, func_index, atom_id, w, debug_output);
         },
     }
 }
@@ -205,7 +205,7 @@ pub fn generateLazyFunction(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
-    atom_index: u32,
+    atom_id: link.File.AtomId,
     w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
 ) (CodeGenError || std.Io.Writer.Error)!void {
@@ -218,7 +218,7 @@ pub fn generateLazyFunction(
         else => unreachable,
         inline .stage2_riscv64, .stage2_x86_64 => |backend| {
             dev.check(devFeatureForBackend(backend));
-            return importBackend(backend).generateLazy(lf, pt, src_loc, lazy_sym, atom_index, w, debug_output);
+            return importBackend(backend).generateLazy(lf, pt, src_loc, lazy_sym, atom_id, w, debug_output);
         },
     }
 }
@@ -484,7 +484,11 @@ pub fn generateSymbol(
             },
             .vector_type => |vector_type| {
                 const abi_size = math.cast(usize, ty.abiSize(zcu)) orelse return error.Overflow;
-                if (vector_type.child == .bool_type) {
+                const vector_bool_bitpacked = switch (zcu.comp.getZigBackend()) {
+                    .stage2_wasm => false,
+                    else => true,
+                };
+                if (vector_type.child == .bool_type and vector_bool_bitpacked) {
                     const bytes = try w.writableSlice(abi_size);
                     @memset(bytes, 0xaa);
                     var index: usize = 0;
@@ -760,7 +764,7 @@ fn lowerUavRef(
         .offset = w.end,
         .addend = @intCast(offset),
     }) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         else => |e| std.debug.panic("TODO rework lowerUav. internal error: {t}", .{e}),
     };
     const endian = target.cpu.arch.endian();
@@ -848,20 +852,7 @@ fn lowerNavRef(
     }
 }
 
-/// Helper struct to denote that the value is in memory but requires a linker relocation fixup:
-/// * got - the value is referenced indirectly via GOT entry index (the linker emits a got-type reloc)
-/// * direct - the value is referenced directly via symbol index index (the linker emits a displacement reloc)
-/// * import - the value is referenced indirectly via import entry index (the linker emits an import-type reloc)
-pub const LinkerLoad = struct {
-    type: enum {
-        got,
-        direct,
-        import,
-    },
-    sym_index: u32,
-};
-
-pub const SymbolResult = union(enum) { sym_index: u32, fail: *ErrorMsg };
+pub const SymbolResult = union(enum) { sym_index: link.File.SymbolId, fail: *ErrorMsg };
 
 pub fn genNavRef(
     lf: *link.File,
@@ -886,7 +877,7 @@ pub fn genNavRef(
             .internal => {
                 const sym_index = try zo.getOrCreateMetadataForNav(zcu, nav_index);
                 if (is_threadlocal) zo.symbol(sym_index).flags.is_tls = true;
-                return .{ .sym_index = sym_index };
+                return .{ .sym_index = @enumFromInt(sym_index) };
             },
             .strong, .weak => {
                 const sym_index = try elf_file.getGlobalSymbol(nav.name.toSlice(ip), lib_name.toSlice(ip));
@@ -897,27 +888,27 @@ pub fn genNavRef(
                     .link_once => unreachable,
                 }
                 if (is_threadlocal) zo.symbol(sym_index).flags.is_tls = true;
-                return .{ .sym_index = sym_index };
+                return .{ .sym_index = @enumFromInt(sym_index) };
             },
             .link_once => unreachable,
         }
     } else if (lf.cast(.elf2)) |elf| {
-        return .{ .sym_index = @intFromEnum(elf.navSymbol(zcu, nav_index) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+        return .{ .sym_index = elf.navSymbol(nav_index) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
             else => |e| return .{ .fail = try ErrorMsg.create(
                 zcu.gpa,
                 src_loc,
                 "linker failed to create a nav: {t}",
                 .{e},
             ) },
-        }) };
+        } };
     } else if (lf.cast(.macho)) |macho_file| {
         const zo = macho_file.getZigObject().?;
         switch (linkage) {
             .internal => {
                 const sym_index = try zo.getOrCreateMetadataForNav(macho_file, nav_index);
                 if (is_threadlocal) zo.symbols.items[sym_index].flags.tlv = true;
-                return .{ .sym_index = sym_index };
+                return .{ .sym_index = @enumFromInt(sym_index) };
             },
             .strong, .weak => {
                 const sym_index = try macho_file.getGlobalSymbol(nav.name.toSlice(ip), lib_name.toSlice(ip));
@@ -928,12 +919,12 @@ pub fn genNavRef(
                     .link_once => unreachable,
                 }
                 if (is_threadlocal) zo.symbols.items[sym_index].flags.tlv = true;
-                return .{ .sym_index = sym_index };
+                return .{ .sym_index = @enumFromInt(sym_index) };
             },
             .link_once => unreachable,
         }
     } else if (lf.cast(.coff2)) |coff| {
-        return .{ .sym_index = @intFromEnum(try coff.navSymbol(zcu, nav_index)) };
+        return .{ .sym_index = @enumFromInt(@intFromEnum(try coff.navSymbol(zcu, nav_index))) };
     } else {
         const msg = try ErrorMsg.create(zcu.gpa, src_loc, "TODO genNavRef for target {}", .{target});
         return .{ .fail = msg };
@@ -953,22 +944,22 @@ pub const GenResult = union(enum) {
         immediate: u64,
         /// Decl with address deferred until the linker allocates everything in virtual memory.
         /// Payload is a symbol index.
-        load_direct: u32,
+        load_direct: link.File.SymbolId,
         /// Decl with address deferred until the linker allocates everything in virtual memory.
         /// Payload is a symbol index.
-        lea_direct: u32,
+        lea_direct: link.File.SymbolId,
         /// Decl referenced via GOT with address deferred until the linker allocates
         /// everything in virtual memory.
         /// Payload is a symbol index.
-        load_got: u32,
+        load_got: link.File.SymbolId,
         /// Direct by-address reference to memory location.
         memory: u64,
         /// Reference to memory location but deferred until linker allocated the Decl in memory.
         /// Traditionally, this corresponds to emitting a relocation in a relocatable object file.
-        load_symbol: u32,
+        load_symbol: link.File.SymbolId,
         /// Reference to memory location but deferred until linker allocated the Decl in memory.
         /// Traditionally, this corresponds to emitting a relocation in a relocatable object file.
-        lea_symbol: u32,
+        lea_symbol: link.File.SymbolId,
     };
 };
 

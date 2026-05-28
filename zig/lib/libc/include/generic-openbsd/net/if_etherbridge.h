@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_etherbridge.h,v 1.5 2024/11/04 00:13:15 jsg Exp $ */
+/*	$OpenBSD: if_etherbridge.h,v 1.7 2025/11/21 04:44:26 dlg Exp $ */
 
 /*
  * Copyright (c) 2018, 2021 David Gwynne <dlg@openbsd.org>
@@ -44,15 +44,20 @@ struct eb_entry {
 
 	uint64_t			 ebe_addr;
 	void				*ebe_port;
+	uint16_t			 ebe_vs; /* secondary vid */
 	unsigned int			 ebe_type;
 #define EBE_DYNAMIC				0x0
 #define EBE_STATIC				0x1
 #define EBE_DEAD				0xdead
+	time_t				 ebe_created;
 	time_t				 ebe_age;
 
 	struct etherbridge		*ebe_etherbridge;
 	struct smr_entry		 ebe_smr_entry;
 };
+
+#define etherbridge_port(_ebe)	((_ebe)->ebe_port)
+#define etherbridge_vs(_ebe)	((_ebe)->ebe_vs)
 
 SMR_TAILQ_HEAD(eb_list, eb_entry);
 RBT_HEAD(eb_tree, eb_entry);
@@ -80,13 +85,19 @@ int	 etherbridge_up(struct etherbridge *);
 int	 etherbridge_down(struct etherbridge *);
 void	 etherbridge_destroy(struct etherbridge *);
 
-void	 etherbridge_map(struct etherbridge *, void *, uint64_t);
+void	 etherbridge_map(struct etherbridge *, void *,
+	     uint16_t, uint16_t, uint64_t);
 void	 etherbridge_map_ea(struct etherbridge *, void *,
-	     const struct ether_addr *);
-void	*etherbridge_resolve(struct etherbridge *, uint64_t);
+	     uint16_t, uint16_t, const struct ether_addr *);
+struct eb_entry *
+	 etherbridge_resolve_entry(struct etherbridge *,
+	     uint16_t, uint64_t);
+void	*etherbridge_resolve(struct etherbridge *, uint16_t, uint64_t);
 void	*etherbridge_resolve_ea(struct etherbridge *,
-	     const struct ether_addr *);
+	     uint16_t, const struct ether_addr *);
 void	 etherbridge_detach_port(struct etherbridge *, void *);
+void	 etherbridge_filter(struct etherbridge *,
+	     int (*)(struct etherbridge *, struct eb_entry *, void *), void *);
 
 /* ioctl support */
 int	 etherbridge_set_max(struct etherbridge *, struct ifbrparam *);
@@ -94,9 +105,11 @@ int	 etherbridge_get_max(struct etherbridge *, struct ifbrparam *);
 int	 etherbridge_set_tmo(struct etherbridge *, struct ifbrparam *);
 int	 etherbridge_get_tmo(struct etherbridge *, struct ifbrparam *);
 int	 etherbridge_rtfind(struct etherbridge *, struct ifbaconf *);
+int	 etherbridge_vareq(struct etherbridge *, struct ifbaconf *);
 int	 etherbridge_add_addr(struct etherbridge *, void *,
-	     const struct ether_addr *, unsigned int);
-int	 etherbridge_del_addr(struct etherbridge *, const struct ether_addr *);
+	     uint16_t, uint16_t, const struct ether_addr *, unsigned int);
+int	 etherbridge_del_addr(struct etherbridge *,
+	     uint16_t, const struct ether_addr *);
 void	 etherbridge_flush(struct etherbridge *, uint32_t);
 
 #endif /* _NET_ETHERBRIDGE_H_ */

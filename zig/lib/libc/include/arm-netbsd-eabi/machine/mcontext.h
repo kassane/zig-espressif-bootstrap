@@ -1,4 +1,4 @@
-/*	$NetBSD: mcontext.h,v 1.23 2021/10/06 05:33:15 skrll Exp $	*/
+/*	$NetBSD: mcontext.h,v 1.27 2024/11/30 01:04:07 christos Exp $	*/
 
 /*-
  * Copyright (c) 2001, 2002 The NetBSD Foundation, Inc.
@@ -210,61 +210,15 @@ typedef struct {
 
 #endif
 
-#if defined(_RTLD_SOURCE) || defined(_LIBC_SOURCE) || \
-    defined(__LIBPTHREAD_SOURCE__)
-
-#include <sys/tls.h>
-
-#if defined(__aarch64__)
-
-__BEGIN_DECLS
-static __inline void *
-__lwp_getprivate_fast(void)
-{
-	void *__tpidr;
-	__asm __volatile("mrs\t%0, tpidr_el0" : "=r"(__tpidr));
-	return __tpidr;
-}
-__END_DECLS
-
-#elif defined(__arm__)
-
-__BEGIN_DECLS
-static __inline void *
-__lwp_getprivate_fast(void)
-{
-#if !defined(__thumb__) || defined(_ARM_ARCH_T2)
-	extern void *_lwp_getprivate(void);
-	void *rv;
-	__asm("mrc p15, 0, %0, c13, c0, 3" : "=r"(rv));
-	if (__predict_true(rv))
-		return rv;
-	/*
-	 * Some ARM cores are broken and don't raise an undefined fault when an
-	 * unrecogized mrc instruction is encountered, but just return zero.
-	 * To do deal with that, if we get a zero we (re-)fetch the value using
-	 * syscall.
-	 */
-	return _lwp_getprivate();
-#else
-	extern void *__aeabi_read_tp(void);
-	return __aeabi_read_tp();
-#endif /* !__thumb__ || _ARM_ARCH_T2 */
-}
-__END_DECLS
-#endif
-
-#endif /* _RTLD_SOURCE || _LIBC_SOURCE || __LIBPTHREAD_SOURCE__ */
-
 /* Machine-dependent uc_flags */
-#define _UC_TLSBASE	0x00080000	/* see <sys/ucontext.h> */
+#define _UC_TLSBASE	_UC_MD_BIT19	/* see <sys/ucontext.h> */
 
 /* Machine-dependent uc_flags for arm */
-#define	_UC_ARM_VFP	0x00010000	/* FPU field is VFP */
+#define	_UC_ARM_VFP	_UC_MD_BIT16	/* FPU field is VFP */
 
 /* used by signal delivery to indicate status of signal stack */
-#define _UC_SETSTACK	0x00020000
-#define _UC_CLRSTACK	0x00040000
+#define _UC_SETSTACK	_UC_MD_BIT17
+#define _UC_CLRSTACK	_UC_MD_BIT18
 
 #define _UC_MACHINE_SP(uc)	((uc)->uc_mcontext.__gregs[_REG_SP])
 #define _UC_MACHINE_FP(uc)	((uc)->uc_mcontext.__gregs[_REG_FP])

@@ -1,3 +1,3 @@
-/*	$NetBSD: ansi.h,v 1.1 2002/12/09 12:15:56 scw Exp $	*/
+/*	$NetBSD: ansi.h,v 1.1 2014/09/19 17:36:26 matt Exp $	*/
 
-#include <powerpc/ansi.h>
+#include <sys/common_ansi.h>

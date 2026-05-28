@@ -5,8 +5,8 @@
 
 const std = @import("std");
 const math = std.math;
+const ld = math.long_double;
 
-const ld = @import("long_double.zig");
 const rem_pio2_large = @import("rem_pio2_large.zig").rem_pio2_large;
 
 pub fn rem_pio2l(comptime T: type, x: T, y: *[2]T) i32 {

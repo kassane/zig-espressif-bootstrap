@@ -112,6 +112,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/IOSandbox.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/InstCombine/InstCombine.h"
@@ -1765,23 +1766,30 @@ static void modifyFirdAddToOr(BasicBlock *ClonedForBody) {
 // Helper Function to update predecessors to point to a new preheader
 static void updatePredecessorsToPreheader(BasicBlock *ForBody,
                                           BasicBlock *ForBodyPreheader) {
+  // Snapshot predecessors of the loop header before adding Preheader->ForBody.
+  // After that edge exists, ForBodyPreheader is a predecessor of ForBody and
+  // must not be retargeted onto itself. (Same pattern as LLVM loop preheader
+  // insertion.)
   SmallVector<BasicBlock *, 4> PredecessorsBb;
   for (auto *Pred : predecessors(ForBody)) {
-    if (Pred != ForBody)
+    if (Pred != ForBody && Pred != ForBodyPreheader)
       PredecessorsBb.push_back(Pred);
   }
 
+  // Do not call getTerminator() on an empty block: it asserts instead of
+  // returning null. Use hasTerminator() / getTerminatorOrNull() instead.
+  if (!ForBodyPreheader->getTerminator())
+    BranchInst::Create(ForBody, ForBodyPreheader);
+
   for (BasicBlock *Pred : PredecessorsBb) {
+    assert(Pred->getTerminator() &&
+           "predecessor of loop header must have a terminator");
     Instruction *TI = Pred->getTerminator();
     for (unsigned I = 0; I < TI->getNumSuccessors(); ++I) {
       if (TI->getSuccessor(I) == ForBody) {
         TI->setSuccessor(I, ForBodyPreheader);
       }
     }
-  }
-
-  if (!ForBodyPreheader->getTerminator()) {
-    BranchInst::Create(ForBody, ForBodyPreheader);
   }
 }
 
@@ -2190,7 +2198,7 @@ bool DspsF32DotprodLoopUnroller::transformOneLoopDepth(Function &F) {
 
   // Add instructions to ForCondPreheaderBB
   IRBuilder<> builder(ForCondPreheaderBB);
-  Value *NegativeSeven = ConstantInt::get(Type::getInt32Ty(F.getContext()), -7);
+  Value *NegativeSeven = ConstantInt::getSigned(Type::getInt32Ty(F.getContext()), -7);
   Value *Sub = builder.CreateNSWAdd(Len, NegativeSeven, "Sub");
   Value *Seven = ConstantInt::get(Type::getInt32Ty(F.getContext()), 7);
   Value *Cmp1113 = builder.CreateICmpUGT(Len, Seven, "Cmp1113");
@@ -2477,7 +2485,7 @@ static Value *expandForCondPreheader(
   // Create a new add nsw instruction before icmpInst, with operand 0 the same
   // as icmpInst, and operand 1 as -7. This instruction will be used as the
   // return value of the Function
-  Value *constNeg7 = ConstantInt::get(Type::getInt32Ty(Ctx), -7);
+  Value *constNeg7 = ConstantInt::getSigned(Type::getInt32Ty(Ctx), -7);
   IRBuilder<> BuilderBeforeICmp(icmpInst);
   Value *AddInst =
       BuilderBeforeICmp.CreateNSWAdd(icmpInst->getOperand(0), constNeg7);
@@ -2712,7 +2720,7 @@ static Value *modifyForCondPreheader(Function &F) {
       Loadnum++;
       if (Loadnum == 2) {
         IRBuilder<> Builder(Loadinst->getNextNode());
-        Value *NegSeven = ConstantInt::get(Type::getInt32Ty(Ctx), -7);
+        Value *NegSeven = ConstantInt::getSigned(Type::getInt32Ty(Ctx), -7);
         Value *Sub = Builder.CreateNSWAdd(Loadinst, NegSeven, "Sub");
         return Sub; // Return the newly inserted instruction
       }
@@ -3235,6 +3243,9 @@ static Instruction *modifyAddToOrInClonedForBody(BasicBlock *ClonedForBody) {
 }
 
 static void runInstCombinePass(Function &F) {
+  // Same as addCommonOptimizationPasses: cc1 may run under IO sandbox; nested
+  // passes can still touch the real filesystem (VFS / cwd).
+  auto BypassSandbox = sys::sandbox::scopedDisable();
   // Create necessary analysis managers
   LoopAnalysisManager LAM;
   FunctionAnalysisManager FAM;
@@ -3329,7 +3340,7 @@ static Value *unrolladdcClonedForBody(BasicBlock *ClonedForBody,
   Builder.SetInsertPoint(icmpInst);
   Value *Len = icmpInst->getOperand(1);
   Value *Sub = Builder.CreateNSWAdd(
-      Len, ConstantInt::get(Len->getType(), -UnrollFactor), "Sub");
+      Len, ConstantInt::getSigned(Len->getType(), -UnrollFactor), "Sub");
   // Set the Icmp instruction's predicate to sgt, and operands to newAddInst
   if (ICmpInst *Icmp = dyn_cast<ICmpInst>(icmpInst)) {
     Icmp->setPredicate(ICmpInst::ICMP_SGT);
@@ -3385,9 +3396,15 @@ static void expandForCondPreheaderaddc(Function &F,
     return;
   }
 
-  // Replace the first operand of the Terminator instruction with
-  // NewForCondPreheader
-  Terminator->setOperand(2, NewForCondPreheader);
+  // if.end: route the edge that targets the scalar loop header (ForBody) into
+  // NewForCondPreheader; keep the other successor (small-len path).
+  auto *EndBr = cast<BranchInst>(Terminator);
+  for (unsigned i = 0; i < EndBr->getNumSuccessors(); ++i) {
+    if (EndBr->getSuccessor(i) == ForBody) {
+      EndBr->setSuccessor(i, NewForCondPreheader);
+      break;
+    }
+  }
 
   // Find the unique PHINode in clonedForBody
   PHINode *UniquePHI = nullptr;
@@ -3426,8 +3443,15 @@ static void expandForCondPreheaderaddc(Function &F,
     return;
   }
 
-  // Set the first operand of ClonedForBody's Terminator to NewForCondPreheader2
-  clonedTerminator->setOperand(2, NewForCondPreheader2);
+  // Tail icmp is SGT after unroll; the exit-from-chunk edge still targets
+  // return from the pre-unroll icmp_eq layout — retarget that to the
+  // remainder header (do not replace the back-edge to ClonedForBody).
+  for (unsigned i = 0; i < clonedTerminator->getNumSuccessors(); ++i) {
+    if (clonedTerminator->getSuccessor(i) == returnBB) {
+      clonedTerminator->setSuccessor(i, NewForCondPreheader2);
+      break;
+    }
+  }
 
   // Find the unique PHI node in ForBody
   PHINode *uniquePHI2 = nullptr;
@@ -3539,7 +3563,7 @@ bool DspsF32CorrLoopUnroller::unrollCorr(Function &F, Loop *L,
   // Insert new instruction after FirstInst
   IRBuilder<> Builder(FirstInst->getNextNode());
   Value *Sub6 = Builder.CreateNSWAdd(
-      FirstInst, ConstantInt::get(FirstInst->getType(), 1 - UnrollFactor),
+      FirstInst, ConstantInt::getSigned(FirstInst->getType(), 1 - UnrollFactor),
       "sub6");
 
   if (ICmpInst *CmpInst = dyn_cast<ICmpInst>(SecondInst)) {
@@ -3975,7 +3999,7 @@ static std::pair<Value *, Value *> modifyEntryBB(BasicBlock &EntryBB,
   // Insert new instructions before Icmp
   IRBuilder<> Builder(Icmp);
   Value *Sub = Builder.CreateNSWAdd(
-      end_index, ConstantInt::get(end_index->getType(), -unrollCount), "Sub");
+      end_index, ConstantInt::getSigned(end_index->getType(), -unrollCount), "Sub");
   Icmp->setOperand(0, Sub);
   Icmp->setOperand(1, start_index);
   return std::make_pair(Sub, end_index);
@@ -4201,7 +4225,7 @@ modifyOuterLoop4(Loop *L, BasicBlock *ForBodyMerged,
   Builder.SetInsertPoint(Phi->getNextNode());
 
   // and i32 %n.0551, -8
-  Value *Add2 = Builder.CreateAnd(Phi, ConstantInt::get(Phi->getType(), -8));
+  Value *Add2 = Builder.CreateAnd(Phi, ConstantInt::getSigned(Phi->getType(), -8));
 
   // %Sub = and i32 %n.0551, 2147483644
   Value *Sub =
@@ -4329,14 +4353,14 @@ modifyOuterLoop8(Loop *L) {
 
   // %add207.neg = xor i32 %sub206, -1
   Value *Add207Neg = Builder.CreateXor(
-      sub206, ConstantInt::get(sub206->getType(), -1), "add207.neg");
+      sub206, ConstantInt::getSigned(sub206->getType(), -1), "add207.neg");
 
   // %add211 = add i32 %lsig.0, %add207.neg
   Value *Add211 = Builder.CreateAdd(lsig_0, Add207Neg, "add211");
 
   // %div212535 = and i32 %add211, -8
   Value *Div212535 = Builder.CreateAnd(
-      Add211, ConstantInt::get(Add211->getType(), -8), "div212535");
+      Add211, ConstantInt::getSigned(Add211->getType(), -8), "div212535");
 
   // %add214 = add i32 %div212535, %add207
   Value *Add214 = Builder.CreateAdd(Div212535, add207, "add214");
@@ -4363,7 +4387,7 @@ modifyOuterLoop16(Loop *L) {
   BasicBlock *BBLoopPreHeader = L->getLoopPreheader();
   // Insert an and instruction in BBLoopPreHeader
   IRBuilder<> Builder(BBLoopPreHeader->getTerminator());
-  Value *Div536 = Builder.CreateAnd(lkern_0, -16, "div536");
+  Value *Div536 = Builder.CreateAnd(lkern_0, ConstantInt::getSigned(lkern_0->getType(), -16), "div536");
   // Get the first operand of LastICmp
   Value *Add56 = LastICmp->getOperand(0);
 
@@ -5313,7 +5337,7 @@ void DspsF32WindBlackmanLoopUnroller::postUnrollDspsWindBlackmanF32(
 
   IRBuilder<> Builder(ForBodyLrPh->getTerminator());
   Value *Sub4 =
-      Builder.CreateNSWAdd(Len, ConstantInt::get(Len->getType(), -7), "Sub4");
+      Builder.CreateNSWAdd(Len, ConstantInt::getSigned(Len->getType(), -7), "Sub4");
   BasicBlock *ForCond97Preheader = BasicBlock::Create(
       F.getContext(), "for.cond97.preheader", &F, ForBodyMerged);
 
@@ -5404,9 +5428,9 @@ void DspiF32DotprodSmallUnroller::postUnrollDspiF32Dotprod(Function &F, Loop *L,
   // Create new instruction
   IRBuilder<> Builder(Cmp2673);
   Value *Sub = Builder.CreateNSWAdd(
-      Count_x, ConstantInt::get(Count_x->getType(), -7), "Sub");
+      Count_x, ConstantInt::getSigned(Count_x->getType(), -7), "Sub");
   Value *And_val =
-      Builder.CreateAnd(Count_x, ConstantInt::get(Count_x->getType(), -8));
+      Builder.CreateAnd(Count_x, ConstantInt::getSigned(Count_x->getType(), -8));
 
   // Create new for.cond128.preheader basic block
   BasicBlock *ForCond128Preheader = BasicBlock::Create(
@@ -5494,9 +5518,9 @@ void DspiF32DotprodLargeUnroller::postUnrollDspiF32DotprodVariables(
   // Create new instruction
   IRBuilder<> Builder(Cmp2673);
   Value *Sub = Builder.CreateNSWAdd(
-      Count_x, ConstantInt::get(Count_x->getType(), -7), "Sub");
+      Count_x, ConstantInt::getSigned(Count_x->getType(), -7), "Sub");
   Value *And_val =
-      Builder.CreateAnd(Count_x, ConstantInt::get(Count_x->getType(), -8));
+      Builder.CreateAnd(Count_x, ConstantInt::getSigned(Count_x->getType(), -8));
 
   // Create for.end.loopexit basic block
   BasicBlock *ForEndLoopexit = BasicBlock::Create(
@@ -5958,7 +5982,7 @@ void DspiF32ConvLargeUnroller::postUnrollDspiF32Conv(
     if (dyn_cast<Instruction>(Operand_1)->getParent() == &EntryBB) {
       IRBuilder<> BuilderEntry(EntryBB.getTerminator());
       Value *sub22 = BuilderEntry.CreateNSWAdd(
-          Operand_1, ConstantInt::get(Operand_1->getType(), 1 - unrollCount),
+          Operand_1, ConstantInt::getSigned(Operand_1->getType(), 1 - unrollCount),
           "sub22");
       exitcond1057_not_7->setOperand(1, sub22);
 
@@ -5978,7 +6002,7 @@ void DspiF32ConvLargeUnroller::postUnrollDspiF32Conv(
     } else if (Instruction *Sub135 = dyn_cast<Instruction>(Operand_1)) {
       IRBuilder<> Builder(Sub135->getParent()->getTerminator());
       Value *Sub216 = Builder.CreateNSWAdd(
-          Operand_1, ConstantInt::get(Operand_1->getType(), 1 - unrollCount),
+          Operand_1, ConstantInt::getSigned(Operand_1->getType(), 1 - unrollCount),
           "Sub216");
       exitcond1057_not_7->setOperand(1, Sub216);
     }
@@ -6116,7 +6140,7 @@ void DspmF32AddLoopUnroller::postUnrollDspmF32Add(Function &F, Loop *L,
   exitCond_Not_7->setPredicate(ICmpInst::ICMP_SLT);
 
   IRBuilder<> Builder(forCond34PreheaderLrPh->getTerminator());
-  Value *Sub = Builder.CreateAdd(cols, ConstantInt::get(cols->getType(), -7),
+  Value *Sub = Builder.CreateAdd(cols, ConstantInt::getSigned(cols->getType(), -7),
                                  "Sub", true);
   Value *cmp35236 =
       Builder.CreateICmp(ICmpInst::ICMP_UGT, cols,
@@ -6185,7 +6209,7 @@ void DspmF32MultLoopUnroller::postUnrollDspmF32Mult(Function &F, Loop *L,
 
   IRBuilder<> Builder(Cmp658);
   Value *sub6 =
-      Builder.CreateNSWAdd(n, ConstantInt::get(n->getType(), -7), "sub6");
+      Builder.CreateNSWAdd(n, ConstantInt::getSigned(n->getType(), -7), "sub6");
 
   // Create new for.cond110.preheader basic block
   BasicBlock *forCond110Preheader = BasicBlock::Create(
@@ -6271,7 +6295,7 @@ void DspmF32MultExLoopUnroller::postUnrollDspmF32MultEx(Function &F, Loop *L,
 
   IRBuilder<> Builder(Cmp658);
   Value *sub6 =
-      Builder.CreateNSWAdd(n, ConstantInt::get(n->getType(), -7), "sub6");
+      Builder.CreateNSWAdd(n, ConstantInt::getSigned(n->getType(), -7), "sub6");
 
   // Create new for.cond110.preheader basic block
   BasicBlock *forCond110Preheader = BasicBlock::Create(
@@ -6367,6 +6391,9 @@ void DspsF32FirdLoopUnroller::processFirdUnroll(
 }
 
 void LoopUnroller::addCommonOptimizationPasses(Function &F) {
+  // Same as runSimplifyDcePasses: cc1 may run under IO sandbox; nested passes
+  // can still touch the real filesystem (VFS / cwd).
+  auto BypassSandbox = sys::sandbox::scopedDisable();
   // Create necessary analysis managers
   LoopAnalysisManager LAM;
   FunctionAnalysisManager FAM;
@@ -6393,6 +6420,8 @@ void LoopUnroller::addCommonOptimizationPasses(Function &F) {
 }
 
 void DspsF32FirdLoopUnroller::addLegacyCommonOptimizationPasses(Function &F) {
+  // Nested legacy FPM under cc1 IO sandbox (see runSimplifyDcePasses).
+  auto BypassSandbox = sys::sandbox::scopedDisable();
   legacy::FunctionPassManager FPM(F.getParent());
   FPM.add(createLoopSimplifyPass());
   FPM.add(createLICMPass()); // Loop Invariant Code Motion
@@ -6460,7 +6489,7 @@ void DspsF32BiquadLoopUnroller::postUnrollBiquad(
 
   IRBuilder<> Builder(ForCondPreheader->getTerminator());
   Value *Sub =
-      Builder.CreateAdd(Len, ConstantInt::get(Len->getType(), -7), "Sub", true);
+      Builder.CreateAdd(Len, ConstantInt::getSigned(Len->getType(), -7), "Sub", true);
   Exitcond_not_7->setOperand(1, Sub);
 
   BasicBlock *forCond150Preheader = BasicBlock::Create(
@@ -6809,7 +6838,7 @@ void DspsF32Fft2rLargeUnroller::postUnrollDspsFft2rFc32(
 
   IRBuilder<> BuilderForBody6LrPh(cmp1097_not);
   Value *Sub = BuilderForBody6LrPh.CreateAdd(
-      N2_0105, ConstantInt::get(N2_0105->getType(), -3), "sub",
+      N2_0105, ConstantInt::getSigned(N2_0105->getType(), -3), "sub",
       /*HasNUW=*/false, /*HasNSW=*/true);
 
   cmp1097_not->setOperand(1, ConstantInt::get(N2_0105->getType(), 7));

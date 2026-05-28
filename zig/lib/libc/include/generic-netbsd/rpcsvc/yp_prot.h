@@ -1,4 +1,4 @@
-/*	$NetBSD: yp_prot.h,v 1.20 2020/04/02 15:30:25 msaitoh Exp $	*/
+/*	$NetBSD: yp_prot.h,v 1.22 2024/05/30 03:33:31 msaitoh Exp $	*/
 
 /*
  * Copyright (c) 1992, 1993 Theo de Raadt <deraadt@fsa.ca>
@@ -264,7 +264,8 @@ struct ypbind_setdom {
  * YPPUSH PROTOCOL:
  * 
  * Sun says:
- * "Protocol between clients (ypxfr, only) and yppush
+ * "Protocol between clients (ypxfr, only) and yppush:
+ * 
  *  yppush speaks a protocol in the transient range, which
  *  is supplied to ypxfr as a command-line parameter when it
  *  is activated by ypserv."

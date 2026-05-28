@@ -29,7 +29,7 @@ pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
     @setEvalBranchQuota(2000);
-    const len = @typeInfo(Feature).@"enum".fields.len;
+    const len = @typeInfo(Feature).@"enum".field_names.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.arbitrary_precision_integers)] = .{
@@ -123,7 +123,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.variable_pointers)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
+        .description = "Enable SPV_KHR_variable_pointers extension and the VariablePointers capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
@@ -138,7 +138,7 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.@"enum".fields[i].name;
+        elem.name = ti.@"enum".field_names[i];
     }
     break :blk result;
 };

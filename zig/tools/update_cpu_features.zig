@@ -204,6 +204,10 @@ const targets = [_]ArchTarget{
                 .flatten = true,
             },
             .{
+                .llvm_name = "ampere1c",
+                .flatten = true,
+            },
+            .{
                 .llvm_name = "apple-a7",
                 .flatten = true,
             },
@@ -245,6 +249,26 @@ const targets = [_]ArchTarget{
             },
             .{
                 .llvm_name = "apple-m4",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "apple-m5",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "c1-nano",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "c1-premium",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "c1-pro",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "c1-ultra",
                 .flatten = true,
             },
             .{
@@ -863,6 +887,10 @@ const targets = [_]ArchTarget{
                 .zig_name = "v9_6a",
             },
             .{
+                .llvm_name = "armv9.7-a",
+                .zig_name = "v9_7a",
+            },
+            .{
                 .llvm_name = "armv9-a",
                 .zig_name = "v9a",
             },
@@ -981,6 +1009,10 @@ const targets = [_]ArchTarget{
             .{
                 .llvm_name = "v9.6a",
                 .zig_name = "has_v9_6a",
+            },
+            .{
+                .llvm_name = "v9.7a",
+                .zig_name = "has_v9_7a",
             },
         },
         .extra_cpus = &.{
@@ -1251,6 +1283,24 @@ const targets = [_]ArchTarget{
         .extra_cpus = &.{
             .{
                 .llvm_name = null,
+                .zig_name = "la32v1_0",
+                .features = &.{
+                    "32bit",
+                    "32s",
+                    "d",
+                    "ual",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "la32rv1_0",
+                .features = &.{
+                    "32bit",
+                    "ual",
+                },
+            },
+            .{
+                .llvm_name = null,
                 .zig_name = "la64v1_0",
                 .features = &.{
                     "64bit",
@@ -1276,6 +1326,7 @@ const targets = [_]ArchTarget{
         },
         .omit_cpus = &.{
             "generic",
+            "loongarch32",
             "loongarch64",
         },
     },
@@ -1456,7 +1507,7 @@ const targets = [_]ArchTarget{
             },
             .{
                 .zig_name = "variable_pointers",
-                .desc = "Enable SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
+                .desc = "Enable SPV_KHR_variable_pointers extension and the VariablePointers capability",
                 .deps = &.{"v1_0"},
             },
         },
@@ -1496,6 +1547,103 @@ const targets = [_]ArchTarget{
                 .llvm_name = null,
                 .zig_name = "baseline_rv64",
                 .features = &.{ "64bit", "a", "c", "d", "f", "i", "m" },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "spacemit_a100",
+                .features = &.{
+                    "64bit",
+                    "a",
+                    "b",
+                    "c",
+                    "dlen_factor_2",
+                    "i",
+                    "m",
+                    "optimized_nf2_segment_load_store",
+                    "optimized_nf3_segment_load_store",
+                    "optimized_nf4_segment_load_store",
+                    "smepmp",
+                    "smnpm",
+                    "smstateen",
+                    "ssccptr",
+                    "sscofpmf",
+                    "sscounterenw",
+                    "ssnpm",
+                    "sspm",
+                    "sstc",
+                    "sstvala",
+                    "sstvecd",
+                    "ssu64xl",
+                    "supm",
+                    "svade",
+                    "svbare",
+                    "svinval",
+                    "svnapot",
+                    "svpbmt",
+                    "unaligned_scalar_mem",
+                    "v",
+                    "vxrm_pipeline_flush",
+                    "za64rs",
+                    "zawrs",
+                    "zbc",
+                    "zbkc",
+                    "zcb",
+                    "zcmop",
+                    "zfa",
+                    "zfh",
+                    "zic64b",
+                    "zicbom",
+                    "zicbop",
+                    "zicboz",
+                    "ziccamoa",
+                    "ziccif",
+                    "zicclsm",
+                    "ziccrse",
+                    "zicntr",
+                    "zicond",
+                    "zifencei",
+                    "zihintntl",
+                    "zihintpause",
+                    "zihpm",
+                    "zimop",
+                    "zkt",
+                    "zvbb",
+                    "zvfbfwma",
+                    "zvfh",
+                    "zvkng",
+                    "zvknha",
+                    "zvksc",
+                    "zvksg",
+                    "zvl1024b",
+                },
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "spacemit_x100",
+                .features = &.{
+                    "dlen_factor_2",
+                    "optimized_nf2_segment_load_store",
+                    "optimized_nf3_segment_load_store",
+                    "optimized_nf4_segment_load_store",
+                    "rva23s64",
+                    "smepmp",
+                    "smnpm",
+                    "smstateen",
+                    "sspm",
+                    "unaligned_scalar_mem",
+                    "vxrm_pipeline_flush",
+                    "xsmtvdot",
+                    "zbc",
+                    "zbkc",
+                    "zfh",
+                    "zvfbfwma",
+                    "zvfh",
+                    "zvkng",
+                    "zvknha",
+                    "zvksc",
+                    "zvksg",
+                    "zvl256b",
+                },
             },
         },
     },
@@ -1557,26 +1705,17 @@ const targets = [_]ArchTarget{
                 .llvm_name = "64bit-mode",
                 .omit = true,
             },
-            // Remove these when LLVM removes AVX10.N-256 support.
-            .{
-                .llvm_name = "avx10.1-256",
-                .flatten = true,
-            },
-            .{
-                .llvm_name = "avx10.2-256",
-                .flatten = true,
-            },
             .{
                 .llvm_name = "avx10.1-512",
-                .zig_name = "avx10_1",
+                .omit = true,
             },
             .{
                 .llvm_name = "avx10.2-512",
-                .zig_name = "avx10_2",
+                .omit = true,
             },
             .{
-                .llvm_name = "avx512f",
-                .extra_deps = &.{"evex512"},
+                .llvm_name = "evex512",
+                .omit = true,
             },
             .{
                 .llvm_name = "alderlake",
@@ -1968,7 +2107,9 @@ const Job = struct {
 };
 
 fn processOneTarget(io: Io, job: Job) void {
-    errdefer |err| std.debug.panic("panic: {s}", .{@errorName(err)});
+    processOneTargetInner(io, job) catch |err| std.debug.panic("panic: {s}", .{@errorName(err)});
+}
+fn processOneTargetInner(io: Io, job: Job) !void {
     const target = job.target;
 
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -2295,7 +2436,7 @@ fn processOneTarget(io: Io, job: Job) void {
         try w.print("    @setEvalBranchQuota({d});\n", .{branch_quota});
     }
     try w.writeAll(
-        \\    const len = @typeInfo(Feature).@"enum".fields.len;
+        \\    const len = @typeInfo(Feature).@"enum".field_names.len;
         \\    std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
         \\    var result: [len]CpuFeature = undefined;
         \\
@@ -2364,7 +2505,7 @@ fn processOneTarget(io: Io, job: Job) void {
         \\    const ti = @typeInfo(Feature);
         \\    for (&result, 0..) |*elem, i| {
         \\        elem.index = i;
-        \\        elem.name = ti.@"enum".fields[i].name;
+        \\        elem.name = ti.@"enum".field_names[i];
         \\    }
         \\    break :blk result;
         \\};

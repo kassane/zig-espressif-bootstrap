@@ -1,4 +1,4 @@
-/*	$NetBSD: frame.h,v 1.31 2019/02/18 01:12:23 thorpej Exp $	*/
+/*	$NetBSD: frame.h,v 1.35 2024/01/13 17:07:26 thorpej Exp $	*/
 
 /*
  * Copyright (c) 1988 University of Utah.
@@ -70,10 +70,6 @@
 #define	FMTASIZE	sizeof(struct fmtA)
 #define	FMTBSIZE	sizeof(struct fmtB)
 
-#define	V_BUSERR	0x008
-#define	V_ADDRERR	0x00C
-#define	V_TRAP1		0x084
-
 /* 68010 SSW bits */
 #define SSW1_RR		0x8000
 #define SSW1_IF		0x2000
@@ -128,8 +124,8 @@
 
 #define FSLW_SIZE	0x00600000
 /*
- * We better define the FSLW_SIZE values here, as the table given in the 
- * MC68060UM/AD rev. 0/1 p. 8-23 is wrong, and was corrected in the errata 
+ * We better define the FSLW_SIZE values here, as the table given in the
+ * MC68060UM/AD rev. 0/1 p. 8-23 is wrong, and was corrected in the errata
  * document.
  */
 #define FSLW_SIZE_LONG	0x00000000
@@ -147,17 +143,17 @@
 #define FSLW_PBE	0x00004000
 #define FSLW_SBE	0x00002000
 #define FSLW_PTA	0x00001000
-#define FSLW_PTB 	0x00000800
-#define FSLW_IL 	0x00000400
-#define FSLW_PF 	0x00000200
-#define FSLW_SP 	0x00000100
-#define FSLW_WP 	0x00000080
-#define FSLW_TWE 	0x00000040
-#define FSLW_RE 	0x00000020
-#define FSLW_WE 	0x00000010
-#define FSLW_TTR 	0x00000008
-#define FSLW_BPE 	0x00000004
-#define FSLW_SEE 	0x00000001
+#define FSLW_PTB	0x00000800
+#define FSLW_IL		0x00000400
+#define FSLW_PF		0x00000200
+#define FSLW_SP		0x00000100
+#define FSLW_WP		0x00000080
+#define FSLW_TWE	0x00000040
+#define FSLW_RE		0x00000020
+#define FSLW_WE		0x00000010
+#define FSLW_TTR	0x00000008
+#define FSLW_BPE	0x00000004
+#define FSLW_SEE	0x00000001
 
 /* struct fpframe060 */
 #define FPF6_FMT_NULL	0x00
@@ -236,12 +232,28 @@ do {									\
 	if (! CLKF_USERMODE(cfp) &&					\
 	    (CLKF_PC(cfp) < (u_long)&_atomic_cas_ras_end &&		\
 	     CLKF_PC(cfp) > (u_long)&_atomic_cas_ras_start)) {		\
-	    	(cfp)->cf_pc = (u_long)&_atomic_cas_ras_start;		\
+		(cfp)->cf_pc = (u_long)&_atomic_cas_ras_start;		\
 	}								\
 } while (/*CONSTCOND*/0)
 #else
 #define	ATOMIC_CAS_CHECK(cfp)	/* nothing */
 #endif /* __mc68010__ */
+
+static inline void **
+getvbr(void)
+{
+	void **vbr;
+
+	__asm volatile("movc %%vbr,%0" : "=r" (vbr));
+
+	return vbr;
+}
+
+static inline void
+setvbr(void **vbr)
+{
+	__asm volatile("movc %0,%%vbr" : : "r" (vbr));
+}
 
 #endif	/* _KERNEL */
 

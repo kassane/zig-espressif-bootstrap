@@ -283,7 +283,7 @@ pub fn flush(
     errdefer arena.free(module);
 
     const linked_module = linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         else => |other| return diags.fail("error while linking: {s}", .{@errorName(other)}),
     };
 

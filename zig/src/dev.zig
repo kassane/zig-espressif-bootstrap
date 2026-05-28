@@ -197,8 +197,9 @@ pub const Env = enum {
                 else => Env.sema.supports(feature),
             },
             .wasm => switch (feature) {
-                .stdio_listen,
                 .incremental,
+                .legalize,
+                .stdio_listen,
                 .wasm_backend,
                 .wasm_linker,
                 => true,

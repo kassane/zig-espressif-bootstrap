@@ -10,7 +10,6 @@ const builtin = @import("builtin");
 const crypto = std.crypto;
 const math = std.math;
 const mem = std.mem;
-const meta = std.meta;
 const testing = std.testing;
 const assert = std.debug.assert;
 const Endian = std.builtin.Endian;
@@ -25,7 +24,7 @@ const carry_bits = 1;
 const t_bits: usize = @bitSizeOf(Limb) - carry_bits;
 
 // A TLimb is a Limb that is truncated to t_bits.
-const TLimb = meta.Int(.unsigned, t_bits);
+const TLimb = @Int(.unsigned, t_bits);
 
 const native_endian = builtin.target.cpu.arch.endian();
 
@@ -96,7 +95,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
 
         /// The zero integer.
         pub const zero: Self = .{
-            .limbs_buffer = [1]Limb{0} ** max_limbs_count,
+            .limbs_buffer = @splat(0),
             .limbs_len = max_limbs_count,
         };
 
@@ -738,7 +737,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
                 }
             } else {
                 // Use a precomputation table for large exponents
-                var pc = [1]Fe{x} ++ [_]Fe{self.zero} ** 14;
+                var pc: [15]Fe = [1]Fe{x} ++ @as([14]Fe, @splat(self.zero));
                 if (!x.montgomery) {
                     self.toMontgomery(&pc[0]) catch unreachable;
                 }
@@ -906,7 +905,7 @@ const ct_protected = struct {
     // Multiplies two limbs and returns the result as a wide limb.
     fn mulWide(x: Limb, y: Limb) WideLimb {
         const half_bits = @typeInfo(Limb).int.bits / 2;
-        const Half = meta.Int(.unsigned, half_bits);
+        const Half = @Int(.unsigned, half_bits);
         const x0 = @as(Half, @truncate(x));
         const x1 = @as(Half, @truncate(x >> half_bits));
         const y0 = @as(Half, @truncate(y));

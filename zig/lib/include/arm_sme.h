@@ -796,8 +796,6 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svdot_za16_mf8_vg1x2
 void svdot_za16_mf8_vg1x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8x2_t, fpm_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svdot_za16_mf8_vg1x4_fpm)))
 void svdot_za16_mf8_vg1x4_fpm(uint32_t, svmfloat8x4_t, svmfloat8x4_t, fpm_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_single_za16_mf8_vg2x1_fpm)))
-void svmla_single_za16_mf8_vg2x1_fpm(uint32_t, svmfloat8_t, svmfloat8_t, fpm_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_single_za16_mf8_vg2x2_fpm)))
 void svmla_single_za16_mf8_vg2x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8_t, fpm_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_single_za16_mf8_vg2x4_fpm)))
@@ -808,6 +806,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_lane_za16_mf8_
 void svmla_lane_za16_mf8_vg2x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8_t, uint64_t, fpm_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_lane_za16_mf8_vg2x4_fpm)))
 void svmla_lane_za16_mf8_vg2x4_fpm(uint32_t, svmfloat8x4_t, svmfloat8_t, uint64_t, fpm_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_za16_mf8_vg2x1_fpm)))
+void svmla_za16_mf8_vg2x1_fpm(uint32_t, svmfloat8_t, svmfloat8_t, fpm_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_za16_mf8_vg2x2_fpm)))
 void svmla_za16_mf8_vg2x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8x2_t, fpm_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_za16_mf8_vg2x4_fpm)))
@@ -828,8 +828,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svdot_za16_mf8_vg1x
 void svdot_za16_vg1x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8x2_t, fpm_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svdot_za16_mf8_vg1x4_fpm)))
 void svdot_za16_vg1x4_fpm(uint32_t, svmfloat8x4_t, svmfloat8x4_t, fpm_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_single_za16_mf8_vg2x1_fpm)))
-void svmla_za16_vg2x1_fpm(uint32_t, svmfloat8_t, svmfloat8_t, fpm_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_single_za16_mf8_vg2x2_fpm)))
 void svmla_za16_vg2x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8_t, fpm_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_single_za16_mf8_vg2x4_fpm)))
@@ -840,6 +838,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_lane_za16_mf8
 void svmla_lane_za16_vg2x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8_t, uint64_t, fpm_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_lane_za16_mf8_vg2x4_fpm)))
 void svmla_lane_za16_vg2x4_fpm(uint32_t, svmfloat8x4_t, svmfloat8_t, uint64_t, fpm_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_za16_mf8_vg2x1_fpm)))
+void svmla_za16_vg2x1_fpm(uint32_t, svmfloat8_t, svmfloat8_t, fpm_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_za16_mf8_vg2x2_fpm)))
 void svmla_za16_vg2x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8x2_t, fpm_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_za16_mf8_vg2x4_fpm)))
@@ -860,8 +860,6 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svdot_za32_mf8_vg1x2
 void svdot_za32_mf8_vg1x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8x2_t, fpm_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svdot_za32_mf8_vg1x4_fpm)))
 void svdot_za32_mf8_vg1x4_fpm(uint32_t, svmfloat8x4_t, svmfloat8x4_t, fpm_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_single_za32_mf8_vg4x1_fpm)))
-void svmla_single_za32_mf8_vg4x1_fpm(uint32_t, svmfloat8_t, svmfloat8_t, fpm_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_single_za32_mf8_vg4x2_fpm)))
 void svmla_single_za32_mf8_vg4x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8_t, fpm_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_single_za32_mf8_vg4x4_fpm)))
@@ -872,6 +870,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_lane_za32_mf8_
 void svmla_lane_za32_mf8_vg4x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8_t, uint64_t, fpm_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_lane_za32_mf8_vg4x4_fpm)))
 void svmla_lane_za32_mf8_vg4x4_fpm(uint32_t, svmfloat8x4_t, svmfloat8_t, uint64_t, fpm_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_za32_mf8_vg4x1_fpm)))
+void svmla_za32_mf8_vg4x1_fpm(uint32_t, svmfloat8_t, svmfloat8_t, fpm_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_za32_mf8_vg4x2_fpm)))
 void svmla_za32_mf8_vg4x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8x2_t, fpm_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_za32_mf8_vg4x4_fpm)))
@@ -894,8 +894,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svdot_za32_mf8_vg1x
 void svdot_za32_vg1x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8x2_t, fpm_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svdot_za32_mf8_vg1x4_fpm)))
 void svdot_za32_vg1x4_fpm(uint32_t, svmfloat8x4_t, svmfloat8x4_t, fpm_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_single_za32_mf8_vg4x1_fpm)))
-void svmla_za32_vg4x1_fpm(uint32_t, svmfloat8_t, svmfloat8_t, fpm_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_single_za32_mf8_vg4x2_fpm)))
 void svmla_za32_vg4x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8_t, fpm_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_single_za32_mf8_vg4x4_fpm)))
@@ -906,6 +904,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_lane_za32_mf8
 void svmla_lane_za32_vg4x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8_t, uint64_t, fpm_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_lane_za32_mf8_vg4x4_fpm)))
 void svmla_lane_za32_vg4x4_fpm(uint32_t, svmfloat8x4_t, svmfloat8_t, uint64_t, fpm_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_za32_mf8_vg4x1_fpm)))
+void svmla_za32_vg4x1_fpm(uint32_t, svmfloat8_t, svmfloat8_t, fpm_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_za32_mf8_vg4x2_fpm)))
 void svmla_za32_vg4x2_fpm(uint32_t, svmfloat8x2_t, svmfloat8x2_t, fpm_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sme_svmla_za32_mf8_vg4x4_fpm)))

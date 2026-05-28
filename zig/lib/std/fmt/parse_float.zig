@@ -128,7 +128,7 @@ test parseFloat {
 
 test "nan and inf" {
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
-        const Z = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
+        const Z = @Int(.unsigned, @typeInfo(T).float.bits);
 
         try expectEqual(@as(Z, @bitCast(try parseFloat(T, "nAn"))), @as(Z, @bitCast(std.math.nan(T))));
         try expectEqual(try parseFloat(T, "inF"), std.math.inf(T));

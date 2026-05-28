@@ -211,25 +211,24 @@ pub const Value = union(enum) {
             .float => return Value{ .float = math.lossyCast(f64, input) },
 
             .@"struct" => |info| if (info.is_tuple) {
-                var list = std.array_list.Managed(Value).init(arena);
-                errdefer list.deinit();
-                try list.ensureTotalCapacityPrecise(info.fields.len);
+                var list: std.ArrayList(Value) = try .initCapacity(arena);
+                defer list.deinit();
 
-                inline for (info.fields) |field| {
-                    if (try encode(arena, @field(input, field.name))) |value| {
+                inline for (info.field_names) |field_name| {
+                    if (try encode(arena, @field(input, field_name))) |value| {
                         list.appendAssumeCapacity(value);
                     }
                 }
 
-                return Value{ .list = try list.toOwnedSlice() };
+                return Value{ .list = try list.toOwnedSlice(arena) };
             } else {
                 var map = Map.init(arena);
                 errdefer map.deinit();
-                try map.ensureTotalCapacity(info.fields.len);
+                try map.ensureTotalCapacity(info.field_names.len);
 
-                inline for (info.fields) |field| {
-                    if (try encode(arena, @field(input, field.name))) |value| {
-                        const key = try arena.dupe(u8, field.name);
+                inline for (info.field_names) |field_name| {
+                    if (try encode(arena, @field(input, field_name))) |value| {
+                        const key = try arena.dupe(u8, field_name);
                         map.putAssumeCapacityNoClobber(key, value);
                     }
                 }
@@ -238,9 +237,9 @@ pub const Value = union(enum) {
             },
 
             .@"union" => |info| if (info.tag_type) |tag_type| {
-                inline for (info.fields) |field| {
-                    if (@field(tag_type, field.name) == input) {
-                        return try encode(arena, @field(input, field.name));
+                inline for (info.field_names) |field_name| {
+                    if (@field(tag_type, field_name) == input) {
+                        return try encode(arena, @field(input, field_name));
                     }
                 } else unreachable;
             } else return error.UntaggedUnion,
@@ -262,9 +261,8 @@ pub const Value = union(enum) {
                         return Value{ .string = try arena.dupe(u8, input) };
                     }
 
-                    var list = std.array_list.Managed(Value).init(arena);
-                    errdefer list.deinit();
-                    try list.ensureTotalCapacityPrecise(input.len);
+                    var list: std.ArrayList(Value) = .initCapacity(input.len);
+                    defer list.deinit(arena);
 
                     for (input) |elem| {
                         if (try encode(arena, elem)) |value| {
@@ -275,7 +273,7 @@ pub const Value = union(enum) {
                         }
                     }
 
-                    return Value{ .list = try list.toOwnedSlice() };
+                    return Value{ .list = try list.toOwnedSlice(arena) };
                 },
                 else => {
                     @compileError("Unhandled type: {s}" ++ @typeName(@TypeOf(input)));
@@ -398,9 +396,9 @@ pub const Yaml = struct {
         const union_info = @typeInfo(T).@"union";
 
         if (union_info.tag_type) |_| {
-            inline for (union_info.fields) |field| {
-                if (self.parseValue(field.type, value)) |u_value| {
-                    return @unionInit(T, field.name, u_value);
+            inline for (union_info.field_names, union_info.field_types) |field_name, field_type| {
+                if (self.parseValue(field_type, value)) |u_value| {
+                    return @unionInit(T, field_name, u_value);
                 } else |err| {
                     if (@as(@TypeOf(err) || error{TypeMismatch}, err) != error.TypeMismatch) return err;
                 }
@@ -420,22 +418,22 @@ pub const Yaml = struct {
         const struct_info = @typeInfo(T).@"struct";
         var parsed: T = undefined;
 
-        inline for (struct_info.fields) |field| {
-            const value: ?Value = map.get(field.name) orelse blk: {
-                const field_name = try mem.replaceOwned(u8, self.arena.allocator(), field.name, "_", "-");
-                break :blk map.get(field_name);
+        inline for (struct_info.field_names, struct_info.field_types) |field_name, field_type| {
+            const value: ?Value = map.get(field_name) orelse blk: {
+                const field_name_ = try mem.replaceOwned(u8, self.arena.allocator(), field_name, "_", "-");
+                break :blk map.get(field_name_);
             };
 
-            if (@typeInfo(field.type) == .optional) {
-                @field(parsed, field.name) = try self.parseOptional(field.type, value);
+            if (@typeInfo(field_type) == .optional) {
+                @field(parsed, field_name) = try self.parseOptional(field_type, value);
                 continue;
             }
 
             const unwrapped = value orelse {
-                log.debug("missing struct field: {s}: {s}", .{ field.name, @typeName(field.type) });
+                log.debug("missing struct field: {s}: {s}", .{ field_name, @typeName(field_type) });
                 return error.StructFieldMissing;
             };
-            @field(parsed, field.name) = try self.parseValue(field.type, unwrapped);
+            @field(parsed, field_name) = try self.parseValue(field_type, unwrapped);
         }
 
         return parsed;

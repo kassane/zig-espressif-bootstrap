@@ -64,7 +64,6 @@ pub const Token = struct {
 
     pub const Tag = enum {
         invalid,
-        invalid_periodasterisks,
         identifier,
         string_literal,
         multiline_string_literal_line,
@@ -109,7 +108,6 @@ pub const Token = struct {
         minus_pipe_equal,
         asterisk,
         asterisk_equal,
-        asterisk_asterisk,
         asterisk_percent,
         asterisk_percent_equal,
         asterisk_pipe,
@@ -197,7 +195,6 @@ pub const Token = struct {
                 .container_doc_comment,
                 => null,
 
-                .invalid_periodasterisks => ".**",
                 .bang => "!",
                 .pipe => "|",
                 .pipe_pipe => "||",
@@ -236,7 +233,6 @@ pub const Token = struct {
                 .minus_pipe_equal => "-|=",
                 .asterisk => "*",
                 .asterisk_equal => "*=",
-                .asterisk_asterisk => "**",
                 .asterisk_percent => "*%",
                 .asterisk_percent_equal => "*%=",
                 .asterisk_pipe => "*|",
@@ -386,7 +382,6 @@ pub const Tokenizer = struct {
         angle_bracket_angle_bracket_right,
         period,
         period_2,
-        period_asterisk,
         saw_at_sign,
         invalid,
     };
@@ -567,10 +562,6 @@ pub const Tokenizer = struct {
                 switch (self.buffer[self.index]) {
                     '=' => {
                         result.tag = .asterisk_equal;
-                        self.index += 1;
-                    },
-                    '*' => {
-                        result.tag = .asterisk_asterisk;
                         self.index += 1;
                     },
                     '%' => continue :state .asterisk_percent,
@@ -915,7 +906,10 @@ pub const Tokenizer = struct {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
                     '.' => continue :state .period_2,
-                    '*' => continue :state .period_asterisk,
+                    '*' => {
+                        result.tag = .period_asterisk;
+                        self.index += 1;
+                    },
                     else => result.tag = .period,
                 }
             },
@@ -928,14 +922,6 @@ pub const Tokenizer = struct {
                         self.index += 1;
                     },
                     else => result.tag = .ellipsis2,
-                }
-            },
-
-            .period_asterisk => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    '*' => result.tag = .invalid_periodasterisks,
-                    else => result.tag = .period_asterisk,
                 }
             },
 
@@ -1340,31 +1326,6 @@ test "correctly parse pointer assignment" {
         .equal,
         .number_literal,
         .semicolon,
-    });
-}
-
-test "correctly parse pointer dereference followed by asterisk" {
-    try testTokenize("\"b\".* ** 10", &.{
-        .string_literal,
-        .period_asterisk,
-        .asterisk_asterisk,
-        .number_literal,
-    });
-
-    try testTokenize("(\"b\".*)** 10", &.{
-        .l_paren,
-        .string_literal,
-        .period_asterisk,
-        .r_paren,
-        .asterisk_asterisk,
-        .number_literal,
-    });
-
-    try testTokenize("\"b\".*** 10", &.{
-        .string_literal,
-        .invalid_periodasterisks,
-        .asterisk_asterisk,
-        .number_literal,
     });
 }
 

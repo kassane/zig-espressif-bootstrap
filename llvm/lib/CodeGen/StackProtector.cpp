@@ -49,7 +49,6 @@
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include <optional>
-#include <utility>
 
 using namespace llvm;
 
@@ -432,6 +431,11 @@ bool SSPLayoutAnalysis::requiresStackProtector(Function *F,
   for (const BasicBlock &BB : *F) {
     for (const Instruction &I : BB) {
       if (const AllocaInst *AI = dyn_cast<AllocaInst>(&I)) {
+        if (const MDNode *MD = AI->getMetadata("stack-protector")) {
+          const auto *CI = mdconst::dyn_extract<ConstantInt>(MD->getOperand(0));
+          if (CI->isZero())
+            continue;
+        }
         if (AI->isArrayAllocation()) {
           auto RemarkBuilder = [&]() {
             return OptimizationRemark(DEBUG_TYPE, "StackProtectorAllocaOrArray",
@@ -588,7 +592,14 @@ bool InsertStackProtectors(const TargetMachine *TM, Function *F,
       continue;
     Instruction *CheckLoc = dyn_cast<ReturnInst>(BB.getTerminator());
     if (!CheckLoc && !DisableCheckNoReturn)
-      for (auto &Inst : BB)
+      for (auto &Inst : BB) {
+        if (IntrinsicInst *IB = dyn_cast<IntrinsicInst>(&Inst);
+            IB && (IB->getIntrinsicID() == Intrinsic::eh_sjlj_callsite)) {
+          // eh_sjlj_callsite has to be in same BB as the
+          // bb terminator. Don't insert within this range.
+          CheckLoc = IB;
+          break;
+        }
         if (auto *CB = dyn_cast<CallBase>(&Inst))
           // Do stack check before noreturn calls that aren't nounwind (e.g:
           // __cxa_throw).
@@ -596,6 +607,7 @@ bool InsertStackProtectors(const TargetMachine *TM, Function *F,
             CheckLoc = CB;
             break;
           }
+      }
 
     if (!CheckLoc)
       continue;
@@ -626,7 +638,7 @@ bool InsertStackProtectors(const TargetMachine *TM, Function *F,
 
     // If we're instrumenting a block with a tail call, the check has to be
     // inserted before the call rather than between it and the return.
-    Instruction *Prev = CheckLoc->getPrevNonDebugInstruction();
+    Instruction *Prev = CheckLoc->getPrevNode();
     if (auto *CI = dyn_cast_if_present<CallInst>(Prev))
       if (CI->isTailCall() && isInTailCallPosition(*CI, *TM))
         CheckLoc = Prev;
@@ -731,8 +743,8 @@ BasicBlock *CreateFailBB(Function *F, const TargetLowering &TLI) {
   }
 
   if (StackChkFail) {
-    cast<Function>(StackChkFail.getCallee())->addFnAttr(Attribute::NoReturn);
-    B.CreateCall(StackChkFail, Args);
+    CallInst *Call = B.CreateCall(StackChkFail, Args);
+    Call->addFnAttr(Attribute::NoReturn);
   }
 
   B.CreateUnreachable();

@@ -123,7 +123,7 @@ define dso_local noundef i32 @dsps_fft2r_fc32_ansi(ptr nocapture noundef %data, 
 ; CHECK-NEXT:    [[ADD47_2:%.*]] = fadd float [[TMP26]], [[TMP16]]
 ; CHECK-NEXT:    [[ADD41_3:%.*]] = fadd float [[TMP19]], [[TMP27]]
 ; CHECK-NEXT:    [[ADD47_3:%.*]] = fadd float [[TMP28]], [[TMP20]]
-; CHECK-NEXT:    [[SUB:%.*]] = fsub float [[TMP7]], [[TMP21]]
+; CHECK-NEXT:    [[SUB1:%.*]] = fsub float [[TMP7]], [[TMP21]]
 ; CHECK-NEXT:    [[SUB35:%.*]] = fsub float [[TMP8]], [[TMP22]]
 ; CHECK-NEXT:    [[SUB_1:%.*]] = fsub float [[TMP11]], [[TMP23]]
 ; CHECK-NEXT:    [[SUB35_1:%.*]] = fsub float [[TMP12]], [[TMP24]]
@@ -131,7 +131,7 @@ define dso_local noundef i32 @dsps_fft2r_fc32_ansi(ptr nocapture noundef %data, 
 ; CHECK-NEXT:    [[SUB35_2:%.*]] = fsub float [[TMP16]], [[TMP26]]
 ; CHECK-NEXT:    [[SUB_3:%.*]] = fsub float [[TMP19]], [[TMP27]]
 ; CHECK-NEXT:    [[SUB35_3:%.*]] = fsub float [[TMP20]], [[TMP28]]
-; CHECK-NEXT:    store float [[SUB]], ptr [[ARRAYIDX15]], align 4
+; CHECK-NEXT:    store float [[SUB1]], ptr [[ARRAYIDX15]], align 4
 ; CHECK-NEXT:    store float [[SUB35]], ptr [[ARRAYIDX19]], align 4
 ; CHECK-NEXT:    store float [[ADD41]], ptr [[ARRAYIDX29]], align 4
 ; CHECK-NEXT:    store float [[ADD47]], ptr [[ARRAYIDX34]], align 4

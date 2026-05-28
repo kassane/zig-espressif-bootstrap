@@ -5,5 +5,5 @@ comptime {
 
 // error
 //
-// :3:42: error: expected type 'builtin.GlobalLinkage', found 'u32'
+// :3:42: error: expected type 'lang.GlobalLinkage', found 'u32'
 // :?:?: note: enum declared here

@@ -170,26 +170,27 @@ pub fn generate(
     const prologue = isel.instructions.items.len;
     const epilogue = try isel.layout(param_it, is_sysv_var_args, saved_gra_len, saved_vra_len, mod);
 
-    const instructions = try isel.instructions.toOwnedSlice(gpa);
-    var mir: Mir = .{
+    try isel.instructions.shrinkToLen(gpa);
+    try isel.literals.shrinkToLen(gpa);
+    try isel.nav_relocs.shrinkToLen(gpa);
+    try isel.uav_relocs.shrinkToLen(gpa);
+    try isel.lazy_relocs.shrinkToLen(gpa);
+    try isel.global_relocs.shrinkToLen(gpa);
+    try isel.literal_relocs.shrinkToLen(gpa);
+
+    const instructions = isel.instructions.toOwnedSliceAssert();
+
+    return .{
         .prologue = instructions[prologue..epilogue],
         .body = instructions[0..prologue],
         .epilogue = instructions[epilogue..],
-        .literals = &.{},
-        .nav_relocs = &.{},
-        .uav_relocs = &.{},
-        .lazy_relocs = &.{},
-        .global_relocs = &.{},
-        .literal_relocs = &.{},
+        .literals = isel.literals.toOwnedSliceAssert(),
+        .nav_relocs = isel.nav_relocs.toOwnedSliceAssert(),
+        .uav_relocs = isel.uav_relocs.toOwnedSliceAssert(),
+        .lazy_relocs = isel.lazy_relocs.toOwnedSliceAssert(),
+        .global_relocs = isel.global_relocs.toOwnedSliceAssert(),
+        .literal_relocs = isel.literal_relocs.toOwnedSliceAssert(),
     };
-    errdefer mir.deinit(gpa);
-    mir.literals = try isel.literals.toOwnedSlice(gpa);
-    mir.nav_relocs = try isel.nav_relocs.toOwnedSlice(gpa);
-    mir.uav_relocs = try isel.uav_relocs.toOwnedSlice(gpa);
-    mir.lazy_relocs = try isel.lazy_relocs.toOwnedSlice(gpa);
-    mir.global_relocs = try isel.global_relocs.toOwnedSlice(gpa);
-    mir.literal_relocs = try isel.literal_relocs.toOwnedSlice(gpa);
-    return mir;
 }
 
 test {

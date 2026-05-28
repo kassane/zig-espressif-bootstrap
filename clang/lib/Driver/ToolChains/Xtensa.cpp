@@ -17,7 +17,7 @@
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/MultilibBuilder.h"
-#include "clang/Driver/Options.h"
+#include "clang/Options/Options.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/VirtualFileSystem.h"
@@ -114,7 +114,7 @@ Tool *XtensaToolChain::buildAssembler() const {
 
 void XtensaToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
                                                 ArgStringList &CC1Args) const {
-  if (DriverArgs.hasArg(clang::driver::options::OPT_nostdinc) ||
+  if (DriverArgs.hasArg(options::OPT_nostdinc) ||
       DriverArgs.hasArg(options::OPT_nostdlibinc))
     return;
 
@@ -170,7 +170,7 @@ XtensaToolChain::GetUnwindLibType(const llvm::opt::ArgList &Args) const {
 }
 
 const StringRef XtensaToolChain::GetTargetCPUVersion(const ArgList &Args) {
-  if (Arg *A = Args.getLastArg(clang::driver::options::OPT_mcpu_EQ)) {
+  if (Arg *A = Args.getLastArg(options::OPT_mcpu_EQ)) {
     StringRef CPUName = A->getValue();
     return CPUName;
   }

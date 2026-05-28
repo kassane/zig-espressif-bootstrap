@@ -24,13 +24,3 @@ fn imaxdiv(a: intmax_t, b: intmax_t) callconv(.c) imaxdiv_t {
         .rem = @rem(a, b),
     };
 }
-
-test imaxabs {
-    const val: intmax_t = -10;
-    try std.testing.expectEqual(10, imaxabs(val));
-}
-
-test imaxdiv {
-    const expected: imaxdiv_t = .{ .quot = 9, .rem = 0 };
-    try std.testing.expectEqual(expected, imaxdiv(9, 1));
-}

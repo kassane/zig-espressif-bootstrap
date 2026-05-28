@@ -19,7 +19,7 @@ const Type = @This();
 
 ip_index: InternPool.Index,
 
-pub fn zigTypeTag(ty: Type, zcu: *const Zcu) std.builtin.TypeId {
+pub fn zigTypeTag(ty: Type, zcu: *const Zcu) std.lang.TypeId {
     return zcu.intern_pool.zigTypeTag(ty.toIntern());
 }
 
@@ -903,7 +903,7 @@ pub fn ptrAlignment(ptr_ty: Type, zcu: *Zcu) Alignment {
     return Type.fromInterned(ptr_key.child).abiAlignment(zcu);
 }
 
-pub fn ptrAddressSpace(ty: Type, zcu: *const Zcu) std.builtin.AddressSpace {
+pub fn ptrAddressSpace(ty: Type, zcu: *const Zcu) std.lang.AddressSpace {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| ptr_type.flags.address_space,
         .opt_type => |child| zcu.intern_pool.indexToKey(child).ptr_type.flags.address_space,
@@ -935,7 +935,7 @@ pub fn abiAlignment(ty: Type, zcu: *const Zcu) Alignment {
                     const bytes = ((elem_bits * vector_type.len) + 7) / 8;
                     return .fromByteUnits(std.math.ceilPowerOfTwoAssert(u32, bytes));
                 },
-                .stage2_c => return Type.fromInterned(vector_type.child).abiAlignment(zcu),
+                .stage2_c, .stage2_wasm => return Type.fromInterned(vector_type.child).abiAlignment(zcu),
                 .stage2_x86_64 => {
                     if (vector_type.child == .bool_type) {
                         if (vector_type.len > 256 and target.cpu.has(.x86, .avx512f)) return .@"64";
@@ -1084,7 +1084,7 @@ pub fn abiSize(ty: Type, zcu: *const Zcu) u64 {
             const elem_ty: Type = .fromInterned(vec.child);
             const bytes = switch (zcu.comp.getZigBackend()) {
                 else => std.math.divCeil(u64, vec.len * elem_ty.bitSize(zcu), 8) catch unreachable,
-                .stage2_c => vec.len * elem_ty.abiSize(zcu),
+                .stage2_c, .stage2_wasm => vec.len * elem_ty.abiSize(zcu),
                 .stage2_x86_64 => switch (elem_ty.toIntern()) {
                     .bool_type => std.math.divCeil(u64, vec.len, 8) catch unreachable,
                     else => vec.len * elem_ty.abiSize(zcu),
@@ -1094,13 +1094,18 @@ pub fn abiSize(ty: Type, zcu: *const Zcu) u64 {
         },
         .opt_type => |child_ty_ip| {
             const child_ty: Type = .fromInterned(child_ty_ip);
-            if (child_ty.classify(zcu) == .no_possible_value) return 0;
-            if (ty.optionalReprIsPayload(zcu)) return child_ty.abiSize(zcu);
-            // Optional types are represented as a struct with the child type as the first
-            // field and a boolean as the second. Since the child type's abi alignment is
-            // guaranteed to be >= that of bool's (1 byte) the added size is exactly equal
-            // to the child type's ABI alignment.
-            return child_ty.abiSize(zcu) + child_ty.abiAlignment(zcu).toByteUnits().?;
+            switch (child_ty.classify(zcu)) {
+                .no_possible_value => return 0, // we are OPV
+                .fully_comptime => return 0, // we are also fully_comptime (same justification as error unions, see below)
+                .one_possible_value, .partially_comptime, .runtime => {
+                    if (ty.optionalReprIsPayload(zcu)) return child_ty.abiSize(zcu);
+                    // Optional types are represented as a struct with the child type as the first
+                    // field and a boolean as the second. Since the child type's abi alignment is
+                    // guaranteed to be >= that of bool's (1 byte) the added size is exactly equal
+                    // to the child type's ABI alignment.
+                    return child_ty.abiSize(zcu) + child_ty.abiAlignment(zcu).toByteUnits().?;
+                },
+            }
         },
         .error_set_type, .inferred_error_set_type => errorAbiSize(zcu),
         .error_union_type => |error_union| {
@@ -1204,6 +1209,9 @@ pub fn abiSize(ty: Type, zcu: *const Zcu) u64 {
 }
 
 pub fn ptrAbiAlignment(target: *const Target) Alignment {
+    // The eZ80 has 24-bit pointers, which aren't exact powers of two, tripping
+    // the assert. The alignment of eZ80 pointers is 1, so we bypass the check.
+    if (target.cpu.arch == .ez80) return .@"1";
     return .fromNonzeroByteUnits(@divExact(target.ptrBitWidth(), 8));
 }
 pub fn ptrAbiSize(target: *const Target) u64 {
@@ -1334,12 +1342,12 @@ pub fn isSinglePointer(ty: Type, zcu: *const Zcu) bool {
 }
 
 /// Asserts `ty` is a pointer.
-pub fn ptrSize(ty: Type, zcu: *const Zcu) std.builtin.Type.Pointer.Size {
+pub fn ptrSize(ty: Type, zcu: *const Zcu) std.lang.Type.Pointer.Size {
     return ty.ptrSizeOrNull(zcu).?;
 }
 
 /// Returns `null` if `ty` is not a pointer.
-pub fn ptrSizeOrNull(ty: Type, zcu: *const Zcu) ?std.builtin.Type.Pointer.Size {
+pub fn ptrSizeOrNull(ty: Type, zcu: *const Zcu) ?std.lang.Type.Pointer.Size {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_info| ptr_info.flags.size,
         else => null,
@@ -1624,7 +1632,7 @@ pub fn unionGetLayout(ty: Type, zcu: *const Zcu) Zcu.UnionLayout {
     return Type.getUnionLayout(union_obj, zcu);
 }
 
-pub fn containerLayout(ty: Type, zcu: *const Zcu) std.builtin.Type.ContainerLayout {
+pub fn containerLayout(ty: Type, zcu: *const Zcu) std.lang.Type.ContainerLayout {
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
         .tuple_type => .auto,
@@ -1946,7 +1954,7 @@ pub fn fnReturnType(ty: Type, zcu: *const Zcu) Type {
 }
 
 /// Asserts the type is a function.
-pub fn fnCallingConvention(ty: Type, zcu: *const Zcu) std.builtin.CallingConvention {
+pub fn fnCallingConvention(ty: Type, zcu: *const Zcu) std.lang.CallingConvention {
     return zcu.intern_pool.indexToKey(ty.toIntern()).func_type.cc;
 }
 
@@ -2269,7 +2277,7 @@ pub fn minInt(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
 pub fn minIntScalar(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
     const zcu = pt.zcu;
     const info = ty.intInfo(zcu);
-    if (info.signedness == .unsigned or info.bits == 0) return pt.intValue(dest_ty, 0);
+    if (info.signedness == .unsigned) return pt.intValue(dest_ty, 0);
 
     if (std.math.cast(u6, info.bits - 1)) |shift| {
         const n = @as(i64, std.math.minInt(i64)) >> (63 - shift);
@@ -2474,7 +2482,7 @@ pub fn explicitFieldAlignment(ty: Type, index: usize, zcu: *const Zcu) Alignment
 /// Asserts that the layout of `field_ty` is resolved. Asserts that `layout` is not `.@"packed"`.
 pub fn defaultStructFieldAlignment(
     field_ty: Type,
-    layout: std.builtin.Type.ContainerLayout,
+    layout: std.lang.Type.ContainerLayout,
     zcu: *const Zcu,
 ) Alignment {
     const overalign_big_int = switch (layout) {
@@ -3172,6 +3180,7 @@ pub fn validateExtern(ty: Type, position: ExternPosition, zcu: *const Zcu) bool 
         },
         .int => switch (ty.intInfo(zcu).bits) {
             0, 8, 16, 32, 64, 128 => true,
+            24, 48 => zcu.getTarget().cpu.arch == .ez80,
             else => false,
         },
         .@"fn" => {
@@ -3223,7 +3232,7 @@ pub fn validateExtern(ty: Type, position: ExternPosition, zcu: *const Zcu) bool 
         .optional => ty.isPtrLikeOptional(zcu),
     };
 }
-fn validateExternCallconv(cc: std.builtin.CallingConvention) bool {
+fn validateExternCallconv(cc: std.lang.CallingConvention) bool {
     return switch (cc) {
         // For now we want to authorize PTX kernel to use zig objects, even if we end up exposing the ABI.
         // The goal is to experiment with more integrated CPU/GPU code.

@@ -295,9 +295,9 @@ test "void struct fields" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const foo = VoidStructFieldsFoo{
-        .a = void{},
+        .a = {},
         .b = 1,
-        .c = void{},
+        .c = {},
     };
     try expect(foo.b == 1);
     try expect(@sizeOf(VoidStructFieldsFoo) == 4);
@@ -404,7 +404,6 @@ test "packed struct 24bits" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch.isArm()) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
@@ -540,7 +539,6 @@ test "zero-bit field in packed struct" {
 test "packed struct with non-ABI-aligned field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -636,7 +634,7 @@ test "packed array 24bits" {
         try expect(@sizeOf(FooArray24Bits) == @sizeOf(u96));
     }
 
-    var bytes = [_]u8{0} ** (@sizeOf(FooArray24Bits) + 1);
+    var bytes: [@sizeOf(FooArray24Bits) + 1]u8 = @splat(0);
     bytes[bytes.len - 1] = 0xbb;
     const ptr = &std.mem.bytesAsSlice(FooArray24Bits, bytes[0 .. bytes.len - 1])[0];
     try expect(ptr.a == 0);
@@ -922,7 +920,6 @@ test "tuple assigned to variable" {
 
 test "comptime struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch.isArm()) return error.SkipZigTest; // TODO
 
     const T = struct {
         a: i32,
@@ -1630,7 +1627,7 @@ test "packed struct field in anonymous struct" {
     try std.testing.expect(countFields(.{ .t = T{} }) == 1);
 }
 fn countFields(v: anytype) usize {
-    return @typeInfo(@TypeOf(v)).@"struct".fields.len;
+    return @typeInfo(@TypeOf(v)).@"struct".field_names.len;
 }
 
 test "struct init with no result pointer sets field result types" {
@@ -2303,4 +2300,17 @@ test "struct queries typeinfo of struct containing pointer back to first struct"
         } };
     };
     _ = @as(static.A, undefined);
+}
+
+test "pointer to runtime field of struct containing struct containing comptime-only optional" {
+    const Foo = struct {
+        padding: struct { a: u8, b: ?comptime_int },
+        number: u8,
+    };
+
+    const foo: Foo = .{ .padding = undefined, .number = 123 };
+
+    var ptr: *const u8 = undefined;
+    ptr = &foo.number;
+    try expect(ptr.* == 123);
 }

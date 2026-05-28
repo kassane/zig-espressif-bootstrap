@@ -56,7 +56,7 @@ pub fn emit(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    atom_index: u32,
+    atom_index: link.File.AtomId,
     w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
 ) !void {
@@ -132,11 +132,11 @@ pub fn emit(
         zcu,
         atom_index,
         if (lf.cast(.elf)) |ef|
-            ef.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(ef, pt, lazy_reloc.symbol) catch |err|
-                return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)})
+            @enumFromInt(ef.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(ef, pt, lazy_reloc.symbol) catch |err|
+                return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)}))
         else if (lf.cast(.macho)) |mf|
-            mf.getZigObject().?.getOrCreateMetadataForLazySymbol(mf, pt, lazy_reloc.symbol) catch |err|
-                return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)})
+            @enumFromInt(mf.getZigObject().?.getOrCreateMetadataForLazySymbol(mf, pt, lazy_reloc.symbol) catch |err|
+                return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)}))
         else
             return zcu.codegenFail(func.owner_nav, "external symbols unimplemented for {t}", .{lf.tag}),
         mir.body[lazy_reloc.reloc.label],
@@ -149,9 +149,9 @@ pub fn emit(
         zcu,
         atom_index,
         if (lf.cast(.elf)) |ef|
-            try ef.getGlobalSymbol(std.mem.span(global_reloc.name), null)
+            @enumFromInt(try ef.getGlobalSymbol(std.mem.span(global_reloc.name), null))
         else if (lf.cast(.macho)) |mf|
-            try mf.getGlobalSymbol(std.mem.span(global_reloc.name), null)
+            @enumFromInt(try mf.getGlobalSymbol(std.mem.span(global_reloc.name), null))
         else
             return zcu.codegenFail(func.owner_nav, "external symbols unimplemented for {t}", .{lf.tag}),
         mir.body[global_reloc.reloc.label],
@@ -187,8 +187,8 @@ fn emitInstruction(w: *std.Io.Writer, instruction: Instruction) !void {
 fn emitReloc(
     lf: *link.File,
     zcu: *Zcu,
-    atom_index: u32,
-    sym_index: u32,
+    atom_index: link.File.AtomId,
+    sym_index: link.File.SymbolId,
     instruction: Instruction,
     offset: u32,
     addend: u64,
@@ -199,7 +199,7 @@ fn emitReloc(
         else => unreachable,
         .data_processing_immediate => |decoded| if (lf.cast(.elf)) |ef| {
             const zo = ef.zigObjectPtr().?;
-            const atom = zo.symbol(atom_index).atom(ef).?;
+            const atom = zo.symbol(@intFromEnum(atom_index)).atom(ef).?;
             const r_type: std.elf.R_AARCH64 = switch (decoded.decode()) {
                 else => unreachable,
                 .pc_relative_addressing => |pc_relative_addressing| switch (pc_relative_addressing.group.op) {
@@ -222,12 +222,12 @@ fn emitReloc(
             };
             try atom.addReloc(gpa, .{
                 .r_offset = offset,
-                .r_info = @as(u64, sym_index) << 32 | @intFromEnum(r_type),
+                .r_info = @as(u64, @intFromEnum(sym_index)) << 32 | @intFromEnum(r_type),
                 .r_addend = @bitCast(addend),
             }, zo);
         } else if (lf.cast(.macho)) |mf| {
             const zo = mf.getZigObject().?;
-            const atom = zo.symbols.items[atom_index].getAtom(mf).?;
+            const atom = zo.symbols.items[@intFromEnum(atom_index)].getAtom(mf).?;
             switch (decoded.decode()) {
                 else => unreachable,
                 .pc_relative_addressing => |pc_relative_addressing| switch (pc_relative_addressing.group.op) {
@@ -235,7 +235,7 @@ fn emitReloc(
                     .adrp => try atom.addReloc(mf, .{
                         .tag = .@"extern",
                         .offset = offset,
-                        .target = sym_index,
+                        .target = @intFromEnum(sym_index),
                         .addend = @bitCast(addend),
                         .type = switch (kind) {
                             .direct => .page,
@@ -245,7 +245,7 @@ fn emitReloc(
                             .pcrel = true,
                             .has_subtractor = false,
                             .length = 2,
-                            .symbolnum = @intCast(sym_index),
+                            .symbolnum = @intCast(@intFromEnum(sym_index)),
                         },
                     }),
                 },
@@ -253,7 +253,7 @@ fn emitReloc(
                     .add => try atom.addReloc(mf, .{
                         .tag = .@"extern",
                         .offset = offset,
-                        .target = sym_index,
+                        .target = @intFromEnum(sym_index),
                         .addend = @bitCast(addend),
                         .type = switch (kind) {
                             .direct => .pageoff,
@@ -263,7 +263,7 @@ fn emitReloc(
                             .pcrel = false,
                             .has_subtractor = false,
                             .length = 2,
-                            .symbolnum = @intCast(sym_index),
+                            .symbolnum = @intCast(@intFromEnum(sym_index)),
                         },
                     }),
                     .sub => unreachable,
@@ -272,36 +272,36 @@ fn emitReloc(
         },
         .branch_exception_generating_system => |decoded| if (lf.cast(.elf)) |ef| {
             const zo = ef.zigObjectPtr().?;
-            const atom = zo.symbol(atom_index).atom(ef).?;
+            const atom = zo.symbol(@intFromEnum(atom_index)).atom(ef).?;
             const r_type: std.elf.R_AARCH64 = switch (decoded.decode().unconditional_branch_immediate.group.op) {
                 .b => .JUMP26,
                 .bl => .CALL26,
             };
             try atom.addReloc(gpa, .{
                 .r_offset = offset,
-                .r_info = @as(u64, sym_index) << 32 | @intFromEnum(r_type),
+                .r_info = @as(u64, @intFromEnum(sym_index)) << 32 | @intFromEnum(r_type),
                 .r_addend = @bitCast(addend),
             }, zo);
         } else if (lf.cast(.macho)) |mf| {
             const zo = mf.getZigObject().?;
-            const atom = zo.symbols.items[atom_index].getAtom(mf).?;
+            const atom = zo.symbols.items[@intFromEnum(atom_index)].getAtom(mf).?;
             try atom.addReloc(mf, .{
                 .tag = .@"extern",
                 .offset = offset,
-                .target = sym_index,
+                .target = @intFromEnum(sym_index),
                 .addend = @bitCast(addend),
                 .type = .branch,
                 .meta = .{
                     .pcrel = true,
                     .has_subtractor = false,
                     .length = 2,
-                    .symbolnum = @intCast(sym_index),
+                    .symbolnum = @intCast(@intFromEnum(sym_index)),
                 },
             });
         },
         .load_store => |decoded| if (lf.cast(.elf)) |ef| {
             const zo = ef.zigObjectPtr().?;
-            const atom = zo.symbol(atom_index).atom(ef).?;
+            const atom = zo.symbol(@intFromEnum(atom_index)).atom(ef).?;
             const r_type: std.elf.R_AARCH64 = switch (decoded.decode().register_unsigned_immediate.decode()) {
                 .integer => |integer| switch (integer.decode()) {
                     .unallocated, .prfm => unreachable,
@@ -342,16 +342,16 @@ fn emitReloc(
             };
             try atom.addReloc(gpa, .{
                 .r_offset = offset,
-                .r_info = @as(u64, sym_index) << 32 | @intFromEnum(r_type),
+                .r_info = @as(u64, @intFromEnum(sym_index)) << 32 | @intFromEnum(r_type),
                 .r_addend = @bitCast(addend),
             }, zo);
         } else if (lf.cast(.macho)) |mf| {
             const zo = mf.getZigObject().?;
-            const atom = zo.symbols.items[atom_index].getAtom(mf).?;
+            const atom = zo.symbols.items[@intFromEnum(atom_index)].getAtom(mf).?;
             try atom.addReloc(mf, .{
                 .tag = .@"extern",
                 .offset = offset,
-                .target = sym_index,
+                .target = @intFromEnum(sym_index),
                 .addend = @bitCast(addend),
                 .type = switch (kind) {
                     .direct => .pageoff,
@@ -361,7 +361,7 @@ fn emitReloc(
                     .pcrel = false,
                     .has_subtractor = false,
                     .length = 2,
-                    .symbolnum = @intCast(sym_index),
+                    .symbolnum = @intCast(@intFromEnum(sym_index)),
                 },
             });
         },

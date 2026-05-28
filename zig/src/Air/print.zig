@@ -148,8 +148,6 @@ const Writer = struct {
             .cmp_gte,
             .cmp_gt,
             .cmp_neq,
-            .bool_and,
-            .bool_or,
             .store,
             .store_safe,
             .array_elem_val,
@@ -627,7 +625,7 @@ const Writer = struct {
         w: *Writer,
         s: *std.Io.Writer,
         inst: Air.Inst.Index,
-        order: std.builtin.AtomicOrder,
+        order: std.lang.AtomicOrder,
     ) Error!void {
         const bin_op = w.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         try w.writeOperand(s, inst, 0, bin_op.lhs);

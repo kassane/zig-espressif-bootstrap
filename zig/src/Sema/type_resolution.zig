@@ -35,7 +35,7 @@ pub const LayoutResolveReason = enum {
     @"export",
     @"extern",
     asm_out_type,
-    builtin_type,
+    std_lang_type,
 
     /// Written after string: "while resolving type 'T' "
     /// e.g. "while resolving type 'MyStruct' for variable declared here"
@@ -62,7 +62,7 @@ pub const LayoutResolveReason = enum {
             .@"export"     => "for export here",
             .@"extern"     => "for extern declaration here",
             .asm_out_type  => "for inline assembly output type declared here",
-            .builtin_type  => "from 'std.builtin'",
+            .std_lang_type  => "from 'std.lang'",
             // zig fmt: on
         };
     }

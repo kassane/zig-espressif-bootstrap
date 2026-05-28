@@ -1,4 +1,4 @@
-/*	$NetBSD: m68k.h,v 1.24 2019/04/06 03:06:26 thorpej Exp $	*/
+/*	$NetBSD: m68k.h,v 1.27 2024/01/13 00:44:42 thorpej Exp $	*/
 
 /*
  * Copyright (c) 1988 University of Utah.
@@ -58,7 +58,7 @@
  * All m68k ports must provide these globals.
  */
 extern	int cputype;		/* CPU on this host */
-extern	int ectype; 		/* external cache on this host */
+extern	int ectype;		/* external cache on this host */
 extern	int fputype;		/* FPU on this host */
 extern	int mmutype;		/* MMU on this host */
 #endif	/* _KERNEL */
@@ -103,14 +103,10 @@ void	copypage040(void *fromaddr, void *toaddr);
 void	copypage(void *fromaddr, void *toaddr);
 void	zeropage(void *addr);
 
-/* support.s */
-int 	getdfc(void);
-int 	getsfc(void);
-
 /* switch_subr.s */
 void	lwp_trampoline(void);
 void	m68881_save(struct fpframe *);
-void	m68881_restore(struct fpframe *); 
+void	m68881_restore(struct fpframe *);
 void	savectx(struct pcb *);
 
 /* w16copy.s */

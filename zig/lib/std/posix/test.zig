@@ -187,11 +187,11 @@ test "mmap" {
         try expectEqual(@as(usize, 1234), data.len);
 
         // By definition the data returned by mmap is zero-filled
-        try expect(mem.eql(u8, data, &[_]u8{0x00} ** 1234));
+        try expect(mem.eql(u8, data, &@as([1234]u8, @splat(0x00))));
 
         // Make sure the memory is writeable as requested
         @memset(data, 0x55);
-        try expect(mem.eql(u8, data, &[_]u8{0x55} ** 1234));
+        try expect(mem.eql(u8, data, &@as([1234]u8, @splat(0x55))));
     }
 
     const test_out_file = "os_tmp_test";
@@ -332,8 +332,8 @@ test "fsync" {
 test "getrlimit and setrlimit" {
     if (posix.system.rlimit_resource == void) return error.SkipZigTest;
 
-    inline for (@typeInfo(posix.rlimit_resource).@"enum".fields) |field| {
-        const resource: posix.rlimit_resource = @enumFromInt(field.value);
+    inline for (@typeInfo(posix.rlimit_resource).@"enum".field_values) |field_value| {
+        const resource: posix.rlimit_resource = @enumFromInt(field_value);
         const limit = try posix.getrlimit(resource);
 
         // XNU kernel does not support RLIMIT_STACK if a custom stack is active,

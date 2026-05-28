@@ -671,12 +671,10 @@ test "reset while retaining a buffer" {
 
     // Create two internal buffers
     _ = try a.alloc(u8, 1);
-    _ = try a.alloc(u8, 1000);
-
     try std.testing.expect(arena_allocator.state.used_list != null);
-
-    // Check that we have at least two buffers
-    try std.testing.expect(arena_allocator.state.used_list.?.next != null);
+    while (arena_allocator.state.used_list.?.next == null) {
+        _ = try a.alloc(u8, 1000);
+    }
 
     // This retains the first allocated buffer
     try std.testing.expect(arena_allocator.reset(.{ .retain_with_limit = 2 }));

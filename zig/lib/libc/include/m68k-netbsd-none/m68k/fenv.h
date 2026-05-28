@@ -1,4 +1,4 @@
-/*	$NetBSD: fenv.h,v 1.8 2019/10/26 17:51:49 christos Exp $	*/
+/*	$NetBSD: fenv.h,v 1.10 2024/10/30 15:56:11 riastradh Exp $	*/
 
 /*-
  * Copyright (c) 2015 The NetBSD Foundation, Inc.
@@ -32,7 +32,9 @@
 #ifndef _M68K_FENV_H_
 #define _M68K_FENV_H_
 
+#include <sys/featuretest.h>
 #include <sys/stdint.h>
+
 #include <m68k/float.h>
 #include <m68k/fpreg.h>
 
@@ -86,19 +88,19 @@ typedef struct {
     do { \
 	    __t d = __d; \
 	    __asm__ __volatile__ ("fmul" __s "; fnop" : "=f" (d) : "0" (d)); \
-    } while (/*CONSTCOND*/0) 
+    } while (/*CONSTCOND*/0)
 
 #define __fdiv(__s, __t, __d) \
     do { \
 	    __t d = __d; \
 	    __asm__ __volatile__ ("fdiv" __s "; fnop" : "=f" (d) : "0" (d)); \
-    } while (/*CONSTCOND*/0) 
+    } while (/*CONSTCOND*/0)
 
 #define __fetox(__s, __t, __d) \
     do { \
 	    __t d = __d; \
 	    __asm__ __volatile__ ("fetox" __s "; fnop" : "=f" (d) : "0" (d)); \
-    } while (/*CONSTCOND*/0) 
+    } while (/*CONSTCOND*/0)
 
 #define __fgetenv(__envp) \
     __asm__ __volatile__ ("fmovem%.l %/fpcr/%/fpsr/%/fpiar,%0" : "=m" (__envp))

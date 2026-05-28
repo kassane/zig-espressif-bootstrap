@@ -544,16 +544,13 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
             return self.allocatedSlice()[self.items.len..];
         }
 
-        /// Returns the last element from the list.
-        /// Asserts that the list is not empty.
-        pub fn getLast(self: Self) T {
-            return self.items[self.items.len - 1];
-        }
+        /// Deprecated in favor of `getLast`
+        pub const getLastOrNull = getLast;
 
-        /// Returns the last element from the list, or `null` if list is empty.
-        pub fn getLastOrNull(self: Self) ?T {
+        /// Returns the last element from the list, or `null` if the list is empty.
+        pub fn getLast(self: Self) ?T {
             if (self.items.len == 0) return null;
-            return self.getLast();
+            return self.items[self.items.len - 1];
         }
     };
 }
@@ -1155,14 +1152,14 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// Shrinks capacity to match length.
         /// May invalidate element pointers.
-        /// If succeds it is safe to call toOwnedSliceAssert().
+        /// If succeds it is safe to call `toOwnedSliceAssert`.
         pub fn shrinkToLen(self: *Self, gpa: Allocator) Allocator.Error!void {
             try self.shrinkAndFreePrecise(gpa, self.items.len);
         }
 
         /// Shrinks or expands capacity to match length + 1.
         /// May invalidate element pointers.
-        /// If succeds it is safe to call toOwnedSliceSentinelAssert().
+        /// If succeds it is safe to call `toOwnedSliceSentinelAssert`.
         pub fn shrinkToLenSentinel(self: *Self, gpa: Allocator) Allocator.Error!void {
             std.debug.assert(self.items.len <= self.capacity);
             const required_len = self.items.len + 1;
@@ -1394,17 +1391,17 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             return self.allocatedSlice()[self.items.len..];
         }
 
-        /// Return the last element from the list.
-        /// Asserts that the list is not empty.
-        pub fn getLast(self: Self) T {
+        /// Deprecated in favor of `last`.
+        pub fn getLast(self: Self) ?T {
+            if (self.items.len == 0) return null;
             return self.items[self.items.len - 1];
         }
 
-        /// Return the last element from the list, or
-        /// return `null` if list is empty.
-        pub fn getLastOrNull(self: Self) ?T {
+        /// Returns a pointer to the last element from the list, or `null` if
+        /// the list is empty.
+        pub fn last(self: Self) ?*T {
             if (self.items.len == 0) return null;
-            return self.getLast();
+            return &self.items[self.items.len - 1];
         }
 
         /// Called when memory growth is necessary. Returns a capacity larger than
@@ -2388,28 +2385,16 @@ test "Managed(?u32).pop()" {
     try testing.expect(list.pop() == null);
 }
 
-test "Managed(u32).getLast()" {
+test "last" {
     const a = testing.allocator;
 
-    var list = Managed(u32).init(a);
-    defer list.deinit();
+    var list: ArrayList(u32) = .empty;
+    defer list.deinit(a);
 
-    try list.append(2);
-    const const_list = list;
-    try testing.expectEqual(const_list.getLast(), 2);
-}
+    try testing.expectEqual(list.last(), null);
 
-test "Managed(u32).getLastOrNull()" {
-    const a = testing.allocator;
-
-    var list = Managed(u32).init(a);
-    defer list.deinit();
-
-    try testing.expectEqual(list.getLastOrNull(), null);
-
-    try list.append(2);
-    const const_list = list;
-    try testing.expectEqual(const_list.getLastOrNull().?, 2);
+    try list.append(a, 2);
+    try testing.expectEqual(list.last().?.*, 2);
 }
 
 test "return OutOfMemory when capacity would exceed maximum usize integer value" {

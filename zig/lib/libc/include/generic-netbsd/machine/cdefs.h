@@ -1,3 +1,8 @@
-/*	$NetBSD: cdefs.h,v 1.1 2002/12/09 12:15:59 scw Exp $	*/
+/* $NetBSD: cdefs.h,v 1.2 2023/05/07 12:41:48 skrll Exp $ */
 
-#include <powerpc/cdefs.h>
+#ifndef _RISCV_CDEFS_H_
+#define _RISCV_CDEFS_H_
+
+#define	__ALIGNBYTES	((size_t)(__BIGGEST_ALIGNMENT__ - 1U))
+
+#endif /* _RISCV_CDEFS_H_ */

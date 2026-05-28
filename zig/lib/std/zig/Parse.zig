@@ -89,18 +89,18 @@ fn unreserveNode(p: *Parse, node_index: usize) void {
 }
 
 fn addExtra(p: *Parse, extra: anytype) Allocator.Error!ExtraIndex {
-    const fields = std.meta.fields(@TypeOf(extra));
-    try p.extra_data.ensureUnusedCapacity(p.gpa, fields.len);
+    const info = @typeInfo(@TypeOf(extra)).@"struct";
+    try p.extra_data.ensureUnusedCapacity(p.gpa, info.field_names.len);
     const result: ExtraIndex = @enumFromInt(p.extra_data.items.len);
-    inline for (fields) |field| {
-        const data: u32 = switch (field.type) {
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        const data: u32 = switch (field_type) {
             Node.Index,
             Node.OptionalIndex,
             OptionalTokenIndex,
             ExtraIndex,
-            => @intFromEnum(@field(extra, field.name)),
+            => @intFromEnum(@field(extra, field_name)),
             TokenIndex,
-            => @field(extra, field.name),
+            => @field(extra, field_name),
             else => @compileError("unexpected field type"),
         };
         p.extra_data.appendAssumeCapacity(data);
@@ -278,7 +278,7 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                     }
                     const comptime_token = p.nextToken();
                     const opt_block = p.parseBlock() catch |err| switch (err) {
-                        error.OutOfMemory => return error.OutOfMemory,
+                        error.OutOfMemory => |e| return e,
                         error.ParseError => blk: {
                             p.findNextContainerMember();
                             break :blk null;
@@ -301,7 +301,7 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                     const identifier = p.tok_i;
                     defer last_field = identifier;
                     const container_field = p.expectContainerField() catch |err| switch (err) {
-                        error.OutOfMemory => return error.OutOfMemory,
+                        error.OutOfMemory => |e| return e,
                         error.ParseError => {
                             p.findNextContainerMember();
                             continue;
@@ -398,7 +398,7 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
             },
             else => {
                 const c_container = p.parseCStyleContainer() catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
+                    error.OutOfMemory => |e| return e,
                     error.ParseError => false,
                 };
                 if (c_container) continue;
@@ -406,7 +406,7 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                 const identifier = p.tok_i;
                 defer last_field = identifier;
                 const container_field = p.expectContainerField() catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
+                    error.OutOfMemory => |e| return e,
                     error.ParseError => {
                         p.findNextContainerMember();
                         continue;
@@ -589,7 +589,7 @@ fn expectTestDeclRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
     if (p.expectTestDecl()) |node| {
         return node;
     } else |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         error.ParseError => {
             p.findNextContainerMember();
             return null;
@@ -668,7 +668,7 @@ fn expectTopLevelDecl(p: *Parse) !?Node.Index {
 
 fn expectTopLevelDeclRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
     return p.expectTopLevelDecl() catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         error.ParseError => {
             p.findNextContainerMember();
             return null;
@@ -909,7 +909,7 @@ fn expectContainerField(p: *Parse) !Node.Index {
 /// BlockStatement
 ///     <- Statement
 ///      / KEYWORD_defer BlockExprStatement
-///      / KEYWORD_errdefer Payload? BlockExprStatement
+///      / KEYWORD_errdefer BlockExprStatement
 ///      / !ExprStatement (KEYWORD_comptime !BlockExpr)? VarAssignStatement
 ///
 /// Statement
@@ -975,10 +975,7 @@ fn expectStatement(p: *Parse, is_block_level: bool) Error!Node.Index {
         .keyword_errdefer => if (is_block_level) return p.addNode(.{
             .tag = .@"errdefer",
             .main_token = p.nextToken(),
-            .data = .{ .opt_token_and_node = .{
-                try p.parsePayload(),
-                try p.expectBlockExprStatement(),
-            } },
+            .data = .{ .node = try p.expectBlockExprStatement() },
         }),
         .keyword_if => return p.expectIfStatement(),
         .keyword_enum, .keyword_struct, .keyword_union => {
@@ -1145,7 +1142,7 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
 fn expectStatementRecoverable(p: *Parse) Error!?Node.Index {
     while (true) {
         return p.expectStatement(true) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
             error.ParseError => {
                 p.findNextStmt(); // Try to skip to the next statement.
                 switch (p.tokenTag(p.tok_i)) {
@@ -1612,7 +1609,6 @@ const operTable = std.enums.directEnumArrayDefault(Token.Tag, OperInfo, .{ .prec
     .asterisk = .{ .prec = 70, .tag = .mul },
     .slash = .{ .prec = 70, .tag = .div },
     .percent = .{ .prec = 70, .tag = .mod },
-    .asterisk_asterisk = .{ .prec = 70, .tag = .array_mult },
     .asterisk_percent = .{ .prec = 70, .tag = .mul_wrap },
     .asterisk_pipe = .{ .prec = 70, .tag = .mul_sat },
 });
@@ -1712,11 +1708,11 @@ fn expectPrefixExpr(p: *Parse) Error!Node.Index {
 ///
 /// SliceTypeStart <- LBRACKET (COLON Expr)? RBRACKET
 ///
-/// SinglePtrTypeStart <- ASTERISK / ASTERISK2
+/// SinglePtrTypeStart <- ASTERISK
 ///
 /// ManyPtrTypeStart <- LBRACKET ASTERISK (LETTERC / COLON Expr)? RBRACKET
 ///
-/// ArrayTypeStart <- LBRACKET Expr !(ASTERISK / ASTERISK2) (COLON Expr)? RBRACKET
+/// ArrayTypeStart <- LBRACKET Expr !ASTERISK (COLON Expr)? RBRACKET
 ///
 /// BitAlign <- KEYWORD_align LPAREN Expr (COLON Expr COLON Expr)? RPAREN
 fn parseTypeExpr(p: *Parse) Error!?Node.Index {
@@ -1779,59 +1775,6 @@ fn parseTypeExpr(p: *Parse) Error!?Node.Index {
                     } },
                 });
             }
-        },
-        .asterisk_asterisk => {
-            const asterisk = p.nextToken();
-            const mods = try p.parsePtrModifiers();
-            const elem_type = try p.expectTypeExpr();
-            const inner: Node.Index = inner: {
-                if (mods.bit_range_start != .none) {
-                    break :inner try p.addNode(.{
-                        .tag = .ptr_type_bit_range,
-                        .main_token = asterisk,
-                        .data = .{ .extra_and_node = .{
-                            try p.addExtra(Node.PtrTypeBitRange{
-                                .sentinel = .none,
-                                .align_node = mods.align_node.unwrap().?,
-                                .addrspace_node = mods.addrspace_node,
-                                .bit_range_start = mods.bit_range_start.unwrap().?,
-                                .bit_range_end = mods.bit_range_end.unwrap().?,
-                            }),
-                            elem_type,
-                        } },
-                    });
-                } else if (mods.addrspace_node != .none) {
-                    break :inner try p.addNode(.{
-                        .tag = .ptr_type,
-                        .main_token = asterisk,
-                        .data = .{ .extra_and_node = .{
-                            try p.addExtra(Node.PtrType{
-                                .sentinel = .none,
-                                .align_node = mods.align_node,
-                                .addrspace_node = mods.addrspace_node,
-                            }),
-                            elem_type,
-                        } },
-                    });
-                } else {
-                    break :inner try p.addNode(.{
-                        .tag = .ptr_type_aligned,
-                        .main_token = asterisk,
-                        .data = .{ .opt_node_and_node = .{
-                            mods.align_node,
-                            elem_type,
-                        } },
-                    });
-                }
-            };
-            return try p.addNode(.{
-                .tag = .ptr_type_aligned,
-                .main_token = asterisk,
-                .data = .{ .opt_node_and_node = .{
-                    .none,
-                    inner,
-                } },
-            });
         },
         .l_bracket => switch (p.tokenTag(p.tok_i + 1)) {
             .asterisk => {
@@ -3260,14 +3203,6 @@ fn parseSuffixOp(p: *Parse, lhs: Node.Index) !?Node.Index {
             .main_token = p.nextToken(),
             .data = .{ .node = lhs },
         }),
-        .invalid_periodasterisks => {
-            try p.warn(.asterisk_after_ptr_deref);
-            return try p.addNode(.{
-                .tag = .deref,
-                .main_token = p.nextToken(),
-                .data = .{ .node = lhs },
-            });
-        },
         .period => switch (p.tokenTag(p.tok_i + 1)) {
             .identifier => return try p.addNode(.{
                 .tag = .field_access,

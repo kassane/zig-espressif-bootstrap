@@ -170,8 +170,6 @@ pub fn log2q(a: f128) callconv(.c) f128 {
 
 pub fn log2l(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return __log2h(x),
-        32 => return log2f(x),
         64 => return log2(x),
         80 => return __log2x(x),
         128 => return log2q(x),

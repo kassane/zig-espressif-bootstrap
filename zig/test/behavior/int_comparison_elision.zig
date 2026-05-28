@@ -7,7 +7,6 @@ test "int comparison elision" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     testIntEdges(u0);
-    testIntEdges(i0);
     testIntEdges(u1);
     testIntEdges(i1);
     testIntEdges(u4);

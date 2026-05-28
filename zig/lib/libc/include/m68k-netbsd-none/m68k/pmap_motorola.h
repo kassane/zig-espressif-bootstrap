@@ -1,6 +1,6 @@
-/*	$NetBSD: pmap_motorola.h,v 1.37 2021/09/19 10:34:09 andvar Exp $	*/
+/*	$NetBSD: pmap_motorola.h,v 1.43 2023/12/31 21:59:24 thorpej Exp $	*/
 
-/* 
+/*
  * Copyright (c) 1991, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -35,7 +35,7 @@
  *	@(#)pmap.h	8.1 (Berkeley) 6/10/93
  */
 
-/* 
+/*
  * Copyright (c) 1987 Carnegie-Mellon University
  *
  * This code is derived from software contributed to Berkeley by
@@ -98,6 +98,21 @@ struct pmap {
 };
 
 /*
+ * Root Pointer attributes for Supervisor and User modes.
+ *
+ * Supervisor:
+ * - No index limit (Lower limit == 0)
+ * - Points to Short format descriptor table.
+ * - Shared Globally
+ *
+ * User:
+ * - No index limit (Lower limit == 0)
+ * - Points to Short format descriptor table.
+ */
+#define	MMU51_SRP_BITS	(DTE51_LOWER | DTE51_SG | DT51_SHORT)
+#define	MMU51_CRP_BITS	(DTE51_LOWER |            DT51_SHORT)
+
+/*
  * MMU specific segment values
  *
  * We are using following segment layout in m68k pmap_motorola.c:
@@ -108,7 +123,7 @@ struct pmap {
  *
  * 68020/030 l2 size is chosen per NPTEPG, a number of page table entries
  * per page, to use one whole page for PTEs per one segment table entry,
- * and maybe also because 68020 HP MMU machines use simlar structures.
+ * and maybe also because 68020 HP MMU machines use similar structures.
  *
  * 68040/060 layout is defined by hardware design and not configurable,
  * as defined in <m68k/pte_motorola.h>.
@@ -122,12 +137,19 @@ struct pmap {
  * so they have different values between 020/030 and 040/060.
  */
 							/*  8KB /  4KB	*/
-#define TIB_SHIFT	(PG_SHIFT - 2)			/*   11 /   10	*/
+#define TIB_SHIFT	(PGSHIFT - 2)			/*   11 /   10	*/
 #define TIB_SIZE	(1U << TIB_SHIFT)		/* 2048 / 1024	*/
-#define TIA_SHIFT	(32 - TIB_SHIFT - PG_SHIFT)	/*    8 /   10	*/
+#define TIA_SHIFT	(32 - TIB_SHIFT - PGSHIFT)	/*    8 /   10	*/
 #define TIA_SIZE	(1U << TIA_SHIFT)		/*  256 / 1024	*/
 
-#define SEGSHIFT	(TIB_SHIFT + PG_SHIFT)		/*   24 /   22	*/
+#define	MMU51_TCR_BITS	(TCR51_E | TCR51_SRE |				\
+			 __SHIFTIN(PGSHIFT, TCR51_PS) |			\
+			 __SHIFTIN(TIA_SHIFT, TCR51_TIA) |		\
+			 __SHIFTIN(TIB_SHIFT, TCR51_TIB))
+#define	MMU40_TCR_BITS	(TCR40_E |					\
+			 __SHIFTIN(PGSHIFT - 12, TCR40_P))
+
+#define SEGSHIFT	(TIB_SHIFT + PGSHIFT)		/*   24 /   22	*/
 
 #define NBSEG30		(1U << SEGSHIFT)
 #define NBSEG40		(1U << SG4_SHIFT2)
@@ -142,7 +164,7 @@ struct pmap {
 #define NBSEG		((mmutype == MMU_68040) ? NBSEG40 : NBSEG30)
 #endif
 
-#define SEGOFSET	(NBSEG - 1)	/* byte offset into segment */ 
+#define SEGOFSET	(NBSEG - 1)	/* byte offset into segment */
 
 #define	m68k_round_seg(x)	((((vaddr_t)(x)) + SEGOFSET) & ~SEGOFSET)
 #define	m68k_trunc_seg(x)	((vaddr_t)(x) & ~SEGOFSET)
@@ -171,15 +193,6 @@ struct pmap {
 #define bmtol2(n)	(ffs(n) - 1)
 
 /*
- * Macros for speed
- */
-#define	PMAP_ACTIVATE(pmap, loadhw)					\
-{									\
-	if ((loadhw))							\
-		loadustp(m68k_btop((paddr_t)(pmap)->pm_stpa));		\
-}
-
-/*
  * For each struct vm_page, there is a list of all currently valid virtual
  * mappings of that page.  An entry is a pv_entry, the list is pv_table.
  */
@@ -190,12 +203,6 @@ struct pv_entry {
 	st_entry_t	*pv_ptste;	/* non-zero if VA maps a PT page */
 	struct pmap	*pv_ptpmap;	/* if pv_ptste, pmap for PT page */
 };
-
-#define	active_pmap(pm) \
-	((pm) == pmap_kernel() || (pm) == curproc->p_vmspace->vm_map.pmap)
-#define	active_user_pmap(pm) \
-	(curproc && \
-	 (pm) != pmap_kernel() && (pm) == curproc->p_vmspace->vm_map.pmap)
 
 extern struct pv_header	*pv_table;	/* array of entries, one per page */
 
@@ -246,5 +253,7 @@ void	pmap_prefer(vaddr_t, vaddr_t *);
 void	_pmap_set_page_cacheable(struct pmap *, vaddr_t);
 void	_pmap_set_page_cacheinhibit(struct pmap *, vaddr_t);
 int	_pmap_page_is_cacheable(struct pmap *, vaddr_t);
+
+paddr_t	vtophys(vaddr_t va);
 
 #endif /* !_M68K_PMAP_MOTOROLA_H_ */

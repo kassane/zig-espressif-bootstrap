@@ -189,10 +189,13 @@ pub const File = struct {
 pub const HashHelper = struct {
     hasher: Hasher = hasher_init,
 
-    /// Record a slice of bytes as a dependency of the process being cached.
     pub fn addBytes(hh: *HashHelper, bytes: []const u8) void {
         hh.hasher.update(mem.asBytes(&bytes.len));
         hh.hasher.update(bytes);
+    }
+
+    pub fn addBytesZ(hh: *HashHelper, bytes: [:0]const u8) void {
+        hh.hasher.update(mem.absorbSentinel(bytes));
     }
 
     pub fn addOptionalBytes(hh: *HashHelper, optional_bytes: ?[]const u8) void {
@@ -562,14 +565,14 @@ pub const Manifest = struct {
                             self.diagnostic = .{ .manifest_create = error.FileNotFound };
                             return error.CacheCheckFailed;
                         },
-                        error.Canceled => return error.Canceled,
+                        error.Canceled => |e| return e,
                         else => |e| {
                             self.diagnostic = .{ .manifest_create = e };
                             return error.CacheCheckFailed;
                         },
                     }
                 },
-                error.Canceled => return error.Canceled,
+                error.Canceled => |e| return e,
                 else => |e| {
                     self.diagnostic = .{ .manifest_create = e };
                     return error.CacheCheckFailed;
@@ -675,7 +678,7 @@ pub const Manifest = struct {
         var manifest_reader = self.manifest_file.?.reader(io, &tiny_buffer); // Reads positionally from zero.
         const limit: std.Io.Limit = .limited(manifest_file_size_max);
         const file_contents = manifest_reader.interface.allocRemaining(gpa, limit) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
             error.StreamTooLong => return error.OutOfMemory,
             error.ReadFailed => {
                 self.diagnostic = .{ .manifest_read = manifest_reader.err.? };
@@ -767,7 +770,7 @@ pub const Manifest = struct {
                     // Every digest before this one has been populated successfully.
                     return .{ .miss = .{ .file_digests_populated = idx } };
                 },
-                error.Canceled => return error.Canceled,
+                error.Canceled => |e| return e,
                 else => |e| {
                     self.diagnostic = .{ .file_open = .{
                         .file_index = idx,
@@ -880,14 +883,14 @@ pub const Manifest = struct {
                 .read = true,
                 .truncate = true,
             }) catch |err| switch (err) {
-                error.Canceled => return error.Canceled,
+                error.Canceled => |e| return e,
                 else => return true,
             };
             defer file.close(io);
 
             // Save locally and also save globally (we still hold the global lock).
             const stat = file.stat(io) catch |err| switch (err) {
-                error.Canceled => return error.Canceled,
+                error.Canceled => |e| return e,
                 else => return true,
             };
             man.recent_problematic_timestamp = stat.mtime;
@@ -979,6 +982,7 @@ pub const Manifest = struct {
             .stat = undefined,
             .bin_digest = undefined,
             .contents = null,
+            .handle = null,
         };
 
         self.files.lockPointers();
@@ -1022,6 +1026,12 @@ pub const Manifest = struct {
         defer self.files.unlockPointers();
 
         try self.populateFileHash(gop.key_ptr);
+    }
+
+    pub fn addPathPost(man: *Manifest, path: Path) !void {
+        _ = man;
+        _ = path;
+        @panic("TODO");
     }
 
     /// Like `addFilePost` but when the file contents have already been loaded from disk.
@@ -1231,7 +1241,7 @@ pub const Manifest = struct {
     }
 
     pub fn populateFileSystemInputs(man: *Manifest, buf: *std.ArrayList(u8)) Allocator.Error!void {
-        assert(@typeInfo(std.zig.Server.Message.PathPrefix).@"enum".fields.len == man.cache.prefixes_len);
+        assert(@typeInfo(std.zig.Server.Message.PathPrefix).@"enum".field_names.len == man.cache.prefixes_len);
         buf.clearRetainingCapacity();
         const gpa = man.cache.gpa;
         const files = man.files.keys();
@@ -1249,7 +1259,7 @@ pub const Manifest = struct {
 
     pub fn populateOtherManifest(man: *Manifest, other: *Manifest, prefix_map: [4]u8) Allocator.Error!void {
         const gpa = other.cache.gpa;
-        assert(@typeInfo(std.zig.Server.Message.PathPrefix).@"enum".fields.len == man.cache.prefixes_len);
+        assert(@typeInfo(std.zig.Server.Message.PathPrefix).@"enum".field_names.len == man.cache.prefixes_len);
         assert(man.cache.prefixes_len == 4);
         for (man.files.keys()) |file| {
             const prefixed_path: PrefixedPath = .{

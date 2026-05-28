@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) void {
             .tenval = 10,
             .stringval = "test",
 
-            .boolnoval = void{},
+            .boolnoval = {},
             .booltrueval = true,
             .boolfalseval = false,
             .boolzeroval = 0,
@@ -48,7 +48,6 @@ pub fn build(b: *std.Build) void {
             .include_path = "stack.h",
         },
         .{
-            .AT = "@",
             .UNDERSCORE = "_",
             .NEST_UNDERSCORE_PROXY = "UNDERSCORE",
             .NEST_PROXY = "NEST_UNDERSCORE_PROXY",

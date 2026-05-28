@@ -1,4 +1,4 @@
-/* $NetBSD: device.h,v 1.185 2022/08/24 11:19:25 riastradh Exp $ */
+/* $NetBSD: device.h,v 1.190 2025/03/19 20:47:49 jakllsch Exp $ */
 
 /*
  * Copyright (c) 2021 The NetBSD Foundation, Inc.
@@ -437,14 +437,6 @@ struct cfattachinit {
 	const char *cfai_name;		 /* driver name */
 	struct cfattach * const *cfai_list;/* list of attachments */
 };
-/*
- * the same, but with a non-constant list so it can be modified
- * for module bookkeeping
- */
-struct cfattachlkminit {
-	const char *cfai_name;		/* driver name */
-	struct cfattach **cfai_list;	/* list of attachments */
-};
 
 /*
  * Configuration printing functions, and their return codes.  The second
@@ -554,14 +546,20 @@ device_t config_found(device_t, void *, cfprint_t, const struct cfargs *);
 device_t config_rootfound(const char *, void *);
 device_t config_attach(device_t, cfdata_t, void *, cfprint_t,
 	    const struct cfargs *);
+device_t config_found_acquire(device_t, void *, cfprint_t,
+	    const struct cfargs *);
+device_t config_attach_acquire(device_t, cfdata_t, void *, cfprint_t,
+	    const struct cfargs *);
 int	config_match(device_t, cfdata_t, void *);
 int	config_probe(device_t, cfdata_t, void *);
 
 bool	ifattr_match(const char *, const char *);
 
 device_t config_attach_pseudo(cfdata_t);
+device_t config_attach_pseudo_acquire(cfdata_t, void *);
 
 int	config_detach(device_t, int);
+int	config_detach_release(device_t, int);
 int	config_detach_children(device_t, int flags);
 void	config_detach_commit(device_t);
 bool	config_detach_all(int);
@@ -588,6 +586,7 @@ device_t	device_lookup(cfdriver_t, int);
 void		*device_lookup_private(cfdriver_t, int);
 
 device_t	device_lookup_acquire(cfdriver_t, int);
+void		device_acquire(device_t);
 void		device_release(device_t);
 
 void		device_register(device_t, void *);
@@ -615,11 +614,16 @@ bool		devhandle_is_valid(devhandle_t);
 devhandle_t	devhandle_invalid(void);
 devhandle_type_t devhandle_type(devhandle_t);
 int		devhandle_compare(devhandle_t, devhandle_t);
+devhandle_t	devhandle_subclass(devhandle_t, struct devhandle_impl *,
+		    device_call_t (*)(devhandle_t, const char *,
+				      devhandle_t *));
 
 device_call_t	devhandle_lookup_device_call(devhandle_t, const char *,
 		    devhandle_t *);
-void		devhandle_impl_inherit(struct devhandle_impl *,
-		    const struct devhandle_impl *);
+void		devhandle_impl_subclass(struct devhandle_impl *,
+		    const struct devhandle_impl *,
+		    device_call_t (*)(devhandle_t, const char *,
+				      devhandle_t *));
 
 device_t	deviter_first(deviter_t *, deviter_flags_t);
 void		deviter_init(deviter_t *, deviter_flags_t);
@@ -710,10 +714,13 @@ struct device_call_generic {
 	void *args;
 };
 
-int	device_call_generic(device_t, const struct device_call_generic *);
+int		device_call_generic(device_t, devhandle_t,
+		    const struct device_call_generic *);
 
 #define	device_call(dev, call)						\
-	device_call_generic((dev), &(call)->generic)
+	device_call_generic((dev), device_handle(dev), &(call)->generic)
+#define	devhandle_call(handle, call)					\
+	device_call_generic(NULL, (handle), &(call)->generic)
 
 #endif /* _KERNEL */
 

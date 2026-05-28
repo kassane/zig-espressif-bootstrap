@@ -108,15 +108,19 @@ pub const can_unwind: bool = s: {
         // Not supported yet: arm
         .haiku => &.{
             .aarch64,
-            .m68k,
             .riscv64,
             .x86,
             .x86_64,
         },
-        // Not supported yet: arm/armeb/thumb/thumbeb, xtensa/xtensaeb
+        .illumos => &.{
+            .x86,
+            .x86_64,
+        },
+        // Not supported yet: arm/armeb/thumb/thumbeb, hppa, hppa64, microblaze/microblazeel, xtensa/xtensaeb
         .linux => &.{
             .aarch64,
             .aarch64_be,
+            .alpha,
             .arc,
             .csky,
             .loongarch32,
@@ -146,29 +150,29 @@ pub const can_unwind: bool = s: {
         .freebsd => &.{
             .aarch64,
             .riscv64,
-            .x86_64,
-        },
-        // Not supported yet: arm/armeb, mips64/mips64el
-        .netbsd => &.{
-            .aarch64,
-            .aarch64_be,
-            .m68k,
-            .mips,
-            .mipsel,
             .x86,
             .x86_64,
         },
-        // Not supported yet: arm
-        .openbsd => &.{
+        // Not supported yet: arm/armeb, hppa, mips64/mips64el, sh/sheb
+        .netbsd => &.{
             .aarch64,
-            .mips64,
-            .mips64el,
+            .aarch64_be,
+            .alpha,
+            .m68k,
+            .mips,
+            .mipsel,
+            .riscv32,
             .riscv64,
             .x86,
             .x86_64,
         },
-
-        .illumos => &.{
+        // Not supported yet: arm, hppa, sh
+        .openbsd => &.{
+            .aarch64,
+            .m88k,
+            .mips64,
+            .mips64el,
+            .riscv64,
             .x86,
             .x86_64,
         },

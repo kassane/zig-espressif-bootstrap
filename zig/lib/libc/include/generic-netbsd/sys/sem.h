@@ -1,4 +1,4 @@
-/*	$NetBSD: sem.h,v 1.34 2019/08/07 00:38:02 pgoyette Exp $	*/
+/*	$NetBSD: sem.h,v 1.37 2025/05/09 10:22:55 martin Exp $	*/
 
 /*-
  * Copyright (c) 1999 The NetBSD Foundation, Inc.
@@ -204,7 +204,10 @@ extern struct semid_ds *sema;		/* semaphore id pool */
 	(dst).sem_nsems = (src).sem_nsems; \
 	(dst).sem_otime = (src).sem_otime; \
 	(dst).sem_ctime = (src).sem_ctime; \
-} while (/*CONSTCOND*/ 0)
+} while (0)
+
+void do_semop_init(void);
+int do_semop1(struct lwp*, int, struct sembuf*, size_t, struct timespec*, register_t*);
 
 #endif /* _KERNEL */
 
@@ -217,6 +220,8 @@ int	semctl(int, int, int, ...) __RENAME(__semctl50);
 #endif
 int	semget(key_t, int, int);
 int	semop(int, struct sembuf *, size_t);
+struct timespec;
+int	semtimedop(int, struct sembuf *, size_t, struct timespec *);
 #if defined(_NETBSD_SOURCE)
 int	semconfig(int);
 #endif

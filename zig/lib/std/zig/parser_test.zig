@@ -298,19 +298,6 @@ test "zig fmt: decl between fields" {
     });
 }
 
-test "zig fmt: errdefer with payload" {
-    try testCanonical(
-        \\pub fn main() anyerror!void {
-        \\    errdefer |a| x += 1;
-        \\    errdefer |a| {}
-        \\    errdefer |a| {
-        \\        x += 1;
-        \\    }
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: nosuspend block" {
     try testCanonical(
         \\pub fn main() anyerror!void {
@@ -2777,13 +2764,6 @@ test "zig fmt: comments before var decl in struct" {
     );
 }
 
-test "zig fmt: array literal with 1 item on 1 line" {
-    try testCanonical(
-        \\var s = []const u64{0} ** 25;
-        \\
-    );
-}
-
 test "zig fmt: comments before global variables" {
     try testCanonical(
         \\/// Foo copies keys and values before they go into the map, and
@@ -2924,7 +2904,7 @@ test "zig fmt: function attributes" {
     );
 }
 
-test "zig fmt: nested pointers with ** tokens" {
+test "zig fmt: deeply nested pointers" {
     try testCanonical(
         \\const x: *u32 = undefined;
         \\const x: **u32 = undefined;
@@ -3014,7 +2994,6 @@ test "zig fmt: infix operators" {
         \\    _ = i.i;
         \\    _ = i || i;
         \\    _ = i!i;
-        \\    _ = i ** i;
         \\    _ = i ++ i;
         \\    _ = i orelse i;
         \\    _ = i % i;
@@ -4578,7 +4557,7 @@ test "zig fmt: integer literals with underscore separators" {
 test "zig fmt: hex literals with underscore separators" {
     try testTransform(
         \\pub fn orMask(a: [ 1_000 ]u64, b: [  1_000]  u64) [1_000]u64 {
-        \\    var c: [1_000]u64 =  [1]u64{ 0xFFFF_FFFF_FFFF_FFFF}**1_000;
+        \\    var c: [1_000]u64 = @splat(0xFFFF_FFFF_FFFF_FFFF);
         \\    for (c [ 1_0 .. ], 0..) |_, i| {
         \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
         \\    }
@@ -4588,7 +4567,7 @@ test "zig fmt: hex literals with underscore separators" {
         \\
     ,
         \\pub fn orMask(a: [1_000]u64, b: [1_000]u64) [1_000]u64 {
-        \\    var c: [1_000]u64 = [1]u64{0xFFFF_FFFF_FFFF_FFFF} ** 1_000;
+        \\    var c: [1_000]u64 = @splat(0xFFFF_FFFF_FFFF_FFFF);
         \\    for (c[1_0..], 0..) |_, i| {
         \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
         \\    }
@@ -7093,25 +7072,6 @@ test "recovery: invalid global error set access" {
         \\}
     , &[_]Error{
         .expected_token,
-    });
-}
-
-test "recovery: invalid asterisk after pointer dereference" {
-    try testError(
-        \\test "" {
-        \\    var sequence = "repeat".*** 10;
-        \\}
-    , &[_]Error{
-        .asterisk_after_ptr_deref,
-        .mismatched_binary_op_whitespace,
-    });
-    try testError(
-        \\test "" {
-        \\    var sequence = "repeat".** 10&a;
-        \\}
-    , &[_]Error{
-        .asterisk_after_ptr_deref,
-        .mismatched_binary_op_whitespace,
     });
 }
 

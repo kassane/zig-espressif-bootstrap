@@ -13,8 +13,8 @@ pub fn TrailerFlags(comptime Fields: type) type {
     return struct {
         bits: Int,
 
-        pub const Int = meta.Int(.unsigned, bit_count);
-        pub const bit_count = @typeInfo(Fields).@"struct".fields.len;
+        pub const Int = @Int(.unsigned, bit_count);
+        pub const bit_count = @typeInfo(Fields).@"struct".field_names.len;
 
         pub const FieldEnum = std.meta.FieldEnum(Fields);
 
@@ -22,11 +22,18 @@ pub fn TrailerFlags(comptime Fields: type) type {
         pub const FieldValues = blk: {
             var field_names: [bit_count][]const u8 = undefined;
             var field_types: [bit_count]type = undefined;
-            var field_attrs: [bit_count]std.builtin.Type.StructField.Attributes = undefined;
-            for (@typeInfo(Fields).@"struct".fields, &field_names, &field_types, &field_attrs) |field, *new_name, *NewType, *new_attrs| {
-                new_name.* = field.name;
-                NewType.* = ?field.type;
-                const default: ?field.type = null;
+            var field_attrs: [bit_count]std.builtin.Type.Struct.FieldAttributes = undefined;
+            const fields_info = @typeInfo(Fields).@"struct";
+            for (
+                fields_info.field_names,
+                fields_info.field_types,
+                &field_names,
+                &field_types,
+                &field_attrs,
+            ) |field_name, field_type, *new_name, *NewType, *new_attrs| {
+                new_name.* = field_name;
+                NewType.* = ?field_type;
+                const default: ?field_type = null;
                 new_attrs.* = .{ .default_value_ptr = &default };
             }
             break :blk @Struct(.auto, null, &field_names, &field_types, &field_attrs);
@@ -53,8 +60,8 @@ pub fn TrailerFlags(comptime Fields: type) type {
         /// `fields` is a boolean struct where each active field is set to `true`
         pub fn init(fields: ActiveFields) Self {
             var self: Self = .{ .bits = 0 };
-            inline for (@typeInfo(Fields).@"struct".fields, 0..) |field, i| {
-                if (@field(fields, field.name))
+            inline for (@typeInfo(Fields).@"struct".field_names, 0..) |field_name, i| {
+                if (@field(fields, field_name))
                     self.bits |= 1 << i;
             }
             return self;
@@ -62,8 +69,8 @@ pub fn TrailerFlags(comptime Fields: type) type {
 
         /// `fields` is a struct with each field set to an optional value
         pub fn setMany(self: Self, p: [*]align(@alignOf(Fields)) u8, fields: FieldValues) void {
-            inline for (@typeInfo(Fields).@"struct".fields, 0..) |field, i| {
-                if (@field(fields, field.name)) |value|
+            inline for (@typeInfo(Fields).@"struct".field_names, 0..) |field_name, i| {
+                if (@field(fields, field_name)) |value|
                     self.set(p, @as(FieldEnum, @enumFromInt(i)), value);
             }
         }
@@ -93,30 +100,30 @@ pub fn TrailerFlags(comptime Fields: type) type {
 
         pub fn offset(self: Self, comptime field: FieldEnum) usize {
             var off: usize = 0;
-            inline for (@typeInfo(Fields).@"struct".fields, 0..) |field_info, i| {
+            inline for (@typeInfo(Fields).@"struct".field_types, 0..) |field_type, i| {
                 const active = (self.bits & (1 << i)) != 0;
                 if (i == @intFromEnum(field)) {
                     assert(active);
-                    return mem.alignForward(usize, off, @alignOf(field_info.type));
+                    return mem.alignForward(usize, off, @alignOf(field_type));
                 } else if (active) {
-                    off = mem.alignForward(usize, off, @alignOf(field_info.type));
-                    off += @sizeOf(field_info.type);
+                    off = mem.alignForward(usize, off, @alignOf(field_type));
+                    off += @sizeOf(field_type);
                 }
             }
         }
 
         pub fn Field(comptime field: FieldEnum) type {
-            return @typeInfo(Fields).@"struct".fields[@intFromEnum(field)].type;
+            return @typeInfo(Fields).@"struct".field_types[@intFromEnum(field)];
         }
 
         pub fn sizeInBytes(self: Self) usize {
             var off: usize = 0;
-            inline for (@typeInfo(Fields).@"struct".fields, 0..) |field, i| {
-                if (@sizeOf(field.type) == 0)
+            inline for (@typeInfo(Fields).@"struct".field_types, 0..) |field_type, i| {
+                if (@sizeOf(field_type) == 0)
                     continue;
                 if ((self.bits & (1 << i)) != 0) {
-                    off = mem.alignForward(usize, off, @alignOf(field.type));
-                    off += @sizeOf(field.type);
+                    off = mem.alignForward(usize, off, @alignOf(field_type));
+                    off += @sizeOf(field_type);
                 }
             }
             return off;

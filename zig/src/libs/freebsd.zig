@@ -19,7 +19,7 @@ pub const CrtFile = enum {
     scrt1_o,
 };
 
-pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {
+pub fn needsCrt0(output_mode: std.lang.OutputMode) ?CrtFile {
     // For shared libraries and PIC executables, we should actually link in a variant of crt1 that
     // is built with `-DSHARED` so that it calls `__cxa_finalize` in an ELF destructor. However, we
     // currently make no effort to respect `__cxa_finalize` on any other targets, so for now, we're
@@ -541,8 +541,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         var sym_i: usize = 0;
         var sym_name_buf: std.Io.Writer.Allocating = .init(arena);
         var opt_symbol_name: ?[]const u8 = null;
-        var versions = try std.DynamicBitSetUnmanaged.initEmpty(arena, metadata.all_versions.len);
-        var weak_linkages = try std.DynamicBitSetUnmanaged.initEmpty(arena, metadata.all_versions.len);
+        var versions: std.bit_set.Dynamic = try .initEmpty(arena, metadata.all_versions.len);
+        var weak_linkages: std.bit_set.Dynamic = try .initEmpty(arena, metadata.all_versions.len);
 
         var inc_reader: std.Io.Reader = .fixed(metadata.inclusions);
 
@@ -1112,7 +1112,6 @@ fn buildSharedLib(
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
-        .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .version = version,

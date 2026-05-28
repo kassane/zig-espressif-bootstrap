@@ -1,12 +1,12 @@
 //! This file contains the functionality for lowering RISC-V MIR to Instructions
 
 pt: Zcu.PerThread,
-output_mode: std.builtin.OutputMode,
-link_mode: std.builtin.LinkMode,
+output_mode: std.lang.OutputMode,
+link_mode: std.lang.LinkMode,
 pic: bool,
 allocator: Allocator,
 mir: Mir,
-cc: std.builtin.CallingConvention,
+cc: std.lang.CallingConvention,
 err_msg: ?*ErrorMsg = null,
 src_loc: Zcu.LazySrcLoc,
 result_insts_len: u8 = undefined,

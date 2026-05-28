@@ -2,10 +2,7 @@ const builtin = @import("builtin");
 
 const std = @import("std");
 const math = std.math;
-const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
-const expectApproxEqAbs = std.testing.expectApproxEqAbs;
-const expectApproxEqRel = std.testing.expectApproxEqRel;
+const ld = math.long_double;
 
 const symbol = @import("../c.zig").symbol;
 
@@ -39,12 +36,15 @@ comptime {
         symbol(&frexpl, "frexpl");
         symbol(&hypotf, "hypotf");
         symbol(&hypotl, "hypotl");
+        symbol(&lrintl, "lrintl");
         symbol(&modfl, "modfl");
+        symbol(&rintl, "rintl");
     }
 
     if ((builtin.target.isMinGW() and @sizeOf(f64) != @sizeOf(c_longdouble)) or builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&atanl, "atanl");
         symbol(&copysignl, "copysignl");
+        symbol(&fdiml, "fdiml");
         symbol(&nanl, "nanl");
     }
 
@@ -67,6 +67,7 @@ comptime {
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
         symbol(&fdim, "fdim");
+        symbol(&fdimf, "fdimf");
         symbol(&finite, "finite");
         symbol(&finitef, "finitef");
         symbol(&frexp, "frexp");
@@ -114,13 +115,9 @@ fn atanf(x: f32) callconv(.c) f32 {
 }
 
 fn atanl(x: c_longdouble) callconv(.c) c_longdouble {
-    return switch (@typeInfo(@TypeOf(x)).float.bits) {
-        16 => math.atan(@as(f16, @floatCast(x))),
-        32 => math.atan(@as(f32, @floatCast(x))),
-        64 => math.atan(@as(f64, @floatCast(x))),
-        80 => math.atan(@as(f80, @floatCast(x))),
-        128 => math.atan(@as(f128, @floatCast(x))),
-        else => unreachable,
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => std.c.atan(x),
+        else => math.atan(x),
     };
 }
 
@@ -141,7 +138,10 @@ fn copysignf(x: f32, y: f32) callconv(.c) f32 {
 }
 
 fn copysignl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
-    return math.copysign(x, y);
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => std.c.copysign(x, y),
+        else => math.copysign(x, y),
+    };
 }
 
 fn cosh(x: f64) callconv(.c) f64 {
@@ -160,25 +160,39 @@ fn exp10f(x: f32) callconv(.c) f32 {
     return math.pow(f32, 10.0, x);
 }
 
-fn fdim(x: f64, y: f64) callconv(.c) f64 {
-    if (math.isNan(x)) {
+fn fdimGeneric(comptime T: type, x: T, y: T) T {
+    if (math.isNan(x))
         return x;
-    }
-    if (math.isNan(y)) {
+
+    if (math.isNan(y))
         return y;
-    }
-    if (x > y) {
+
+    if (x > y)
         return x - y;
-    }
     return 0;
 }
 
+fn fdim(x: f64, y: f64) callconv(.c) f64 {
+    return fdimGeneric(f64, x, y);
+}
+
+fn fdimf(x: f32, y: f32) callconv(.c) f32 {
+    return fdimGeneric(f32, x, y);
+}
+
+fn fdiml(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => std.c.fdim(x, y),
+        else => fdimGeneric(c_longdouble, x, y),
+    };
+}
+
 fn finite(x: f64) callconv(.c) c_int {
-    return if (math.isFinite(x)) 1 else 0;
+    return @intFromBool(math.isFinite(x));
 }
 
 fn finitef(x: f32) callconv(.c) c_int {
-    return if (math.isFinite(x)) 1 else 0;
+    return @intFromBool(math.isFinite(x));
 }
 
 fn frexpGeneric(comptime T: type, x: T, e: *c_int) T {
@@ -209,7 +223,10 @@ fn frexpf(x: f32, e: *c_int) callconv(.c) f32 {
 }
 
 fn frexpl(x: c_longdouble, e: *c_int) callconv(.c) c_longdouble {
-    return frexpGeneric(c_longdouble, x, e);
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => std.c.frexp(x, e),
+        else => frexpGeneric(c_longdouble, x, e),
+    };
 }
 
 fn hypot(x: f64, y: f64) callconv(.c) f64 {
@@ -221,27 +238,34 @@ fn hypotf(x: f32, y: f32) callconv(.c) f32 {
 }
 
 fn hypotl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
-    return math.hypot(x, y);
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => std.c.hypot(x, y),
+        else => math.hypot(x, y),
+    };
 }
 
 fn isnan(x: f64) callconv(.c) c_int {
-    return if (math.isNan(x)) 1 else 0;
+    return @intFromBool(math.isNan(x));
 }
 
 fn isnanf(x: f32) callconv(.c) c_int {
-    return if (math.isNan(x)) 1 else 0;
+    return @intFromBool(math.isNan(x));
 }
 
 fn isnanl(x: c_longdouble) callconv(.c) c_int {
-    return if (math.isNan(x)) 1 else 0;
+    return @intFromBool(math.isNan(x));
 }
 
 fn lrint(x: f64) callconv(.c) c_long {
-    return @intFromFloat(rint(x));
+    return @trunc(rint(x));
 }
 
 fn lrintf(x: f32) callconv(.c) c_long {
-    return @intFromFloat(rintf(x));
+    return @trunc(rintf(x));
+}
+
+fn lrintl(x: c_longdouble) callconv(.c) c_long {
+    return @trunc(rintl(x));
 }
 
 fn modfGeneric(comptime T: type, x: T, iptr: *T) T {
@@ -277,60 +301,10 @@ fn modff(x: f32, iptr: *f32) callconv(.c) f32 {
 }
 
 fn modfl(x: c_longdouble, iptr: *c_longdouble) callconv(.c) c_longdouble {
-    return modfGeneric(c_longdouble, x, iptr);
-}
-
-fn testModf(comptime T: type) !void {
-    // Choose the appropriate `modf` impl to test based on type
-    const f = switch (T) {
-        f32 => modff,
-        f64 => modf,
-        c_longdouble => modfl,
-        else => @compileError("modf not implemented for " ++ @typeName(T)),
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => std.c.modf(x, iptr),
+        else => modfGeneric(c_longdouble, x, iptr),
     };
-
-    var int: T = undefined;
-    const iptr = &int;
-    const eps_val: comptime_float = @max(1e-6, math.floatEps(T));
-
-    const normal_frac = f(@as(T, 1234.567), iptr);
-    // Account for precision error
-    const expected = 1234.567 - @as(T, 1234);
-    try expectApproxEqAbs(expected, normal_frac, eps_val);
-    try expectApproxEqRel(@as(T, 1234.0), iptr.*, eps_val);
-
-    // When `x` is a NaN, NaN is returned and `*iptr` is set to NaN
-    const nan_frac = f(math.nan(T), iptr);
-    try expect(math.isNan(nan_frac));
-    try expect(math.isNan(iptr.*));
-
-    // When `x` is positive infinity, +0 is returned and `*iptr` is set to
-    // positive infinity
-    const pos_zero_frac = f(math.inf(T), iptr);
-    try expect(math.isPositiveZero(pos_zero_frac));
-    try expect(math.isPositiveInf(iptr.*));
-
-    // When `x` is negative infinity, -0 is returned and `*iptr` is set to
-    // negative infinity
-    const neg_zero_frac = f(-math.inf(T), iptr);
-    try expect(math.isNegativeZero(neg_zero_frac));
-    try expect(math.isNegativeInf(iptr.*));
-
-    // Return -0 when `x` is a negative integer
-    const nz_frac = f(@as(T, -1000.0), iptr);
-    try expect(math.isNegativeZero(nz_frac));
-    try expectEqual(@as(T, -1000.0), iptr.*);
-
-    // Return +0 when `x` is a positive integer
-    const pz_frac = f(@as(T, 1000.0), iptr);
-    try expect(math.isPositiveZero(pz_frac));
-    try expectEqual(@as(T, 1000.0), iptr.*);
-}
-
-test "modf" {
-    try testModf(f32);
-    try testModf(f64);
-    try testModf(c_longdouble);
 }
 
 fn nan(_: [*:0]const c_char) callconv(.c) f64 {
@@ -397,47 +371,26 @@ fn rintf(x: f32) callconv(.c) f32 {
     return y;
 }
 
-fn testRint(comptime T: type) !void {
-    const f = switch (T) {
-        f32 => rintf,
-        f64 => rint,
-        else => @compileError("rint not implemented for" ++ @typeName(T)),
-    };
+fn rintl(x: c_longdouble) callconv(.c) c_longdouble {
+    if (@typeInfo(c_longdouble).float.bits == 64)
+        return rint(x);
 
-    // Positive numbers round correctly
-    try expectEqual(@as(T, 42.0), f(42.2));
-    try expectEqual(@as(T, 42.0), f(41.8));
+    const toint: c_longdouble = 1 << math.floatFractionalBits(c_longdouble);
+    const se = ld.signExponent(x);
 
-    // Negative numbers round correctly
-    try expectEqual(@as(T, -6.0), f(-5.9));
-    try expectEqual(@as(T, -6.0), f(-6.1));
+    if (se & 0x7fff >= 0x3fff + math.floatFractionalBits(c_longdouble))
+        return x;
 
-    // No rounding needed test
-    try expectEqual(@as(T, 5.0), f(5.0));
-    try expectEqual(@as(T, -10.0), f(-10.0));
-    try expectEqual(@as(T, 0.0), f(0.0));
+    var y: c_longdouble = undefined;
+    if ((se >> 15) == 1) {
+        y = x - toint + toint;
+    } else {
+        y = x + toint - toint;
+    }
 
-    // Very large numbers return unchanged
-    const large: T = 9007199254740992.0; // 2^53
-    try expectEqual(large, f(large));
-    try expectEqual(-large, f(-large));
-
-    // Small positive numbers round to zero
-    const pos_result = f(0.3);
-    try expect(math.isPositiveZero(pos_result));
-
-    // Small negative numbers round to negative zero
-    const neg_result = f(-0.3);
-    try expect(math.isNegativeZero(neg_result));
-
-    // Exact half rounds to nearest even (banker's rounding)
-    try expectEqual(@as(T, 2.0), f(2.5));
-    try expectEqual(@as(T, 4.0), f(3.5));
-}
-
-test "rint" {
-    try testRint(f32);
-    try testRint(f64);
+    if (y == 0)
+        return 0 * x;
+    return y;
 }
 
 fn tanh(x: f64) callconv(.c) f64 {

@@ -107,9 +107,12 @@ pub fn parse(
         try objects.append(gpa, object);
     }
 
+    try objects.shrinkToLen(gpa);
+    try strtab.shrinkToLen(gpa);
+
     return .{
-        .objects = try objects.toOwnedSlice(gpa),
-        .strtab = try strtab.toOwnedSlice(gpa),
+        .objects = objects.toOwnedSliceAssert(),
+        .strtab = strtab.toOwnedSliceAssert(),
     };
 }
 

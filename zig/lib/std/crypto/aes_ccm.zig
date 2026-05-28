@@ -171,7 +171,7 @@ fn AesCcm(comptime BlockCipher: type, comptime tag_len: usize, comptime nonce_le
             block[0] = L - 1; // flags
             @memcpy(block[1..][0..nonce_length], &npub);
             // Counter goes in the last L bytes
-            const CounterInt = std.meta.Int(.unsigned, L * 8);
+            const CounterInt = @Int(.unsigned, L * 8);
             mem.writeInt(CounterInt, block[1 + nonce_length ..][0..L], @as(CounterInt, @intCast(counter)), .big);
         }
 
@@ -201,7 +201,7 @@ fn AesCcm(comptime BlockCipher: type, comptime tag_len: usize, comptime nonce_le
                 const total_ad_size = ad_len_size + ad.len;
                 const remainder = total_ad_size % block_length;
                 if (remainder > 0) {
-                    const padding = [_]u8{0} ** block_length;
+                    const padding: [block_length]u8 = @splat(0);
                     ctx.update(padding[0 .. block_length - remainder]);
                 }
             }
@@ -229,7 +229,7 @@ fn AesCcm(comptime BlockCipher: type, comptime tag_len: usize, comptime nonce_le
             @memcpy(block[1..][0..nonce_length], &npub);
 
             // Encode message length in last L bytes
-            const LengthInt = std.meta.Int(.unsigned, L * 8);
+            const LengthInt = @Int(.unsigned, L * 8);
             mem.writeInt(LengthInt, block[1 + nonce_length ..][0..L], @as(LengthInt, @intCast(msg_len)), .big);
         }
 
@@ -264,8 +264,8 @@ const fmt = std.fmt;
 const hexToBytes = fmt.hexToBytes;
 
 test "Aes256Ccm8 - Encrypt decrypt round-trip" {
-    const key: [32]u8 = [_]u8{0x42} ** 32;
-    const nonce: [13]u8 = [_]u8{0x11} ** 13;
+    const key: [32]u8 = @splat(0x42);
+    const nonce: [13]u8 = @splat(0x11);
     const m = "Hello, World! This is a test message.";
     var c: [m.len]u8 = undefined;
     var m2: [m.len]u8 = undefined;
@@ -279,8 +279,8 @@ test "Aes256Ccm8 - Encrypt decrypt round-trip" {
 }
 
 test "Aes256Ccm8 - Associated data" {
-    const key: [32]u8 = [_]u8{0x42} ** 32;
-    const nonce: [13]u8 = [_]u8{0x11} ** 13;
+    const key: [32]u8 = @splat(0x42);
+    const nonce: [13]u8 = @splat(0x11);
     const m = "secret message";
     const ad = "additional authenticated data";
     var c: [m.len]u8 = undefined;
@@ -299,9 +299,9 @@ test "Aes256Ccm8 - Associated data" {
 }
 
 test "Aes256Ccm8 - Wrong key" {
-    const key: [32]u8 = [_]u8{0x42} ** 32;
-    const wrong_key: [32]u8 = [_]u8{0x43} ** 32;
-    const nonce: [13]u8 = [_]u8{0x11} ** 13;
+    const key: [32]u8 = @splat(0x42);
+    const wrong_key: [32]u8 = @splat(0x43);
+    const nonce: [13]u8 = @splat(0x11);
     const m = "secret";
     var c: [m.len]u8 = undefined;
     var m2: [m.len]u8 = undefined;
@@ -314,8 +314,8 @@ test "Aes256Ccm8 - Wrong key" {
 }
 
 test "Aes256Ccm8 - Corrupted ciphertext" {
-    const key: [32]u8 = [_]u8{0x42} ** 32;
-    const nonce: [13]u8 = [_]u8{0x11} ** 13;
+    const key: [32]u8 = @splat(0x42);
+    const nonce: [13]u8 = @splat(0x11);
     const m = "secret message";
     var c: [m.len]u8 = undefined;
     var m2: [m.len]u8 = undefined;
@@ -330,8 +330,8 @@ test "Aes256Ccm8 - Corrupted ciphertext" {
 }
 
 test "Aes256Ccm8 - Empty plaintext" {
-    const key: [32]u8 = [_]u8{0x42} ** 32;
-    const nonce: [13]u8 = [_]u8{0x11} ** 13;
+    const key: [32]u8 = @splat(0x42);
+    const nonce: [13]u8 = @splat(0x11);
     const m = "";
     var c: [m.len]u8 = undefined;
     var m2: [m.len]u8 = undefined;
@@ -345,8 +345,8 @@ test "Aes256Ccm8 - Empty plaintext" {
 }
 
 test "Aes128Ccm8 - Basic functionality" {
-    const key: [16]u8 = [_]u8{0x42} ** 16;
-    const nonce: [13]u8 = [_]u8{0x11} ** 13;
+    const key: [16]u8 = @splat(0x42);
+    const nonce: [13]u8 = @splat(0x11);
     const m = "Test AES-128-CCM";
     var c: [m.len]u8 = undefined;
     var m2: [m.len]u8 = undefined;
@@ -360,8 +360,8 @@ test "Aes128Ccm8 - Basic functionality" {
 }
 
 test "Aes256Ccm16 - 16-byte tag" {
-    const key: [32]u8 = [_]u8{0x42} ** 32;
-    const nonce: [13]u8 = [_]u8{0x11} ** 13;
+    const key: [32]u8 = @splat(0x42);
+    const nonce: [13]u8 = @splat(0x11);
     const m = "Test 16-byte tag";
     var c: [m.len]u8 = undefined;
     var m2: [m.len]u8 = undefined;
@@ -845,8 +845,8 @@ test "Aes128Ccm0 - IEEE 802.15.4 Data Frame (Encryption-only)" {
 }
 
 test "Aes128Ccm0 - Zero-length plaintext with encryption-only" {
-    const key: [16]u8 = [_]u8{0x42} ** 16;
-    const nonce: [13]u8 = [_]u8{0x11} ** 13;
+    const key: [16]u8 = @splat(0x42);
+    const nonce: [13]u8 = @splat(0x11);
     const m = "";
     const ad = "some associated data";
     var c: [m.len]u8 = undefined;
@@ -861,8 +861,8 @@ test "Aes128Ccm0 - Zero-length plaintext with encryption-only" {
 }
 
 test "Aes256Ccm0 - Basic encryption-only round-trip" {
-    const key: [32]u8 = [_]u8{0x42} ** 32;
-    const nonce: [13]u8 = [_]u8{0x11} ** 13;
+    const key: [32]u8 = @splat(0x42);
+    const nonce: [13]u8 = @splat(0x11);
     const m = "Hello, CCM* encryption-only mode!";
     var c: [m.len]u8 = undefined;
     var m2: [m.len]u8 = undefined;

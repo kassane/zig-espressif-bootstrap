@@ -56,6 +56,7 @@ pub const Feature = enum {
     soft_float,
     strict_align,
     sym32,
+    use_compact_branches,
     use_indirect_jump_hazard,
     use_tcc_in_div,
     vfpu,
@@ -69,7 +70,7 @@ pub const featureSetHasAny = CpuFeature.FeatureSetFns(Feature).featureSetHasAny;
 pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
-    const len = @typeInfo(Feature).@"enum".fields.len;
+    const len = @typeInfo(Feature).@"enum".field_names.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.abs2008)] = .{
@@ -391,6 +392,11 @@ pub const all_features = blk: {
         .description = "Symbols are 32 bit on Mips64",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.use_compact_branches)] = .{
+        .llvm_name = "use-compact-branches",
+        .description = "Use compact branch instructions for MIPS32R6/MIPS64R6",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.use_indirect_jump_hazard)] = .{
         .llvm_name = "use-indirect-jump-hazard",
         .description = "Use indirect jump guards to prevent certain speculation based attacks",
@@ -419,7 +425,7 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.@"enum".fields[i].name;
+        elem.name = ti.@"enum".field_names[i];
     }
     break :blk result;
 };

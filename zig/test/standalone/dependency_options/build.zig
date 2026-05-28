@@ -10,7 +10,7 @@ pub fn build(b: *std.Build) !void {
 
     const none_specified_mod = none_specified.module("dummy");
     if (!none_specified_mod.resolved_target.?.query.eql(b.graph.host.query)) return error.TestFailed;
-    const expected_optimize: std.builtin.OptimizeMode = switch (b.release_mode) {
+    const expected_optimize: std.builtin.OptimizeMode = switch (b.graph.release_mode) {
         .off => .Debug,
         .any => unreachable,
         .fast => .ReleaseFast,

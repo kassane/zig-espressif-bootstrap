@@ -350,6 +350,8 @@ test "decompress compressed DNS name" {
 }
 
 test "cancel accept" {
+    if (builtin.cpu.arch.isSPARC() and builtin.os.tag == .linux) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/35347
+
     const io = testing.io;
     const localhost: net.IpAddress = .{ .ip4 = .loopback(0) };
 

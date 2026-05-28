@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.24 2024/06/11 16:02:35 jca Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.25 2026/04/06 08:10:54 jca Exp $	*/
 
 /*
  * Copyright (c) 2019 Mike Larkin <mlarkin@openbsd.org>
@@ -141,13 +141,9 @@ struct cpu_info {
 #define CPUF_GO			(1<<5)
 #define CPUF_RUNNING		(1<<6)
 
-static inline struct cpu_info *
-curcpu(void)
-{
-	struct cpu_info *__ci = NULL;
-	__asm volatile("mv %0, tp" : "=&r"(__ci));
-	return (__ci);
-}
+register struct cpu_info *__curcpu asm ("tp");
+
+#define	curcpu()		(__curcpu)
 
 extern uint32_t boot_hart;	/* The hart we booted on. */
 extern struct cpu_info cpu_info_primary;

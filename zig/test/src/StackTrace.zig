@@ -58,10 +58,7 @@ fn addCaseTarget(
         .fuchsia => false,
         else => true,
     };
-    const both_libc = switch (target.result.os.tag) {
-        .freebsd, .netbsd, .openbsd => false,
-        else => !target.result.requiresLibC(),
-    };
+    const both_libc = !std.os.targetRequiresLibC(&target.result);
 
     // See `std.debug.StackIterator.fp_usability` logic.
     const fp_usability: enum { useless, unsafe, safe, ideal } = switch (target.result.cpu.arch) {

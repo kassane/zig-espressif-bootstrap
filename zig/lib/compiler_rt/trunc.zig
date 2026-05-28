@@ -99,8 +99,6 @@ pub fn truncq(x: f128) callconv(.c) f128 {
 
 pub fn truncl(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return __trunch(x),
-        32 => return truncf(x),
         64 => return trunc(x),
         80 => return __truncx(x),
         128 => return truncq(x),

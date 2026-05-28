@@ -280,7 +280,7 @@ test "implicit cast fn call result to optional in field result" {
 test "void parameters" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
-    try voidFun(1, void{}, 2, {});
+    try voidFun(1, {}, 2, {});
 }
 fn voidFun(a: i32, b: void, c: i32, d: void) !void {
     _ = d;
@@ -400,7 +400,7 @@ test "function with inferred error set but returning no error" {
     };
 
     const return_ty = @typeInfo(@TypeOf(S.foo)).@"fn".return_type.?;
-    try expectEqual(0, @typeInfo(@typeInfo(return_ty).error_union.error_set).error_set.?.len);
+    try expectEqual(0, @typeInfo(@typeInfo(return_ty).error_union.error_set).error_set.error_names.?.len);
 }
 
 test "import passed byref to function in return type" {
@@ -769,4 +769,16 @@ test "return undefined pointer from function, directly and by expired local" {
     _ = bad_ptr_1; // dereferencing this would be illegal behavior
     const bad_ptr_2 = S.returnStackPointer();
     _ = bad_ptr_2; // dereferencing this would be illegal behavior
+}
+
+test "a function that works at comptime but not runtime" {
+    const a = comptime testComptimeOnlyFn(1, 1);
+    try expect(a[0] == 1);
+    try expect(a[1] == 2);
+}
+
+fn testComptimeOnlyFn(x: u32, y: u32) [2]u8 {
+    const xa: [x]u8 = .{1};
+    const ya: [y]u8 = .{2};
+    return xa ++ ya;
 }

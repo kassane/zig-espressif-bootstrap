@@ -1,4 +1,4 @@
-/*	$NetBSD: cpu.h,v 1.133 2021/08/14 17:51:19 ryo Exp $	*/
+/*	$NetBSD: cpu.h,v 1.135 2023/07/23 07:20:45 skrll Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -150,11 +150,11 @@ struct cpu_info {
 	struct evcnt ci_evcnt_synci_deferred_rqst;
 	struct evcnt ci_evcnt_synci_ipi_rqst;
 
-#define	CPUF_PRIMARY	0x01		/* CPU is primary CPU */
-#define	CPUF_PRESENT	0x02		/* CPU is present */
-#define	CPUF_RUNNING	0x04		/* CPU is running */
-#define	CPUF_PAUSED	0x08		/* CPU is paused */
-#define	CPUF_USERPMAP	0x20		/* CPU has a user pmap activated */
+#define	CPUF_PRIMARY	__BIT(0)	/* CPU is primary CPU */
+#define	CPUF_PRESENT	__BIT(1)	/* CPU is present */
+#define	CPUF_RUNNING	__BIT(2)	/* CPU is running */
+#define	CPUF_PAUSED	__BIT(3)	/* CPU is paused */
+#define	CPUF_USERPMAP	__BIT(5)	/* CPU has a user pmap activated */
 	kcpuset_t *ci_shootdowncpus;
 	kcpuset_t *ci_multicastcpus;
 	kcpuset_t *ci_watchcpus;
@@ -242,7 +242,7 @@ struct clockframe {
 };
 
 /*
- * A port must provde CLKF_USERMODE() for use in machine-independent code.
+ * A port must provide CLKF_USERMODE() for use in machine-independent code.
  * These differ on r4000 and r3000 systems; provide them in the
  * port-dependent file that includes this one, using the macros below.
  */

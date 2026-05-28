@@ -151,8 +151,6 @@ pub fn fmaq(x: f128, y: f128, z: f128) callconv(.c) f128 {
 
 pub fn fmal(x: c_longdouble, y: c_longdouble, z: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return __fmah(x, y, z),
-        32 => return fmaf(x, y, z),
         64 => return fma(x, y, z),
         80 => return __fmax(x, y, z),
         128 => return fmaq(x, y, z),

@@ -157,9 +157,9 @@ test "@memcpy with sentinel" {
 
     const S = struct {
         fn doTheTest() void {
-            const field = @typeInfo(struct { a: u32 }).@"struct".fields[0];
-            var buffer: [field.name.len]u8 = undefined;
-            @memcpy(&buffer, field.name);
+            const field_name = @typeInfo(struct { a: u32 }).@"struct".field_names[0];
+            var buffer: [field_name.len]u8 = undefined;
+            @memcpy(&buffer, field_name);
         }
     };
 

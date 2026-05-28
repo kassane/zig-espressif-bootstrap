@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const math = std.math;
+const ld = math.long_double;
 const mem = std.mem;
 const expect = std.testing.expect;
 const expectApproxEqAbs = std.testing.expectApproxEqAbs;
@@ -17,7 +18,6 @@ const trig = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 const rem_pio2l = @import("rem_pio2l.zig").rem_pio2l;
-const ld = @import("long_double.zig");
 
 comptime {
     symbol(&cosh, "__cosh");
@@ -173,8 +173,6 @@ pub fn cosq(x: f128) callconv(.c) f128 {
 
 pub fn cosl(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return cosh(x),
-        32 => return cosf(x),
         64 => return cos(x),
         80 => return cosx(x),
         128 => return cosq(x),

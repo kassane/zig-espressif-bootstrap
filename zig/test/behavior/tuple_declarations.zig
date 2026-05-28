@@ -12,23 +12,23 @@ test "tuple declaration type info" {
         const T = struct { comptime u32 = 1, []const u8 };
         const info = @typeInfo(T).@"struct";
 
+        try expect(info.is_tuple);
         try expect(info.layout == .auto);
         try expect(info.backing_integer == null);
-        try expect(info.fields.len == 2);
-        try expect(info.decls.len == 0);
-        try expect(info.is_tuple);
+        try expect(info.field_names.len == 2);
+        try expect(info.decl_names.len == 0);
 
-        try expectEqualStrings(info.fields[0].name, "0");
-        try expect(info.fields[0].type == u32);
-        try expect(info.fields[0].defaultValue() == 1);
-        try expect(info.fields[0].is_comptime);
-        try expect(info.fields[0].alignment == null);
+        try expectEqualStrings(info.field_names[0], "0");
+        try expect(info.field_types[0] == u32);
+        try expect(info.field_attrs[0].defaultValue(info.field_types[0]) == 1);
+        try expect(info.field_attrs[0].@"comptime");
+        try expect(info.field_attrs[0].@"align" == null);
 
-        try expectEqualStrings(info.fields[1].name, "1");
-        try expect(info.fields[1].type == []const u8);
-        try expect(info.fields[1].defaultValue() == null);
-        try expect(!info.fields[1].is_comptime);
-        try expect(info.fields[1].alignment == null);
+        try expectEqualStrings(info.field_names[1], "1");
+        try expect(info.field_types[1] == []const u8);
+        try expect(info.field_attrs[1].defaultValue(info.field_types[1]) == null);
+        try expect(!info.field_attrs[1].@"comptime");
+        try expect(info.field_attrs[1].@"align" == null);
     }
 }
 
@@ -41,12 +41,6 @@ test "tuple declaration usage" {
     _ = &t;
     try expect(t[0] == 1);
     try expectEqualStrings(t[1], "foo");
-
-    const mul = t ** 3;
-    try expect(@TypeOf(mul) != T);
-    try expect(mul.len == 6);
-    try expect(mul[2] == 1);
-    try expectEqualStrings(mul[3], "foo");
 
     var t2: T = .{ 2, "bar" };
     _ = &t2;

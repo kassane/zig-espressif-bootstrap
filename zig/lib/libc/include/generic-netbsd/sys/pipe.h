@@ -1,4 +1,4 @@
-/* $NetBSD: pipe.h,v 1.38 2021/01/25 19:21:11 dholland Exp $ */
+/* $NetBSD: pipe.h,v 1.42 2023/11/02 10:31:55 martin Exp $ */
 
 /*
  * Copyright (c) 1996 John S. Dyson
@@ -24,7 +24,7 @@
  */
 
 #ifndef _SYS_PIPE_H_
-#define _SYS_PIPE_H_
+#define	_SYS_PIPE_H_
 
 #include <sys/selinfo.h>		/* for struct selinfo */
 #include <sys/time.h>			/* for struct timespec */
@@ -35,11 +35,11 @@
  * Pipe buffer size, keep moderate in value, pipes take kva space.
  */
 #ifndef PIPE_SIZE
-#define PIPE_SIZE	16384
+#define	PIPE_SIZE	16384
 #endif
 
 #ifndef BIG_PIPE_SIZE
-#define BIG_PIPE_SIZE	(4*PIPE_SIZE)
+#define	BIG_PIPE_SIZE	(4*PIPE_SIZE)
 #endif
 
 /*
@@ -48,7 +48,7 @@
  * size.
  */
 #ifndef PIPE_DIRECT_CHUNK
-#define PIPE_DIRECT_CHUNK	(1*1024*1024)
+#define	PIPE_DIRECT_CHUNK	(1*1024*1024)
 #endif
 
 /*
@@ -56,7 +56,7 @@
  * than PIPE_BUF.
  */
 #ifndef PIPE_MINDIRECT
-#define PIPE_MINDIRECT	8192
+#define	PIPE_MINDIRECT	8192
 #endif
 
 /*
@@ -75,9 +75,9 @@ struct pipebuf {
 /*
  * Bits in pipe_state.
  */
-#define PIPE_ASYNC	0x001	/* Async I/O */
-#define PIPE_EOF	0x010	/* Pipe is in EOF condition */
-#define PIPE_SIGNALR	0x020	/* Do selwakeup() on read(2) */
+#define	PIPE_ASYNC	0x001	/* Async I/O */
+#define	PIPE_EOF	0x010	/* Pipe is in EOF condition */
+#define	PIPE_SIGNALR	0x020	/* Do selwakeup() on read(2) */
 #define	PIPE_LOCKFL	0x100	/* Process has exclusive access to
 				   pointers/data. */
 /*	unused  	0x200	*/
@@ -98,9 +98,8 @@ struct pipe {
 	struct	timespec pipe_atime;	/* time of last access */
 	struct	timespec pipe_mtime;	/* time of last modify */
 	struct	timespec pipe_btime;	/* time of creation */
-	pid_t	pipe_pgid;		/* process group for sigio */
-	u_int	pipe_waiters;		/* number of waiters pending */
 	struct	pipe *pipe_peer;	/* link with other direction */
+	pid_t	pipe_pgid;		/* process group for sigio */
 	u_int	pipe_state;		/* pipe status info */
 	int	pipe_busy;		/* busy flag, to handle rundown */
 	vaddr_t	pipe_kmem;		/* preallocated PIPE_SIZE buffer */

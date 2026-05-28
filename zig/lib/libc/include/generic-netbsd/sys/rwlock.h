@@ -1,4 +1,4 @@
-/*	$NetBSD: rwlock.h,v 1.17.2.1 2023/08/09 17:42:01 martin Exp $	*/
+/*	$NetBSD: rwlock.h,v 1.19 2023/09/07 20:05:41 ad Exp $	*/
 
 /*-
  * Copyright (c) 2002, 2006, 2007, 2008, 2019, 2020 The NetBSD Foundation, Inc.
@@ -84,7 +84,6 @@ typedef struct krwlock krwlock_t;
 void	rw_vector_enter(krwlock_t *, const krw_t);
 void	rw_vector_exit(krwlock_t *);
 int	rw_vector_tryenter(krwlock_t *, const krw_t);
-bool	rw_owner_running(const krwlock_t *);
 #endif	/* __RWLOCK_PRIVATE */
 
 struct krwlock {

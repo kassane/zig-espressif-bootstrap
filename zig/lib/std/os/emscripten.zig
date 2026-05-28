@@ -17,7 +17,7 @@ pub const CLOCK = linux.CLOCK;
 
 pub const CPU_SETSIZE = 128;
 pub const cpu_set_t = [CPU_SETSIZE / @sizeOf(usize)]usize;
-pub const cpu_count_t = std.meta.Int(.unsigned, std.math.log2(CPU_SETSIZE * 8));
+pub const cpu_count_t = @Int(.unsigned, std.math.log2(CPU_SETSIZE * 8));
 
 pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
     var sum: cpu_count_t = 0;
@@ -211,7 +211,7 @@ pub const W = struct {
     pub fn TERMSIG(s: u32) SIG {
         return @enumFromInt(s & 0x7f);
     }
-    pub fn STOPSIG(s: u32) u32 {
+    pub fn STOPSIG(s: u32) SIG {
         return @enumFromInt(EXITSTATUS(s));
     }
     pub fn IFEXITED(s: u32) bool {
@@ -373,7 +373,7 @@ pub const rusage = extern struct {
     nsignals: isize,
     nvcsw: isize,
     nivcsw: isize,
-    __reserved: [16]isize = [1]isize{0} ** 16,
+    __reserved: [16]isize = @splat(0),
 
     pub const SELF = 0;
     pub const CHILDREN = -1;
@@ -467,8 +467,8 @@ pub const SHUT = struct {
 pub const SIG = linux.SIG;
 
 pub const Sigaction = extern struct {
-    pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
-    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+    pub const handler_fn = *align(1) const fn (SIG) callconv(.c) void;
+    pub const sigaction_fn = *const fn (SIG, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -481,10 +481,10 @@ pub const Sigaction = extern struct {
 
 pub const sigset_t = [1024 / 32]u32;
 pub fn sigemptyset() sigset_t {
-    return [_]u32{0} ** @typeInfo(sigset_t).array.len;
+    return @splat(0);
 }
 pub const siginfo_t = extern struct {
-    signo: i32,
+    signo: SIG,
     errno: i32,
     code: i32,
     fields: siginfo_fields_union,
@@ -882,6 +882,7 @@ pub extern "c" fn emscripten_hide_mouse() void;
 pub extern "c" fn emscripten_set_canvas_size(width: c_int, height: c_int) void;
 pub extern "c" fn emscripten_get_canvas_size(width: *c_int, height: *c_int, isFullscreen: *c_int) void;
 pub extern "c" fn emscripten_get_now() f64;
+pub extern "c" fn emscripten_num_logical_cores() c_int;
 pub extern "c" fn emscripten_random() f32;
 pub const em_idb_onload_func = ?*const fn (?*anyopaque, ?*anyopaque, c_int) callconv(.c) void;
 pub extern "c" fn emscripten_idb_async_load(db_name: [*:0]const u8, file_id: [*:0]const u8, arg: ?*anyopaque, onload: em_idb_onload_func, onerror: em_arg_callback_func) void;

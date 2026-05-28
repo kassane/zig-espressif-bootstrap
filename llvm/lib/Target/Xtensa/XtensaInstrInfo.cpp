@@ -48,7 +48,8 @@ addFrameReference(const MachineInstrBuilder &MIB, int FI) {
 }
 
 XtensaInstrInfo::XtensaInstrInfo(const XtensaSubtarget &STI)
-    : XtensaGenInstrInfo(Xtensa::ADJCALLSTACKDOWN, Xtensa::ADJCALLSTACKUP),
+    : XtensaGenInstrInfo(STI, RI, Xtensa::ADJCALLSTACKDOWN,
+                         Xtensa::ADJCALLSTACKUP),
       RI(STI), STI(STI) {}
 
 Register XtensaInstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
@@ -116,14 +117,17 @@ void XtensaInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                   bool RenamableDest, bool RenamableSrc) const {
   unsigned Opcode;
 
-  // when we are copying a phys reg we want the bits for fp
+  // The MOV instruction is not present in core ISA for AR registers,
+  // so use OR instruction.
   if (Xtensa::ARRegClass.contains(DestReg, SrcReg)) {
     BuildMI(MBB, MBBI, DL, get(Xtensa::OR), DestReg)
         .addReg(SrcReg, getKillRegState(KillSrc))
         .addReg(SrcReg, getKillRegState(KillSrc));
     return;
-  } else if (STI.hasSingleFloat() && Xtensa::FPRRegClass.contains(SrcReg) &&
-             Xtensa::FPRRegClass.contains(DestReg))
+  }
+
+  if (STI.hasSingleFloat() && Xtensa::FPRRegClass.contains(SrcReg) &&
+      Xtensa::FPRRegClass.contains(DestReg))
     Opcode = Xtensa::MOV_S;
   else if (STI.hasSingleFloat() && Xtensa::FPRRegClass.contains(SrcReg) &&
            Xtensa::ARRegClass.contains(DestReg))
@@ -158,8 +162,8 @@ void XtensaInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
 void XtensaInstrInfo::storeRegToStackSlot(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI, Register SrcReg,
     bool isKill, int FrameIdx, const TargetRegisterClass *RC,
-    const TargetRegisterInfo *TRI, Register VReg,
-    MachineInstr::MIFlag Flags) const {
+
+    Register VReg, MachineInstr::MIFlag Flags) const {
   DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
   unsigned LoadOpcode, StoreOpcode;
   getLoadStoreOpcodes(RC, LoadOpcode, StoreOpcode, FrameIdx);
@@ -168,10 +172,12 @@ void XtensaInstrInfo::storeRegToStackSlot(
   addFrameReference(MIB, FrameIdx);
 }
 
-void XtensaInstrInfo::loadRegFromStackSlot(
-    MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI, Register DestReg,
-    int FrameIdx, const TargetRegisterClass *RC, const TargetRegisterInfo *TRI,
-    Register VReg, MachineInstr::MIFlag Flags) const {
+void XtensaInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
+                                           MachineBasicBlock::iterator MBBI,
+                                           Register DestReg, int FrameIdx,
+                                           const TargetRegisterClass *RC,
+                                           Register VReg, unsigned SubReg,
+                                           MachineInstr::MIFlag Flags) const {
   DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
   unsigned LoadOpcode, StoreOpcode;
   getLoadStoreOpcodes(RC, LoadOpcode, StoreOpcode, FrameIdx);
@@ -588,12 +594,12 @@ void XtensaInstrInfo::insertIndirectBranch(MachineBasicBlock &MBB,
           "function code size is significantly larger than estimated");
 
     storeRegToStackSlot(MBB, L32R, ScavRegister, /*IsKill=*/true, FrameIndex,
-                        &Xtensa::ARRegClass, &RI, Register());
+                        &Xtensa::ARRegClass, Register());
     RI.eliminateFrameIndex(std::prev(L32R.getIterator()),
                            /*SpAdj=*/0, /*FIOperandNum=*/1);
 
     loadRegFromStackSlot(RestoreBB, RestoreBB.end(), ScavRegister, FrameIndex,
-                         &Xtensa::ARRegClass, &RI, Register());
+                         &Xtensa::ARRegClass, Register());
     RI.eliminateFrameIndex(RestoreBB.back(),
                            /*SpAdj=*/0, /*FIOperandNum=*/1);
     JumpToMBB = &RestoreBB;

@@ -580,7 +580,10 @@ pub fn parseTime(cert: Certificate, elem: der.Element) ParseTimeError!u64 {
                 return error.CertificateTimeInvalid;
 
             return Date.toSeconds(.{
-                .year = @as(u16, 2000) + try parseTimeDigits(bytes[0..2], 0, 99),
+                .year = blk: {
+                    const year = try parseTimeDigits(bytes[0..2], 0, 99);
+                    break :blk if (year < 50) @as(u16, 2000) + year else @as(u16, 1900) + year;
+                },
                 .month = try parseTimeDigits(bytes[2..4], 1, 12),
                 .day = try parseTimeDigits(bytes[4..6], 1, 31),
                 .hour = try parseTimeDigits(bytes[6..8], 0, 23),
@@ -668,6 +671,15 @@ pub fn parseTimeDigits(text: *const [2]u8, min: u8, max: u8) !u8 {
     if (result < min) return error.CertificateTimeInvalid;
     if (result > max) return error.CertificateTimeInvalid;
     return @intCast(result);
+}
+
+test "parseTime UTCTime year mapping per RFC 5280" {
+    const utc_time_id: der.Identifier = .{ .tag = .utc_time, .pc = .primitive, .class = .universal };
+    const elem = der.Element{ .identifier = utc_time_id, .slice = .{ .start = 0, .end = 13 } };
+    const cert49 = Certificate{ .buffer = "490101000000Z", .index = 0 };
+    try std.testing.expectEqual(@as(u64, 2493072000), try cert49.parseTime(elem));
+    const cert99 = Certificate{ .buffer = "990101000000Z", .index = 0 };
+    try std.testing.expectEqual(@as(u64, 915148800), try cert99.parseTime(elem));
 }
 
 test parseTimeDigits {
@@ -1080,7 +1092,7 @@ pub const rsa = struct {
             }
             var m_p_buf: [8 + Hash.digest_length + Hash.digest_length]u8 = undefined;
             var m_p = m_p_buf[0 .. 8 + Hash.digest_length + sLen];
-            std.mem.copyForwards(u8, m_p, &([_]u8{0} ** 8));
+            std.mem.copyForwards(u8, m_p, @as(*const [8]u8, &@splat(0)));
             std.mem.copyForwards(u8, m_p[8..], &mHash);
             std.mem.copyForwards(u8, m_p[(8 + Hash.digest_length)..], salt);
 

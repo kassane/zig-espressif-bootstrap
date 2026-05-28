@@ -54,8 +54,9 @@ return_label: Ir.Ref = undefined,
 compound_assign_dummy: ?Ir.Ref = null,
 
 fn fail(c: *CodeGen, comptime fmt: []const u8, args: anytype) error{ FatalError, OutOfMemory } {
-    var sf = std.heap.stackFallback(1024, c.comp.gpa);
-    const allocator = sf.get();
+    var bfa_buf: [u8]1024 = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(&bfa_buf, c.comp.gpa);
+    const allocator = bfa.allocator();
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(allocator);
 
@@ -101,14 +102,12 @@ pub fn genIr(tree: *const Tree) Compilation.Error!Ir {
             .function => |function| {
                 if (function.body == null) continue;
                 c.genFn(function) catch |err| switch (err) {
-                    error.FatalError => return error.FatalError,
-                    error.OutOfMemory => return error.OutOfMemory,
+                    error.FatalError, error.OutOfMemory => |e| return e,
                 };
             },
 
             .variable => |variable| c.genVar(variable) catch |err| switch (err) {
-                error.FatalError => return error.FatalError,
-                error.OutOfMemory => return error.OutOfMemory,
+                error.FatalError, error.OutOfMemory => |e| return e,
             },
             .global_asm => {
                 return c.fail("TODO global assembly", .{});
@@ -895,7 +894,7 @@ fn genLval(c: *CodeGen, node_index: Node.Index) Error!Ir.Ref {
                 }
             }
 
-            const duped_name = try c.builder.arena.allocator().dupeZ(u8, slice);
+            const duped_name = try c.builder.arena.allocator().dupeSentinel(u8, slice, 0);
             const ref: Ir.Ref = @enumFromInt(c.builder.instructions.len);
             try c.builder.instructions.append(c.builder.gpa, .{ .tag = .symbol, .data = .{ .label = duped_name }, .ty = .ptr });
             return ref;
@@ -1113,7 +1112,7 @@ fn genCall(c: *CodeGen, call: Node.Call) Error!Ir.Ref {
                     }
                 }
 
-                const duped_name = try c.builder.arena.allocator().dupeZ(u8, slice);
+                const duped_name = try c.builder.arena.allocator().dupeSentinel(u8, slice, 0);
                 const ref: Ir.Ref = @enumFromInt(c.builder.instructions.len);
                 try c.builder.instructions.append(c.builder.gpa, .{ .tag = .symbol, .data = .{ .label = duped_name }, .ty = .ptr });
                 break :blk ref;

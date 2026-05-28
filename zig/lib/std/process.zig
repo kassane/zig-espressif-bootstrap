@@ -3,6 +3,7 @@ const native_os = builtin.os.tag;
 
 const std = @import("std.zig");
 const Io = std.Io;
+const Dir = std.Io.Dir;
 const File = std.Io.File;
 const fs = std.fs;
 const mem = std.mem;
@@ -85,7 +86,7 @@ pub fn currentPathAlloc(io: Io, allocator: Allocator) CurrentPathAllocError![:0]
         error.NameTooLong => unreachable,
         else => |e| return e,
     };
-    return allocator.dupeZ(u8, buffer[0..n]);
+    return allocator.dupeSentinel(u8, buffer[0..n], 0);
 }
 
 test currentPathAlloc {
@@ -130,7 +131,7 @@ pub fn posixGetUserInfo(io: Io, name: []const u8) !UserInfo {
     return posixGetUserInfoPasswdStream(name, &file_reader.interface) catch |err| switch (err) {
         error.ReadFailed => return file_reader.err.?,
         error.EndOfStream => return error.UserNotFound,
-        error.CorruptPasswordFile => return error.CorruptPasswordFile,
+        error.CorruptPasswordFile => |e| return e,
     };
 }
 
@@ -734,7 +735,7 @@ pub fn executablePathAlloc(io: Io, allocator: Allocator) ExecutablePathAllocErro
         error.NameTooLong => unreachable,
         else => |e| return e,
     };
-    return allocator.dupeZ(u8, buffer[0..n]);
+    return allocator.dupeSentinel(u8, buffer[0..n], 0);
 }
 
 pub const ExecutablePathError = ExecutablePathBaseError || error{NameTooLong};
@@ -784,7 +785,7 @@ pub fn executableDirPathAlloc(io: Io, allocator: Allocator) ExecutablePathAllocE
 
 pub const OpenExecutableError = File.OpenError || ExecutablePathError || File.LockError;
 
-pub fn openExecutable(io: Io, flags: File.OpenFlags) OpenExecutableError!File {
+pub fn openExecutable(io: Io, flags: Dir.OpenFileOptions) OpenExecutableError!File {
     return io.vtable.processExecutableOpen(io.userdata, flags);
 }
 
@@ -845,7 +846,7 @@ pub fn abort() noreturn {
         exit(127); // Pid 1 might not be signalled in some containers.
     }
     switch (native_os) {
-        .uefi, .wasi, .emscripten, .cuda, .amdhsa => @trap(),
+        .uefi, .wasi, .emscripten, .cuda, .amdhsa, .other, .freestanding => @trap(),
         else => posix.system.abort(),
     }
 }
@@ -1111,4 +1112,11 @@ test lockMemoryAll {
 test protectMemory {
     protectMemory(&test_page, .{}) catch return error.SkipZigTest;
     protectMemory(&test_page, .{ .read = true, .write = true }) catch return error.SkipZigTest;
+}
+
+test {
+    _ = Child;
+    _ = Args;
+    _ = Environ;
+    _ = Preopens;
 }

@@ -1856,6 +1856,7 @@ pub fn buf_ring_advance(br: *linux.io_uring_buf_ring, count: u16) void {
 }
 
 test BufferGroup {
+    if (builtin.target.cpu.arch.isPowerPC()) return; // https://codeberg.org/ziglang/zig/issues/31562
     if (!is_linux) return error.SkipZigTest;
 
     const io = testing.io;
@@ -1924,5 +1925,6 @@ test BufferGroup {
 }
 
 test {
+    if (builtin.target.cpu.arch.isPowerPC()) return; // https://codeberg.org/ziglang/zig/issues/31562
     if (is_linux) _ = @import("IoUring/test.zig");
 }

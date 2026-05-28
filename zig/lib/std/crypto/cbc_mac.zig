@@ -21,7 +21,7 @@ pub fn CbcMac(comptime BlockCipher: type) type {
         pub const mac_length = block_length;
 
         cipher_ctx: BlockCipherCtx,
-        buf: Block = [_]u8{0} ** block_length,
+        buf: Block = @splat(0),
         pos: usize = 0,
 
         pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [key_length]u8) void {

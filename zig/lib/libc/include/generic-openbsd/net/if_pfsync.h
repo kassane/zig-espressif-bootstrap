@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pfsync.h,v 1.65 2025/07/07 00:55:15 jsg Exp $	*/
+/*	$OpenBSD: if_pfsync.h,v 1.66 2026/04/12 03:16:04 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2001 Michael Shalayeff
@@ -112,7 +112,7 @@ struct pfsync_header {
 	u_int8_t			version;
 	u_int8_t			_pad;
 	u_int16_t			len; /* in bytes */
-	u_int8_t			pfcksum[PF_MD5_DIGEST_LENGTH];
+	u_int8_t			spare[16];
 } __packed;
 
 /*

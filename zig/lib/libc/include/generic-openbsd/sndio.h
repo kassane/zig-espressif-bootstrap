@@ -1,4 +1,4 @@
-/*	$OpenBSD: sndio.h,v 1.15 2024/05/24 15:10:26 ratchov Exp $	*/
+/*	$OpenBSD: sndio.h,v 1.17 2026/01/22 09:31:22 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -27,17 +27,9 @@
 
 /*
  * limits
- *
- * For now SIOCTL_DISPLAYMAX is 12 byte only. It nicely fits in the
- * padding of the sioctl_desc structure: this allows any binary linked
- * to the library version with no sioctl_desc->display to work with
- * this library version. Currently, any string reported by the lower
- * layers fits in the 12-byte buffer. Once larger strings start
- * being used (or the ABI changes for any other reason) increase
- * SIOCTL_DISPLAYMAX and properly pad the sioctl_desc structure.
  */
-#define SIOCTL_NAMEMAX		12	/* max name length */
-#define SIOCTL_DISPLAYMAX	12	/* max display string length */
+#define SIOCTL_NAMEMAX		16	/* max name length */
+#define SIOCTL_DISPLAYMAX	32	/* max display string length */
 
 /*
  * private ``handle'' structure
@@ -119,11 +111,12 @@ struct sioctl_desc {
 #define SIOCTL_LIST		5	/* switch, element of a list */
 #define SIOCTL_SEL		6	/* element of a selector */
 	unsigned int type;		/* one of above */
+	unsigned int maxval;		/* max value */
+	int __pad[3];			/* for future use */
 	char func[SIOCTL_NAMEMAX];	/* function name, ex. "level" */
 	char group[SIOCTL_NAMEMAX];	/* group this control belongs to */
 	struct sioctl_node node0;	/* affected node */
 	struct sioctl_node node1;	/* dito for SIOCTL_{VEC,LIST,SEL} */
-	unsigned int maxval;		/* max value */
 	char display[SIOCTL_DISPLAYMAX];	/* free-format hint */
 };
 
@@ -169,6 +162,7 @@ int sio_setpar(struct sio_hdl *, struct sio_par *);
 int sio_getpar(struct sio_hdl *, struct sio_par *);
 int sio_getcap(struct sio_hdl *, struct sio_cap *);
 void sio_onmove(struct sio_hdl *, void (*)(void *, int), void *);
+void sio_onxrun(struct sio_hdl *, void (*)(void *), void *);
 size_t sio_write(struct sio_hdl *, const void *, size_t);
 size_t sio_read(struct sio_hdl *, void *, size_t);
 int sio_start(struct sio_hdl *);

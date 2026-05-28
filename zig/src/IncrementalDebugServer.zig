@@ -86,7 +86,6 @@ fn runServer(ids: *IncrementalDebugServer) void {
                 error.OutOfMemory,
                 error.Unexpected,
                 error.SystemResources,
-                error.Timeout,
                 error.NetworkDown,
                 error.NetworkUnreachable,
                 error.HostUnreachable,

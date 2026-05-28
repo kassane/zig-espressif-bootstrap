@@ -61,7 +61,7 @@ ABIArgInfo XtensaABIInfo::classifyArgumentType(QualType Ty,
       ArgGPRsLeft -= 1;
     return getNaturalAlignIndirect(
         Ty, getDataLayout().getAllocaAddrSpace(), /*ByVal=*/RAA ==
-                                           CGCXXABI::RAA_DirectInMemory);;
+                                           CGCXXABI::RAA_DirectInMemory);
   }
 
   // Ignore empty structs/unions.
@@ -88,8 +88,8 @@ ABIArgInfo XtensaABIInfo::classifyArgumentType(QualType Ty,
 
   if (!isAggregateTypeForABI(Ty) && !Ty->isVectorType() && !MustUseStack) {
     // Treat an enum type as its underlying type.
-    if (const auto *EnumTy = Ty->getAs<EnumType>())
-      Ty = EnumTy->getDecl()->getIntegerType();
+    if (const auto *ED = Ty->getAsEnumDecl())
+      Ty = ED->getIntegerType();
     // All integral types are promoted to XLen width, unless passed on the
     // stack.
     if (Size < 32 && Ty->isIntegralOrEnumerationType() && !MustUseStack) {

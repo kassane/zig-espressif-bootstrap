@@ -1,4 +1,4 @@
-/*	$NetBSD: md2.h,v 1.7 2016/07/01 16:42:46 christos Exp $	*/
+/*	$NetBSD: md2.h,v 1.9 2024/01/19 18:40:35 christos Exp $	*/
 
 #ifndef _MD2_H_
 #define _MD2_H_
@@ -21,10 +21,13 @@ __BEGIN_DECLS
 void	MD2Init(MD2_CTX *);
 void	MD2Update(MD2_CTX *, const unsigned char *, unsigned int);
 void	MD2Final(unsigned char[16], MD2_CTX *);
-char	*MD2End(MD2_CTX *, char *);
+char	*MD2End(MD2_CTX *, char[MD2_DIGEST_STRING_LENGTH]);
 char	*MD2File(const char *, char *);
 char	*MD2FileChunk(const char *, char *, off_t, off_t);
-char	*MD2Data(const unsigned char *, size_t, char *);
+char	*MD2Data(const unsigned char *, size_t, char[MD2_DIGEST_STRING_LENGTH]);
+#ifdef _LIBC_INTERNAL
+void	MD2Transform(MD2_CTX *);
+#endif
 __END_DECLS
 
 #endif /* _MD2_H_ */

@@ -1245,6 +1245,15 @@ pub const Stream = struct {
 
     const max_iovecs_len = 8;
 
+    /// This is a low-level API that calls the `Io` interface function directly.
+    /// For a higher level API, see `reader`.
+    pub fn read(s: *const Stream, io: Io, data: [][]u8) Reader.Error!usize {
+        return (try io.operate(.{ .net_read = .{
+            .socket_handle = s.socket.handle,
+            .data = data,
+        } })).net_read;
+    }
+
     pub fn close(s: *const Stream, io: Io) void {
         io.vtable.netClose(io.userdata, (&s.socket.handle)[0..1]);
     }
@@ -1259,16 +1268,7 @@ pub const Stream = struct {
         stream: Stream,
         err: ?Error,
 
-        pub const Error = error{
-            SystemResources,
-            ConnectionResetByPeer,
-            Timeout,
-            SocketUnconnected,
-            /// The file descriptor does not hold the required rights to read
-            /// from it.
-            AccessDenied,
-            NetworkDown,
-        } || Io.Cancelable || Io.UnexpectedError;
+        pub const Error = Io.Operation.NetRead.Error || Io.Cancelable;
 
         pub fn init(stream: Stream, io: Io, buffer: []u8) Reader {
             return .{
@@ -1302,7 +1302,7 @@ pub const Stream = struct {
             const dest_n, const data_size = try io_r.writableVector(&iovecs_buffer, data);
             const dest = iovecs_buffer[0..dest_n];
             assert(dest[0].len > 0);
-            const n = io.vtable.netRead(io.userdata, r.stream.socket.handle, dest) catch |err| {
+            const n = r.stream.read(io, dest) catch |err| {
                 r.err = err;
                 return error.ReadFailed;
             };

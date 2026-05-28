@@ -13,7 +13,6 @@ pub fn signbit(x: anytype) bool {
 }
 
 test signbit {
-    try testInts(i0);
     try testInts(u0);
     try testInts(i1);
     try testInts(u1);

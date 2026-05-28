@@ -158,29 +158,40 @@ fn stringToInteger(comptime T: type, noalias buf: [*:0]const u8, noalias maybe_e
     };
 
     // The prefix is allowed iff base == 0 or base == base of the prefix
-    const real_base: u6 = if (current[0] == '0') blk: {
-        current += 1;
+    const real_base: u6, const digits = blk: {
+        if (current[0] == '0') {
+            if ((base == 0 or base == 16) and std.ascii.toLower(current[1]) == 'x' and std.ascii.isHex(current[2])) {
+                break :blk .{ 16, current[2..] };
+            } else if (base == 0) {
+                break :blk .{ 8, current };
+            } else {
+                break :blk .{
+                    switch (base) {
+                        0 => 10,
+                        else => @intCast(base),
+                    },
+                    current,
+                };
+            }
+        } else {
+            const real_base: u6 = switch (base) {
+                0 => 10,
+                else => @intCast(base),
+            };
 
-        if ((base == 0 or base == 16) and std.ascii.toLower(current[0]) == 'x' and std.ascii.isHex(current[1])) {
-            current += 1;
-            break :blk 16;
+            _ = std.fmt.charToDigit(current[0], real_base) catch {
+                // No digits to parse. Setting errno to .INVAL is optional in this case.
+                if (maybe_end) |end| {
+                    end.* = buf;
+                }
+                return 0;
+            };
+            break :blk .{ real_base, current };
         }
-
-        if ((base == 0 or base == 8) and std.ascii.isDigit(current[0])) {
-            break :blk 8;
-        }
-
-        break :blk switch (base) {
-            0 => 10,
-            else => @intCast(base),
-        };
-    } else switch (base) {
-        0 => 10,
-        else => @intCast(base),
     };
 
     if (@typeInfo(T).int.signedness == .unsigned) {
-        const result = parseDigitsWithSignGenericCharacter(T, u8, current, maybe_end, real_base, .pos) catch {
+        const result = parseDigitsWithSignGenericCharacter(T, u8, digits, maybe_end, real_base, .pos) catch {
             std.c._errno().* = @intFromEnum(std.c.E.RANGE);
             return std.math.maxInt(T);
         };
@@ -188,12 +199,12 @@ fn stringToInteger(comptime T: type, noalias buf: [*:0]const u8, noalias maybe_e
         return if (negative) -%result else result;
     }
 
-    if (negative) return parseDigitsWithSignGenericCharacter(T, u8, current, maybe_end, real_base, .neg) catch blk: {
+    if (negative) return parseDigitsWithSignGenericCharacter(T, u8, digits, maybe_end, real_base, .neg) catch blk: {
         std.c._errno().* = @intFromEnum(std.c.E.RANGE);
         break :blk std.math.minInt(T);
     };
 
-    return parseDigitsWithSignGenericCharacter(T, u8, current, maybe_end, real_base, .pos) catch blk: {
+    return parseDigitsWithSignGenericCharacter(T, u8, digits, maybe_end, real_base, .pos) catch blk: {
         std.c._errno().* = @intFromEnum(std.c.E.RANGE);
         break :blk std.math.maxInt(T);
     };
@@ -222,7 +233,6 @@ fn parseDigitsWithSignGenericCharacter(
     var value: T = 0;
     while (true) {
         const c: u8 = std.math.cast(u8, current[0]) orelse break;
-        if (!std.ascii.isAlphanumeric(c)) break;
 
         const digit: u6 = @intCast(std.fmt.charToDigit(c, base) catch break);
         defer current += 1;
@@ -293,104 +303,4 @@ fn bsearch(key: *const anyopaque, base: *const anyopaque, n: usize, size: usize,
         }
     }
     return null;
-}
-
-test abs {
-    const val: c_int = -10;
-    try std.testing.expectEqual(10, abs(val));
-}
-
-test labs {
-    const val: c_long = -10;
-    try std.testing.expectEqual(10, labs(val));
-}
-
-test llabs {
-    const val: c_longlong = -10;
-    try std.testing.expectEqual(10, llabs(val));
-}
-
-test div {
-    const expected: div_t = .{ .quot = 5, .rem = 5 };
-    try std.testing.expectEqual(expected, div(55, 10));
-}
-
-test ldiv {
-    const expected: ldiv_t = .{ .quot = -6, .rem = 2 };
-    try std.testing.expectEqual(expected, ldiv(38, -6));
-}
-
-test lldiv {
-    const expected: lldiv_t = .{ .quot = 1, .rem = 2 };
-    try std.testing.expectEqual(expected, lldiv(5, 3));
-}
-
-test atoi {
-    try std.testing.expectEqual(0, atoi(@ptrCast("stop42true")));
-    try std.testing.expectEqual(42, atoi(@ptrCast("42true")));
-    try std.testing.expectEqual(-1, atoi(@ptrCast("-01")));
-    try std.testing.expectEqual(1, atoi(@ptrCast("+001")));
-    try std.testing.expectEqual(100, atoi(@ptrCast("            100")));
-    try std.testing.expectEqual(500, atoi(@ptrCast("000000000000500")));
-    try std.testing.expectEqual(1111, atoi(@ptrCast("0000000000001111_0000")));
-    try std.testing.expectEqual(0, atoi(@ptrCast("0xAA")));
-    try std.testing.expectEqual(700, atoi(@ptrCast("700B")));
-    try std.testing.expectEqual(32453, atoi(@ptrCast("+32453more")));
-    try std.testing.expectEqual(std.math.maxInt(c_int), atoi(@ptrCast(std.fmt.comptimePrint("{d}", .{std.math.maxInt(c_int)}))));
-    try std.testing.expectEqual(std.math.minInt(c_int), atoi(@ptrCast(std.fmt.comptimePrint("{d}", .{std.math.minInt(c_int)}))));
-}
-
-test atol {
-    try std.testing.expectEqual(0, atol(@ptrCast("stop42true")));
-    try std.testing.expectEqual(42, atol(@ptrCast("42true")));
-    try std.testing.expectEqual(-1, atol(@ptrCast("-01")));
-    try std.testing.expectEqual(1, atol(@ptrCast("+001")));
-    try std.testing.expectEqual(100, atol(@ptrCast("            100")));
-    try std.testing.expectEqual(500, atol(@ptrCast("000000000000500")));
-    try std.testing.expectEqual(1111, atol(@ptrCast("0000000000001111_0000")));
-    try std.testing.expectEqual(0, atol(@ptrCast("0xAA")));
-    try std.testing.expectEqual(700, atol(@ptrCast("700B")));
-    try std.testing.expectEqual(32453, atol(@ptrCast("+32453more")));
-    try std.testing.expectEqual(std.math.maxInt(c_long), atol(@ptrCast(std.fmt.comptimePrint("{d}", .{std.math.maxInt(c_long)}))));
-    try std.testing.expectEqual(std.math.minInt(c_long), atol(@ptrCast(std.fmt.comptimePrint("{d}", .{std.math.minInt(c_long)}))));
-}
-
-test atoll {
-    try std.testing.expectEqual(0, atoll(@ptrCast("stop42true")));
-    try std.testing.expectEqual(42, atoll(@ptrCast("42true")));
-    try std.testing.expectEqual(-1, atoll(@ptrCast("-01")));
-    try std.testing.expectEqual(1, atoll(@ptrCast("+001")));
-    try std.testing.expectEqual(100, atoll(@ptrCast("            100")));
-    try std.testing.expectEqual(500, atoll(@ptrCast("000000000000500")));
-    try std.testing.expectEqual(1111, atoll(@ptrCast("0000000000001111_0000")));
-    try std.testing.expectEqual(0, atoll(@ptrCast("0xAA")));
-    try std.testing.expectEqual(700, atoll(@ptrCast("700B")));
-    try std.testing.expectEqual(32453, atoll(@ptrCast("   +32453more")));
-    try std.testing.expectEqual(std.math.maxInt(c_longlong), atoll(@ptrCast(std.fmt.comptimePrint("{d}", .{std.math.maxInt(c_longlong)}))));
-    try std.testing.expectEqual(std.math.minInt(c_longlong), atoll(@ptrCast(std.fmt.comptimePrint("{d}", .{std.math.minInt(c_longlong)}))));
-}
-
-// FIXME: We cannot test strtol, strtoll, strtoul, etc.. here as it must modify errno and libc is not linked in tests
-
-test bsearch {
-    const Comparison = struct {
-        pub fn compare(a: *const anyopaque, b: *const anyopaque) callconv(.c) c_int {
-            const a_u16: *const u16 = @ptrCast(@alignCast(a));
-            const b_u16: *const u16 = @ptrCast(@alignCast(b));
-
-            return switch (std.math.order(a_u16.*, b_u16.*)) {
-                .gt => 1,
-                .eq => 0,
-                .lt => -1,
-            };
-        }
-    };
-
-    const items: []const u16 = &.{ 0, 5, 7, 9, 10, 200, 512, 768 };
-
-    try std.testing.expectEqual(@as(?*anyopaque, null), bsearch(&@as(u16, 2000), items.ptr, items.len, @sizeOf(u16), Comparison.compare));
-
-    for (items) |*value| {
-        try std.testing.expectEqual(@as(*const anyopaque, value), bsearch(value, items.ptr, items.len, @sizeOf(u16), Comparison.compare));
-    }
 }

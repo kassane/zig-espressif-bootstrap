@@ -2,8 +2,7 @@
 //! bundled libcs.
 //!
 //! mingw-w64 libc is not fully statically linked, so some symbols don't need
-//! to be exported. However, a future enhancement could be eliminating Zig's
-//! dependency on msvcrt dll even when linking libc and targeting Windows.
+//! to be exported.
 
 const builtin = @import("builtin");
 const std = @import("std");
@@ -69,6 +68,7 @@ comptime {
         _ = @import("c/malloc.zig");
     }
     _ = @import("c/math.zig");
+    _ = @import("c/pthread.zig");
     _ = @import("c/search.zig");
     _ = @import("c/stdlib.zig");
     _ = @import("c/string.zig");

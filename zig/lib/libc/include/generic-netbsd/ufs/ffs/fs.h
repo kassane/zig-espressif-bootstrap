@@ -1,4 +1,4 @@
-/*	$NetBSD: fs.h,v 1.70.2.1 2023/05/13 11:51:14 martin Exp $	*/
+/*	$NetBSD: fs.h,v 1.73 2024/12/13 22:32:45 riastradh Exp $	*/
 
 /*
  * Copyright (c) 1982, 1986, 1993
@@ -150,7 +150,7 @@
 /*
  * The volume name for this filesystem is maintained in fs_volname.
  * MAXVOLLEN defines the length of the buffer allocated.
- * This space used to be part of of fs_fsmnt.
+ * This space used to be part of fs_fsmnt.
  */
 #define	MAXVOLLEN	32
 
@@ -251,7 +251,7 @@ struct csum_total {
 
 
 /*
- * Super block for an FFS file system in memory.
+ * Super block for an FFS file system.
  */
 struct fs {
 	int32_t	 fs_firstfield;		/* historic file system linked list, */

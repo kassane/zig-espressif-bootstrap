@@ -1,4 +1,4 @@
-/*	$NetBSD: vnode_impl.h,v 1.24 2022/07/18 04:30:30 thorpej Exp $	*/
+/*	$NetBSD: vnode_impl.h,v 1.27 2023/08/01 16:33:43 dholland Exp $	*/
 
 /*-
  * Copyright (c) 2016, 2019, 2020 The NetBSD Foundation, Inc.
@@ -30,6 +30,7 @@
 #define	_SYS_VNODE_IMPL_H_
 #if defined(_KERNEL) || defined(_KMEMUSER)
 
+#include <sys/sdt.h>
 #include <sys/vnode.h>
 
 struct namecache;
@@ -65,7 +66,7 @@ struct vcache_key {
  *	l	vi_nc_listlock
  *	m	mnt_vnodelock
  *	n	vi_nc_lock
- *	n,l	vi_nc_lock + vi_nc_listlock to modify
+ *	n,l	both vi_nc_lock + vi_nc_listlock to modify, either to read
  *	s	syncer_data_lock
  */
 struct vnode_impl {
@@ -127,7 +128,7 @@ typedef struct vnode_impl vnode_impl_t;
  */
 void _vstate_assert(vnode_t *, enum vnode_state, const char *, int, bool);
 
-#if defined(DIAGNOSTIC) 
+#if defined(DIAGNOSTIC)
 
 #define VSTATE_ASSERT(vp, state) \
 	_vstate_assert((vp), (state), __func__, __LINE__, true)
@@ -154,6 +155,8 @@ void	vcache_make_anon(vnode_t *);
 int	vcache_vget(vnode_t *);
 int	vcache_tryvget(vnode_t *);
 int	vfs_drainvnodes(void);
+
+SDT_PROVIDER_DECLARE(vfs);
 
 #endif	/* defined(_KERNEL) || defined(_KMEMUSER) */
 #endif	/* !_SYS_VNODE_IMPL_H_ */

@@ -1,4 +1,4 @@
-/*	$NetBSD: ksem.h,v 1.15.30.1 2023/08/09 17:42:01 martin Exp $	*/
+/*	$NetBSD: ksem.h,v 1.17 2023/07/11 11:37:29 riastradh Exp $	*/
 
 /*
  * Copyright (c) 2002 Alfred Perlstein <alfred@FreeBSD.org>

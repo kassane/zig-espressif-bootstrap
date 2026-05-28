@@ -1,4 +1,4 @@
-/*	$NetBSD: param.h,v 1.722.2.10 2024/12/16 12:48:46 martin Exp $	*/
+/*	$NetBSD: param.h,v 1.738.2.5 2026/05/12 04:23:51 martin Exp $	*/
 
 /*-
  * Copyright (c) 1982, 1986, 1989, 1993
@@ -395,13 +395,16 @@
 #define	MAXFRAG 	8
 
 /*
- * MAXPATHLEN defines the longest permissible path length after expanding
- * symbolic links. It is used to allocate a temporary buffer from the buffer
- * pool in which to do the name expansion, hence should be a power of two,
- * and must be less than or equal to MAXBSIZE.  MAXSYMLINKS defines the
- * maximum number of symbolic links that may be expanded in a path name.
- * It should be set high enough to allow all legitimate uses, but halt
- * infinite loops reasonably quickly.
+ * MAXPATHLEN defines the longest permissible path length after
+ * expanding symbolic links, including a trailing null terminator
+ * byte. It is used to allocate a temporary buffer from the buffer
+ * pool in which to do the name expansion, hence should be a power of
+ * two, and must be less than or equal to MAXBSIZE. It must be the
+ * same as PATH_MAX from <limits.h>.
+ *
+ * MAXSYMLINKS defines the maximum number of symbolic links that may
+ * be expanded in a path name. It should be set high enough to allow
+ * all legitimate uses, but halt infinite loops reasonably quickly.
  *
  * MAXSYMLINKS should be >= _POSIX_SYMLOOP_MAX (see <limits.h>)
  */

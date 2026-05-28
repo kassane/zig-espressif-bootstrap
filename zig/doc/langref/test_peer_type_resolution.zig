@@ -96,8 +96,8 @@ fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
 }
 
 test "peer type resolution: *const T and ?*T" {
-    const a: *const usize = @ptrFromInt(0x123456780);
-    const b: ?*usize = @ptrFromInt(0x123456780);
+    const a: *const usize = @ptrFromInt(0x12345678);
+    const b: ?*usize = @ptrFromInt(0x12345678);
     try expectEqual(a, b);
     try expectEqual(b, a);
 }

@@ -459,7 +459,6 @@ pub fn io(ev: *Evented) Io {
             .netConnectUnix = netConnectUnixUnavailable,
             .netSocketCreatePair = netSocketCreatePairUnavailable,
             .netSend = netSendUnavailable,
-            .netRead = netReadUnavailable,
             .netWrite = netWriteUnavailable,
             .netWriteFile = netWriteFileUnavailable,
             .netClose = netClose,
@@ -1713,6 +1712,7 @@ fn operate(userdata: ?*anyopaque, operation: Io.Operation) Io.Cancelable!Io.Oper
         },
         .device_io_control => |*o| return .{ .device_io_control = try deviceIoControl(o) },
         .net_receive => @panic("TODO implement net_receive operation"),
+        .net_read => @panic("TODO implement net_read operation"),
     }
 }
 
@@ -2134,6 +2134,7 @@ fn batchDrainSubmitted(
                 },
                 .device_io_control => {},
                 .net_receive => @panic("TODO implement batched net_receive"),
+                .net_read => @panic("TODO implement batched net_read"),
             };
             if (concurrency) return error.ConcurrencyUnavailable;
             break :result try operate(ev, storage.submission.operation);
@@ -2193,6 +2194,7 @@ fn batchSourceEvent(context: ?*anyopaque) callconv(.c) void {
         },
         .device_io_control => unreachable,
         .net_receive => @panic("TODO implement batched net_receive"),
+        .net_read => @panic("TODO implement batched net_read"),
     };
 
     switch (pending.node.prev) {
@@ -2466,7 +2468,7 @@ fn dirCreateFile(
     userdata: ?*anyopaque,
     dir: Dir,
     sub_path: []const u8,
-    flags: File.CreateFlags,
+    flags: Dir.CreateFileOptions,
 ) File.OpenError!File {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
     _ = ev;
@@ -2599,7 +2601,7 @@ fn dirOpenFile(
     userdata: ?*anyopaque,
     dir: Dir,
     sub_path: []const u8,
-    flags: File.OpenFlags,
+    flags: Dir.OpenFileOptions,
 ) File.OpenError!File {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
 
@@ -3934,7 +3936,7 @@ fn fileMemoryMapWrite(userdata: ?*anyopaque, mm: *File.MemoryMap) File.WritePosi
 
 fn processExecutableOpen(
     userdata: ?*anyopaque,
-    flags: File.OpenFlags,
+    flags: Dir.OpenFileOptions,
 ) process.OpenExecutableError!File {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
     // _NSGetExecutablePath() returns a path that might be a symlink to
@@ -4084,7 +4086,7 @@ fn processReplace(userdata: ?*anyopaque, options: process.ReplaceOptions) proces
     const arena = arena_allocator.allocator();
 
     const argv_buf = try arena.allocSentinel(?[*:0]const u8, options.argv.len, null);
-    for (options.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
+    for (options.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeSentinel(u8, arg, 0)).ptr;
 
     const env_block = env_block: {
         const prog_fd: i32 = -1;
@@ -4220,7 +4222,7 @@ fn spawn(ev: *Evented, options: process.SpawnOptions) process.SpawnError!Spawned
     // Therefore, we do all the allocation for the execve() before the fork().
     // This means we must do the null-termination of argv and env vars here.
     const argv_buf = try arena.allocSentinel(?[*:0]const u8, options.argv.len, null);
-    for (options.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
+    for (options.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeSentinel(u8, arg, 0)).ptr;
 
     const env_block = env_block: {
         const prog_fd: i32 = if (prog_pipe[1] == -1) -1 else prog_fileno;
@@ -4875,18 +4877,6 @@ fn netSendUnavailable(
     _ = messages;
     _ = flags;
     return .{ error.NetworkDown, 0 };
-}
-
-fn netReadUnavailable(
-    userdata: ?*anyopaque,
-    fd: net.Socket.Handle,
-    data: [][]u8,
-) net.Stream.Reader.Error!usize {
-    const ev: *Evented = @ptrCast(@alignCast(userdata));
-    _ = ev;
-    _ = fd;
-    _ = data;
-    return error.NetworkDown;
 }
 
 fn netWriteUnavailable(

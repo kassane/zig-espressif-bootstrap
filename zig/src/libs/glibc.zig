@@ -189,11 +189,11 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 var args = std.array_list.Managed([]const u8).init(arena);
                 try add_include_dirs(comp, arena, &args);
                 try args.appendSlice(&[_][]const u8{
+                    "-w", // Disable all warnings.
                     "-D_LIBC_REENTRANT",
                     "-include",
                     try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
                     "-DMODULE_NAME=libc",
-                    "-Wno-nonportable-include-path",
                     "-include",
                     try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
                     "-DPIC",
@@ -217,6 +217,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 });
                 try add_include_dirs(comp, arena, &args);
                 try args.appendSlice(&[_][]const u8{
+                    "-w", // Disable all warnings.
                     "-D_LIBC_REENTRANT",
                     "-DMODULE_NAME=libc",
                     "-DTOP_NAMESPACE=glibc",
@@ -229,9 +230,16 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     .owner = undefined,
                 };
             };
-            const init_o: Compilation.CSourceFile = .{
-                .src_path = try lib_path(comp, arena, lib_libc_glibc ++ "csu" ++ path.sep_str ++ "init.c"),
-                .owner = undefined,
+            const init_o: Compilation.CSourceFile = blk: {
+                var args = std.array_list.Managed([]const u8).init(arena);
+                try args.appendSlice(&[_][]const u8{
+                    "-w", // Disable all warnings.
+                });
+                break :blk .{
+                    .src_path = try lib_path(comp, arena, lib_libc_glibc ++ "csu" ++ path.sep_str ++ "init.c"),
+                    .cache_exempt_flags = args.items,
+                    .owner = undefined,
+                };
             };
             var files = [_]Compilation.CSourceFile{ start_o, abi_note_o, init_o };
             const basename = if (comp.config.output_mode == .Exe and !comp.config.pie) "crt1" else "Scrt1";
@@ -308,15 +316,14 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
                 var args = std.array_list.Managed([]const u8).init(arena);
                 try args.appendSlice(&[_][]const u8{
+                    "-w", // Disable all warnings.
                     "-std=gnu11",
                     "-fgnu89-inline",
                     "-fmerge-all-constants",
                     "-frounding-math",
-                    "-Wno-unsupported-floating-point-opt", // For targets that don't support -frounding-math.
                     "-fno-common",
                     "-fmath-errno",
                     "-ftls-model=initial-exec",
-                    "-Wno-ignored-attributes",
                     "-Qunused-arguments",
                 });
                 try add_include_dirs(comp, arena, &args);
@@ -335,7 +342,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     "-include",
                     try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
                     "-DMODULE_NAME=libc",
-                    "-Wno-nonportable-include-path",
                     "-include",
                     try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
                     "-DPIC",
@@ -1251,7 +1257,6 @@ fn buildSharedLib(
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
-        .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .version = version,
@@ -1272,7 +1277,7 @@ fn buildSharedLib(
     try comp.updateSubCompilation(sub_compilation, misc_task, prog_node);
 }
 
-pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {
+pub fn needsCrt0(output_mode: std.lang.OutputMode) ?CrtFile {
     return switch (output_mode) {
         .Obj, .Lib => null,
         .Exe => .scrt1_o,

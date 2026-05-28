@@ -36,9 +36,6 @@
         .compile_asm = .{
             .path = "compile_asm",
         },
-        .issue_794 = .{
-            .path = "issue_794",
-        },
         .issue_5825 = .{
             .path = "issue_5825",
         },
@@ -83,9 +80,6 @@
         },
         .dep_shared_builtin = .{
             .path = "dep_shared_builtin",
-        },
-        .dep_lazypath = .{
-            .path = "dep_lazypath",
         },
         .dirname = .{
             .path = "dirname",
@@ -159,9 +153,6 @@
         .compiler_rt_panic = .{
             .path = "compiler_rt_panic",
         },
-        .ios = .{
-            .path = "ios",
-        },
         .depend_on_main_mod = .{
             .path = "depend_on_main_mod",
         },
@@ -176,9 +167,6 @@
         },
         .run_output_paths = .{
             .path = "run_output_paths",
-        },
-        .run_output_caching = .{
-            .path = "run_output_caching",
         },
         .empty_global_error_set = .{
             .path = "empty_global_error_set",

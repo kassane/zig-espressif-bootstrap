@@ -1,4 +1,4 @@
-/*	$NetBSD: cacheops_60.h,v 1.13 2008/04/28 20:23:26 martin Exp $	*/
+/*	$NetBSD: cacheops_60.h,v 1.15 2023/12/27 17:35:35 thorpej Exp $	*/
 
 /*-
  * Copyright (c) 1997 The NetBSD Foundation, Inc.
@@ -28,6 +28,8 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+
+#include <machine/fcode.h>
 
 /*
  * Invalidate entire TLB.
@@ -74,7 +76,7 @@ TBIAS_60(void)
 			  " movc  %%cacr,%0;"
 			  " orl   %1,%0;"
 			  " movc  %0,%%cacr" /* clear all branch cache
-			 		        entries */
+					        entries */
 			  : "=d" (tmp) : "i" (IC60_CABC) );
 }
 
@@ -93,7 +95,7 @@ TBIAU_60(void)
 			  " movc  %%cacr,%0;"
 			  " orl   %1,%0;"
 			  " movc  %0,%%cacr" /* clear all branch cache
-			 		        entries */
+					        entries */
 			  : "=d" (tmp) : "i" (IC60_CUBC) );
 }
 

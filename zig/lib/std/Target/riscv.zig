@@ -8,13 +8,21 @@ pub const Feature = enum {
     @"32bit",
     @"64bit",
     a,
+    add_load_fusion,
+    addi_load_fusion,
     andes45,
     auipc_addi_fusion,
+    auipc_load_fusion,
     b,
+    bfext_fusion,
     c,
     conditional_cmv_fusion,
     d,
     disable_latency_sched_heuristic,
+    disable_misched_load_clustering,
+    disable_misched_store_clustering,
+    disable_postmisched_load_clustering,
+    disable_postmisched_store_clustering,
     dlen_factor_2,
     e,
     espv_lowering,
@@ -22,36 +30,18 @@ pub const Feature = enum {
     experimental,
     experimental_p,
     experimental_rvm23u32,
-    experimental_smctr,
-    experimental_ssctr,
+    experimental_smpmpmt,
     experimental_svukte,
-    experimental_xqccmp,
-    experimental_xqcia,
-    experimental_xqciac,
-    experimental_xqcibi,
-    experimental_xqcibm,
-    experimental_xqcicli,
-    experimental_xqcicm,
-    experimental_xqcics,
-    experimental_xqcicsr,
-    experimental_xqciint,
-    experimental_xqciio,
-    experimental_xqcilb,
-    experimental_xqcili,
-    experimental_xqcilia,
-    experimental_xqcilo,
-    experimental_xqcilsm,
-    experimental_xqcisim,
-    experimental_xqcisls,
-    experimental_xqcisync,
     experimental_xrivosvisni,
     experimental_xrivosvizip,
     experimental_xsfmclic,
     experimental_xsfsclic,
-    experimental_zalasr,
+    experimental_zibi,
     experimental_zicfilp,
     experimental_zicfiss,
     experimental_zvbc32e,
+    experimental_zvfbfa,
+    experimental_zvfofp8min,
     experimental_zvkgs,
     experimental_zvqdotq,
     f,
@@ -61,6 +51,7 @@ pub const Feature = enum {
     ld_add_fusion,
     log_vrgather,
     lui_addi_fusion,
+    lui_load_fusion,
     m,
     mips_p8700,
     no_default_unroll,
@@ -74,6 +65,7 @@ pub const Feature = enum {
     optimized_nf7_segment_load_store,
     optimized_nf8_segment_load_store,
     optimized_zero_stride_load,
+    permissive_zalrsc,
     predictable_select_expensive,
     prefer_vsetvli_over_read_vlenb,
     prefer_w_inst,
@@ -123,15 +115,21 @@ pub const Feature = enum {
     shgatpa,
     shifted_zextw_fusion,
     shlcofideleg,
-    short_forward_branch_opt,
+    short_forward_branch_ialu,
+    short_forward_branch_iload,
+    short_forward_branch_iminmax,
+    short_forward_branch_imul,
     shtvala,
     shvsatpa,
     shvstvala,
     shvstvecd,
+    shxadd_load_fusion,
+    single_element_vec_fp64,
     smaia,
     smcdeleg,
     smcntrpmf,
     smcsrind,
+    smctr,
     smdbltrp,
     smepmp,
     smmpm,
@@ -144,6 +142,7 @@ pub const Feature = enum {
     sscofpmf,
     sscounterenw,
     sscsrind,
+    ssctr,
     ssdbltrp,
     ssnpm,
     sspm,
@@ -175,6 +174,7 @@ pub const Feature = enum {
     xandesvbfhcvt,
     xandesvdot,
     xandesvpackfph,
+    xandesvsinth,
     xandesvsintload,
     xcvalu,
     xcvbi,
@@ -189,7 +189,28 @@ pub const Feature = enum {
     xespv1v,
     xmipscbop,
     xmipscmov,
+    xmipsexectl,
     xmipslsp,
+    xqccmp,
+    xqci,
+    xqcia,
+    xqciac,
+    xqcibi,
+    xqcibm,
+    xqcicli,
+    xqcicm,
+    xqcics,
+    xqcicsr,
+    xqciint,
+    xqciio,
+    xqcilb,
+    xqcili,
+    xqcilia,
+    xqcilo,
+    xqcilsm,
+    xqcisim,
+    xqcisls,
+    xqcisync,
     xsfcease,
     xsfmm128t,
     xsfmm16t,
@@ -202,12 +223,18 @@ pub const Feature = enum {
     xsfmm64t,
     xsfmmbase,
     xsfvcp,
+    xsfvfbfexp16e,
+    xsfvfexp16e,
+    xsfvfexp32e,
+    xsfvfexpa,
+    xsfvfexpa64e,
     xsfvfnrclipxfqf,
     xsfvfwmaccqqq,
     xsfvqmaccdod,
     xsfvqmaccqoq,
     xsifivecdiscarddlone,
     xsifivecflushdlone,
+    xsmtvdot,
     xtheadba,
     xtheadbb,
     xtheadbs,
@@ -226,6 +253,7 @@ pub const Feature = enum {
     zaamo,
     zabha,
     zacas,
+    zalasr,
     zalrsc,
     zama16b,
     zawrs,
@@ -272,6 +300,7 @@ pub const Feature = enum {
     zihintpause,
     zihpm,
     zilsd,
+    zilsd_4byte_align,
     zimop,
     zk,
     zkn,
@@ -331,7 +360,7 @@ pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
     @setEvalBranchQuota(2000);
-    const len = @typeInfo(Feature).@"enum".fields.len;
+    const len = @typeInfo(Feature).@"enum".field_names.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.@"32bit")] = .{
@@ -352,6 +381,16 @@ pub const all_features = blk: {
             .zalrsc,
         }),
     };
+    result[@intFromEnum(Feature.add_load_fusion)] = .{
+        .llvm_name = "add-load-fusion",
+        .description = "Enable ADD(.UW) + load macrofusion",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.addi_load_fusion)] = .{
+        .llvm_name = "addi-load-fusion",
+        .description = "Enable ADDI + load macrofusion",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.andes45)] = .{
         .llvm_name = "andes45",
         .description = "Andes 45-Series processors",
@@ -362,6 +401,11 @@ pub const all_features = blk: {
         .description = "Enable AUIPC+ADDI macrofusion",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.auipc_load_fusion)] = .{
+        .llvm_name = "auipc-load-fusion",
+        .description = "Enable AUIPC + load macrofusion",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.b)] = .{
         .llvm_name = "b",
         .description = "'B' (the collection of the Zba, Zbb, Zbs extensions)",
@@ -370,6 +414,11 @@ pub const all_features = blk: {
             .zbb,
             .zbs,
         }),
+    };
+    result[@intFromEnum(Feature.bfext_fusion)] = .{
+        .llvm_name = "bfext-fusion",
+        .description = "Enable SLLI+SRLI (bitfield extract) macrofusion",
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.c)] = .{
         .llvm_name = "c",
@@ -393,6 +442,26 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.disable_latency_sched_heuristic)] = .{
         .llvm_name = "disable-latency-sched-heuristic",
         .description = "Disable latency scheduling heuristic",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.disable_misched_load_clustering)] = .{
+        .llvm_name = "disable-misched-load-clustering",
+        .description = "Disable load clustering in the machine scheduler",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.disable_misched_store_clustering)] = .{
+        .llvm_name = "disable-misched-store-clustering",
+        .description = "Disable store clustering in the machine scheduler",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.disable_postmisched_load_clustering)] = .{
+        .llvm_name = "disable-postmisched-load-clustering",
+        .description = "Disable PostRA load clustering in the machine scheduler",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.disable_postmisched_store_clustering)] = .{
+        .llvm_name = "disable-postmisched-store-clustering",
+        .description = "Disable PostRA store clustering in the machine scheduler",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.dlen_factor_2)] = .{
@@ -442,143 +511,15 @@ pub const all_features = blk: {
             .zimop,
         }),
     };
-    result[@intFromEnum(Feature.experimental_smctr)] = .{
-        .llvm_name = "experimental-smctr",
-        .description = "'Smctr' (Control Transfer Records Machine Level)",
-        .dependencies = featureSet(&[_]Feature{
-            .sscsrind,
-        }),
-    };
-    result[@intFromEnum(Feature.experimental_ssctr)] = .{
-        .llvm_name = "experimental-ssctr",
-        .description = "'Ssctr' (Control Transfer Records Supervisor Level)",
-        .dependencies = featureSet(&[_]Feature{
-            .sscsrind,
-        }),
+    result[@intFromEnum(Feature.experimental_smpmpmt)] = .{
+        .llvm_name = "experimental-smpmpmt",
+        .description = "'Smpmpmt' (PMP-based Memory Types Extension)",
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.experimental_svukte)] = .{
         .llvm_name = "experimental-svukte",
         .description = "'Svukte' (Address-Independent Latency of User-Mode Faults to Supervisor Addresses)",
         .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.experimental_xqccmp)] = .{
-        .llvm_name = "experimental-xqccmp",
-        .description = "'Xqccmp' (Qualcomm 16-bit Push/Pop and Double Moves)",
-        .dependencies = featureSet(&[_]Feature{
-            .zca,
-        }),
-    };
-    result[@intFromEnum(Feature.experimental_xqcia)] = .{
-        .llvm_name = "experimental-xqcia",
-        .description = "'Xqcia' (Qualcomm uC Arithmetic Extension)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.experimental_xqciac)] = .{
-        .llvm_name = "experimental-xqciac",
-        .description = "'Xqciac' (Qualcomm uC Load-Store Address Calculation Extension)",
-        .dependencies = featureSet(&[_]Feature{
-            .zca,
-        }),
-    };
-    result[@intFromEnum(Feature.experimental_xqcibi)] = .{
-        .llvm_name = "experimental-xqcibi",
-        .description = "'Xqcibi' (Qualcomm uC Branch Immediate Extension)",
-        .dependencies = featureSet(&[_]Feature{
-            .zca,
-        }),
-    };
-    result[@intFromEnum(Feature.experimental_xqcibm)] = .{
-        .llvm_name = "experimental-xqcibm",
-        .description = "'Xqcibm' (Qualcomm uC Bit Manipulation Extension)",
-        .dependencies = featureSet(&[_]Feature{
-            .zca,
-        }),
-    };
-    result[@intFromEnum(Feature.experimental_xqcicli)] = .{
-        .llvm_name = "experimental-xqcicli",
-        .description = "'Xqcicli' (Qualcomm uC Conditional Load Immediate Extension)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.experimental_xqcicm)] = .{
-        .llvm_name = "experimental-xqcicm",
-        .description = "'Xqcicm' (Qualcomm uC Conditional Move Extension)",
-        .dependencies = featureSet(&[_]Feature{
-            .zca,
-        }),
-    };
-    result[@intFromEnum(Feature.experimental_xqcics)] = .{
-        .llvm_name = "experimental-xqcics",
-        .description = "'Xqcics' (Qualcomm uC Conditional Select Extension)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.experimental_xqcicsr)] = .{
-        .llvm_name = "experimental-xqcicsr",
-        .description = "'Xqcicsr' (Qualcomm uC CSR Extension)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.experimental_xqciint)] = .{
-        .llvm_name = "experimental-xqciint",
-        .description = "'Xqciint' (Qualcomm uC Interrupts Extension)",
-        .dependencies = featureSet(&[_]Feature{
-            .zca,
-        }),
-    };
-    result[@intFromEnum(Feature.experimental_xqciio)] = .{
-        .llvm_name = "experimental-xqciio",
-        .description = "'Xqciio' (Qualcomm uC External Input Output Extension)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.experimental_xqcilb)] = .{
-        .llvm_name = "experimental-xqcilb",
-        .description = "'Xqcilb' (Qualcomm uC Long Branch Extension)",
-        .dependencies = featureSet(&[_]Feature{
-            .zca,
-        }),
-    };
-    result[@intFromEnum(Feature.experimental_xqcili)] = .{
-        .llvm_name = "experimental-xqcili",
-        .description = "'Xqcili' (Qualcomm uC Load Large Immediate Extension)",
-        .dependencies = featureSet(&[_]Feature{
-            .zca,
-        }),
-    };
-    result[@intFromEnum(Feature.experimental_xqcilia)] = .{
-        .llvm_name = "experimental-xqcilia",
-        .description = "'Xqcilia' (Qualcomm uC Large Immediate Arithmetic Extension)",
-        .dependencies = featureSet(&[_]Feature{
-            .zca,
-        }),
-    };
-    result[@intFromEnum(Feature.experimental_xqcilo)] = .{
-        .llvm_name = "experimental-xqcilo",
-        .description = "'Xqcilo' (Qualcomm uC Large Offset Load Store Extension)",
-        .dependencies = featureSet(&[_]Feature{
-            .zca,
-        }),
-    };
-    result[@intFromEnum(Feature.experimental_xqcilsm)] = .{
-        .llvm_name = "experimental-xqcilsm",
-        .description = "'Xqcilsm' (Qualcomm uC Load Store Multiple Extension)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.experimental_xqcisim)] = .{
-        .llvm_name = "experimental-xqcisim",
-        .description = "'Xqcisim' (Qualcomm uC Simulation Hint Extension)",
-        .dependencies = featureSet(&[_]Feature{
-            .zca,
-        }),
-    };
-    result[@intFromEnum(Feature.experimental_xqcisls)] = .{
-        .llvm_name = "experimental-xqcisls",
-        .description = "'Xqcisls' (Qualcomm uC Scaled Load Store Extension)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.experimental_xqcisync)] = .{
-        .llvm_name = "experimental-xqcisync",
-        .description = "'Xqcisync' (Qualcomm uC Sync Delay Extension)",
-        .dependencies = featureSet(&[_]Feature{
-            .zca,
-        }),
     };
     result[@intFromEnum(Feature.experimental_xrivosvisni)] = .{
         .llvm_name = "experimental-xrivosvisni",
@@ -600,9 +541,9 @@ pub const all_features = blk: {
         .description = "'XSfsclic' (SiFive CLIC Supervisor-mode CSRs)",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.experimental_zalasr)] = .{
-        .llvm_name = "experimental-zalasr",
-        .description = "'Zalasr' (Load-Acquire and Store-Release Instructions)",
+    result[@intFromEnum(Feature.experimental_zibi)] = .{
+        .llvm_name = "experimental-zibi",
+        .description = "'Zibi' (Branch with Immediate)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.experimental_zicfilp)] = .{
@@ -625,6 +566,21 @@ pub const all_features = blk: {
         .description = "'Zvbc32e' (Vector Carryless Multiplication with 32-bits elements)",
         .dependencies = featureSet(&[_]Feature{
             .zve32x,
+        }),
+    };
+    result[@intFromEnum(Feature.experimental_zvfbfa)] = .{
+        .llvm_name = "experimental-zvfbfa",
+        .description = "'Zvfbfa' (Additional BF16 vector compute support)",
+        .dependencies = featureSet(&[_]Feature{
+            .zfbfmin,
+            .zve32f,
+        }),
+    };
+    result[@intFromEnum(Feature.experimental_zvfofp8min)] = .{
+        .llvm_name = "experimental-zvfofp8min",
+        .description = "'Zvfofp8min' (Vector OFP8 Converts)",
+        .dependencies = featureSet(&[_]Feature{
+            .zve32f,
         }),
     };
     result[@intFromEnum(Feature.experimental_zvkgs)] = .{
@@ -676,6 +632,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.lui_addi_fusion)] = .{
         .llvm_name = "lui-addi-fusion",
         .description = "Enable LUI+ADDI macro fusion",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.lui_load_fusion)] = .{
+        .llvm_name = "lui-load-fusion",
+        .description = "Enable LUI + load macrofusion",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.m)] = .{
@@ -743,6 +704,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.optimized_zero_stride_load)] = .{
         .llvm_name = "optimized-zero-stride-load",
         .description = "Optimized (perform fewer memory operations)zero-stride vector load",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.permissive_zalrsc)] = .{
+        .llvm_name = "permissive-zalrsc",
+        .description = "Implementation permits non-base instructions between LR/SC pairs",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.predictable_select_expensive)] = .{
@@ -1242,10 +1208,31 @@ pub const all_features = blk: {
         .description = "'Shlcofideleg' (Delegating LCOFI Interrupts to VS-mode)",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.short_forward_branch_opt)] = .{
-        .llvm_name = "short-forward-branch-opt",
-        .description = "Enable short forward branch optimization",
+    result[@intFromEnum(Feature.short_forward_branch_ialu)] = .{
+        .llvm_name = "short-forward-branch-ialu",
+        .description = "Enable short forward branch optimization for RVI base instructions",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.short_forward_branch_iload)] = .{
+        .llvm_name = "short-forward-branch-iload",
+        .description = "Enable short forward branch optimization for load instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .short_forward_branch_ialu,
+        }),
+    };
+    result[@intFromEnum(Feature.short_forward_branch_iminmax)] = .{
+        .llvm_name = "short-forward-branch-iminmax",
+        .description = "Enable short forward branch optimization for MIN,MAX instructions in Zbb",
+        .dependencies = featureSet(&[_]Feature{
+            .short_forward_branch_ialu,
+        }),
+    };
+    result[@intFromEnum(Feature.short_forward_branch_imul)] = .{
+        .llvm_name = "short-forward-branch-imul",
+        .description = "Enable short forward branch optimization for MUL instruction",
+        .dependencies = featureSet(&[_]Feature{
+            .short_forward_branch_ialu,
+        }),
     };
     result[@intFromEnum(Feature.shtvala)] = .{
         .llvm_name = "shtvala",
@@ -1267,6 +1254,16 @@ pub const all_features = blk: {
         .description = "'Shvstvecd' (vstvec supports Direct mode)",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.shxadd_load_fusion)] = .{
+        .llvm_name = "shxadd-load-fusion",
+        .description = "Enable SH(1|2|3)ADD(.UW) + load macrofusion",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.single_element_vec_fp64)] = .{
+        .llvm_name = "single-element-vec-fp64",
+        .description = "Certain vector FP64 operations produce a single result element per cycle",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.smaia)] = .{
         .llvm_name = "smaia",
         .description = "'Smaia' (Advanced Interrupt Architecture Machine Level)",
@@ -1286,6 +1283,13 @@ pub const all_features = blk: {
         .llvm_name = "smcsrind",
         .description = "'Smcsrind' (Indirect CSR Access Machine Level)",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.smctr)] = .{
+        .llvm_name = "smctr",
+        .description = "'Smctr' (Control Transfer Records Machine Level)",
+        .dependencies = featureSet(&[_]Feature{
+            .sscsrind,
+        }),
     };
     result[@intFromEnum(Feature.smdbltrp)] = .{
         .llvm_name = "smdbltrp",
@@ -1348,6 +1352,13 @@ pub const all_features = blk: {
         .llvm_name = "sscsrind",
         .description = "'Sscsrind' (Indirect CSR Access Supervisor Level)",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.ssctr)] = .{
+        .llvm_name = "ssctr",
+        .description = "'Ssctr' (Control Transfer Records Supervisor Level)",
+        .dependencies = featureSet(&[_]Feature{
+            .sscsrind,
+        }),
     };
     result[@intFromEnum(Feature.ssdbltrp)] = .{
         .llvm_name = "ssdbltrp",
@@ -1517,6 +1528,13 @@ pub const all_features = blk: {
             .f,
         }),
     };
+    result[@intFromEnum(Feature.xandesvsinth)] = .{
+        .llvm_name = "xandesvsinth",
+        .description = "'XAndesVSIntH' (Andes Vector Small INT Handling Extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zve32x,
+        }),
+    };
     result[@intFromEnum(Feature.xandesvsintload)] = .{
         .llvm_name = "xandesvsintload",
         .description = "'XAndesVSIntLoad' (Andes Vector INT4 Load Extension)",
@@ -1589,10 +1607,158 @@ pub const all_features = blk: {
         .description = "'XMIPSCMov' (MIPS conditional move instruction (mips.ccmov))",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.xmipsexectl)] = .{
+        .llvm_name = "xmipsexectl",
+        .description = "'XMIPSEXECTL' (MIPS execution control)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.xmipslsp)] = .{
         .llvm_name = "xmipslsp",
         .description = "'XMIPSLSP' (MIPS optimization for hardware load-store bonding)",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.xqccmp)] = .{
+        .llvm_name = "xqccmp",
+        .description = "'Xqccmp' (Qualcomm 16-bit Push/Pop and Double Moves)",
+        .dependencies = featureSet(&[_]Feature{
+            .zca,
+        }),
+    };
+    result[@intFromEnum(Feature.xqci)] = .{
+        .llvm_name = "xqci",
+        .description = "'Xqci' (Qualcomm uC Extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .xqcia,
+            .xqciac,
+            .xqcibi,
+            .xqcibm,
+            .xqcicli,
+            .xqcicm,
+            .xqcics,
+            .xqcicsr,
+            .xqciint,
+            .xqciio,
+            .xqcilb,
+            .xqcili,
+            .xqcilia,
+            .xqcilo,
+            .xqcilsm,
+            .xqcisim,
+            .xqcisls,
+            .xqcisync,
+        }),
+    };
+    result[@intFromEnum(Feature.xqcia)] = .{
+        .llvm_name = "xqcia",
+        .description = "'Xqcia' (Qualcomm uC Arithmetic Extension)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.xqciac)] = .{
+        .llvm_name = "xqciac",
+        .description = "'Xqciac' (Qualcomm uC Load-Store Address Calculation Extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zca,
+        }),
+    };
+    result[@intFromEnum(Feature.xqcibi)] = .{
+        .llvm_name = "xqcibi",
+        .description = "'Xqcibi' (Qualcomm uC Branch Immediate Extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zca,
+        }),
+    };
+    result[@intFromEnum(Feature.xqcibm)] = .{
+        .llvm_name = "xqcibm",
+        .description = "'Xqcibm' (Qualcomm uC Bit Manipulation Extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zca,
+        }),
+    };
+    result[@intFromEnum(Feature.xqcicli)] = .{
+        .llvm_name = "xqcicli",
+        .description = "'Xqcicli' (Qualcomm uC Conditional Load Immediate Extension)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.xqcicm)] = .{
+        .llvm_name = "xqcicm",
+        .description = "'Xqcicm' (Qualcomm uC Conditional Move Extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zca,
+        }),
+    };
+    result[@intFromEnum(Feature.xqcics)] = .{
+        .llvm_name = "xqcics",
+        .description = "'Xqcics' (Qualcomm uC Conditional Select Extension)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.xqcicsr)] = .{
+        .llvm_name = "xqcicsr",
+        .description = "'Xqcicsr' (Qualcomm uC CSR Extension)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.xqciint)] = .{
+        .llvm_name = "xqciint",
+        .description = "'Xqciint' (Qualcomm uC Interrupts Extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zca,
+        }),
+    };
+    result[@intFromEnum(Feature.xqciio)] = .{
+        .llvm_name = "xqciio",
+        .description = "'Xqciio' (Qualcomm uC External Input Output Extension)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.xqcilb)] = .{
+        .llvm_name = "xqcilb",
+        .description = "'Xqcilb' (Qualcomm uC Long Branch Extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zca,
+        }),
+    };
+    result[@intFromEnum(Feature.xqcili)] = .{
+        .llvm_name = "xqcili",
+        .description = "'Xqcili' (Qualcomm uC Load Large Immediate Extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zca,
+        }),
+    };
+    result[@intFromEnum(Feature.xqcilia)] = .{
+        .llvm_name = "xqcilia",
+        .description = "'Xqcilia' (Qualcomm uC Large Immediate Arithmetic Extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zca,
+        }),
+    };
+    result[@intFromEnum(Feature.xqcilo)] = .{
+        .llvm_name = "xqcilo",
+        .description = "'Xqcilo' (Qualcomm uC Large Offset Load Store Extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zca,
+        }),
+    };
+    result[@intFromEnum(Feature.xqcilsm)] = .{
+        .llvm_name = "xqcilsm",
+        .description = "'Xqcilsm' (Qualcomm uC Load Store Multiple Extension)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.xqcisim)] = .{
+        .llvm_name = "xqcisim",
+        .description = "'Xqcisim' (Qualcomm uC Simulation Hint Extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zca,
+        }),
+    };
+    result[@intFromEnum(Feature.xqcisls)] = .{
+        .llvm_name = "xqcisls",
+        .description = "'Xqcisls' (Qualcomm uC Scaled Load Store Extension)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.xqcisync)] = .{
+        .llvm_name = "xqcisync",
+        .description = "'Xqcisync' (Qualcomm uC Sync Delay Extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zca,
+        }),
     };
     result[@intFromEnum(Feature.xsfcease)] = .{
         .llvm_name = "xsfcease",
@@ -1684,6 +1850,40 @@ pub const all_features = blk: {
             .zve32x,
         }),
     };
+    result[@intFromEnum(Feature.xsfvfbfexp16e)] = .{
+        .llvm_name = "xsfvfbfexp16e",
+        .description = "'XSfvfbfexp16e' (SiFive Vector Floating-Point Exponential Function Instruction, BFloat16)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.xsfvfexp16e)] = .{
+        .llvm_name = "xsfvfexp16e",
+        .description = "'XSfvfexp16e' (SiFive Vector Floating-Point Exponential Function Instruction, Half Precision)",
+        .dependencies = featureSet(&[_]Feature{
+            .zvfh,
+        }),
+    };
+    result[@intFromEnum(Feature.xsfvfexp32e)] = .{
+        .llvm_name = "xsfvfexp32e",
+        .description = "'XSfvfexp32e' (SiFive Vector Floating-Point Exponential Function Instruction, Single Precision)",
+        .dependencies = featureSet(&[_]Feature{
+            .zve32f,
+        }),
+    };
+    result[@intFromEnum(Feature.xsfvfexpa)] = .{
+        .llvm_name = "xsfvfexpa",
+        .description = "'XSfvfexpa' (SiFive Vector Floating-Point Exponential Approximation Instruction)",
+        .dependencies = featureSet(&[_]Feature{
+            .zve32f,
+        }),
+    };
+    result[@intFromEnum(Feature.xsfvfexpa64e)] = .{
+        .llvm_name = "xsfvfexpa64e",
+        .description = "'XSfvfexpa64e' (SiFive Vector Floating-Point Exponential Approximation Instruction with Double-Precision)",
+        .dependencies = featureSet(&[_]Feature{
+            .xsfvfexpa,
+            .zve64d,
+        }),
+    };
     result[@intFromEnum(Feature.xsfvfnrclipxfqf)] = .{
         .llvm_name = "xsfvfnrclipxfqf",
         .description = "'XSfvfnrclipxfqf' (SiFive FP32-to-int8 Ranged Clip Instructions)",
@@ -1696,6 +1896,7 @@ pub const all_features = blk: {
         .description = "'XSfvfwmaccqqq' (SiFive Matrix Multiply Accumulate Instruction (4-by-4))",
         .dependencies = featureSet(&[_]Feature{
             .zvfbfmin,
+            .zvl128b,
         }),
     };
     result[@intFromEnum(Feature.xsfvqmaccdod)] = .{
@@ -1703,6 +1904,7 @@ pub const all_features = blk: {
         .description = "'XSfvqmaccdod' (SiFive Int8 Matrix Multiplication Instructions (2-by-8 and 8-by-2))",
         .dependencies = featureSet(&[_]Feature{
             .zve32x,
+            .zvl128b,
         }),
     };
     result[@intFromEnum(Feature.xsfvqmaccqoq)] = .{
@@ -1710,6 +1912,7 @@ pub const all_features = blk: {
         .description = "'XSfvqmaccqoq' (SiFive Int8 Matrix Multiplication Instructions (4-by-8 and 8-by-4))",
         .dependencies = featureSet(&[_]Feature{
             .zve32x,
+            .zvl256b,
         }),
     };
     result[@intFromEnum(Feature.xsifivecdiscarddlone)] = .{
@@ -1721,6 +1924,13 @@ pub const all_features = blk: {
         .llvm_name = "xsifivecflushdlone",
         .description = "'XSiFivecflushdlone' (SiFive sf.cflush.d.l1 Instruction)",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.xsmtvdot)] = .{
+        .llvm_name = "xsmtvdot",
+        .description = "'XSMTVDot' (SpacemiT Vector Dot Product Extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zve32f,
+        }),
     };
     result[@intFromEnum(Feature.xtheadba)] = .{
         .llvm_name = "xtheadba",
@@ -1819,6 +2029,11 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{
             .zaamo,
         }),
+    };
+    result[@intFromEnum(Feature.zalasr)] = .{
+        .llvm_name = "zalasr",
+        .description = "'Zalasr' (Load-Acquire and Store-Release Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.zalrsc)] = .{
         .llvm_name = "zalrsc",
@@ -2090,6 +2305,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.zilsd)] = .{
         .llvm_name = "zilsd",
         .description = "'Zilsd' (Load/Store Pair Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.zilsd_4byte_align)] = .{
+        .llvm_name = "zilsd-4byte-align",
+        .description = "Allow 4-byte alignment for Zilsd LD/SD instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.zimop)] = .{
@@ -2449,7 +2669,7 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.@"enum".fields[i].name;
+        elem.name = ti.@"enum".field_names[i];
     }
     break :blk result;
 };
@@ -2461,7 +2681,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .andes45,
             .no_default_unroll,
-            .short_forward_branch_opt,
+            .short_forward_branch_ialu,
             .use_postra_scheduler,
         }),
     };
@@ -2491,7 +2711,7 @@ pub const cpu = struct {
             .i,
             .m,
             .no_default_unroll,
-            .short_forward_branch_opt,
+            .short_forward_branch_ialu,
             .use_postra_scheduler,
             .xandesperf,
             .zifencei,
@@ -2523,7 +2743,7 @@ pub const cpu = struct {
             .i,
             .m,
             .no_default_unroll,
-            .short_forward_branch_opt,
+            .short_forward_branch_ialu,
             .use_postra_scheduler,
             .xandesperf,
             .zifencei,
@@ -2540,7 +2760,7 @@ pub const cpu = struct {
             .i,
             .m,
             .no_default_unroll,
-            .short_forward_branch_opt,
+            .short_forward_branch_ialu,
             .use_postra_scheduler,
             .v,
             .xandesperf,
@@ -2559,7 +2779,7 @@ pub const cpu = struct {
             .i,
             .m,
             .no_default_unroll,
-            .short_forward_branch_opt,
+            .short_forward_branch_ialu,
             .use_postra_scheduler,
             .xandesperf,
             .zifencei,
@@ -2577,7 +2797,7 @@ pub const cpu = struct {
             .i,
             .m,
             .no_default_unroll,
-            .short_forward_branch_opt,
+            .short_forward_branch_ialu,
             .use_postra_scheduler,
             .xandesperf,
             .zifencei,
@@ -2829,6 +3049,7 @@ pub const cpu = struct {
             .mips_p8700,
             .xmipscbop,
             .xmipscmov,
+            .xmipsexectl,
             .xmipslsp,
             .zba,
             .zbb,
@@ -2884,7 +3105,7 @@ pub const cpu = struct {
         .llvm_name = "sifive-7-series",
         .features = featureSet(&[_]Feature{
             .no_default_unroll,
-            .short_forward_branch_opt,
+            .short_forward_branch_ialu,
             .use_postra_scheduler,
         }),
     };
@@ -2963,7 +3184,7 @@ pub const cpu = struct {
             .i,
             .m,
             .no_default_unroll,
-            .short_forward_branch_opt,
+            .short_forward_branch_ialu,
             .use_postra_scheduler,
             .zifencei,
         }),
@@ -2996,7 +3217,6 @@ pub const cpu = struct {
             .ziccif,
             .zicclsm,
             .ziccrse,
-            .zicntr,
             .zifencei,
             .zihintntl,
             .zihintpause,
@@ -3036,7 +3256,6 @@ pub const cpu = struct {
             .ziccif,
             .zicclsm,
             .ziccrse,
-            .zicntr,
             .zifencei,
             .zihintntl,
             .zihintpause,
@@ -3099,7 +3318,6 @@ pub const cpu = struct {
             .ziccif,
             .zicclsm,
             .ziccrse,
-            .zicntr,
             .zifencei,
             .zihintntl,
             .zihintpause,
@@ -3216,7 +3434,7 @@ pub const cpu = struct {
             .i,
             .m,
             .no_default_unroll,
-            .short_forward_branch_opt,
+            .short_forward_branch_ialu,
             .use_postra_scheduler,
             .zifencei,
             .zihintpause,
@@ -3246,7 +3464,7 @@ pub const cpu = struct {
             .i,
             .m,
             .no_default_unroll,
-            .short_forward_branch_opt,
+            .short_forward_branch_ialu,
             .use_postra_scheduler,
             .zifencei,
         }),
@@ -3264,7 +3482,7 @@ pub const cpu = struct {
             .no_default_unroll,
             .optimized_nf2_segment_load_store,
             .optimized_zero_stride_load,
-            .short_forward_branch_opt,
+            .short_forward_branch_ialu,
             .use_postra_scheduler,
             .v,
             .vl_dependent_latency,
@@ -3292,7 +3510,8 @@ pub const cpu = struct {
             .no_default_unroll,
             .optimized_nf2_segment_load_store,
             .optimized_zero_stride_load,
-            .short_forward_branch_opt,
+            .short_forward_branch_ialu,
+            .single_element_vec_fp64,
             .use_postra_scheduler,
             .v,
             .vl_dependent_latency,
@@ -3326,6 +3545,103 @@ pub const cpu = struct {
             .zvl1024b,
         }),
     };
+    pub const spacemit_a100: CpuModel = .{
+        .name = "spacemit_a100",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .a,
+            .b,
+            .c,
+            .dlen_factor_2,
+            .i,
+            .m,
+            .optimized_nf2_segment_load_store,
+            .optimized_nf3_segment_load_store,
+            .optimized_nf4_segment_load_store,
+            .smepmp,
+            .smnpm,
+            .smstateen,
+            .ssccptr,
+            .sscofpmf,
+            .sscounterenw,
+            .ssnpm,
+            .sspm,
+            .sstc,
+            .sstvala,
+            .sstvecd,
+            .ssu64xl,
+            .supm,
+            .svade,
+            .svbare,
+            .svinval,
+            .svnapot,
+            .svpbmt,
+            .unaligned_scalar_mem,
+            .v,
+            .vxrm_pipeline_flush,
+            .za64rs,
+            .zawrs,
+            .zbc,
+            .zbkc,
+            .zcb,
+            .zcmop,
+            .zfa,
+            .zfh,
+            .zic64b,
+            .zicbom,
+            .zicbop,
+            .zicboz,
+            .ziccamoa,
+            .ziccif,
+            .zicclsm,
+            .ziccrse,
+            .zicntr,
+            .zicond,
+            .zifencei,
+            .zihintntl,
+            .zihintpause,
+            .zihpm,
+            .zimop,
+            .zkt,
+            .zvbb,
+            .zvfbfwma,
+            .zvfh,
+            .zvkng,
+            .zvknha,
+            .zvksc,
+            .zvksg,
+            .zvl1024b,
+        }),
+    };
+    pub const spacemit_x100: CpuModel = .{
+        .name = "spacemit_x100",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .dlen_factor_2,
+            .optimized_nf2_segment_load_store,
+            .optimized_nf3_segment_load_store,
+            .optimized_nf4_segment_load_store,
+            .rva23s64,
+            .smepmp,
+            .smnpm,
+            .smstateen,
+            .sspm,
+            .unaligned_scalar_mem,
+            .vxrm_pipeline_flush,
+            .xsmtvdot,
+            .zbc,
+            .zbkc,
+            .zfh,
+            .zvfbfwma,
+            .zvfh,
+            .zvkng,
+            .zvknha,
+            .zvksc,
+            .zvksg,
+            .zvl256b,
+        }),
+    };
     pub const spacemit_x60: CpuModel = .{
         .name = "spacemit_x60",
         .llvm_name = "spacemit-x60",
@@ -3354,6 +3670,7 @@ pub const cpu = struct {
             .unaligned_scalar_mem,
             .v,
             .vxrm_pipeline_flush,
+            .xsmtvdot,
             .za64rs,
             .zbc,
             .zbkc,
@@ -3522,6 +3839,13 @@ pub const cpu = struct {
             .log_vrgather,
             .m,
             .no_default_unroll,
+            .optimized_nf2_segment_load_store,
+            .optimized_nf3_segment_load_store,
+            .optimized_nf4_segment_load_store,
+            .optimized_nf5_segment_load_store,
+            .optimized_nf6_segment_load_store,
+            .optimized_nf7_segment_load_store,
+            .optimized_nf8_segment_load_store,
             .optimized_zero_stride_load,
             .sha,
             .smaia,
@@ -3581,12 +3905,17 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .a,
+            .add_load_fusion,
             .auipc_addi_fusion,
+            .auipc_load_fusion,
             .c,
             .d,
+            .disable_misched_load_clustering,
+            .disable_postmisched_load_clustering,
+            .disable_postmisched_store_clustering,
             .i,
-            .ld_add_fusion,
             .lui_addi_fusion,
+            .lui_load_fusion,
             .m,
             .shifted_zextw_fusion,
             .ventana_veyron,

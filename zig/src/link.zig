@@ -52,7 +52,7 @@ pub const Diags = struct {
         alloc_failure_occurred: bool = false,
 
         const Int = blk: {
-            const bits = @typeInfo(@This()).@"struct".fields.len;
+            const bits = @typeInfo(@This()).@"struct".field_names.len;
             break :blk @Int(.unsigned, bits);
         };
 
@@ -171,8 +171,8 @@ pub const Diags = struct {
     ) Allocator.Error!void {
         const gpa = diags.gpa;
 
-        var context_lines = std.array_list.Managed([]const u8).init(gpa);
-        defer context_lines.deinit();
+        var context_lines: std.ArrayList([]const u8) = .empty;
+        defer context_lines.deinit(gpa);
 
         var current_err: ?*Lld = null;
         var lines = mem.splitSequence(u8, stderr, if (builtin.os.tag == .windows) "\r\n" else "\n");
@@ -181,16 +181,17 @@ pub const Diags = struct {
                 mem.eql(u8, line[0..prefix.len], prefix) and line[prefix.len] == ':')
             {
                 if (current_err) |err| {
-                    err.context_lines = try context_lines.toOwnedSlice();
+                    err.context_lines = try context_lines.toOwnedSlice(gpa);
                 }
 
                 var split = mem.splitSequence(u8, line, "error: ");
                 _ = split.first();
 
-                const duped_msg = try std.fmt.allocPrint(gpa, "{s}: {s}", .{ prefix, split.rest() });
-                errdefer gpa.free(duped_msg);
+                try diags.lld.ensureUnusedCapacity(gpa, 1);
 
-                current_err = try diags.lld.addOne(gpa);
+                const duped_msg = try std.fmt.allocPrint(gpa, "{s}: {s}", .{ prefix, split.rest() });
+
+                current_err = diags.lld.addOneAssumeCapacity();
                 current_err.?.* = .{ .msg = duped_msg };
             } else if (current_err != null) {
                 const context_prefix = ">>> ";
@@ -200,14 +201,14 @@ pub const Diags = struct {
                 }
 
                 if (trimmed.len > 0) {
-                    const duped_line = try gpa.dupe(u8, trimmed);
-                    try context_lines.append(duped_line);
+                    try context_lines.ensureUnusedCapacity(gpa, 1);
+                    context_lines.appendAssumeCapacity(try gpa.dupe(u8, trimmed));
                 }
             }
         }
 
         if (current_err) |err| {
-            err.context_lines = try context_lines.toOwnedSlice();
+            err.context_lines = try context_lines.toOwnedSlice(gpa);
         }
     }
 
@@ -659,13 +660,12 @@ pub const File = struct {
                 base.file = mf.memory_map.file;
                 try mf.ensureTotalCapacity(@intCast(mf.nodes.items[0].location().resolve(mf)[1]));
             },
-            .c => if (base.file == null) {
-                dev.check(.c_linker);
+            .c, .spirv => if (base.file == null) {
+                dev.checkAny(&.{ .c_linker, .spirv_linker });
                 base.file = try base.emit.root_dir.handle.openFile(io, base.emit.sub_path, .{
                     .mode = .write_only,
                 });
             },
-            .spirv => dev.check(.spirv_linker),
             .plan9 => unreachable,
         }
     }
@@ -758,12 +758,24 @@ pub const File = struct {
     /// must be attached to `Zcu.failed_codegen` rather than `Compilation.link_diags`.
     pub const UpdateNavError = codegen.CodeGenError;
 
+    /// Opaque identifier for a function currently being emitted.
+    ///
+    /// The function may be an interned function with a NAV, or it may be a lazy function.
+    ///
+    /// This type exists for type-safe interaction between codegen and link.
+    pub const AtomId = enum(u32) { _ };
+
+    /// Opaque identifier for some symbol in the output binary.
+    ///
+    /// This type exists for type-safe interaction between codegen and link.
+    pub const SymbolId = enum(u32) { _ };
+
     /// Called from within CodeGen to retrieve the symbol index of a global symbol.
     /// If no symbol exists yet with this name, a new undefined global symbol will
     /// be created. This symbol may get resolved once all relocatables are (re-)linked.
     /// Optionally, it is possible to specify where to expect the symbol defined if it
     /// is an import.
-    pub fn getGlobalSymbol(base: *File, name: []const u8, lib_name: ?[]const u8) UpdateNavError!u32 {
+    pub fn getGlobalSymbol(base: *File, name: []const u8, lib_name: ?[]const u8) UpdateNavError!SymbolId {
         log.debug("getGlobalSymbol '{s}' (expected in '{?s}')", .{ name, lib_name });
         switch (base.tag) {
             .lld => unreachable,
@@ -1007,7 +1019,7 @@ pub const File = struct {
 
         pub const Parent = union(enum) {
             none,
-            atom_index: u32,
+            atom_index: AtomId,
             debug_output: DebugInfoOutput,
         };
     };
@@ -1104,27 +1116,29 @@ pub const File = struct {
     }
 
     /// Opens a path as a static library and parses it into the linker.
-    /// If `query` is non-null, allows GNU ld scripts.
-    fn openLoadArchive(base: *File, path: Path, opt_query: ?UnresolvedInput.Query) anyerror!void {
+    fn openLoadArchive(base: *File, path: Path, must_link: bool) anyerror!void {
         if (base.tag == .lld) return;
         const io = base.comp.io;
-        if (opt_query) |query| {
-            const archive = try openObject(io, path, query.must_link, query.hidden);
-            errdefer archive.file.close(io);
-            loadInput(base, .{ .archive = archive }) catch |err| switch (err) {
-                error.BadMagic, error.UnexpectedEndOfFile => {
-                    if (base.tag != .elf and base.tag != .elf2) return err;
-                    try loadGnuLdScript(base, path, query, archive.file);
-                    archive.file.close(io);
-                    return;
-                },
-                else => return err,
-            };
-        } else {
-            const archive = try openObject(io, path, false, false);
-            errdefer archive.file.close(io);
-            try loadInput(base, .{ .archive = archive });
-        }
+        const archive = try openObject(io, path, must_link, false);
+        errdefer archive.file.close(io);
+        try loadInput(base, .{ .archive = archive });
+    }
+
+    /// Opens a path as a static library and parses it into the linker. Allows GNU ld scripts.
+    fn openLoadArchiveQuery(base: *File, path: Path, query: UnresolvedInput.Query) anyerror!void {
+        if (base.tag == .lld) return;
+        const io = base.comp.io;
+        const archive = try openObject(io, path, query.must_link, query.hidden);
+        errdefer archive.file.close(io);
+        loadInput(base, .{ .archive = archive }) catch |err| switch (err) {
+            error.BadMagic, error.UnexpectedEndOfFile => {
+                if (base.tag != .elf and base.tag != .elf2) return err;
+                try loadGnuLdScript(base, path, query, archive.file);
+                archive.file.close(io);
+                return;
+            },
+            else => return err,
+        };
     }
 
     /// Opens a path as a shared library and parses it into the linker.
@@ -1179,7 +1193,7 @@ pub const File = struct {
                     switch (Compilation.classifyFileExt(arg.path)) {
                         .shared_library => try openLoadDso(base, new_path, query),
                         .object => try openLoadObject(base, new_path),
-                        .static_library => try openLoadArchive(base, new_path, query),
+                        .static_library => try openLoadArchiveQuery(base, new_path, query),
                         else => diags.addParseError(path, "GNU ld script references file with unrecognized extension: {s}", .{arg.path}),
                     }
                 } else {
@@ -1297,8 +1311,8 @@ pub const File = struct {
     };
 
     pub fn determinePermissions(
-        output_mode: std.builtin.OutputMode,
-        link_mode: std.builtin.LinkMode,
+        output_mode: std.lang.OutputMode,
+        link_mode: std.lang.LinkMode,
     ) Io.File.Permissions {
         // On common systems with a 0o022 umask, 0o777 will still result in a file created
         // with 0o755 permissions, but it works appropriately if the system is configured
@@ -1379,7 +1393,10 @@ pub const PrelinkTask = union(enum) {
     /// Tells the linker to load an object file by path.
     load_object: Path,
     /// Tells the linker to load a static library by path.
-    load_archive: Path,
+    load_archive: struct {
+        path: Path,
+        must_link: bool,
+    },
     /// Tells the linker to load a shared library, possibly one that is a
     /// GNU ld script.
     load_dso: Path,
@@ -1461,7 +1478,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
                                         crt_dir, target.libPrefix(), lib_name, target.staticLibSuffix(),
                                     }) catch return diags.setAllocFailure(),
                                 );
-                                base.openLoadArchive(archive_path, .{
+                                base.openLoadArchiveQuery(archive_path, .{
                                     .preferred_mode = .dynamic,
                                     .search_strategy = .paths_first,
                                 }) catch |archive_err| switch (archive_err) {
@@ -1480,7 +1497,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
                             }) catch return diags.setAllocFailure(),
                         );
                         // glibc sometimes makes even archive files GNU ld scripts.
-                        base.openLoadArchive(path, .{
+                        base.openLoadArchiveQuery(path, .{
                             .preferred_mode = .static,
                             .search_strategy = .no_fallback,
                         }) catch |err| switch (err) {
@@ -1499,12 +1516,12 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
                 else => |e| diags.addParseError(path, "failed to parse object: {s}", .{@errorName(e)}),
             };
         },
-        .load_archive => |path| {
+        .load_archive => |load_archive| {
             const prog_node = comp.link_prog_node.start("Parse Archive", 0);
             defer prog_node.end();
-            base.openLoadArchive(path, null) catch |err| switch (err) {
+            base.openLoadArchive(load_archive.path, load_archive.must_link) catch |err| switch (err) {
                 error.LinkFailure => return, // error reported via link_diags
-                else => |e| diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(e)}),
+                else => |e| diags.addParseError(load_archive.path, "failed to parse archive: {s}", .{@errorName(e)}),
             };
         },
         .load_dso => |path| {
@@ -1708,10 +1725,10 @@ pub const UnresolvedInput = union(enum) {
         must_link: bool = false,
         hidden: bool = false,
         allow_so_scripts: bool = false,
-        preferred_mode: std.builtin.LinkMode,
+        preferred_mode: std.lang.LinkMode,
         search_strategy: SearchStrategy,
 
-        fn fallbackMode(q: Query) std.builtin.LinkMode {
+        fn fallbackMode(q: Query) std.lang.LinkMode {
             assert(q.search_strategy != .no_fallback);
             return switch (q.preferred_mode) {
                 .dynamic => .static,
@@ -1837,7 +1854,7 @@ pub fn resolveInputs(
         name: []const u8,
         strategy: UnresolvedInput.SearchStrategy,
         checked_paths: []const u8,
-        preferred_mode: std.builtin.LinkMode,
+        preferred_mode: std.lang.LinkMode,
     }) = .empty;
 
     // Convert external system libs into a stack so that items can be
@@ -2071,7 +2088,7 @@ fn resolveLibInput(
     lib_directory: Directory,
     name_query: UnresolvedInput.NameQuery,
     target: *const std.Target,
-    link_mode: std.builtin.LinkMode,
+    link_mode: std.lang.LinkMode,
     color: std.zig.Color,
 ) Allocator.Error!ResolveLibInputResult {
     try resolved_inputs.ensureUnusedCapacity(gpa, 1);
@@ -2155,7 +2172,7 @@ fn finishResolveLibInput(
     resolved_inputs: *std.ArrayList(Input),
     path: Path,
     file: Io.File,
-    link_mode: std.builtin.LinkMode,
+    link_mode: std.lang.LinkMode,
     query: UnresolvedInput.Query,
 ) ResolveLibInputResult {
     switch (link_mode) {
@@ -2231,7 +2248,7 @@ fn resolvePathInputLib(
     ld_script_bytes: *std.ArrayList(u8),
     target: *const std.Target,
     pq: UnresolvedInput.PathQuery,
-    link_mode: std.builtin.LinkMode,
+    link_mode: std.lang.LinkMode,
     color: std.zig.Color,
 ) Allocator.Error!ResolveLibInputResult {
     try resolved_inputs.ensureUnusedCapacity(gpa, 1);

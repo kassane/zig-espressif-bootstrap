@@ -53,7 +53,7 @@ const trailing_slash_case: Case = .{
     .data = @embedFile("testdata/trailing-slash.tar"),
     .files = &[_]Case.File{
         .{
-            .name = "123456789/" ** 30,
+            .name = @ptrCast(&@as([30][10]u8, @splat("123456789/".*))),
             .kind = .directory,
         },
     },
@@ -64,7 +64,11 @@ const writer_big_long_case: Case = .{
     .data = @embedFile("testdata/writer-big-long.tar"),
     .files = &[_]Case.File{
         .{
-            .name = "longname/" ** 15 ++ "16gig.txt",
+            .name = name: {
+                const buf: [15][9]u8 = @splat("longname/".*);
+                const dir: []const u8 = @ptrCast(&buf);
+                break :name dir ++ "16gig.txt";
+            },
             .size = 16 * 1024 * 1024 * 1024,
             .mode = 0o644,
             .truncated = true,

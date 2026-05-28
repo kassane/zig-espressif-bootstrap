@@ -1,4 +1,4 @@
-/*	$NetBSD: ffs_extern.h,v 1.87.2.1 2023/05/13 11:51:14 martin Exp $	*/
+/*	$NetBSD: ffs_extern.h,v 1.88 2023/01/07 19:41:30 chs Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993, 1994

@@ -17,19 +17,11 @@ var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.a
 });
 var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 
-/// This should only be used in temporary test programs.
-pub const allocator = allocator_instance.allocator();
-pub var allocator_instance: std.heap.DebugAllocator(.{
-    .stack_trace_frames = if (std.debug.sys_can_stack_trace) 10 else 0,
-    .resize_stack_traces = true,
-    // A unique value so that when a default-constructed
-    // DebugAllocator is incorrectly passed to testing allocator, or
-    // vice versa, panic occurs.
-    .canary = @truncate(0x2731e675c3a701ba),
-}) = b: {
-    if (!builtin.is_test) @compileError("testing allocator used when not testing");
-    break :b .init;
-};
+pub var allocator_instance: std.heap.SafeAllocator = undefined;
+pub const allocator = if (builtin.is_test)
+    allocator_instance.allocator()
+else
+    @compileError("not testing");
 
 pub var io_instance: Io.Threaded = undefined;
 pub const io = if (builtin.is_test) io_instance.io() else @compileError("not testing");
@@ -149,21 +141,21 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
         },
 
         .@"struct" => |structType| {
-            inline for (structType.fields) |field| {
-                try expectEqual(@field(expected, field.name), @field(actual, field.name));
+            inline for (structType.field_names) |field_name| {
+                try expectEqual(@field(expected, field_name), @field(actual, field_name));
             }
         },
 
         .@"union" => |union_info| {
             if (union_info.tag_type == null) {
-                const first_size = @bitSizeOf(union_info.fields[0].type);
-                inline for (union_info.fields) |field| {
-                    if (@bitSizeOf(field.type) != first_size) {
+                const first_size = @bitSizeOf(union_info.field_types[0]);
+                inline for (union_info.field_types) |field_type| {
+                    if (@bitSizeOf(field_type) != first_size) {
                         @compileError("Unable to compare untagged unions with varying field sizes for type " ++ @typeName(@TypeOf(actual)));
                     }
                 }
 
-                const BackingInt = std.meta.Int(.unsigned, @bitSizeOf(T));
+                const BackingInt = @Int(.unsigned, @bitSizeOf(T));
                 return expectEqual(
                     @as(BackingInt, @bitCast(expected)),
                     @as(BackingInt, @bitCast(actual)),
@@ -501,7 +493,7 @@ const BytesDiffer = struct {
         var row: usize = 0;
         while (expected_iterator.next()) |chunk| {
             // to avoid having to calculate diffs twice per chunk
-            var diffs: std.bit_set.IntegerBitSet(16) = .{ .mask = 0 };
+            var diffs: std.bit_set.Integer(16) = .{ .mask = 0 };
             for (chunk, 0..) |byte, col| {
                 const absolute_byte_index = col + row * 16;
                 const diff = if (absolute_byte_index < self.actual.len) self.actual[absolute_byte_index] != byte else true;
@@ -848,9 +840,9 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
         },
 
         .@"struct" => |structType| {
-            inline for (structType.fields) |field| {
-                expectEqualDeep(@field(expected, field.name), @field(actual, field.name)) catch |e| {
-                    print("Field {s} incorrect. expected {any}, found {any}\n", .{ field.name, @field(expected, field.name), @field(actual, field.name) });
+            inline for (structType.field_names) |field_name| {
+                expectEqualDeep(@field(expected, field_name), @field(actual, field_name)) catch |e| {
+                    print("Field {s} incorrect. expected {any}, found {any}\n", .{ field_name, @field(expected, field_name), @field(actual, field_name) });
                     return e;
                 };
             }
@@ -1173,14 +1165,14 @@ fn CheckAllAllocationFailuresExtraArgs(comptime TestFn: type) type {
 
     const ArgsTuple = std.meta.ArgsTuple(TestFn);
 
-    const fields = @typeInfo(ArgsTuple).@"struct".fields;
-    if (fields.len == 0 or fields[0].type != std.mem.Allocator) {
+    const field_types = @typeInfo(ArgsTuple).@"struct".field_types;
+    if (field_types.len == 0 or field_types[0] != std.mem.Allocator) {
         @compileError("The provided function must have an " ++ @typeName(std.mem.Allocator) ++ " as its first argument");
     }
 
-    var extra_args: [fields.len - 1]type = undefined;
-    for (&extra_args, fields[1..]) |*arg, field| {
-        arg.* = field.type;
+    var extra_args: [field_types.len - 1]type = undefined;
+    for (&extra_args, field_types[1..]) |*arg, field_type| {
+        arg.* = field_type;
     }
 
     return @Tuple(&extra_args);
@@ -1212,8 +1204,8 @@ test "checkAllAllocationFailures provide result type to 'extra_args' argument" {
 /// Given a type, references all the declarations inside, so that the semantic analyzer sees them.
 pub fn refAllDecls(comptime T: type) void {
     if (!builtin.is_test) return;
-    inline for (comptime std.meta.declarations(T)) |decl| {
-        _ = &@field(T, decl.name);
+    inline for (comptime std.meta.declarations(T)) |decl_name| {
+        _ = &@field(T, decl_name);
     }
 }
 
@@ -1331,6 +1323,67 @@ pub const ReaderIndirect = struct {
             error.WriteFailed => unreachable,
             else => |e| return e,
         };
+    }
+};
+
+/// A `Io.Writer` that writes its data to another `Io.Writer`, and only
+/// writes new data to its own buffer during `drain`.
+pub const WriterIndirect = struct {
+    out: *Io.Writer,
+    interface: Io.Writer,
+
+    pub fn init(out: *Io.Writer, buffer: []u8) WriterIndirect {
+        return .{
+            .out = out,
+            .interface = .{
+                .vtable = &.{
+                    .drain = drain,
+                },
+                .buffer = buffer,
+                .end = 0,
+            },
+        };
+    }
+
+    fn drain(w: *Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+        const w_indirect: *WriterIndirect = @alignCast(@fieldParentPtr("interface", w));
+
+        // Write all data in the buffer to `out`
+        try w_indirect.out.writeAll(w.buffer[0..w.end]);
+        w.end = 0;
+
+        // Refill buffer using data
+        {
+            const end_before_fill = w.end;
+            for (data[0 .. data.len - 1]) |bytes| {
+                const dest = w.buffer[w.end..];
+                const len = @min(bytes.len, dest.len);
+                @memcpy(dest[0..len], bytes[0..len]);
+                w.end += len;
+            }
+            const pattern = data[data.len - 1];
+            switch (pattern.len) {
+                0 => {},
+                1 => {
+                    const len = @min(w.buffer[w.end..].len, splat);
+                    @memset(w.buffer[w.end..][0..len], pattern[0]);
+                    w.end += len;
+                },
+                else => {
+                    const dest = w.buffer[w.end..];
+                    for (0..splat) |i| {
+                        const start_i = i * pattern.len;
+                        if (start_i >= dest.len) break;
+                        const remaining = dest[start_i..];
+                        const len = @min(pattern.len, remaining.len);
+                        @memcpy(remaining[0..len], pattern[0..len]);
+                        w.end += len;
+                    }
+                },
+            }
+
+            return w.end - end_before_fill;
+        }
     }
 };
 

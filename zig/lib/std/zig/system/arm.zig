@@ -21,7 +21,7 @@ pub const cpu_models = struct {
     };
 
     // implementer = 0x41
-    const ARM = [_]E{
+    const Arm = [_]E{
         E{ .part = 0x926, .m32 = &A32.arm926ej_s },
         E{ .part = 0xb02, .m32 = &A32.mpcore },
         E{ .part = 0xb36, .m32 = &A32.arm1136j_s },
@@ -88,8 +88,12 @@ pub const cpu_models = struct {
         E{ .part = 0xd87, .m64 = &A64.cortex_a725 },
         E{ .part = 0xd88, .m64 = &A64.cortex_a520ae },
         E{ .part = 0xd89, .m64 = &A64.cortex_a720ae },
+        E{ .part = 0xd8a, .m64 = &A64.c1_nano },
+        E{ .part = 0xd8b, .m64 = &A64.c1_pro },
+        E{ .part = 0xd8c, .m64 = &A64.c1_ultra },
         E{ .part = 0xd8e, .m64 = &A64.neoverse_n3 },
         E{ .part = 0xd8f, .m64 = &A64.cortex_a320 },
+        E{ .part = 0xd90, .m64 = &A64.c1_premium },
     };
     // implementer = 0x42
     const Broadcom = [_]E{
@@ -102,10 +106,17 @@ pub const cpu_models = struct {
         E{ .part = 0x0a3, .m64 = &A64.thunderxt83 },
         E{ .part = 0x0a1, .m64 = &A64.thunderxt88 },
         E{ .part = 0x0af, .m64 = &A64.thunderx2t99 },
+        E{ .part = 0x0b0, .m64 = &A64.cortex_a57 },
+        E{ .part = 0x0b1, .m64 = &A64.cortex_a57 },
+        E{ .part = 0x0b2, .m64 = &A64.cortex_a57 },
+        E{ .part = 0x0b3, .m64 = &A64.cortex_a57 },
+        E{ .part = 0x0b4, .m64 = &A64.cortex_a57 },
+        E{ .part = 0x0b5, .m64 = &A64.cortex_a57 },
     };
     // implementer = 0x46
     const Fujitsu = [_]E{
         E{ .part = 0x001, .m64 = &A64.a64fx },
+        E{ .part = 0x003, .m64 = &A64.fujitsu_monaka },
     };
     // implementer = 0x48
     const HiSilicon = [_]E{
@@ -137,8 +148,14 @@ pub const cpu_models = struct {
         E{ .part = 0xc00, .m64 = &A64.falkor },
         E{ .part = 0xc01, .m64 = &A64.saphira },
     };
+    // implementer = 0x53
+    const Samsung = [_]E{
+        E{ .part = 0x000, .m64 = &A64.exynos_m1 },
+    };
     // implementer = 0x61
     const Apple = [_]E{
+        E{ .part = 0x020, .m64 = &A64.apple_m1 },
+        E{ .part = 0x021, .m64 = &A64.apple_m1 },
         E{ .part = 0x022, .m64 = &A64.apple_m1 },
         E{ .part = 0x023, .m64 = &A64.apple_m1 },
         E{ .part = 0x024, .m64 = &A64.apple_m1 },
@@ -151,11 +168,43 @@ pub const cpu_models = struct {
         E{ .part = 0x035, .m64 = &A64.apple_m2 },
         E{ .part = 0x038, .m64 = &A64.apple_m2 },
         E{ .part = 0x039, .m64 = &A64.apple_m2 },
+        E{ .part = 0x042, .m64 = &A64.apple_m3 },
+        E{ .part = 0x043, .m64 = &A64.apple_m3 },
+        E{ .part = 0x044, .m64 = &A64.apple_m3 },
+        E{ .part = 0x045, .m64 = &A64.apple_m3 },
+        E{ .part = 0x048, .m64 = &A64.apple_m3 },
+        E{ .part = 0x049, .m64 = &A64.apple_m3 },
+        E{ .part = 0x052, .m64 = &A64.apple_m4 },
+        E{ .part = 0x053, .m64 = &A64.apple_m4 },
+        E{ .part = 0x054, .m64 = &A64.apple_m4 },
+        E{ .part = 0x055, .m64 = &A64.apple_m4 },
+        E{ .part = 0x058, .m64 = &A64.apple_m4 },
+        E{ .part = 0x059, .m64 = &A64.apple_m4 },
+    };
+    // implementer = 0x63
+    const ArmChina = [_]E{
+        E{ .part = 0x132, .m32 = &A32.star_mc1 },
+        E{ .part = 0xd25, .m32 = &A32.star_mc3 },
+    };
+    // implementer = 0x68
+    const Hxt = [_]E{
+        E{ .part = 0x000, .m64 = &A64.cortex_a57 },
+    };
+    // implementer = 0x6d
+    const Microsoft = [_]E{
+        E{ .part = 0xd49, .m64 = &A64.neoverse_n2 },
+    };
+    // implementer = 0xC0
+    const AmpereOne = [_]E{
+        E{ .part = 0xac3, .m64 = &A64.ampere1 },
+        E{ .part = 0xac4, .m64 = &A64.ampere1a },
+        E{ .part = 0xac5, .m64 = &A64.ampere1b },
+        E{ .part = 0xac7, .m64 = &A64.ampere1c },
     };
 
     pub fn isKnown(core: CoreInfo, is_64bit: bool) ?*const Target.Cpu.Model {
         const models = switch (core.implementer) {
-            0x41 => &ARM,
+            0x41 => &Arm,
             0x42 => &Broadcom,
             0x43 => &Cavium,
             0x46 => &Fujitsu,
@@ -163,7 +212,12 @@ pub const cpu_models = struct {
             0x4e => &Nvidia,
             0x50 => &Ampere,
             0x51 => &Qualcomm,
+            0x53 => &Samsung,
             0x61 => &Apple,
+            0x63 => &ArmChina,
+            0x68 => &Hxt,
+            0x6d => &Microsoft,
+            0xC0 => &AmpereOne,
             else => return null,
         };
 

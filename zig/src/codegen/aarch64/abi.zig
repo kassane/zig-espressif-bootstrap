@@ -1,5 +1,6 @@
 const assert = @import("std").debug.assert;
 const std = @import("std");
+const InternPool = @import("../../InternPool.zig");
 const Type = @import("../../Type.zig");
 const Zcu = @import("../../Zcu.zig");
 
@@ -15,12 +16,10 @@ pub const Class = union(enum) {
 pub fn classifyType(ty: Type, zcu: *Zcu) Class {
     assert(ty.hasRuntimeBits(zcu));
 
-    var maybe_float_bits: ?u16 = null;
     switch (ty.zigTypeTag(zcu)) {
         .@"struct" => {
             if (ty.containerLayout(zcu) == .@"packed") return .byval;
-            const float_count = countFloats(ty, zcu, &maybe_float_bits);
-            if (float_count <= sret_float_count) return .{ .float_array = float_count };
+            if (countFloats(ty, zcu)) |float| return .{ .float_array = float.count };
 
             const bit_size = ty.bitSize(zcu);
             if (bit_size > 128) return .memory;
@@ -29,8 +28,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu) Class {
         },
         .@"union" => {
             if (ty.containerLayout(zcu) == .@"packed") return .byval;
-            const float_count = countFloats(ty, zcu, &maybe_float_bits);
-            if (float_count <= sret_float_count) return .{ .float_array = float_count };
+            if (countFloats(ty, zcu)) |float| return .{ .float_array = float.count };
 
             const bit_size = ty.bitSize(zcu);
             if (bit_size > 128) return .memory;
@@ -70,46 +68,52 @@ pub fn classifyType(ty: Type, zcu: *Zcu) Class {
     }
 }
 
-const sret_float_count = 4;
-fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u8 {
+const CountFloatsResult = struct {
+    ty: Type,
+    count: std.math.IntFittingRange(0, max_count),
+
+    const none: CountFloatsResult = .{ .ty = .void, .count = 0 };
+
+    const max_count = 4;
+};
+fn countFloats(ty: Type, zcu: *Zcu) ?CountFloatsResult {
     const ip = &zcu.intern_pool;
-    const target = zcu.getTarget();
-    const invalid = std.math.maxInt(u8);
+    if (!ty.hasRuntimeBits(zcu)) return .none;
     switch (ty.zigTypeTag(zcu)) {
         .@"union" => {
-            const union_obj = zcu.typeToUnion(ty).?;
-            var max_count: u8 = 0;
-            for (union_obj.field_types.get(ip)) |field_ty| {
-                const field_count = countFloats(Type.fromInterned(field_ty), zcu, maybe_float_bits);
-                if (field_count == invalid) return invalid;
-                if (field_count > max_count) max_count = field_count;
-                if (max_count > sret_float_count) return invalid;
+            const loaded_union = zcu.typeToUnion(ty).?;
+            var result: CountFloatsResult = .none;
+            for (loaded_union.field_types.get(ip)) |field_ty| {
+                const float = countFloats(Type.fromInterned(field_ty), zcu) orelse return null;
+                if (result.ty.toIntern() == .void_type) {
+                    result.ty = float.ty;
+                } else if (result.ty.bitSize(zcu) != float.ty.bitSize(zcu)) return null;
+                result.count = @max(result.count, float.count);
             }
-            return max_count;
+            if (ty.abiSize(zcu) != result.ty.abiSize(zcu) * result.count) return null;
+            return result;
         },
         .@"struct" => {
-            const fields_len = ty.structFieldCount(zcu);
-            var count: u8 = 0;
-            var i: u32 = 0;
-            while (i < fields_len) : (i += 1) {
-                const field_ty = ty.fieldType(i, zcu);
-                const field_count = countFloats(field_ty, zcu, maybe_float_bits);
-                if (field_count == invalid) return invalid;
-                count += field_count;
-                if (count > sret_float_count) return invalid;
+            var result: CountFloatsResult = .none;
+            var field_it: InternPool.LoadedStructType.RuntimeOrderIterator = if (zcu.typeToStruct(ty)) |loaded_struct|
+                loaded_struct.iterateRuntimeOrder(ip)
+            else
+                .{ .runtime_order = null, .fields_len = ty.structFieldCount(zcu), .next_index = 0 };
+            while (field_it.next()) |field_index| {
+                if (ty.structFieldOffset(field_index, zcu) != result.ty.abiSize(zcu) * result.count) return null;
+                const field_ty = ty.fieldType(field_index, zcu);
+                const float = countFloats(field_ty, zcu) orelse return null;
+                if (result.ty.toIntern() == .void_type) {
+                    result.ty = float.ty;
+                } else if (result.ty.bitSize(zcu) != float.ty.bitSize(zcu)) return null;
+                if (float.count > CountFloatsResult.max_count - result.count) return null;
+                result.count += float.count;
             }
-            return count;
+            if (ty.abiSize(zcu) != result.ty.abiSize(zcu) * result.count) return null;
+            return result;
         },
-        .float => {
-            const float_bits = maybe_float_bits.* orelse {
-                maybe_float_bits.* = ty.floatBits(target);
-                return 1;
-            };
-            if (ty.floatBits(target) == float_bits) return 1;
-            return invalid;
-        },
-        .void => return 0,
-        else => return invalid,
+        .float => return .{ .ty = ty, .count = 1 },
+        else => return null,
     }
 }
 
@@ -117,17 +121,19 @@ pub fn getFloatArrayType(ty: Type, zcu: *Zcu) ?Type {
     const ip = &zcu.intern_pool;
     switch (ty.zigTypeTag(zcu)) {
         .@"union" => {
-            const union_obj = zcu.typeToUnion(ty).?;
-            for (union_obj.field_types.get(ip)) |field_ty| {
+            const loaded_union = zcu.typeToUnion(ty).?;
+            for (loaded_union.field_types.get(ip)) |field_ty| {
                 if (getFloatArrayType(Type.fromInterned(field_ty), zcu)) |some| return some;
             }
             return null;
         },
         .@"struct" => {
-            const fields_len = ty.structFieldCount(zcu);
-            var i: u32 = 0;
-            while (i < fields_len) : (i += 1) {
-                const field_ty = ty.fieldType(i, zcu);
+            var field_it: InternPool.LoadedStructType.RuntimeOrderIterator = if (zcu.typeToStruct(ty)) |loaded_struct|
+                loaded_struct.iterateRuntimeOrder(ip)
+            else
+                .{ .runtime_order = null, .fields_len = ty.structFieldCount(zcu), .next_index = 0 };
+            while (field_it.next()) |field_index| {
+                const field_ty = ty.fieldType(field_index, zcu);
                 if (getFloatArrayType(field_ty, zcu)) |some| return some;
             }
             return null;

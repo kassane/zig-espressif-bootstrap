@@ -8,7 +8,7 @@ const testing = std.testing;
 
 const spec = @import("spec.zig");
 const Word = spec.Word;
-const DoubleWord = std.meta.Int(.unsigned, @bitSizeOf(Word) * 2);
+const DoubleWord = @Int(.unsigned, @bitSizeOf(Word) * 2);
 const Log2Word = std.math.Log2Int(Word);
 
 const Opcode = spec.Opcode;
@@ -102,13 +102,13 @@ pub fn writeDoubleWord(section: *Section, dword: DoubleWord) void {
 }
 
 fn writeOperands(section: *Section, comptime Operands: type, operands: Operands) void {
-    const fields = switch (@typeInfo(Operands)) {
-        .@"struct" => |info| info.fields,
+    const info = switch (@typeInfo(Operands)) {
+        .@"struct" => |info| info,
         .void => return,
         else => unreachable,
     };
-    inline for (fields) |field| {
-        section.writeOperand(field.type, @field(operands, field.name));
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        section.writeOperand(field_type, @field(operands, field_name));
     }
 }
 
@@ -171,12 +171,13 @@ fn writeContextDependentNumber(section: *Section, operand: spec.LiteralContextDe
 
 fn writeExtendedMask(section: *Section, comptime Operand: type, operand: Operand) void {
     var mask: Word = 0;
-    inline for (@typeInfo(Operand).@"struct".fields, 0..) |field, bit| {
-        switch (@typeInfo(field.type)) {
-            .optional => if (@field(operand, field.name) != null) {
+    const info = @typeInfo(Operand).@"struct";
+    inline for (info.field_names, info.field_types, 0..) |field_name, field_type, bit| {
+        switch (@typeInfo(field_type)) {
+            .optional => if (@field(operand, field_name) != null) {
                 mask |= 1 << @as(u5, @intCast(bit));
             },
-            .bool => if (@field(operand, field.name)) {
+            .bool => if (@field(operand, field_name)) {
                 mask |= 1 << @as(u5, @intCast(bit));
             },
             else => unreachable,
@@ -185,10 +186,10 @@ fn writeExtendedMask(section: *Section, comptime Operand: type, operand: Operand
 
     section.writeWord(mask);
 
-    inline for (@typeInfo(Operand).@"struct".fields) |field| {
-        switch (@typeInfo(field.type)) {
-            .optional => |info| if (@field(operand, field.name)) |child| {
-                section.writeOperands(info.child, child);
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        switch (@typeInfo(field_type)) {
+            .optional => |opt_info| if (@field(operand, field_name)) |child| {
+                section.writeOperands(opt_info.child, child);
             },
             .bool => {},
             else => unreachable,
@@ -213,15 +214,15 @@ fn instructionSize(comptime opcode: spec.Opcode, operands: opcode.Operands()) us
 }
 
 fn operandsSize(comptime Operands: type, operands: Operands) usize {
-    const fields = switch (@typeInfo(Operands)) {
-        .@"struct" => |info| info.fields,
+    const info = switch (@typeInfo(Operands)) {
+        .@"struct" => |info| info,
         .void => return 0,
         else => unreachable,
     };
 
     var total: usize = 0;
-    inline for (fields) |field| {
-        total += operandSize(field.type, @field(operands, field.name));
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        total += operandSize(field_type, @field(operands, field_name));
     }
 
     return total;
@@ -252,9 +253,9 @@ fn operandSize(comptime Operand: type, operand: Operand) usize {
                 if (struct_info.layout == .@"packed") return 1;
 
                 var total: usize = 0;
-                inline for (@typeInfo(Operand).@"struct".fields) |field| {
-                    switch (@typeInfo(field.type)) {
-                        .optional => |info| if (@field(operand, field.name)) |child| {
+                inline for (struct_info.field_names, struct_info.field_types) |field_name, field_type| {
+                    switch (@typeInfo(field_type)) {
+                        .optional => |info| if (@field(operand, field_name)) |child| {
                             total += operandsSize(info.child, child);
                         },
                         .bool => {},

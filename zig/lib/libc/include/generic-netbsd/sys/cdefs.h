@@ -1,4 +1,4 @@
-/*	$NetBSD: cdefs.h,v 1.159.4.1 2024/10/13 16:15:07 martin Exp $	*/
+/*	$NetBSD: cdefs.h,v 1.166 2025/04/06 22:43:08 rillig Exp $	*/
 
 /* * Copyright (c) 1991, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -340,7 +340,7 @@
 #if __GNUC_PREREQ__(4, 6) || defined(__clang__) || defined(__lint__)
 #define	__unreachable()	__builtin_unreachable()
 #else
-#define	__unreachable()	do {} while (/*CONSTCOND*/0)
+#define	__unreachable()	do {} while (0)
 #endif
 
 #if defined(_KERNEL) || defined(_RUMPKERNEL)
@@ -451,7 +451,7 @@
 #if defined(__lint__)
 #define __thread	/* delete */
 #define	__packed	__packed
-#define	__aligned(x)	/* delete */
+#define	__aligned(x)	_Alignas((x))
 #define	__section(x)	/* delete */
 #elif __GNUC_PREREQ__(2, 7) || defined(__PCC__) || defined(__lint__)
 #define	__packed	__attribute__((__packed__))
@@ -546,10 +546,17 @@
  *	  seldomly (e.g. at subsystem initialization time) as the
  *	  basic block reordering that this affects can often generate
  *	  larger code.
+ *
+ * We use an explicit ternary operator to map any value to exactly 0 or
+ * 1 so that (a) we can specify one value to expect, and (b) the given
+ * expression occurs only in the position of a conditional so that C++
+ * classes with conversion to bool work as if this were a conditional.
+ * In contrast, say, `(exp) != 0' would require the type of exp to
+ * support conversion to integer as well.
  */
 #if __GNUC_PREREQ__(2, 96) || defined(__lint__)
-#define	__predict_true(exp)	__builtin_expect((exp) != 0, 1)
-#define	__predict_false(exp)	__builtin_expect((exp) != 0, 0)
+#define	__predict_true(exp)	__builtin_expect((exp) ? 1 : 0, 1)
+#define	__predict_false(exp)	__builtin_expect((exp) ? 1 : 0, 0)
 #else
 #define	__predict_true(exp)	(exp)
 #define	__predict_false(exp)	(exp)
@@ -690,7 +697,38 @@
 #define __CASTV(__dt, __st)	__CAST(__dt, __CAST(void *, __st))
 #define __CASTCV(__dt, __st)	__CAST(__dt, __CAST(const void *, __st))
 
-#define __USE(a) (/*LINTED*/(void)(a))
+/*
+ * Suppresses `variable set but not used' warnings.
+ *
+ * Typically for #ifdefs, where one branch of the #ifdef uses a
+ * variable but the other does not.  Useful in patching external code
+ * to keep the patches narrowly scoped.
+ *
+ * Limitation: Only for variables, and only non-volatile variables.
+ *
+ * (Abusing this for anything else may lead to side effects.  Pointers
+ * to volatile objects are OK, as in `volatile int *a', as long as the
+ * pointer itself is not volatile, as in `int *volatile a'.)
+ */
+#define	__USE(a) (/*LINTED*/(void)(a))
+
+/*
+ * Verifies the expression e compiles, but does not evaluate it.  Safe
+ * when e has side effects.
+ *
+ * Typically used for the arguments to macros with conditional
+ * definitions like DIAGNOSTIC or KDTRACE_HOOKS: when enabled, the
+ * macro uses the argument; when disabled, the macro passes the
+ * argument to __MACROUSE but doesn't otherwise use it.  Cast to long
+ * in case the argument is a bit field, which is forbidden in sizeof.
+ *
+ * Limitation: Doesn't work for expressions of aggregate (struct/union)
+ * types.
+ *
+ * (If you find a way to handle both bit fields and aggregate types,
+ * you could unify __USE and __MACROUSE.)
+ */
+#define	__MACROUSE(e)	(/*LINTED*/(void)sizeof((long)(e)))
 
 #define __type_mask(t) (/*LINTED*/sizeof(t) < sizeof(__INTMAX_TYPE__) ? \
     (~((1ULL << (sizeof(t) * __CHAR_BIT__)) - 1)) : 0ULL)

@@ -1,4 +1,4 @@
-/*	$NetBSD: ieee.h,v 1.16 2010/09/20 16:13:35 christos Exp $	*/
+/*	$NetBSD: ieee.h,v 1.18 2025/07/02 14:41:35 christos Exp $	*/
 
 /*
  * Copyright (c) 1992, 1993
@@ -40,6 +40,9 @@
  *	@(#)ieee.h	8.1 (Berkeley) 6/11/93
  */
 
+#ifndef	__68K_IEEE_H_INCLUDED
+#define	__68K_IEEE_H_INCLUDED
+
 /*
  * ieee.h defines the machine-dependent layout of the machine's IEEE
  * floating point.  It does *not* define (yet?) any of the rounding
@@ -60,14 +63,14 @@
 } while(/*CONSTCOND*/0)
 
 struct ieee_ext {
-	u_int	ext_sign:1;
-	u_int	ext_exp:EXT_EXPBITS;
-	u_int	ext_zero:16;
+	uint32_t	ext_sign:1;
+	uint32_t	ext_exp:EXT_EXPBITS;
+	uint32_t	ext_zero:16;
 #if 0
-	u_int	ext_int:1;
+	uint32_t	ext_int:1;
 #endif
-	u_int	ext_frach;
-	u_int	ext_fracl;
+	uint32_t	ext_frach;
+	uint32_t	ext_fracl;
 };
 
 /*
@@ -111,3 +114,5 @@ union ieee_ext_u {
 #define LDBL_NBIT	0x80000000
 #define mask_nbit_l(u)	((u).extu_frach &= ~LDBL_NBIT)
 #endif /* !__mc68010__ || _KERNEL */
+
+#endif /* __68K_IEEE_H_INCLUDED */

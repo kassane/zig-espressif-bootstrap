@@ -498,8 +498,8 @@ pub const Instruction = union(Lir.Format) {
     extra: u32,
 
     comptime {
-        for (std.meta.fields(Instruction)) |field| {
-            assert(@bitSizeOf(field.type) == 32);
+        for (std.meta.fieldTypes(Instruction)) |field_type| {
+            assert(@bitSizeOf(field_type) == 32);
         }
     }
 

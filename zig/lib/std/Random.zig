@@ -125,9 +125,9 @@ pub fn enumValueWithIndex(r: Random, comptime EnumType: type, comptime Index: ty
 /// `i` is evenly distributed.
 pub fn int(r: Random, comptime T: type) T {
     const bits = @typeInfo(T).int.bits;
-    const UnsignedT = std.meta.Int(.unsigned, bits);
+    const UnsignedT = @Int(.unsigned, bits);
     const ceil_bytes = comptime std.math.divCeil(u16, bits, 8) catch unreachable;
-    const ByteAlignedT = std.meta.Int(.unsigned, ceil_bytes * 8);
+    const ByteAlignedT = @Int(.unsigned, ceil_bytes * 8);
 
     var rand_bytes: [ceil_bytes]u8 = undefined;
     r.bytes(&rand_bytes);
@@ -215,7 +215,7 @@ pub fn intRangeLessThanBiased(r: Random, comptime T: type, at_least: T, less_tha
     const info = @typeInfo(T).int;
     if (info.signedness == .signed) {
         // Two's complement makes this math pretty easy.
-        const UnsignedT = std.meta.Int(.unsigned, info.bits);
+        const UnsignedT = @Int(.unsigned, info.bits);
         const lo: UnsignedT = @bitCast(at_least);
         const hi: UnsignedT = @bitCast(less_than);
         const result = lo +% r.uintLessThanBiased(UnsignedT, hi -% lo);
@@ -234,7 +234,7 @@ pub fn intRangeLessThan(r: Random, comptime T: type, at_least: T, less_than: T) 
     const info = @typeInfo(T).int;
     if (info.signedness == .signed) {
         // Two's complement makes this math pretty easy.
-        const UnsignedT = std.meta.Int(.unsigned, info.bits);
+        const UnsignedT = @Int(.unsigned, info.bits);
         const lo: UnsignedT = @bitCast(at_least);
         const hi: UnsignedT = @bitCast(less_than);
         const result = lo +% r.uintLessThan(UnsignedT, hi -% lo);
@@ -252,7 +252,7 @@ pub fn intRangeAtMostBiased(r: Random, comptime T: type, at_least: T, at_most: T
     const info = @typeInfo(T).int;
     if (info.signedness == .signed) {
         // Two's complement makes this math pretty easy.
-        const UnsignedT = std.meta.Int(.unsigned, info.bits);
+        const UnsignedT = @Int(.unsigned, info.bits);
         const lo: UnsignedT = @bitCast(at_least);
         const hi: UnsignedT = @bitCast(at_most);
         const result = lo +% r.uintAtMostBiased(UnsignedT, hi -% lo);
@@ -271,7 +271,7 @@ pub fn intRangeAtMost(r: Random, comptime T: type, at_least: T, at_most: T) T {
     const info = @typeInfo(T).int;
     if (info.signedness == .signed) {
         // Two's complement makes this math pretty easy.
-        const UnsignedT = std.meta.Int(.unsigned, info.bits);
+        const UnsignedT = @Int(.unsigned, info.bits);
         const lo: UnsignedT = @bitCast(at_least);
         const hi: UnsignedT = @bitCast(at_most);
         const result = lo +% r.uintAtMost(UnsignedT, hi -% lo);

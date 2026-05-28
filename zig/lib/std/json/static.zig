@@ -286,20 +286,20 @@ pub fn innerParse(
                 },
             };
 
-            inline for (unionInfo.fields) |u_field| {
-                if (std.mem.eql(u8, u_field.name, field_name)) {
+            inline for (unionInfo.field_names, unionInfo.field_types) |u_field_name, u_field_type| {
+                if (std.mem.eql(u8, u_field_name, field_name)) {
                     // Free the name token now in case we're using an allocator that optimizes freeing the last allocated object.
                     // (Recursing into innerParse() might trigger more allocations.)
                     freeAllocated(allocator, name_token.?);
                     name_token = null;
-                    if (u_field.type == void) {
+                    if (u_field_type == void) {
                         // void isn't really a json type, but we can support void payload union tags with {} as a value.
                         if (.object_begin != try source.next()) return error.UnexpectedToken;
                         if (.object_end != try source.next()) return error.UnexpectedToken;
-                        result = @unionInit(T, u_field.name, {});
+                        result = @unionInit(T, u_field_name, {});
                     } else {
                         // Recurse.
-                        result = @unionInit(T, u_field.name, try innerParse(u_field.type, allocator, source, options));
+                        result = @unionInit(T, u_field_name, try innerParse(u_field_type, allocator, source, options));
                     }
                     break;
                 }
@@ -318,8 +318,8 @@ pub fn innerParse(
                 if (.array_begin != try source.next()) return error.UnexpectedToken;
 
                 var r: T = undefined;
-                inline for (0..structInfo.fields.len) |i| {
-                    r[i] = try innerParse(structInfo.fields[i].type, allocator, source, options);
+                inline for (structInfo.field_types, 0..) |field_type, i| {
+                    r[i] = try innerParse(field_type, allocator, source, options);
                 }
 
                 if (.array_end != try source.next()) return error.UnexpectedToken;
@@ -334,7 +334,7 @@ pub fn innerParse(
             if (.object_begin != try source.next()) return error.UnexpectedToken;
 
             var r: T = undefined;
-            var fields_seen = [_]bool{false} ** structInfo.fields.len;
+            var fields_seen: [structInfo.field_names.len]bool = @splat(false);
 
             while (true) {
                 var name_token: ?Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
@@ -348,9 +348,14 @@ pub fn innerParse(
                     },
                 };
 
-                inline for (structInfo.fields, 0..) |field, i| {
-                    if (field.is_comptime) @compileError("comptime fields are not supported: " ++ @typeName(T) ++ "." ++ field.name);
-                    if (std.mem.eql(u8, field.name, field_name)) {
+                inline for (
+                    structInfo.field_names,
+                    structInfo.field_types,
+                    structInfo.field_attrs,
+                    0..,
+                ) |f_name, f_type, f_attrs, i| {
+                    if (f_attrs.@"comptime") @compileError("comptime fields are not supported: " ++ @typeName(T) ++ "." ++ f_name);
+                    if (std.mem.eql(u8, f_name, field_name)) {
                         // Free the name token now in case we're using an allocator that optimizes freeing the last allocated object.
                         // (Recursing into innerParse() might trigger more allocations.)
                         freeAllocated(allocator, name_token.?);
@@ -360,14 +365,14 @@ pub fn innerParse(
                                 .use_first => {
                                     // Parse and ignore the redundant value.
                                     // We don't want to skip the value, because we want type checking.
-                                    _ = try innerParse(field.type, allocator, source, options);
+                                    _ = try innerParse(f_type, allocator, source, options);
                                     break;
                                 },
                                 .@"error" => return error.DuplicateField,
                                 .use_last => {},
                             }
                         }
-                        @field(r, field.name) = try innerParse(field.type, allocator, source, options);
+                        @field(r, f_name) = try innerParse(f_type, allocator, source, options);
                         fields_seen[i] = true;
                         break;
                     }
@@ -493,7 +498,7 @@ pub fn innerParse(
                                 _ = try source.allocNextIntoArrayList(&value_list, .alloc_always);
                                 return try value_list.toOwnedSliceSentinel(s);
                             }
-                            if (ptrInfo.is_const) {
+                            if (ptrInfo.attrs.@"const") {
                                 switch (try source.nextAllocMax(allocator, options.allocate.?, options.max_value_len.?)) {
                                     inline .string, .allocated_string => |slice| return slice,
                                     else => unreachable,
@@ -613,16 +618,16 @@ pub fn innerParseFromValue(
             const kv = it.next().?;
             const field_name = kv.key_ptr.*;
 
-            inline for (unionInfo.fields) |u_field| {
-                if (std.mem.eql(u8, u_field.name, field_name)) {
-                    if (u_field.type == void) {
+            inline for (unionInfo.field_names, unionInfo.field_types) |u_field_name, u_field_type| {
+                if (std.mem.eql(u8, u_field_name, field_name)) {
+                    if (u_field_type == void) {
                         // void isn't really a json type, but we can support void payload union tags with {} as a value.
                         if (kv.value_ptr.* != .object) return error.UnexpectedToken;
                         if (kv.value_ptr.*.object.count() != 0) return error.UnexpectedToken;
-                        return @unionInit(T, u_field.name, {});
+                        return @unionInit(T, u_field_name, {});
                     }
                     // Recurse.
-                    return @unionInit(T, u_field.name, try innerParseFromValue(u_field.type, allocator, kv.value_ptr.*, options));
+                    return @unionInit(T, u_field_name, try innerParseFromValue(u_field_type, allocator, kv.value_ptr.*, options));
                 }
             }
             // Didn't match anything.
@@ -632,11 +637,11 @@ pub fn innerParseFromValue(
         .@"struct" => |structInfo| {
             if (structInfo.is_tuple) {
                 if (source != .array) return error.UnexpectedToken;
-                if (source.array.items.len != structInfo.fields.len) return error.UnexpectedToken;
+                if (source.array.items.len != structInfo.field_names.len) return error.UnexpectedToken;
 
                 var r: T = undefined;
-                inline for (0..structInfo.fields.len, source.array.items) |i, item| {
-                    r[i] = try innerParseFromValue(structInfo.fields[i].type, allocator, item, options);
+                inline for (0..structInfo.field_names.len, source.array.items) |i, item| {
+                    r[i] = try innerParseFromValue(structInfo.field_types[i], allocator, item, options);
                 }
 
                 return r;
@@ -649,17 +654,22 @@ pub fn innerParseFromValue(
             if (source != .object) return error.UnexpectedToken;
 
             var r: T = undefined;
-            var fields_seen = [_]bool{false} ** structInfo.fields.len;
+            var fields_seen: [structInfo.field_names.len]bool = @splat(false);
 
             var it = source.object.iterator();
             while (it.next()) |kv| {
                 const field_name = kv.key_ptr.*;
 
-                inline for (structInfo.fields, 0..) |field, i| {
-                    if (field.is_comptime) @compileError("comptime fields are not supported: " ++ @typeName(T) ++ "." ++ field.name);
-                    if (std.mem.eql(u8, field.name, field_name)) {
+                inline for (
+                    structInfo.field_names,
+                    structInfo.field_types,
+                    structInfo.field_attrs,
+                    0..,
+                ) |f_name, f_type, f_attrs, i| {
+                    if (f_attrs.@"comptime") @compileError("comptime fields are not supported: " ++ @typeName(T) ++ "." ++ f_name);
+                    if (std.mem.eql(u8, f_name, field_name)) {
                         assert(!fields_seen[i]); // Can't have duplicate keys in a Value.object.
-                        @field(r, field.name) = try innerParseFromValue(field.type, allocator, kv.value_ptr.*, options);
+                        @field(r, f_name) = try innerParseFromValue(f_type, allocator, kv.value_ptr.*, options);
                         fields_seen[i] = true;
                         break;
                     }
@@ -782,11 +792,17 @@ fn sliceToEnum(comptime T: type, slice: []const u8) !T {
     return std.enums.fromInt(T, n) orelse return error.InvalidEnumTag;
 }
 
-fn fillDefaultStructValues(comptime T: type, r: *T, fields_seen: *[@typeInfo(T).@"struct".fields.len]bool) !void {
-    inline for (@typeInfo(T).@"struct".fields, 0..) |field, i| {
+fn fillDefaultStructValues(comptime T: type, r: *T, fields_seen: *[@typeInfo(T).@"struct".field_names.len]bool) !void {
+    const info = @typeInfo(T).@"struct";
+    inline for (
+        info.field_names,
+        info.field_types,
+        info.field_attrs,
+        0..,
+    ) |field_name, field_type, field_attrs, i| {
         if (!fields_seen[i]) {
-            if (field.defaultValue()) |default| {
-                @field(r, field.name) = default;
+            if (field_attrs.defaultValue(field_type)) |default| {
+                @field(r, field_name) = default;
             } else {
                 return error.MissingField;
             }

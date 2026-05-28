@@ -248,7 +248,9 @@ const reserved_idents = std.StaticStringMap(void).initComptime(.{
     .{ "inline", {} },
     .{ "int", {} },
     .{ "int16_t", {} },
+    .{ "int24_t", {} },
     .{ "int32_t", {} },
+    .{ "int48_t", {} },
     .{ "int64_t", {} },
     .{ "int8_t", {} },
     .{ "intptr_t", {} },
@@ -270,7 +272,9 @@ const reserved_idents = std.StaticStringMap(void).initComptime(.{
     .{ "typedef", {} },
     .{ "typeof", {} },
     .{ "uint16_t", {} },
+    .{ "uint24_t", {} },
     .{ "uint32_t", {} },
+    .{ "uint48_t", {} },
     .{ "uint64_t", {} },
     .{ "uint8_t", {} },
     .{ "uintptr_t", {} },
@@ -441,7 +445,7 @@ pub const Function = struct {
     }
 
     fn wantSafety(f: *Function) bool {
-        return switch (f.dg.pt.zcu.optimizeMode()) {
+        return switch (f.dg.mod.optimize_mode) {
             .Debug, .ReleaseSafe => true,
             .ReleaseFast, .ReleaseSmall => false,
         };
@@ -1297,7 +1301,7 @@ pub const DeclGen = struct {
             else => .initializer,
         };
 
-        const safety_on = switch (zcu.optimizeMode()) {
+        const safety_on = switch (dg.mod.optimize_mode) {
             .Debug, .ReleaseSafe => true,
             .ReleaseFast, .ReleaseSmall => false,
         };
@@ -1625,7 +1629,7 @@ pub const DeclGen = struct {
             if (func_analysis.branch_hint == .cold)
                 try w.writeAll("zig_cold ");
 
-            if (kind == .definition and func_analysis.disable_intrinsics or dg.mod.no_builtin)
+            if (kind == .definition and (func_analysis.disable_intrinsics or dg.mod.no_builtin))
                 try w.writeAll("zig_no_builtin ");
         }
 
@@ -1993,7 +1997,7 @@ pub const DeclGen = struct {
             .bits => {},
         }
 
-        const int_info: std.builtin.Type.Int = if (ty.isAbiInt(zcu)) ty.intInfo(zcu) else .{
+        const int_info: std.lang.Type.Int = if (ty.isAbiInt(zcu)) ty.intInfo(zcu) else .{
             .signedness = .unsigned,
             .bits = @intCast(ty.bitSize(zcu)),
         };
@@ -2724,9 +2728,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) Error!void {
             },
             .cmp_lte_errors_len => try airCmpLteErrorsLen(f, inst),
 
-            // bool_and and bool_or are non-short-circuit operations
-            .bool_and, .bit_and => try airBinOp(f, inst, "&",  "and", .none),
-            .bool_or,  .bit_or  => try airBinOp(f, inst, "|",  "or",  .none),
+            .bit_and => try airBinOp(f, inst, "&",  "and", .none),
+            .bit_or  => try airBinOp(f, inst, "|",  "or",  .none),
             .xor                => try airBinOp(f, inst, "^",  "xor", .none),
             .shr, .shr_exact    => try airBinBuiltinCall(f, inst, "shr", .none),
             .shl,               => try airBinBuiltinCall(f, inst, "shlw", .bits),
@@ -3494,9 +3497,27 @@ fn airOverflow(f: *Function, inst: Air.Inst.Index, operation: []const u8, info: 
     try w.writeAll(operation);
     try w.writeAll("o_");
     try f.dg.renderTypeForBuiltinFnName(w, scalar_ty);
-    try w.writeAll("(&");
+    try w.writeByte('(');
+
+    // '&dest', possibly preceded by a cast
+    switch (zcu.intern_pool.indexToKey(scalar_ty.toIntern())) {
+        .int_type => {}, // we already have a '[u]intX_t *'
+        .simple_type => {
+            // '&dest' will be something like a 'uintptr_t *', which might be a different C type to
+            // the equivalent sized integer (e.g. 'uint64_t *'), so we need a cast. We don't need a
+            // cast on the *operands* because they are passed by value (except for big integers,
+            // where this issue doesn't exist because no "simple" int type needs bigint repr).
+            try w.print("({s}int{d}_t *)", .{
+                if (scalar_ty.isUnsignedInt(zcu)) "u" else "",
+                scalar_ty.abiSize(zcu) * 8,
+            });
+        },
+        else => unreachable,
+    }
+    try w.writeByte('&');
     try f.writeCValueMember(w, local, .{ .field = 0 });
     try v.elem(f, w);
+
     try w.writeAll(", ");
     if (ref_arg) try w.writeByte('&');
     try f.writeCValue(w, lhs, .other);
@@ -3857,7 +3878,7 @@ fn airSlice(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airCall(
     f: *Function,
     inst: Air.Inst.Index,
-    modifier: std.builtin.CallModifier,
+    modifier: std.lang.CallModifier,
 ) !CValue {
     const pt = f.dg.pt;
     const zcu = pt.zcu;
@@ -4837,8 +4858,9 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         {
             const asm_source = unwrapped_asm.source;
 
-            var stack = std.heap.stackFallback(256, f.dg.gpa);
-            const allocator = stack.get();
+            var bfa_buf: [256]u8 = undefined;
+            var bfa: std.heap.BufferFirstAllocator = .init(&bfa_buf, f.dg.gpa);
+            const allocator = bfa.allocator();
             const fixed_asm_source = try allocator.alloc(u8, asm_source.len);
             defer allocator.free(fixed_asm_source);
 
@@ -6889,7 +6911,7 @@ fn airCVaCopy(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {
+fn toMemoryOrder(order: std.lang.AtomicOrder) [:0]const u8 {
     return switch (order) {
         // Note: unordered is actually even less atomic than relaxed
         .unordered, .monotonic => "zig_memory_order_relaxed",
@@ -6900,11 +6922,11 @@ fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {
     };
 }
 
-fn writeMemoryOrder(w: *Writer, order: std.builtin.AtomicOrder) !void {
+fn writeMemoryOrder(w: *Writer, order: std.lang.AtomicOrder) !void {
     return w.writeAll(toMemoryOrder(order));
 }
 
-fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8 {
+fn toCallingConvention(cc: std.lang.CallingConvention, zcu: *Zcu) ?[]const u8 {
     if (zcu.getTarget().cCallingConvention()) |ccc| {
         if (cc.eql(ccc)) {
             return null;
@@ -6992,13 +7014,16 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
         .x86_64_interrupt,
         => "interrupt",
 
+        .ez80_tiflags,
+        => "__tiflags__",
+
         .xtensa_call0, .xtensa_windowed => null,
 
         else => unreachable, // `Zcu.callconvSupported`
     };
 }
 
-fn toAtomicRmwSuffix(order: std.builtin.AtomicRmwOp) []const u8 {
+fn toAtomicRmwSuffix(order: std.lang.AtomicRmwOp) []const u8 {
     return switch (order) {
         .Xchg => "xchg",
         .Add => "add",
@@ -7021,7 +7046,7 @@ fn toCIntBits(zig_bits: u32) ?u32 {
     return null;
 }
 
-fn signAbbrev(signedness: std.builtin.Signedness) u8 {
+fn signAbbrev(signedness: std.lang.Signedness) u8 {
     return switch (signedness) {
         .signed => 'i',
         .unsigned => 'u',
@@ -7198,7 +7223,7 @@ fn fmtStringLiteral(str: []const u8, sentinel: ?u8) std.fmt.Alt(FormatStringCont
 
 fn undefPattern(comptime IntType: type) IntType {
     const int_info = @typeInfo(IntType).int;
-    const UnsignedType = std.meta.Int(.unsigned, int_info.bits);
+    const UnsignedType = @Int(.unsigned, int_info.bits);
     return @bitCast(@as(UnsignedType, (1 << (int_info.bits | 1)) / 3));
 }
 
@@ -7287,7 +7312,9 @@ const FormatInt128 = struct {
         switch (data.int_cty) {
             .uint8_t,
             .uint16_t,
+            .uint24_t,
             .uint32_t,
+            .uint48_t,
             .uint64_t,
             .@"unsigned short",
             .@"unsigned int",
@@ -7300,6 +7327,8 @@ const FormatInt128 = struct {
 
             .int8_t,
             .int16_t,
+            .int24_t,
+            .int48_t,
             .int32_t,
             .int64_t,
             .char,
@@ -7445,13 +7474,17 @@ fn minMaxMacroPrefix(int_cty: CType.Int) []const u8 {
 
         .uint8_t  => "UINT8",
         .uint16_t => "UINT16",
+        .uint24_t => "UINT24",
         .uint32_t => "UINT32",
+        .uint48_t => "UINT48",
         .uint64_t => "UINT64",
         .zig_u128 => unreachable,
 
         .int8_t   => "INT8",
         .int16_t  => "INT16",
+        .int24_t  => "INT24",
         .int32_t  => "INT32",
+        .int48_t  => "INT48",
         .int64_t  => "INT64",
         .zig_i128 => unreachable,
 
@@ -7477,13 +7510,17 @@ fn intLiteralPrefix(cty: CType.Int, is_global: bool) []const u8 {
 
         .uint8_t  =>  "UINT8_C(",
         .uint16_t => "UINT16_C(",
+        .uint24_t => "UINT24_C(",
         .uint32_t => "UINT32_C(",
+        .uint48_t => "UINT48_C(",
         .uint64_t => "UINT64_C(",
         .zig_u128 => unreachable,
 
         .int8_t   =>  "INT8_C(",
         .int16_t  => "INT16_C(",
+        .int24_t  => "INT24_C(",
         .int32_t  => "INT32_C(",
+        .int48_t  => "INT48_C(",
         .int64_t  => "INT64_C(",
         .zig_i128 => unreachable,
 
@@ -7509,13 +7546,17 @@ fn intLiteralSuffix(cty: CType.Int) []const u8 {
 
         .uint8_t  => ")",
         .uint16_t => ")",
+        .uint24_t => ")",
         .uint32_t => ")",
+        .uint48_t => ")",
         .uint64_t => ")",
         .zig_u128 => unreachable,
 
         .int8_t   => ")",
         .int16_t  => ")",
+        .int24_t  => ")",
         .int32_t  => ")",
+        .int48_t  => ")",
         .int64_t  => ")",
         .zig_i128 => unreachable,
 

@@ -6,6 +6,7 @@ const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
 const socklen_t = std.c.socklen_t;
 const fd_t = std.c.fd_t;
+const off_t = std.c.off_t;
 const PATH_MAX = std.c.PATH_MAX;
 const uid_t = std.c.uid_t;
 const gid_t = std.c.gid_t;
@@ -28,6 +29,8 @@ pub extern "root" fn _kern_open_dir(fd: fd_t, path: [*:0]const u8) fd_t;
 pub extern "root" fn _kern_read_dir(fd: fd_t, buffer: [*]u8, bufferSize: usize, maxCount: u32) isize;
 pub extern "root" fn _kern_rewind_dir(fd: fd_t) status_t;
 pub extern "root" fn _kern_read_stat(fd: fd_t, path: [*:0]const u8, traverseLink: bool, stat: *std.c.Stat, statSize: usize) status_t;
+pub extern "root" fn readv_pos(fd: fd_t, pos: off_t, vec: [*]const std.c.iovec, count: i32) isize;
+pub extern "root" fn writev_pos(fd: fd_t, pos: off_t, vec: [*]const std.c.iovec_const, count: i32) isize;
 
 pub const area_info = extern struct {
     area: u32,

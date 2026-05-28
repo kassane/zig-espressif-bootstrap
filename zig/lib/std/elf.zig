@@ -224,6 +224,9 @@ pub const DT_PPC64_NUM = 4;
 pub const DT_IA_64_PLT_RESERVE = (DT_LOPROC + 0);
 pub const DT_IA_64_NUM = 1;
 
+pub const DT_XTENSA_GOT_LOC_OFF = 0x70000000;
+pub const DT_XTENSA_GOT_LOC_SZ = 0x70000001;
+
 pub const DT_NIOS2_GP = 0x70000002;
 
 pub const DF_ORIGIN = 0x00000001;
@@ -481,7 +484,7 @@ pub const PT = enum(Word) {
     _,
 
     /// Number of defined types
-    pub const NUM = @typeInfo(PT).@"enum".fields.len;
+    pub const NUM = @typeInfo(PT).@"enum".field_names.len;
 
     /// Start of OS-specific
     pub const LOOS: PT = @enumFromInt(0x60000000);
@@ -549,7 +552,7 @@ pub const SHT = enum(Word) {
     _,
 
     /// Number of defined types
-    pub const NUM = @typeInfo(SHT).@"enum".fields.len;
+    pub const NUM = @typeInfo(SHT).@"enum".field_names.len;
 
     /// Start of OS-specific
     pub const LOOS: SHT = @enumFromInt(0x60000000);
@@ -592,7 +595,7 @@ pub const STB = enum(u4) {
     _,
 
     /// Number of defined types
-    pub const NUM = @typeInfo(STB).@"enum".fields.len;
+    pub const NUM = @typeInfo(STB).@"enum".field_names.len;
 
     /// Start of OS-specific
     pub const LOOS: STB = @enumFromInt(10);
@@ -628,7 +631,7 @@ pub const STT = enum(u4) {
     _,
 
     /// Number of defined types
-    pub const NUM = @typeInfo(STT).@"enum".fields.len;
+    pub const NUM = @typeInfo(STT).@"enum".field_names.len;
 
     /// Start of OS-specific
     pub const LOOS: STT = @enumFromInt(10);
@@ -812,7 +815,7 @@ pub const Header = struct {
 
     pub fn init(hdr: anytype, endian: Endian) Header {
         // Converting integers to exhaustive enums using `@enumFromInt` could cause a panic.
-        comptime assert(!@typeInfo(OSABI).@"enum".is_exhaustive);
+        comptime assert(@typeInfo(OSABI).@"enum".mode == .nonexhaustive);
         return .{
             .is_64 = switch (@TypeOf(hdr)) {
                 Elf32_Ehdr => false,
@@ -870,8 +873,8 @@ pub const ProgramHeaderBufferIterator = struct {
         if (it.index >= it.phnum) return null;
         defer it.index += 1;
 
-        const size: u64 = if (it.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32_Phdr);
-        const offset = it.phoff + size * it.index;
+        const size: usize = if (it.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32_Phdr);
+        const offset = @as(usize, @intCast(it.phoff)) + size * it.index;
         var reader = Io.Reader.fixed(it.buf[offset..]);
 
         return try takeProgramHeader(&reader, it.is_64, it.endian);
@@ -1043,7 +1046,7 @@ pub const Elf32 = struct {
     pub const Addr = u32;
     pub const Off = u32;
     pub const Ehdr = extern struct {
-        ident: [EI.NIDENT]u8,
+        ident: Ident,
         type: ET,
         machine: EM,
         version: Word,
@@ -1133,7 +1136,7 @@ pub const Elf64 = struct {
     pub const Addr = u64;
     pub const Off = u64;
     pub const Ehdr = extern struct {
-        ident: [EI.NIDENT]u8,
+        ident: Ident,
         type: ET,
         machine: EM,
         version: Word,
@@ -1611,6 +1614,20 @@ pub const Sym = switch (@sizeOf(usize)) {
 /// Deprecated, use `std.elf.ElfN.Addr`
 pub const Addr = ElfN.Addr;
 
+pub const Ident = extern struct {
+    magic: [MAGIC.len]u8 = MAGIC.*,
+    class: CLASS,
+    data: DATA,
+    version: u8,
+    osabi: OSABI,
+    abiversion: u8,
+    pad: [7]u8 = @splat(0),
+
+    comptime {
+        assert(@sizeOf(Ident) == EI.NIDENT);
+    }
+};
+
 /// Deprecated, use `@intFromEnum(std.elf.CLASS.NONE)`
 pub const ELFCLASSNONE = @intFromEnum(CLASS.NONE);
 /// Deprecated, use `@intFromEnum(std.elf.CLASS.@"32")`
@@ -1625,7 +1642,7 @@ pub const CLASS = enum(u8) {
     @"64" = 2,
     _,
 
-    pub const NUM = @typeInfo(CLASS).@"enum".fields.len;
+    pub const NUM = @typeInfo(CLASS).@"enum".field_names.len;
 
     pub fn ElfN(comptime class: CLASS) type {
         return switch (class) {
@@ -1650,7 +1667,7 @@ pub const DATA = enum(u8) {
     @"2MSB" = 2,
     _,
 
-    pub const NUM = @typeInfo(DATA).@"enum".fields.len;
+    pub const NUM = @typeInfo(DATA).@"enum".field_names.len;
 };
 
 pub const OSABI = enum(u8) {
@@ -2867,6 +2884,62 @@ pub const R_RISCV = enum(u32) {
     _,
 };
 
+pub const R_XTENSA = enum(u32) {
+    NONE = 0,
+    @"32" = 1,
+    RTLD_GLOBAL = 2,
+    GLOB_DAT = 3,
+    JMP_SLOT = 4,
+    RELATIVE = 5,
+    TLSDESC = 6,
+    DIFF32 = 19,
+    SLOT0_OP = 20,
+    SLOT1_OP = 21,
+    SLOT2_OP = 22,
+    SLOT3_OP = 23,
+    SLOT4_OP = 24,
+    SLOT5_OP = 25,
+    SLOT6_OP = 26,
+    SLOT7_OP = 27,
+    SLOT8_OP = 28,
+    SLOT9_OP = 29,
+    SLOT10_OP = 30,
+    SLOT11_OP = 31,
+    SLOT12_OP = 32,
+    SLOT13_OP = 33,
+    SLOT14_OP = 34,
+    SLOT0_ALT = 35,
+    SLOT1_ALT = 36,
+    SLOT2_ALT = 37,
+    SLOT3_ALT = 38,
+    SLOT4_ALT = 39,
+    SLOT5_ALT = 40,
+    SLOT6_ALT = 41,
+    SLOT7_ALT = 42,
+    SLOT8_ALT = 43,
+    SLOT9_ALT = 44,
+    SLOT10_ALT = 45,
+    SLOT11_ALT = 46,
+    SLOT12_ALT = 47,
+    SLOT13_ALT = 48,
+    SLOT14_ALT = 49,
+    OP_LOOP_END = 50,
+    ASM_EXPAND = 51,
+    @"32_PCREL" = 14,
+    DIFF8 = 17,
+    DIFF16 = 18,
+    TLS_CALL = 56,
+    TLS_TPOFF = 57,
+    TLS_DTPOFF = 58,
+    PDIFF8 = 59,
+    PDIFF16 = 60,
+    PDIFF32 = 61,
+    NDIFF8 = 62,
+    NDIFF16 = 63,
+    NDIFF32 = 64,
+    _,
+};
+
 /// PowerPC64 relocations.
 pub const R_PPC64 = enum(u32) {
     NONE = 0,
@@ -2984,71 +3057,6 @@ pub const R_PPC64 = enum(u32) {
     _,
 };
 
-pub const R_XTENSA = enum(u32) {
-    NONE = 0,
-    @"32" = 1,
-    RTLD = 2,
-    GLOB_DAT = 3,
-    JMP_SLOT = 4,
-    RELATIVE = 5,
-    PLT = 6,
-    OP0 = 8,
-    OP1 = 9,
-    OP2 = 10,
-    ASM_EXPAND = 11,
-    ASM_SIMPLIFY = 12,
-    @"32_PCREL" = 14,
-    GNU_VTINHERIT = 15,
-    GNU_VTENTRY = 16,
-    DIFF8 = 17,
-    DIFF16 = 18,
-    DIFF32 = 19,
-    SLOT0_OP = 20,
-    SLOT1_OP = 21,
-    SLOT2_OP = 22,
-    SLOT3_OP = 23,
-    SLOT4_OP = 24,
-    SLOT5_OP = 25,
-    SLOT6_OP = 26,
-    SLOT7_OP = 27,
-    SLOT8_OP = 28,
-    SLOT9_OP = 29,
-    SLOT10_OP = 30,
-    SLOT11_OP = 31,
-    SLOT12_OP = 32,
-    SLOT13_OP = 33,
-    SLOT14_OP = 34,
-    SLOT0_ALT = 35,
-    SLOT1_ALT = 36,
-    SLOT2_ALT = 37,
-    SLOT3_ALT = 38,
-    SLOT4_ALT = 39,
-    SLOT5_ALT = 40,
-    SLOT6_ALT = 41,
-    SLOT7_ALT = 42,
-    SLOT8_ALT = 43,
-    SLOT9_ALT = 44,
-    SLOT10_ALT = 45,
-    SLOT11_ALT = 46,
-    SLOT12_ALT = 47,
-    SLOT13_ALT = 48,
-    SLOT14_ALT = 49,
-    TLSDESC_FN = 50,
-    TLSDESC_ARG = 51,
-    TLS_DTPOFF = 52,
-    TLS_TPOFF = 53,
-    TLS_FUNC = 54,
-    TLS_ARG = 55,
-    TLS_CALL = 56,
-    PDIFF8 = 57,
-    PDIFF16 = 58,
-    PDIFF32 = 59,
-    NDIFF8 = 60,
-    NDIFF16 = 61,
-    NDIFF32 = 62,
-    _,
-};
-
 pub const ar_hdr = extern struct {
     /// Member file name, sometimes / terminated.
     ar_name: [16]u8,
@@ -3119,7 +3127,7 @@ pub const ar_hdr = extern struct {
 fn genSpecialMemberName(comptime name: []const u8) *const [16]u8 {
     assert(name.len <= 16);
     const padding = 16 - name.len;
-    return name ++ &[_]u8{0x20} ** padding;
+    return name ++ @as([padding]u8, @splat(0x20));
 }
 
 // Archive files start with the ARMAG identifying string.  Then follows a

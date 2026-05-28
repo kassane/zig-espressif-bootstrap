@@ -571,8 +571,7 @@ pub fn flush(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) link.F
             .{ .kind = .code, .ty = .anyerror_type },
             metadata.text_symbol_index,
         ) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.LinkFailure => return error.LinkFailure,
+            error.OutOfMemory, error.LinkFailure => |e| return e,
             else => |e| return diags.fail("failed to update lazy symbol: {s}", .{@errorName(e)}),
         };
         if (metadata.const_state != .unused) self.updateLazySymbol(
@@ -581,8 +580,7 @@ pub fn flush(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) link.F
             .{ .kind = .const_data, .ty = .anyerror_type },
             metadata.const_symbol_index,
         ) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.LinkFailure => return error.LinkFailure,
+            error.OutOfMemory, error.LinkFailure => |e| return e,
             else => |e| return diags.fail("failed to update lazy symbol: {s}", .{@errorName(e)}),
         };
     }
@@ -595,7 +593,7 @@ pub fn flush(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) link.F
         const pt: Zcu.PerThread = .activate(macho_file.base.comp.zcu.?, tid);
         defer pt.deactivate();
         dwarf.flush(pt) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
             else => |e| return diags.fail("failed to flush dwarf module: {s}", .{@errorName(e)}),
         };
 
@@ -634,7 +632,7 @@ pub fn getNavVAddr(
     switch (reloc_info.parent) {
         .none => unreachable,
         .atom_index => |atom_index| {
-            const parent_atom = self.symbols.items[atom_index].getAtom(macho_file).?;
+            const parent_atom = self.symbols.items[@intFromEnum(atom_index)].getAtom(macho_file).?;
             try parent_atom.addReloc(macho_file, .{
                 .tag = .@"extern",
                 .offset = @intCast(reloc_info.offset),
@@ -652,7 +650,7 @@ pub fn getNavVAddr(
         .debug_output => |debug_output| switch (debug_output) {
             .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
                 .source_off = @intCast(reloc_info.offset),
-                .target_sym = sym_index,
+                .target_sym = @enumFromInt(sym_index),
                 .target_off = reloc_info.addend,
             }),
             .none => unreachable,
@@ -673,7 +671,7 @@ pub fn getUavVAddr(
     switch (reloc_info.parent) {
         .none => unreachable,
         .atom_index => |atom_index| {
-            const parent_atom = self.symbols.items[atom_index].getAtom(macho_file).?;
+            const parent_atom = self.symbols.items[@intFromEnum(atom_index)].getAtom(macho_file).?;
             try parent_atom.addReloc(macho_file, .{
                 .tag = .@"extern",
                 .offset = @intCast(reloc_info.offset),
@@ -691,7 +689,7 @@ pub fn getUavVAddr(
         .debug_output => |debug_output| switch (debug_output) {
             .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
                 .source_off = @intCast(reloc_info.offset),
-                .target_sym = sym_index,
+                .target_sym = @enumFromInt(sym_index),
                 .target_off = reloc_info.addend,
             }),
             .none => unreachable,
@@ -719,7 +717,7 @@ pub fn lowerUav(
         const sym = self.symbols.items[metadata.symbol_index];
         const existing_alignment = sym.getAtom(macho_file).?.alignment;
         if (uav_alignment.order(existing_alignment).compare(.lte))
-            return .{ .sym_index = metadata.symbol_index };
+            return .{ .sym_index = @enumFromInt(metadata.symbol_index) };
     }
 
     var name_buf: [32]u8 = undefined;
@@ -735,7 +733,7 @@ pub fn lowerUav(
         macho_file.zig_const_sect_index.?,
         src_loc,
     ) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         else => |e| return .{ .fail = try Zcu.ErrorMsg.create(
             gpa,
             src_loc,
@@ -744,7 +742,7 @@ pub fn lowerUav(
         ) },
     };
     switch (res) {
-        .sym_index => |sym_index| try self.uavs.put(gpa, uav, .{ .symbol_index = sym_index }),
+        .sym_index => |sym_index| try self.uavs.put(gpa, uav, .{ .symbol_index = @intFromEnum(sym_index) }),
         .fail => {},
     }
     return res;
@@ -792,7 +790,7 @@ pub fn updateFunc(
     var aw: std.Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
 
-    var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, func.owner_nav, sym_index) else null;
+    var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, func.owner_nav, @enumFromInt(sym_index)) else null;
     defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
     codegen.emitFunction(
@@ -800,7 +798,7 @@ pub fn updateFunc(
         pt,
         zcu.navSrcLoc(func.owner_nav),
         func_index,
-        sym_index,
+        @enumFromInt(sym_index),
         mir,
         &aw.writer,
         if (debug_wip_nav) |*wip_nav| .{ .dwarf = wip_nav } else .none,
@@ -886,11 +884,10 @@ pub fn updateNav(
             const sym_index = try self.getGlobalSymbol(macho_file, name, lib_name);
             if (nav.resolved.?.@"threadlocal" and macho_file.base.comp.config.any_non_single_threaded) self.symbols.items[sym_index].flags.tlv = true;
             if (self.dwarf) |*dwarf| {
-                var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index);
+                var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, @enumFromInt(sym_index));
                 defer debug_wip_nav.deinit();
                 dwarf.finishWipNav(pt, nav_index, &debug_wip_nav) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.Overflow => return error.Overflow,
+                    error.OutOfMemory, error.Overflow => |e| return e,
                     else => |e| return macho_file.base.cgFail(nav_index, "failed to finish dwarf nav: {s}", .{@errorName(e)}),
                 };
             }
@@ -905,7 +902,7 @@ pub fn updateNav(
         var aw: std.Io.Writer.Allocating = .init(zcu.gpa);
         defer aw.deinit();
 
-        var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, nav_index, sym_index) else null;
+        var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, nav_index, @enumFromInt(sym_index)) else null;
         defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
         codegen.generateSymbol(
@@ -914,7 +911,7 @@ pub fn updateNav(
             zcu.navSrcLoc(nav_index),
             .fromInterned(nav.resolved.?.value),
             &aw.writer,
-            .{ .atom_index = sym_index },
+            .{ .atom_index = @enumFromInt(sym_index) },
         ) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
             else => |e| return e,
@@ -928,8 +925,7 @@ pub fn updateNav(
             try self.updateNavCode(macho_file, pt, nav_index, sym_index, sect_index, code);
 
         if (debug_wip_nav) |*wip_nav| self.dwarf.?.finishWipNav(pt, nav_index, wip_nav) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.Overflow => return error.Overflow,
+            error.OutOfMemory, error.Overflow => |e| return e,
             else => |e| return macho_file.base.cgFail(nav_index, "failed to finish dwarf nav: {s}", .{@errorName(e)}),
         };
     } else if (self.dwarf) |*dwarf| try dwarf.updateComptimeNav(pt, nav_index);
@@ -1218,7 +1214,7 @@ fn lowerConst(
         src_loc,
         val,
         &aw.writer,
-        .{ .atom_index = sym_index },
+        .{ .atom_index = @enumFromInt(sym_index) },
     ) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
         else => |e| return e,
@@ -1246,7 +1242,7 @@ fn lowerConst(
     const file_offset = sect.offset + atom.value;
     try macho_file.pwriteAll(code, file_offset);
 
-    return .{ .sym_index = sym_index };
+    return .{ .sym_index = @enumFromInt(sym_index) };
 }
 
 pub fn updateExports(
@@ -1381,7 +1377,7 @@ fn updateLazySymbol(
         &required_alignment,
         &aw.writer,
         .none,
-        .{ .atom_index = symbol_index },
+        .{ .atom_index = @enumFromInt(symbol_index) },
     );
     const code = aw.written();
 
@@ -1422,8 +1418,7 @@ pub fn updateLineNumber(self: *ZigObject, pt: Zcu.PerThread, ti_id: InternPool.T
         const comp = dwarf.bin_file.comp;
         const diags = &comp.link_diags;
         dwarf.updateLineNumber(pt.zcu, ti_id) catch |err| switch (err) {
-            error.Overflow => return error.Overflow,
-            error.OutOfMemory => return error.OutOfMemory,
+            error.Overflow, error.OutOfMemory => |e| return e,
             else => |e| return diags.fail("failed to update dwarf line numbers: {s}", .{@errorName(e)}),
         };
     }
@@ -1575,17 +1570,19 @@ pub fn getAtoms(self: *ZigObject) []const Atom.Index {
 }
 
 fn addAtomExtra(self: *ZigObject, allocator: Allocator, extra: Atom.Extra) !u32 {
-    const fields = @typeInfo(Atom.Extra).@"struct".fields;
-    try self.atoms_extra.ensureUnusedCapacity(allocator, fields.len);
+    const field = @typeInfo(Atom.Extra).@"struct".field_names;
+    try self.atoms_extra.ensureUnusedCapacity(allocator, field.len);
     return self.addAtomExtraAssumeCapacity(extra);
 }
 
 fn addAtomExtraAssumeCapacity(self: *ZigObject, extra: Atom.Extra) u32 {
     const index = @as(u32, @intCast(self.atoms_extra.items.len));
-    const fields = @typeInfo(Atom.Extra).@"struct".fields;
-    inline for (fields) |field| {
-        self.atoms_extra.appendAssumeCapacity(switch (field.type) {
-            u32 => @field(extra, field.name),
+    const info = @typeInfo(Atom.Extra).@"struct";
+    const field_names = info.field_names;
+    const field_types = info.field_types;
+    inline for (field_names, field_types) |field_name, field_type| {
+        self.atoms_extra.appendAssumeCapacity(switch (field_type) {
+            u32 => @field(extra, field_name),
             else => @compileError("bad field type"),
         });
     }
@@ -1593,11 +1590,13 @@ fn addAtomExtraAssumeCapacity(self: *ZigObject, extra: Atom.Extra) u32 {
 }
 
 pub fn getAtomExtra(self: ZigObject, index: u32) Atom.Extra {
-    const fields = @typeInfo(Atom.Extra).@"struct".fields;
+    const info = @typeInfo(Atom.Extra).@"struct";
+    const field_names = info.field_names;
+    const field_types = info.field_types;
     var i: usize = index;
     var result: Atom.Extra = undefined;
-    inline for (fields) |field| {
-        @field(result, field.name) = switch (field.type) {
+    inline for (field_names, field_types) |field_name, field_type| {
+        @field(result, field_name) = switch (field_type) {
             u32 => self.atoms_extra.items[i],
             else => @compileError("bad field type"),
         };
@@ -1608,10 +1607,12 @@ pub fn getAtomExtra(self: ZigObject, index: u32) Atom.Extra {
 
 pub fn setAtomExtra(self: *ZigObject, index: u32, extra: Atom.Extra) void {
     assert(index > 0);
-    const fields = @typeInfo(Atom.Extra).@"struct".fields;
-    inline for (fields, 0..) |field, i| {
-        self.atoms_extra.items[index + i] = switch (field.type) {
-            u32 => @field(extra, field.name),
+    const info = @typeInfo(Atom.Extra).@"struct";
+    const field_names = info.field_names;
+    const field_types = info.field_types;
+    inline for (field_names, field_types, 0..) |field_name, field_type, i| {
+        self.atoms_extra.items[index + i] = switch (field_type) {
+            u32 => @field(extra, field_name),
             else => @compileError("bad field type"),
         };
     }
@@ -1636,17 +1637,19 @@ pub fn getSymbolRef(self: ZigObject, index: Symbol.Index, macho_file: *MachO) Ma
 }
 
 pub fn addSymbolExtra(self: *ZigObject, allocator: Allocator, extra: Symbol.Extra) !u32 {
-    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".field_names;
     try self.symbols_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addSymbolExtraAssumeCapacity(extra);
 }
 
 fn addSymbolExtraAssumeCapacity(self: *ZigObject, extra: Symbol.Extra) u32 {
     const index = @as(u32, @intCast(self.symbols_extra.items.len));
-    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
-    inline for (fields) |field| {
-        self.symbols_extra.appendAssumeCapacity(switch (field.type) {
-            u32 => @field(extra, field.name),
+    const info = @typeInfo(Symbol.Extra).@"struct";
+    const field_names = info.field_names;
+    const field_types = info.field_types;
+    inline for (field_names, field_types) |field_name, field_type| {
+        self.symbols_extra.appendAssumeCapacity(switch (field_type) {
+            u32 => @field(extra, field_name),
             else => @compileError("bad field type"),
         });
     }
@@ -1654,11 +1657,13 @@ fn addSymbolExtraAssumeCapacity(self: *ZigObject, extra: Symbol.Extra) u32 {
 }
 
 pub fn getSymbolExtra(self: ZigObject, index: u32) Symbol.Extra {
-    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
+    const info = @typeInfo(Symbol.Extra).@"struct";
+    const field_names = info.field_names;
+    const field_types = info.field_types;
     var i: usize = index;
     var result: Symbol.Extra = undefined;
-    inline for (fields) |field| {
-        @field(result, field.name) = switch (field.type) {
+    inline for (field_names, field_types) |field_name, field_type| {
+        @field(result, field_name) = switch (field_type) {
             u32 => self.symbols_extra.items[i],
             else => @compileError("bad field type"),
         };
@@ -1668,10 +1673,12 @@ pub fn getSymbolExtra(self: ZigObject, index: u32) Symbol.Extra {
 }
 
 pub fn setSymbolExtra(self: *ZigObject, index: u32, extra: Symbol.Extra) void {
-    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
-    inline for (fields, 0..) |field, i| {
-        self.symbols_extra.items[index + i] = switch (field.type) {
-            u32 => @field(extra, field.name),
+    const info = @typeInfo(Symbol.Extra).@"struct";
+    const field_names = info.field_names;
+    const field_types = info.field_types;
+    inline for (field_names, field_types, 0..) |field_name, field_type, i| {
+        self.symbols_extra.items[index + i] = switch (field_type) {
+            u32 => @field(extra, field_name),
             else => @compileError("bad field type"),
         };
     }

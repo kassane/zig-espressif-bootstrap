@@ -954,6 +954,8 @@ void Preprocessor::Lex(Token &Result) {
     case tok::period:
       ModuleDeclState.handlePeriod();
       break;
+    case tok::eod:
+      break;
     case tok::identifier:
       // Check "import" and "module" when there is no open bracket. The two
       // identifiers are not meaningful with open brackets.
@@ -1456,10 +1458,8 @@ void Preprocessor::removeCommentHandler(CommentHandler *Handler) {
 
 bool Preprocessor::HandleComment(Token &result, SourceRange Comment) {
   bool AnyPendingTokens = false;
-  for (std::vector<CommentHandler *>::iterator H = CommentHandlers.begin(),
-       HEnd = CommentHandlers.end();
-       H != HEnd; ++H) {
-    if ((*H)->HandleComment(*this, Comment))
+  for (CommentHandler *H : CommentHandlers) {
+    if (H->HandleComment(*this, Comment))
       AnyPendingTokens = true;
   }
   if (!AnyPendingTokens || getCommentRetentionState())

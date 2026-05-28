@@ -31,7 +31,8 @@ mlir::LogicalResult runCIRToCIRPasses(mlir::ModuleOp theModule,
   if (enableCIRSimplify)
     pm.addPass(mlir::createCIRSimplifyPass());
 
-  pm.addPass(mlir::createLoweringPreparePass());
+  pm.addPass(mlir::createCXXABILoweringPass());
+  pm.addPass(mlir::createLoweringPreparePass(&astContext));
 
   pm.enableVerifier(enableVerifier);
   (void)mlir::applyPassManagerCLOptions(pm);
@@ -45,6 +46,7 @@ namespace mlir {
 void populateCIRPreLoweringPasses(OpPassManager &pm) {
   pm.addPass(createHoistAllocasPass());
   pm.addPass(createCIRFlattenCFGPass());
+  pm.addPass(createGotoSolverPass());
 }
 
 } // namespace mlir

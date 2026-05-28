@@ -1,4 +1,4 @@
-/*	$NetBSD: socketvar.h,v 1.165.4.1 2024/02/04 11:20:15 martin Exp $	*/
+/*	$NetBSD: socketvar.h,v 1.171 2025/04/07 21:02:19 andvar Exp $	*/
 
 /*-
  * Copyright (c) 2008, 2009 The NetBSD Foundation, Inc.
@@ -237,7 +237,7 @@ do {									\
 		(sb)->sb_mbtail = NULL;					\
 		(sb)->sb_lastrecord = NULL;				\
 	}								\
-} while (/*CONSTCOND*/0)
+} while (0)
 
 extern u_long		sb_max;
 extern int		somaxkva;
@@ -571,11 +571,11 @@ void	soloanfree(struct mbuf *, void *, size_t, void *);
  *      that should be delivered in their entirety, or not at all.
  *
  * SB_PRIO_OVERDRAFT:  allow a small (2*MLEN) overflow, over and
- *	aboce normal socket limits. Intended messages indicating
+ *	above normal socket limits. Intended messages indicating
  *      buffer overflow in earlier normal/lower-priority messages .
  *
  * SB_PRIO_BESTEFFORT: Ignore  limits entirely.  Intended only for
- * 	kernel-generated messages to specially-marked scokets which
+ * 	kernel-generated messages to specially-marked sockets which
  *	require "reliable" delivery, nd where the source socket/protocol
  *	message generator enforce some hard limit (but possibly well
  *	above kern.sbmax). It is entirely up to the in-kernel source to

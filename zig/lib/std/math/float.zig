@@ -4,6 +4,68 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
+/// A namespace for functions that deal with floats that provide greater than
+/// double precision (`f80`, `f128`, `c_longdouble`). Commonly referred to as
+/// `long double` in C.
+pub const long_double = struct {
+    const U80 = @Int(.unsigned, 80);
+
+    inline fn bitWidth(x: anytype) u16 {
+        const T = @TypeOf(x);
+        return switch (T) {
+            f80, f128, c_longdouble => @typeInfo(T).float.bits,
+            else => @compileError("Unsupported type: " ++ @typeName(T) ++ "\nPass a `f80`, `f128`, or `c_longdouble`."),
+        };
+    }
+
+    /// Returns the sign + exponent bits of a `long double`.
+    pub fn signExponent(x: anytype) u16 {
+        const bit_width = bitWidth(x);
+        switch (bit_width) {
+            80 => {
+                const bits: U80 = @bitCast(x);
+                return @intCast(bits >> 64);
+            },
+            128 => {
+                const bits: u128 = @bitCast(x);
+                return @intCast(bits >> 112);
+            },
+            // `c_longdouble` can have <80 bits on some targets, we want to error on that
+            else => @compileError(std.fmt.comptimePrint("`signExponent` supports floats of only `80` and `128` bit width, got bit width: {d}", .{bit_width})),
+        }
+    }
+
+    test "signExponent" {
+        try expectEqual(signExponent(@as(f80, -0.0)), 0x8000);
+        try expectEqual(signExponent(@as(f128, 0.0)), 0x0000);
+        try expectEqual(signExponent(@as(f128, 42.0)), 0x4004);
+        try expectEqual(signExponent(nan(c_longdouble)), 0x7FFF);
+    }
+
+    /// Takes the top 16 bits of a `long double`'s mantissa.
+    pub fn mantissaTop(x: anytype) u16 {
+        const bit_width = bitWidth(x);
+        switch (bit_width) {
+            80 => {
+                const bits: U80 = @bitCast(x);
+                return @intCast((bits >> 48) & 0xFFFF);
+            },
+            128 => {
+                const bits: u128 = @bitCast(x);
+                return @intCast((bits >> 96) & 0xFFFF);
+            },
+            // `c_longdouble` can have <80 bits on some targets, we want to error on that
+            else => @compileError(std.fmt.comptimePrint("`mantissaTop` supports floats of only `80` and `128` bit width, got bit width: {d}", .{bit_width})),
+        }
+    }
+
+    test "mantissaTop" {
+        try expectEqual(mantissaTop(@as(f80, -0.0)), 0x0000);
+        try expectEqual(mantissaTop(nan(f128)), 0x8000);
+        try expectEqual(mantissaTop(@as(f128, 42.0)), 0x5000);
+    }
+};
+
 pub fn FloatRepr(comptime Float: type) type {
     const fractional_bits = floatFractionalBits(Float);
     const exponent_bits = floatExponentBits(Float);

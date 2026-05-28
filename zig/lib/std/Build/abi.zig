@@ -266,7 +266,7 @@ pub const fuzz = struct {
                 .comptime_int => x,
                 .bool => @intFromBool(x),
                 .@"enum" => @intFromEnum(x),
-                else => @as(std.meta.Int(.unsigned, @bitSizeOf(T)), @bitCast(x)),
+                else => @as(@Int(.unsigned, @bitSizeOf(T)), @bitCast(x)),
 
                 .int => |i| x: {
                     comptime {

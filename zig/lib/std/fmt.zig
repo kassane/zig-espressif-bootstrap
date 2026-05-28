@@ -433,7 +433,7 @@ fn parseIntWithSign(
     // accumulate into Accumulate which is always 8 bits or larger.  this prevents
     // `buf_base` from overflowing Result.
     const info = @typeInfo(Result);
-    const Accumulate = std.meta.Int(info.int.signedness, @max(8, info.int.bits));
+    const Accumulate = @Int(info.int.signedness, @max(8, info.int.bits));
     var accumulate: Accumulate = 0;
 
     if (buf_start[0] == '_' or buf_start[buf_start.len - 1] == '_') return error.InvalidCharacter;
@@ -542,7 +542,7 @@ pub fn parseIntSizeSuffix(buf: []const u8, digit_base: u8) ParseIntError!usize {
     }
     const multiplier = math.powi(usize, magnitude_base, orders_of_magnitude) catch |err| switch (err) {
         error.Underflow => unreachable,
-        error.Overflow => return error.Overflow,
+        error.Overflow => |e| return e,
     };
     const number = try std.fmt.parseInt(usize, without_suffix, digit_base);
     return math.mul(usize, number, multiplier);
@@ -600,11 +600,6 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErro
         error.WriteFailed => return error.NoSpaceLeft,
     };
     return w.buffered();
-}
-
-/// Deprecated in favor of `bufPrintSentinel`
-pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![:0]u8 {
-    return try bufPrintSentinel(buf, fmt, args, 0);
 }
 
 pub fn bufPrintSentinel(
@@ -1194,8 +1189,12 @@ test bytesToHex {
 }
 
 test hexToBytes {
+    const repeated: []const u8 = repeated: {
+        const buf: [32][2]u8 = @splat("90".*);
+        break :repeated @ptrCast(&buf);
+    };
     var buf: [32]u8 = undefined;
-    try expectFmt("90" ** 32, "{X}", .{try hexToBytes(&buf, "90" ** 32)});
+    try expectFmt(repeated, "{X}", .{try hexToBytes(&buf, repeated)});
     try expectFmt("ABCD", "{X}", .{try hexToBytes(&buf, "ABCD")});
     try expectFmt("", "{X}", .{try hexToBytes(&buf, "")});
     try std.testing.expectError(error.InvalidCharacter, hexToBytes(&buf, "012Z"));
@@ -1342,9 +1341,9 @@ pub const hex_charset = "0123456789abcdef";
 
 /// Converts an unsigned integer of any multiple of u8 to an array of lowercase
 /// hex bytes, little endian.
-pub fn hex(x: anytype) [@sizeOf(@TypeOf(x)) * 2]u8 {
+pub fn hex(x: anytype) [@typeInfo(@TypeOf(x)).int.bits / 4]u8 {
     comptime assert(@typeInfo(@TypeOf(x)).int.signedness == .unsigned);
-    var result: [@sizeOf(@TypeOf(x)) * 2]u8 = undefined;
+    var result: [@typeInfo(@TypeOf(x)).int.bits / 4]u8 = undefined;
     var i: usize = 0;
     while (i < result.len / 2) : (i += 1) {
         const byte: u8 = @truncate(x >> @intCast(8 * i));
@@ -1359,6 +1358,11 @@ test hex {
         const x = hex(@as(u32, 0xdeadbeef));
         try std.testing.expect(x.len == 8);
         try std.testing.expectEqualStrings("efbeadde", &x);
+    }
+    {
+        const s = "[" ++ hex(@as(u48, 0x12345678_abcd)) ++ "]";
+        try std.testing.expect(s.len == 14);
+        try std.testing.expectEqualStrings("[cdab78563412]", s);
     }
     {
         const s = "[" ++ hex(@as(u64, 0x12345678_abcdef00)) ++ "]";

@@ -19,14 +19,14 @@ pub fn any(self: *Decoder, comptime T: type) !T {
 
     const tag = Tag.fromZig(T).toExpected();
     switch (@typeInfo(T)) {
-        .@"struct" => {
+        .@"struct" => |info| {
             const ele = try self.element(tag);
             defer self.index = ele.slice.end; // don't force parsing all fields
 
             var res: T = undefined;
 
-            inline for (std.meta.fields(T)) |f| {
-                self.field_tag = FieldTag.fromContainer(T, f.name);
+            inline for (info.field_names, info.field_types, info.field_attrs) |f_name, f_type, f_attrs| {
+                self.field_tag = FieldTag.fromContainer(T, f_name);
 
                 if (self.field_tag) |ft| {
                     if (ft.explicit) {
@@ -36,15 +36,15 @@ pub fn any(self: *Decoder, comptime T: type) !T {
                     }
                 }
 
-                @field(res, f.name) = self.any(f.type) catch |err| brk: {
-                    if (f.defaultValue()) |d| {
+                @field(res, f_name) = self.any(f_type) catch |err| brk: {
+                    if (f_attrs.defaultValue(f_type)) |d| {
                         break :brk d;
                     }
                     return err;
                 };
                 // DER encodes null values by skipping them.
-                if (@typeInfo(f.type) == .optional and @field(res, f.name) == null) {
-                    if (f.defaultValue()) |d| @field(res, f.name) = d;
+                if (@typeInfo(f_type) == .optional and @field(res, f_name) == null) {
+                    if (f_attrs.defaultValue(f_type)) |d| @field(res, f_name) = d;
                 }
             }
 

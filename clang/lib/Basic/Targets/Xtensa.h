@@ -90,7 +90,7 @@ public:
     WIntType = UnsignedInt;
     UseZeroLengthBitfieldAlignment = true;
     MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 32;
-    resetDataLayout("e-m:e-p:32:32-v1:8:8-i64:64-i128:128-n32");
+    resetDataLayout();
   }
 
   virtual void getTargetDefines(const LangOptions &Opts,

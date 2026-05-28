@@ -1,4 +1,4 @@
-/*	$NetBSD: asm.h,v 1.44 2020/04/25 15:26:17 bouyer Exp $	*/
+/*	$NetBSD: asm.h,v 1.47 2025/01/05 16:53:26 riastradh Exp $	*/
 
 /*-
  * Copyright (c) 1990 The Regents of the University of California.
@@ -181,11 +181,19 @@
 #define	ASMSTR		.asciz
 
 #ifdef __ELF__
-#define RCSID(x)	.pushsection ".ident","MS",@progbits,1;		\
-			.asciz x;					\
+#define _IDENTSTR(x)	.pushsection ".ident","MS",@progbits,1;		\
+			x;						\
 			.popsection
 #else
-#define RCSID(x)	.text; .asciz x
+#define _IDENTSTR(x)	.text; x
+#endif
+#ifdef _NETBSD_REVISIONID
+#define	RCSID(_s)							      \
+	_IDENTSTR(.asciz _s);						      \
+	_IDENTSTR(.ascii "$"; .ascii "NetBSD: "; .ascii __FILE__; .ascii " "; \
+	    .ascii _NETBSD_REVISIONID; .asciz " $")
+#else
+#define	RCSID(_s)	_IDENTSTR(.asciz _s)
 #endif
 
 #ifdef NO_KERNEL_RCSIDS

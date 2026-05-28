@@ -54,7 +54,7 @@ pub const EXC = enum(exception_type_t) {
 
     _,
 
-    pub const TYPES_COUNT = @typeInfo(EXC).@"enum".fields.len;
+    pub const TYPES_COUNT = @typeInfo(EXC).@"enum".field_names.len;
     pub const SOFT_SIGNAL = 0x10003;
 
     pub const MASK = packed struct(u32) {

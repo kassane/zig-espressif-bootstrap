@@ -1,4 +1,4 @@
-/*	$NetBSD: asm.h,v 1.34 2020/04/17 14:19:43 joerg Exp $	*/
+/*	$NetBSD: asm.h,v 1.37 2025/01/06 10:46:44 martin Exp $	*/
 
 /*-
  * Copyright (c) 1997 The NetBSD Foundation, Inc.
@@ -122,7 +122,7 @@
 
 /*
  * The m68k ALTENTRY macro is very different than the traditional
- * implementation used by other NetBSD ports.  Usually ALTENTRY 
+ * implementation used by other NetBSD ports.  Usually ALTENTRY
  * simply provides an alternate function entry point.  The m68k
  * definition takes a second argument and jumps inside the second
  * function when profiling is enabled.
@@ -139,9 +139,18 @@
 #define ALTENTRY(name, rname)	_ENTRY(_C_LABEL(name))
 #endif
 
+#ifdef _NETBSD_REVISIONID
+#define RCSID(x)	.pushsection ".ident","MS",@progbits,1;		\
+			.asciz x;					\
+			.ascii "$"; .ascii "NetBSD: "; .ascii __FILE__;	\
+			.ascii " "; .ascii _NETBSD_REVISIONID;		\
+			.asciz " $";					\
+			.popsection
+#else
 #define RCSID(x)	.pushsection ".ident","MS",@progbits,1;		\
 			.asciz x;					\
 			.popsection
+#endif
 
 /*
  * Global variables of whatever sort.

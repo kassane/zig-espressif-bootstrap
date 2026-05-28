@@ -1,4 +1,4 @@
-/* $NetBSD: cpu.h,v 1.48.2.1 2024/10/13 10:43:11 martin Exp $ */
+/* $NetBSD: cpu.h,v 1.53 2024/12/30 19:17:21 jmcneill Exp $ */
 
 /*-
  * Copyright (c) 2014, 2020 The NetBSD Foundation, Inc.
@@ -99,6 +99,21 @@ struct aarch64_cache_info {
 	struct aarch64_cache_unit dcache;
 };
 
+struct aarch64_low_power_idle {
+	uint32_t min_res;		/* minimum residency */
+	uint32_t wakeup_latency;	/* worst case */
+	uint32_t save_restore_flags;
+#define LPI_SAVE_RESTORE_CORE	__BIT(0)
+#define LPI_SAVE_RESTORE_TRACE	__BIT(1)
+#define LPI_SAVE_RESTORE_GICR	__BIT(2)
+#define LPI_SAVE_RESTORE_GICD	__BIT(3)
+	uint32_t reg_addr;
+#define LPI_REG_ADDR_WFI	0xffffffff
+
+	char *name;
+	struct evcnt events;
+};
+
 struct cpu_info {
 	struct cpu_data ci_data;
 	device_t ci_dev;
@@ -166,12 +181,18 @@ struct cpu_info {
 	/* ACPI */
 	uint32_t ci_acpiid;	/* ACPI Processor Unique ID */
 
+	/* ACPI low power idle */
+	uint32_t ci_nlpi;
+	struct aarch64_low_power_idle *ci_lpi;
+	uint64_t ci_last_idle;
+
 	/* cached system registers */
 	uint64_t ci_sctlr_el1;
 	uint64_t ci_sctlr_el2;
 
 	/* sysctl(9) exposed system registers */
 	struct aarch64_sysctl_cpu_id ci_id;
+#define ci_midr		ci_id.ac_midr
 
 	/* cache information and function pointers */
 	struct aarch64_cache_info ci_cacheinfo[MAX_CACHE_LEVEL];
@@ -243,10 +264,14 @@ static inline void
 cpu_dosoftints(void)
 {
 #if defined(__HAVE_FAST_SOFTINTS) && !defined(__HAVE_PIC_FAST_SOFTINTS)
+	KDASSERT(kpreempt_disabled());
 	cpu_dosoftints_ci(curcpu());
 #endif
 }
 
+struct cpufeature_attach_args {
+	struct cpu_info *ci;
+};
 
 #endif /* _KERNEL */
 

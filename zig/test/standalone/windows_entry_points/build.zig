@@ -139,4 +139,75 @@ pub fn build(b: *std.Build) void {
         _ = exe.getEmittedBin();
         test_step.dependOn(&exe.step);
     }
+
+    const load_dll_exe = b.addExecutable(.{ .name = "load_dll", .root_module = b.createModule(.{
+        .root_source_file = b.path("loaddll.zig"),
+        .target = target,
+        .optimize = .Debug,
+    }) });
+
+    {
+        const dll = b.addLibrary(.{
+            .name = "zig_dllmain",
+            .linkage = .dynamic,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("dllmain.zig"),
+                .target = target,
+                .optimize = .Debug,
+            }),
+        });
+
+        const run = b.addRunArtifact(load_dll_exe);
+        run.addArtifactArg(dll);
+        run.expectStdErrEqual("hello from DllMain");
+        run.expectStdOutEqual("");
+        run.expectExitCode(0);
+        run.skip_foreign_checks = true;
+
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const dll = b.addLibrary(.{
+            .name = "zig_dllmain_link_libc",
+            .linkage = .dynamic,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("dllmain.zig"),
+                .target = target,
+                .optimize = .Debug,
+                .link_libc = true,
+            }),
+        });
+
+        const run = b.addRunArtifact(load_dll_exe);
+        run.addArtifactArg(dll);
+        run.expectStdErrEqual("hello from DllMain");
+        run.expectStdOutEqual("");
+        run.expectExitCode(0);
+        run.skip_foreign_checks = true;
+
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const dll = b.addLibrary(.{
+            .name = "c_dllmain",
+            .linkage = .dynamic,
+            .root_module = b.createModule(.{
+                .target = target,
+                .optimize = .Debug,
+                .link_libc = true,
+            }),
+        });
+        dll.root_module.addCSourceFile(.{ .file = b.path("dllmain.c") });
+
+        const run = b.addRunArtifact(load_dll_exe);
+        run.addArtifactArg(dll);
+        run.expectStdErrEqual("hello from DllMain");
+        run.expectStdOutEqual("");
+        run.expectExitCode(0);
+        run.skip_foreign_checks = true;
+
+        test_step.dependOn(&run.step);
+    }
 }

@@ -615,7 +615,7 @@ const inv_ntt_reductions = [_]i16{
 test "invNTTReductions bounds" {
     // Checks whether the reductions proposed by invNTTReductions
     // don't overflow during invNTT().
-    var xs = [_]i32{1} ** 256; // start at |x| ≤ q
+    var xs: [256]i32 = @splat(1); // start at |x| ≤ q
 
     var r: usize = 0;
     var layer: math.Log2Int(usize) = 1;
@@ -797,7 +797,7 @@ const Poly = struct {
     cs: [N]i16,
 
     const encoded_length = N / 2 * 3;
-    const zero: Poly = .{ .cs = .{0} ** N };
+    const zero: Poly = .{ .cs = @splat(0) };
 
     // Add two polynomials (coefficients not normalized)
     fn add(a: Poly, b: Poly) Poly {
@@ -1011,7 +1011,7 @@ const Poly = struct {
 
         const out_length: usize = comptime @divTrunc(N * d, 8);
         comptime assert(out_length * 8 == d * N);
-        var out = [_]u8{0} ** out_length;
+        var out: [out_length]u8 = @splat(0);
 
         while (in_off < N) {
             // First we compress into in.
@@ -1456,8 +1456,6 @@ fn randPolyNormalized(rnd: anytype) Poly {
 }
 
 test "MulHat" {
-    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
-
     var rnd = RndGen.init(0);
 
     for (0..100) |_| {
@@ -1612,8 +1610,6 @@ test "Polynomial packing" {
 }
 
 test "Test inner PKE" {
-    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
-
     var seed: [32]u8 = undefined;
     var pt: [32]u8 = undefined;
     for (&seed, &pt, 0..) |*s, *p, i| {
@@ -1635,8 +1631,6 @@ test "Test inner PKE" {
 }
 
 test "Test happy flow" {
-    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
-
     var seed: [64]u8 = undefined;
     for (&seed, 0..) |*s, i| {
         s.* = @as(u8, @intCast(i));
@@ -1661,23 +1655,14 @@ test "Test happy flow" {
 // Code to test NIST Known Answer Tests (KAT), see PQCgenKAT.c.
 
 test "NIST KAT test d00.Kyber512" {
-    if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest;
-    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
-
     try testNistKat(d00.Kyber512, "e9c2bd37133fcb40772f81559f14b1f58dccd1c816701be9ba6214d43baf4547");
 }
 
 test "NIST KAT test d00.Kyber1024" {
-    if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest;
-    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
-
     try testNistKat(d00.Kyber1024, "89248f2f33f7f4f7051729111f3049c409a933ec904aedadf035f30fa5646cd5");
 }
 
 test "NIST KAT test d00.Kyber768" {
-    if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest;
-    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
-
     try testNistKat(d00.Kyber768, "a1e122cad3c24bc51622e4c242d8b8acbcd3f618fee4220400605ca8f9ea02c2");
 }
 
@@ -1725,15 +1710,8 @@ const NistDRBG = struct {
     v: [16]u8,
 
     fn incV(g: *NistDRBG) void {
-        var j: usize = 15;
-        while (j >= 0) : (j -= 1) {
-            if (g.v[j] == 255) {
-                g.v[j] = 0;
-            } else {
-                g.v[j] += 1;
-                break;
-            }
-        }
+        const val = std.mem.readInt(u128, &g.v, .big);
+        std.mem.writeInt(u128, &g.v, val +% 1, .big);
     }
 
     // AES256_CTR_DRBG_Update(pd, &g.key, &g.v).
@@ -1776,7 +1754,7 @@ const NistDRBG = struct {
     }
 
     fn init(seed: [48]u8) NistDRBG {
-        var ret: NistDRBG = .{ .key = .{0} ** 32, .v = .{0} ** 16 };
+        var ret: NistDRBG = .{ .key = @splat(0), .v = @splat(0) };
         ret.update(seed);
         return ret;
     }
@@ -1816,7 +1794,7 @@ fn modularInverse(comptime T: type, comptime a: T, comptime p: T) T {
     // Use a signed type for EEA computation
     const type_info = @typeInfo(T);
     const SignedT = if (type_info == .int and type_info.int.signedness == .unsigned)
-        std.meta.Int(.signed, type_info.int.bits)
+        @Int(.signed, type_info.int.bits)
     else
         T;
 
@@ -1839,7 +1817,7 @@ fn modularInverse(comptime T: type, comptime a: T, comptime p: T) T {
 fn modularPow(comptime T: type, comptime a: T, s: T, comptime p: T) T {
     const type_info = @typeInfo(T);
     const bits = type_info.int.bits;
-    const WideT = std.meta.Int(.unsigned, bits * 2);
+    const WideT = @Int(.unsigned, bits * 2);
 
     var ret: T = 1;
     var base: T = a;
@@ -1868,14 +1846,14 @@ fn bitMask(comptime T: type, bit: T) T {
 
 /// Creates a mask from the sign bit of a signed integer.
 /// Returns all 1s (0xFF...FF) if x < 0, all 0s if x >= 0.
-fn signMask(comptime T: type, x: T) std.meta.Int(.unsigned, @typeInfo(T).int.bits) {
+fn signMask(comptime T: type, x: T) @Int(.unsigned, @typeInfo(T).int.bits) {
     const type_info = @typeInfo(T);
     if (type_info != .int) {
         @compileError("signMask requires an integer type");
     }
 
     const bits = type_info.int.bits;
-    const SignedT = std.meta.Int(.signed, bits);
+    const SignedT = @Int(.signed, bits);
 
     // Convert to signed if needed, arithmetic right shift to propagate sign bit
     const x_signed: SignedT = if (type_info.int.signedness == .signed) x else @bitCast(x);
@@ -1920,8 +1898,8 @@ fn montgomeryReduce(
     const m: OutT = @truncate(m_full);
 
     const yR = x -% @as(InT, m) * @as(InT, q);
-    const y_shifted = @as(std.meta.Int(.unsigned, @typeInfo(InT).Int.bits), @bitCast(yR)) >> r_bits;
-    return @bitCast(@as(std.meta.Int(.unsigned, @typeInfo(OutT).Int.bits), @truncate(y_shifted)));
+    const y_shifted = @as(@Int(.unsigned, @typeInfo(InT).Int.bits), @bitCast(yR)) >> r_bits;
+    return @bitCast(@as(@Int(.unsigned, @typeInfo(OutT).Int.bits), @truncate(y_shifted)));
 }
 
 /// Uniform sampling using SHAKE-128 with rejection sampling.

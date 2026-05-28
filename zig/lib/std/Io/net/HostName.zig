@@ -76,9 +76,14 @@ test validate {
     try validate("a-b.com");
     try validate("a.b.c.d.e.f.g");
     try validate("127.0.0.1"); // Also a valid hostname
-    try validate("a" ** 63 ++ ".com"); // Label exactly 63 chars (valid)
-    try validate("a." ** 127 ++ "a"); // Total length 255 (valid)
-    try validate("a." ** 127 ++ "a."); // Total length 255 + trailing dot (valid)
+
+    const many_a: [63]u8 = @splat('a');
+    try validate(&many_a ++ ".com"); // Label exactly 63 chars (valid)
+
+    const many_a_dot_buf: [127][2]u8 = @splat(.{ 'a', '.' });
+    const many_a_dot: []const u8 = @ptrCast(&many_a_dot_buf);
+    try validate(many_a_dot ++ "a"); // Total length 255 (valid)
+    try validate(many_a_dot ++ "a."); // Total length 255 + trailing dot (valid)
 
     // Invalid hostnames
     try std.testing.expectError(error.InvalidHostName, validate(""));
@@ -92,9 +97,9 @@ test validate {
     try std.testing.expectError(error.InvalidHostName, validate("host_name.com"));
     try std.testing.expectError(error.InvalidHostName, validate("."));
     try std.testing.expectError(error.InvalidHostName, validate(".."));
-    try std.testing.expectError(error.InvalidHostName, validate("a" ** 64 ++ ".com")); // Label length 64 (too long)
-    try std.testing.expectError(error.NameTooLong, validate("a." ** 127 ++ "ab")); // Total length 256 (too long)
-    try std.testing.expectError(error.NameTooLong, validate("a." ** 127 ++ "ab.")); // Total length 256 + trailing dot (too long)
+    try std.testing.expectError(error.InvalidHostName, validate(&many_a ++ "a.com")); // Label length 64 (too long)
+    try std.testing.expectError(error.NameTooLong, validate(many_a_dot ++ "ab")); // Total length 256 (too long)
+    try std.testing.expectError(error.NameTooLong, validate(many_a_dot ++ "ab.")); // Total length 256 + trailing dot (too long)
 }
 
 pub fn init(bytes: []const u8) ValidateError!HostName {

@@ -947,8 +947,9 @@ fn addImacros(d: *Driver, path: []const u8) !void {
 }
 
 pub fn err(d: *Driver, fmt: []const u8, args: anytype) Compilation.Error!void {
-    var sf = std.heap.stackFallback(1024, d.comp.gpa);
-    var allocating: std.Io.Writer.Allocating = .init(sf.get());
+    var bfa_buf: [1024]u8 = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(&bfa_buf, d.comp.gpa);
+    var allocating: std.Io.Writer.Allocating = .init(bfa.allocator());
     defer allocating.deinit();
 
     Diagnostics.formatArgs(&allocating.writer, fmt, args) catch return error.OutOfMemory;
@@ -956,8 +957,9 @@ pub fn err(d: *Driver, fmt: []const u8, args: anytype) Compilation.Error!void {
 }
 
 pub fn warn(d: *Driver, fmt: []const u8, args: anytype) Compilation.Error!void {
-    var sf = std.heap.stackFallback(1024, d.comp.gpa);
-    var allocating: std.Io.Writer.Allocating = .init(sf.get());
+    var bfa_buf: [1024]u8 = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(&bfa_buf, d.comp.gpa);
+    var allocating: std.Io.Writer.Allocating = .init(bfa.allocator());
     defer allocating.deinit();
 
     Diagnostics.formatArgs(&allocating.writer, fmt, args) catch return error.OutOfMemory;
@@ -1039,9 +1041,10 @@ fn parseTarget(d: *Driver, arch_os_abi: []const u8, opt_cpu_features: ?[]const u
         } else if (mem.eql(u8, cpu_name, "baseline")) {
             query.cpu_model = .baseline;
         } else {
-            query.cpu_model = .{ .explicit = arch.parseCpuModel(cpu_name) catch |er| switch (er) {
-                error.UnknownCpuModel => return d.fatal("unknown CPU model: '{s}'", .{cpu_name}),
-            } };
+            query.cpu_model = .{
+                .explicit = arch.parseCpuModel(cpu_name) orelse
+                    return d.fatal("unknown CPU model: '{s}'", .{cpu_name}),
+            };
         }
 
         if (opt_sub_arch) |sub_arch| {
@@ -1101,8 +1104,9 @@ fn parseTarget(d: *Driver, arch_os_abi: []const u8, opt_cpu_features: ?[]const u
 }
 
 pub fn fatal(d: *Driver, comptime fmt: []const u8, args: anytype) error{ FatalError, OutOfMemory } {
-    var sf = std.heap.stackFallback(1024, d.comp.gpa);
-    var allocating: std.Io.Writer.Allocating = .init(sf.get());
+    var bfa_buf: [1024]u8 = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(&bfa_buf, d.comp.gpa);
+    var allocating: std.Io.Writer.Allocating = .init(bfa.allocator());
     defer allocating.deinit();
 
     Diagnostics.formatArgs(&allocating.writer, fmt, args) catch return error.OutOfMemory;
@@ -1179,8 +1183,7 @@ pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_
         var stdout = std.Io.File.stdout().writer(d.comp.io, &stdout_buf);
         if (parseArgs(d, &stdout.interface, &macro_buf, args) catch |er| switch (er) {
             error.WriteFailed => return d.fatal("failed to write to stdout: {s}", .{errorDescription(er)}),
-            error.OutOfMemory => return error.OutOfMemory,
-            error.FatalError => return error.FatalError,
+            error.OutOfMemory, error.FatalError => |e| return e,
         }) return;
         if (macro_buf.items.len > std.math.maxInt(u32)) {
             return d.fatal("user provided macro source exceeded max size", .{});
@@ -1204,12 +1207,11 @@ pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_
     };
 
     tc.discover() catch |er| switch (er) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         error.TooManyMultilibs => return d.fatal("found more than one multilib with the same priority", .{}),
     };
     tc.defineSystemIncludes() catch |er| switch (er) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.FatalError => return error.FatalError,
+        error.OutOfMemory, error.FatalError => |e| return e,
     };
     try d.comp.initSearchPath(d.includes.items, d.verbose_search_path);
 
@@ -1522,8 +1524,8 @@ fn processSource(
             render_errors.deinit(gpa);
         }
 
-        var obj = ir.render(gpa, d.comp.target.toZigTarget(), &render_errors) catch |e| switch (e) {
-            error.OutOfMemory => return error.OutOfMemory,
+        var obj = ir.render(gpa, d.comp.target.toZigTarget(), &render_errors) catch |er| switch (er) {
+            error.OutOfMemory => |e| return e,
             error.LowerFail => {
                 return d.fatal(
                     "unable to render Ir to machine code: {s}",

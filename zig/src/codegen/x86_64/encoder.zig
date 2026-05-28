@@ -14,7 +14,7 @@ const Symbol = bits.Symbol;
 pub const Instruction = struct {
     prefix: Prefix = .none,
     encoding: Encoding,
-    ops: [4]Operand = .{.none} ** 4,
+    ops: [4]Operand = @splat(.none),
 
     pub const Mnemonic = Encoding.Mnemonic;
 
@@ -335,7 +335,7 @@ pub const Instruction = struct {
         var inst: Instruction = .{
             .prefix = prefix,
             .encoding = encoding,
-            .ops = [1]Operand{.none} ** 4,
+            .ops = @splat(.none),
         };
         @memcpy(inst.ops[0..ops.len], ops);
         return inst;
@@ -2272,9 +2272,9 @@ const Assembler = struct {
 
     fn mnemonicFromString(bytes: []const u8) ?Instruction.Mnemonic {
         const ti = @typeInfo(Instruction.Mnemonic).@"enum";
-        inline for (ti.fields) |field| {
-            if (std.mem.eql(u8, bytes, field.name)) {
-                return @field(Instruction.Mnemonic, field.name);
+        inline for (ti.field_names) |field_name| {
+            if (std.mem.eql(u8, bytes, field_name)) {
+                return @field(Instruction.Mnemonic, field_name);
             }
         }
         return null;
@@ -2325,9 +2325,9 @@ const Assembler = struct {
 
     fn registerFromString(bytes: []const u8) ?Register {
         const ti = @typeInfo(Register).@"enum";
-        inline for (ti.fields) |field| {
-            if (std.mem.eql(u8, bytes, field.name)) {
-                return @field(Register, field.name);
+        inline for (ti.field_names) |field_name| {
+            if (std.mem.eql(u8, bytes, field_name)) {
+                return @field(Register, field_name);
             }
         }
         return null;

@@ -311,15 +311,13 @@ const Module = struct {
 
                         // If our address points into this site, get the source location(s) it
                         // points at
-                        for (pdb.getInlineeSourceLines(
-                            module,
-                            inline_site.inlinee,
-                        )) |inlinee_src_line| {
+                        var line_iter = pdb.getInlineeSourceLines(module, inline_site.inlinee);
+                        while (line_iter.next()) |inlinee_src_line| {
                             const maybe_loc = pdb.getInlineSiteSourceLocation(
                                 text_arena,
                                 module,
                                 inline_site,
-                                inlinee_src_line.info,
+                                inlinee_src_line,
                                 offset_in_func,
                             ) catch continue;
                             const loc = maybe_loc orelse continue;
@@ -515,8 +513,8 @@ const Module = struct {
             if (coff_obj.getSectionByName(".debug_info") == null) break :dwarf null;
 
             var sections: Dwarf.SectionArray = undefined;
-            inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |section, i| {
-                sections[i] = if (coff_obj.getSectionByName("." ++ section.name)) |section_header| .{
+            inline for (@typeInfo(Dwarf.Section.Id).@"enum".field_names, 0..) |section_name, i| {
+                sections[i] = if (coff_obj.getSectionByName("." ++ section_name)) |section_header| .{
                     .data = try coff_obj.getSectionDataAlloc(section_header, arena),
                     .owned = false,
                 } else null;

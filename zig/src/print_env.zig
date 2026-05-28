@@ -8,6 +8,7 @@ const fatal = std.process.fatal;
 
 const build_options = @import("build_options");
 const Compilation = @import("Compilation.zig");
+const introspect = @import("introspect.zig");
 
 pub fn cmdEnv(
     arena: Allocator,
@@ -28,6 +29,8 @@ pub fn cmdEnv(
         },
     };
 
+    const cwd_path = try introspect.getResolvedCwd(io, arena);
+
     var dirs: Compilation.Directories = .init(
         arena,
         io,
@@ -37,6 +40,7 @@ pub fn cmdEnv(
         preopens,
         if (builtin.target.os.tag != .wasi) self_exe_path,
         environ_map,
+        cwd_path,
     );
     defer dirs.deinit(io);
 
@@ -55,8 +59,8 @@ pub fn cmdEnv(
     try root.field("version", build_options.version, .{});
     try root.field("target", triple, .{});
     var env = try root.beginStructField("env", .{});
-    inline for (@typeInfo(EnvVar).@"enum".fields) |field| {
-        try env.field(field.name, @field(EnvVar, field.name).get(environ_map), .{});
+    inline for (@typeInfo(EnvVar).@"enum".field_names) |field_name| {
+        try env.field(field_name, @field(EnvVar, field_name).get(environ_map), .{});
     }
     try env.end();
     try root.end();

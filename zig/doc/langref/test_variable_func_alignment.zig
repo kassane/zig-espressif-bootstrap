@@ -3,7 +3,7 @@ const expectEqual = @import("std").testing.expectEqual;
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    try expectEqual(4, @typeInfo(@TypeOf(&foo)).pointer.alignment);
+    try expectEqual(4, @typeInfo(@TypeOf(&foo)).pointer.attrs.@"align");
     try expectEqual(*align(4) u8, @TypeOf(&foo));
     const as_pointer_to_array: *align(4) [1]u8 = &foo;
     const as_slice: []align(4) u8 = as_pointer_to_array;

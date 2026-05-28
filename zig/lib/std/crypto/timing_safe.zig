@@ -21,8 +21,8 @@ pub fn eql(comptime T: type, a: T, b: T) bool {
                 acc |= x ^ b[i];
             }
             const s = @typeInfo(C).int.bits;
-            const Cu = std.meta.Int(.unsigned, s);
-            const Cext = std.meta.Int(.unsigned, s + 1);
+            const Cu = @Int(.unsigned, s);
+            const Cext = @Int(.unsigned, s + 1);
             return @as(bool, @bitCast(@as(u1, @truncate((@as(Cext, @as(Cu, @bitCast(acc))) -% 1) >> s))));
         },
         .vector => |info| {
@@ -32,8 +32,8 @@ pub fn eql(comptime T: type, a: T, b: T) bool {
             }
             const acc = @reduce(.Or, a ^ b);
             const s = @typeInfo(C).int.bits;
-            const Cu = std.meta.Int(.unsigned, s);
-            const Cext = std.meta.Int(.unsigned, s + 1);
+            const Cu = @Int(.unsigned, s);
+            const Cext = @Int(.unsigned, s + 1);
             return @as(bool, @bitCast(@as(u1, @truncate((@as(Cext, @as(Cu, @bitCast(acc))) -% 1) >> s))));
         },
         else => {
@@ -50,7 +50,7 @@ pub fn compare(comptime T: type, a: []const T, b: []const T, endian: Endian) Ord
         .int => |cinfo| if (cinfo.signedness != .unsigned) @compileError("Elements to be compared must be unsigned") else cinfo.bits,
         else => @compileError("Elements to be compared must be integers"),
     };
-    const Cext = std.meta.Int(.unsigned, bits + 1);
+    const Cext = @Int(.unsigned, bits + 1);
     var gt: T = 0;
     var eq: T = 1;
     if (endian == .little) {
@@ -135,7 +135,7 @@ fn markSecret(ptr: anytype, comptime action: enum { classify, declassify }) void
     const t = @typeInfo(@TypeOf(ptr));
     if (t != .pointer) @compileError("Pointer expected - Found: " ++ @typeName(@TypeOf(ptr)));
     const p = t.pointer;
-    if (p.is_allowzero) @compileError("A nullable pointer is always assumed to leak information via side channels");
+    if (p.attrs.@"allowzero") @compileError("A nullable pointer is always assumed to leak information via side channels");
     const child = @typeInfo(p.child);
 
     switch (child) {
@@ -207,8 +207,8 @@ test "eql (vectors)" {
 
 test compare {
     const expectEqual = std.testing.expectEqual;
-    var a = [_]u8{10} ** 32;
-    var b = [_]u8{10} ** 32;
+    var a: [32]u8 = @splat(10);
+    var b: [32]u8 = @splat(10);
     try expectEqual(compare(u8, &a, &b, .big), .eq);
     try expectEqual(compare(u8, &a, &b, .little), .eq);
     a[31] = 1;
@@ -228,7 +228,7 @@ test "add and sub" {
     var a: [len]u8 = undefined;
     var b: [len]u8 = undefined;
     var c: [len]u8 = undefined;
-    const zero = [_]u8{0} ** len;
+    const zero: [len]u8 = @splat(0);
     var iterations: usize = 100;
     while (iterations != 0) : (iterations -= 1) {
         io.random(&a);
@@ -262,7 +262,8 @@ test classify {
     declassify(&out);
 
     // Comparing public data in non-constant time is acceptable.
-    try expect(!std.mem.eql(u8, &out, &[_]u8{0} ** out.len));
+    const zeroes: [out.len]u8 = @splat(0);
+    try expect(!std.mem.eql(u8, &out, &zeroes));
 
     // Comparing secret data must be done in constant time. The result
     // is going to be considered as secret as well.

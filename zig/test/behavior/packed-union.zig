@@ -219,3 +219,9 @@ test "packed union equality" {
     try S.doTest(x, y);
     comptime try S.doTest(x, y);
 }
+
+test "initialize packed union field to undefined at comptime" {
+    const U = packed union(u8) { x: u8 };
+    const val: U = .{ .x = undefined };
+    _ = val;
+}

@@ -15,8 +15,8 @@ fully_qualified_name: []const u8,
 deps: Deps = .{},
 
 resolved_target: ResolvedTarget,
-optimize_mode: std.builtin.OptimizeMode,
-code_model: std.builtin.CodeModel,
+optimize_mode: std.lang.OptimizeMode,
+code_model: std.lang.CodeModel,
 single_threaded: bool,
 error_tracing: bool,
 valgrind: bool,
@@ -29,7 +29,7 @@ red_zone: bool,
 sanitize_c: std.zig.SanitizeC,
 sanitize_thread: bool,
 fuzz: bool,
-unwind_tables: std.builtin.UnwindTables,
+unwind_tables: std.lang.UnwindTables,
 cc_argv: []const []const u8,
 /// (SPIR-V) whether to generate a structured control flow graph or not
 structured_cfg: bool,
@@ -61,8 +61,8 @@ pub const CreateOptions = struct {
     pub const Inherited = struct {
         /// If this is null then `parent` must be non-null.
         resolved_target: ?ResolvedTarget = null,
-        optimize_mode: ?std.builtin.OptimizeMode = null,
-        code_model: ?std.builtin.CodeModel = null,
+        optimize_mode: ?std.lang.OptimizeMode = null,
+        code_model: ?std.lang.CodeModel = null,
         single_threaded: ?bool = null,
         error_tracing: ?bool = null,
         valgrind: ?bool = null,
@@ -75,7 +75,7 @@ pub const CreateOptions = struct {
         /// other number means stack protection with that buffer size.
         stack_protector: ?u32 = null,
         red_zone: ?bool = null,
-        unwind_tables: ?std.builtin.UnwindTables = null,
+        unwind_tables: ?std.lang.UnwindTables = null,
         sanitize_c: ?std.zig.SanitizeC = null,
         sanitize_thread: ?bool = null,
         fuzz: ?bool = null,
@@ -238,7 +238,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         break :b false;
     };
 
-    const code_model: std.builtin.CodeModel = b: {
+    const code_model: std.lang.CodeModel = b: {
         if (options.inherited.code_model) |x| break :b x;
         if (options.parent) |p| break :b p.code_model;
         break :b .default;
@@ -346,6 +346,9 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
                 // Ignore these until we figure out how to handle the concept of omitting features.
                 // See https://github.com/ziglang/zig/issues/23539
                 if (target_util.isDynamicAMDGCNFeature(target, feature)) continue;
+
+                if (target.cpu.arch.isPowerPC() and @as(std.Target.powerpc.Feature, @enumFromInt(feature.index)) == .@"64bit") continue;
+                if (target.cpu.arch.isX86() and @as(std.Target.x86.Feature, @enumFromInt(feature.index)) == .x32) continue;
 
                 var is_enabled = target.cpu.features.isEnabled(feature.index);
                 if (target.cpu.arch == .s390x and @as(std.Target.s390x.Feature, @enumFromInt(feature.index)) == .backchain) {

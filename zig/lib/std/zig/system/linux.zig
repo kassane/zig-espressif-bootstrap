@@ -70,12 +70,16 @@ const RiscvCpuinfoImpl = struct {
     model: ?*const Target.Cpu.Model = null,
 
     const cpu_names = .{
+        .{ "andestech,ax45mp", &Target.riscv.cpu.andes_ax45 },
+        .{ "sifive,p550", &Target.riscv.cpu.sifive_p550 },
         .{ "sifive,u54", &Target.riscv.cpu.sifive_u54 },
         .{ "sifive,u54-mc", &Target.riscv.cpu.sifive_u54 },
         .{ "sifive,u7", &Target.riscv.cpu.sifive_7_series },
         .{ "sifive,u74", &Target.riscv.cpu.sifive_u74 },
         .{ "sifive,u74-mc", &Target.riscv.cpu.sifive_u74 },
+        .{ "sifive,x280", &Target.riscv.cpu.sifive_x280 },
         .{ "spacemit,x60", &Target.riscv.cpu.spacemit_x60 },
+        .{ "spacemit,x100", &Target.riscv.cpu.spacemit_x100 },
     };
 
     fn line_hook(self: *RiscvCpuinfoImpl, key: []const u8, value: []const u8) !bool {

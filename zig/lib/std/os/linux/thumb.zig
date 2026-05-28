@@ -5,9 +5,14 @@
 //! to break the frame chain.
 const std = @import("../../std.zig");
 const SYS = std.os.linux.SYS;
+const arm = @import("arm.zig");
 
-pub fn syscall0(number: SYS) u32 {
-    var buf: [2]u32 = .{ @intFromEnum(number), undefined };
+pub const syscall_arg_t = arm.syscall_arg_t;
+
+pub fn syscall0(
+    number: SYS,
+) u32 {
+    var buf: [2]syscall_arg_t = .{ @intFromEnum(number), undefined };
     return asm volatile (
         \\ str r7, [%[tmp], #4]
         \\ ldr r7, [%[tmp]]
@@ -18,8 +23,11 @@ pub fn syscall0(number: SYS) u32 {
         : .{ .memory = true });
 }
 
-pub fn syscall1(number: SYS, arg1: u32) u32 {
-    var buf: [2]u32 = .{ @intFromEnum(number), undefined };
+pub fn syscall1(
+    number: SYS,
+    arg1: syscall_arg_t,
+) u32 {
+    var buf: [2]syscall_arg_t = .{ @intFromEnum(number), undefined };
     return asm volatile (
         \\ str r7, [%[tmp], #4]
         \\ ldr r7, [%[tmp]]
@@ -31,8 +39,12 @@ pub fn syscall1(number: SYS, arg1: u32) u32 {
         : .{ .memory = true });
 }
 
-pub fn syscall2(number: SYS, arg1: u32, arg2: u32) u32 {
-    var buf: [2]u32 = .{ @intFromEnum(number), undefined };
+pub fn syscall2(
+    number: SYS,
+    arg1: syscall_arg_t,
+    arg2: syscall_arg_t,
+) u32 {
+    var buf: [2]syscall_arg_t = .{ @intFromEnum(number), undefined };
     return asm volatile (
         \\ str r7, [%[tmp], #4]
         \\ ldr r7, [%[tmp]]
@@ -45,8 +57,13 @@ pub fn syscall2(number: SYS, arg1: u32, arg2: u32) u32 {
         : .{ .memory = true });
 }
 
-pub fn syscall3(number: SYS, arg1: u32, arg2: u32, arg3: u32) u32 {
-    var buf: [2]u32 = .{ @intFromEnum(number), undefined };
+pub fn syscall3(
+    number: SYS,
+    arg1: syscall_arg_t,
+    arg2: syscall_arg_t,
+    arg3: syscall_arg_t,
+) u32 {
+    var buf: [2]syscall_arg_t = .{ @intFromEnum(number), undefined };
     return asm volatile (
         \\ str r7, [%[tmp], #4]
         \\ ldr r7, [%[tmp]]
@@ -60,8 +77,14 @@ pub fn syscall3(number: SYS, arg1: u32, arg2: u32, arg3: u32) u32 {
         : .{ .memory = true });
 }
 
-pub fn syscall4(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32) u32 {
-    var buf: [2]u32 = .{ @intFromEnum(number), undefined };
+pub fn syscall4(
+    number: SYS,
+    arg1: syscall_arg_t,
+    arg2: syscall_arg_t,
+    arg3: syscall_arg_t,
+    arg4: syscall_arg_t,
+) u32 {
+    var buf: [2]syscall_arg_t = .{ @intFromEnum(number), undefined };
     return asm volatile (
         \\ str r7, [%[tmp], #4]
         \\ ldr r7, [%[tmp]]
@@ -76,8 +99,15 @@ pub fn syscall4(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32) u32 {
         : .{ .memory = true });
 }
 
-pub fn syscall5(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32, arg5: u32) u32 {
-    var buf: [2]u32 = .{ @intFromEnum(number), undefined };
+pub fn syscall5(
+    number: SYS,
+    arg1: syscall_arg_t,
+    arg2: syscall_arg_t,
+    arg3: syscall_arg_t,
+    arg4: syscall_arg_t,
+    arg5: syscall_arg_t,
+) u32 {
+    var buf: [2]syscall_arg_t = .{ @intFromEnum(number), undefined };
     return asm volatile (
         \\ str r7, [%[tmp], #4]
         \\ ldr r7, [%[tmp]]
@@ -95,14 +125,14 @@ pub fn syscall5(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32, arg5: u
 
 pub fn syscall6(
     number: SYS,
-    arg1: u32,
-    arg2: u32,
-    arg3: u32,
-    arg4: u32,
-    arg5: u32,
-    arg6: u32,
+    arg1: syscall_arg_t,
+    arg2: syscall_arg_t,
+    arg3: syscall_arg_t,
+    arg4: syscall_arg_t,
+    arg5: syscall_arg_t,
+    arg6: syscall_arg_t,
 ) u32 {
-    var buf: [2]u32 = .{ @intFromEnum(number), undefined };
+    var buf: [2]syscall_arg_t = .{ @intFromEnum(number), undefined };
     return asm volatile (
         \\ str r7, [%[tmp], #4]
         \\ ldr r7, [%[tmp]]
@@ -119,22 +149,8 @@ pub fn syscall6(
         : .{ .memory = true });
 }
 
-pub const clone = @import("arm.zig").clone;
+pub const clone = arm.clone;
 
-pub fn restore() callconv(.naked) noreturn {
-    asm volatile (
-        \\ mov r7, %[number]
-        \\ svc #0
-        :
-        : [number] "I" (@intFromEnum(SYS.sigreturn)),
-    );
-}
+pub const restore = arm.restore;
 
-pub fn restore_rt() callconv(.naked) noreturn {
-    asm volatile (
-        \\ mov r7, %[number]
-        \\ svc #0
-        :
-        : [number] "I" (@intFromEnum(SYS.rt_sigreturn)),
-    );
-}
+pub const restore_rt = arm.restore_rt;

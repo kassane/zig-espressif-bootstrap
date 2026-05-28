@@ -85,6 +85,14 @@ test toDot {
     }
 }
 
+test "malformed OID" {
+    var empty: der.Decoder = .{ .bytes = &.{ 0x06, 0x00 } };
+    try std.testing.expectError(error.EndOfStream, decodeDer(&empty));
+
+    var truncated: der.Decoder = .{ .bytes = &.{ 0x06, 0x02, 0x2a, 0x80 } };
+    try std.testing.expectError(error.InvalidEncoding, decodeDer(&truncated));
+}
+
 const TestCase = struct {
     encoded: []const u8,
     dot_notation: []const u8,
@@ -109,7 +117,10 @@ pub const asn1_tag = asn1.Tag.init(.oid, false, .universal);
 
 pub fn decodeDer(decoder: *der.Decoder) !Oid {
     const ele = try decoder.element(asn1_tag.toExpected());
-    return Oid{ .encoded = decoder.view(ele) };
+    const encoded = decoder.view(ele);
+    if (encoded.len == 0) return error.EndOfStream;
+    if (encoded[encoded.len - 1] & 0x80 != 0) return error.InvalidEncoding;
+    return Oid{ .encoded = encoded };
 }
 
 pub fn encodeDer(self: Oid, encoder: *der.Encoder) !void {
@@ -166,27 +177,27 @@ pub fn StaticMap(comptime Enum: type) type {
         pub fn initComptime(comptime key_pairs: anytype) ReturnType {
             const struct_info = @typeInfo(@TypeOf(key_pairs)).@"struct";
             const error_msg = "Each field of '" ++ @typeName(Enum) ++ "' must map to exactly one OID";
-            if (!enum_info.is_exhaustive or enum_info.fields.len != struct_info.fields.len) {
+            if (enum_info.mode == .nonexhaustive or enum_info.field_names.len != struct_info.field_names.len) {
                 @compileError(error_msg);
             }
 
             comptime var enum_to_oid = EnumToOid.initUndefined();
 
             const KeyPair = struct { []const u8, Enum };
-            comptime var static_key_pairs: [enum_info.fields.len]KeyPair = undefined;
+            comptime var static_key_pairs: [enum_info.field_names.len]KeyPair = undefined;
 
-            comptime for (enum_info.fields, 0..) |f, i| {
-                if (!@hasField(@TypeOf(key_pairs), f.name)) {
-                    @compileError("Field '" ++ f.name ++ "' missing Oid.StaticMap entry");
+            comptime for (enum_info.field_names, enum_info.field_values, 0..) |f_name, f_value, i| {
+                if (!@hasField(@TypeOf(key_pairs), f_name)) {
+                    @compileError("Field '" ++ f_name ++ "' missing Oid.StaticMap entry");
                 }
-                const encoded = &encodeComptime(@field(key_pairs, f.name));
-                const tag: Enum = @enumFromInt(f.value);
+                const encoded = &encodeComptime(@field(key_pairs, f_name));
+                const tag: Enum = @enumFromInt(f_value);
                 static_key_pairs[i] = .{ encoded, tag };
                 enum_to_oid.set(tag, encoded);
             };
 
             const oid_to_enum = std.StaticStringMap(Enum).initComptime(static_key_pairs);
-            if (oid_to_enum.values().len != enum_info.fields.len) @compileError(error_msg);
+            if (oid_to_enum.values().len != enum_info.field_names.len) @compileError(error_msg);
 
             return ReturnType{ .oid_to_enum = oid_to_enum, .enum_to_oid = enum_to_oid };
         }

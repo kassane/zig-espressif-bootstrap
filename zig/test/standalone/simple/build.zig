@@ -108,7 +108,6 @@ const cases = [_]Case{
             .os_tag = .freestanding,
         },
     },
-    .{ .src_path = "issue_12471/main.zig" },
     .{ .src_path = "guess_number/main.zig" },
     .{ .src_path = "main_return_error/error_u8.zig" },
     .{ .src_path = "main_return_error/error_u8_non_zero.zig" },

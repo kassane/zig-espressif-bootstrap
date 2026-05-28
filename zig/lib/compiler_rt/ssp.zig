@@ -24,7 +24,7 @@ extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.c) ?[*]u8
 comptime {
     @export(&__stack_chk_fail, .{ .name = if (builtin.os.tag == .openbsd) "__stack_smash_handler" else "__stack_chk_fail", .linkage = compiler_rt.linkage, .visibility = compiler_rt.visibility });
     symbol(&__chk_fail, "__chk_fail");
-    symbol(&__stack_chk_guard, "__stack_chk_guard");
+    symbol(&__stack_chk_guard, if (builtin.os.tag == .openbsd) "__guard_local" else "__stack_chk_guard");
     symbol(&__strcpy_chk, "__strcpy_chk");
     symbol(&__strncpy_chk, "__strncpy_chk");
     symbol(&__strcat_chk, "__strcat_chk");
@@ -44,10 +44,10 @@ fn __chk_fail() callconv(.c) noreturn {
 
 // TODO: Initialize the canary with random data
 var __stack_chk_guard: usize = blk: {
-    var buf = [1]u8{0} ** @sizeOf(usize);
+    var buf: [@sizeOf(usize)]u8 = @splat(0);
     buf[@sizeOf(usize) - 1] = 255;
     buf[@sizeOf(usize) - 2] = '\n';
-    break :blk @as(usize, @bitCast(buf));
+    break :blk @bitCast(buf);
 };
 
 fn __strcpy_chk(dest: [*:0]u8, src: [*:0]const u8, dest_n: usize) callconv(.c) [*:0]u8 {

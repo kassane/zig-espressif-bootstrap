@@ -5,8 +5,8 @@ pub fn renderToWriter(zoir: Zoir, arena: Allocator, w: *Writer) Error!void {
 
     const bytes_per_node = comptime n: {
         var n: usize = 0;
-        for (@typeInfo(Zoir.Node.Repr).@"struct".fields) |f| {
-            n += @sizeOf(f.type);
+        for (@typeInfo(Zoir.Node.Repr).@"struct".field_types) |f_type| {
+            n += @sizeOf(f_type);
         }
         break :n n;
     };

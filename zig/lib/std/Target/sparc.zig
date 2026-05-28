@@ -5,6 +5,7 @@ const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
+    @"64bit",
     crypto,
     deprecated_v8,
     detectroundchange,
@@ -23,6 +24,7 @@ pub const Feature = enum {
     leonpwrpsr,
     no_fmuls,
     no_fsmuld,
+    no_predictor,
     osa2011,
     popc,
     reserve_g1,
@@ -70,9 +72,16 @@ pub const featureSetHasAny = CpuFeature.FeatureSetFns(Feature).featureSetHasAny;
 pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
-    const len = @typeInfo(Feature).@"enum".fields.len;
+    const len = @typeInfo(Feature).@"enum".field_names.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
+    result[@intFromEnum(Feature.@"64bit")] = .{
+        .llvm_name = "64bit",
+        .description = "Enable 64-bit mode",
+        .dependencies = featureSet(&[_]Feature{
+            .v9,
+        }),
+    };
     result[@intFromEnum(Feature.crypto)] = .{
         .llvm_name = "crypto",
         .description = "Enable cryptographic extensions",
@@ -163,6 +172,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.no_fsmuld)] = .{
         .llvm_name = "no-fsmuld",
         .description = "Disable the fsmuld instruction.",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.no_predictor)] = .{
+        .llvm_name = "no-predictor",
+        .description = "Processor has no branch predictor, branches stall execution",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.osa2011)] = .{
@@ -381,7 +395,7 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.@"enum".fields[i].name;
+        elem.name = ti.@"enum".field_names[i];
     }
     break :blk result;
 };
@@ -586,6 +600,7 @@ pub const cpu = struct {
         .llvm_name = "niagara",
         .features = featureSet(&[_]Feature{
             .deprecated_v8,
+            .no_predictor,
             .ua2005,
         }),
     };
@@ -594,6 +609,7 @@ pub const cpu = struct {
         .llvm_name = "niagara2",
         .features = featureSet(&[_]Feature{
             .deprecated_v8,
+            .no_predictor,
             .popc,
             .ua2005,
         }),
@@ -603,6 +619,7 @@ pub const cpu = struct {
         .llvm_name = "niagara3",
         .features = featureSet(&[_]Feature{
             .deprecated_v8,
+            .no_predictor,
             .popc,
             .ua2005,
             .ua2007,

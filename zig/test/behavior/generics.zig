@@ -175,7 +175,7 @@ test "generic fn keeps non-generic parameter types" {
 
     const S = struct {
         fn f(comptime T: type, s: []T) !void {
-            try expect(A != @typeInfo(@TypeOf(s)).pointer.alignment);
+            try expect(A != @typeInfo(@TypeOf(s)).pointer.attrs.@"align");
         }
     };
 
@@ -255,10 +255,13 @@ test "generic function instantiation turns into comptime call" {
         }
 
         pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeInfo(T)) {
-            .@"enum" => std.builtin.Type.EnumField,
+            .@"enum" => struct { name: [:0]const u8, value: comptime_int },
             else => void,
         } {
-            return @typeInfo(T).@"enum".fields[@intFromEnum(field)];
+            return .{
+                .name = @typeInfo(T).@"enum".field_names[@intFromEnum(field)],
+                .value = @typeInfo(T).@"enum".field_values[@intFromEnum(field)],
+            };
         }
 
         pub fn FieldEnum(comptime T: type) type {
@@ -305,8 +308,6 @@ test "generic function instantiation non-duplicates" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
     const S = struct {
         fn copy(comptime T: type, dest: []T, source: []const T) void {
             @export(&foo, .{ .name = "test_generic_instantiation_non_dupe" });
@@ -322,8 +323,6 @@ test "generic function instantiation non-duplicates" {
 
 test "generic instantiation of tagged union with only one field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     const S = struct {
         const U = union(enum) {

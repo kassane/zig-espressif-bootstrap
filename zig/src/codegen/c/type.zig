@@ -106,13 +106,21 @@ pub const CType = union(enum) {
 
         uint8_t,
         uint16_t,
+        /// eZ80-specific
+        uint24_t,
         uint32_t,
+        /// eZ80-specific
+        uint48_t,
         uint64_t,
         zig_u128,
 
         int8_t,
         int16_t,
+        /// eZ80-specific
+        int24_t,
         int32_t,
+        /// eZ80-specific
+        int48_t,
         int64_t,
         zig_i128,
 
@@ -138,7 +146,9 @@ pub const CType = union(enum) {
 
             .uint8_t,  .int8_t   => 8,
             .uint16_t, .int16_t  => 16,
+            .uint24_t, .int24_t  => 24,
             .uint32_t, .int32_t  => 32,
+            .uint48_t, .int48_t  => 48,
             .uint64_t, .int64_t  => 64,
             .zig_u128, .zig_i128 => 128,
             // zig fmt: on
@@ -154,6 +164,7 @@ pub const CType = union(enum) {
         pub const LimbSize = enum {
             @"8",
             @"16",
+            @"24",
             @"32",
             @"64",
             @"128",
@@ -161,6 +172,7 @@ pub const CType = union(enum) {
                 return switch (s) {
                     .@"8" => 8,
                     .@"16" => 16,
+                    .@"24" => 24,
                     .@"32" => 32,
                     .@"64" => 64,
                     .@"128" => 128,
@@ -170,6 +182,7 @@ pub const CType = union(enum) {
                 return switch (s) {
                     .@"8" => .uint8_t,
                     .@"16" => .uint16_t,
+                    .@"24" => .uint24_t,
                     .@"32" => .uint32_t,
                     .@"64" => .uint64_t,
                     .@"128" => .zig_u128,
@@ -179,6 +192,7 @@ pub const CType = union(enum) {
                 return switch (s) {
                     .@"8" => .int8_t,
                     .@"16" => .int16_t,
+                    .@"24" => .int24_t,
                     .@"32" => .int32_t,
                     .@"64" => .int64_t,
                     .@"128" => .zig_i128,
@@ -498,7 +512,8 @@ pub const CType = union(enum) {
             },
         }
     }
-    fn classifyBitInt(signedness: std.builtin.Signedness, bits: u16, zcu: *const Zcu) IntClass {
+    fn classifyBitInt(signedness: std.lang.Signedness, bits: u16, zcu: *const Zcu) IntClass {
+        const is_ez80 = zcu.getTarget().cpu.arch == .ez80;
         return switch (bits) {
             0 => .void,
             1...8 => switch (signedness) {
@@ -509,11 +524,19 @@ pub const CType = union(enum) {
                 .unsigned => .{ .small = .uint16_t },
                 .signed => .{ .small = .int16_t },
             },
-            17...32 => switch (signedness) {
+            17...24 => switch (signedness) {
+                .unsigned => .{ .small = if (is_ez80) .uint24_t else .uint32_t },
+                .signed => .{ .small = if (is_ez80) .int24_t else .int32_t },
+            },
+            25...32 => switch (signedness) {
                 .unsigned => .{ .small = .uint32_t },
                 .signed => .{ .small = .int32_t },
             },
-            33...64 => switch (signedness) {
+            33...48 => switch (signedness) {
+                .unsigned => .{ .small = if (is_ez80) .uint48_t else .uint64_t },
+                .signed => .{ .small = if (is_ez80) .int48_t else .int64_t },
+            },
+            49...64 => switch (signedness) {
                 .unsigned => .{ .small = .uint64_t },
                 .signed => .{ .small = .int64_t },
             },

@@ -29,16 +29,18 @@ fn anyTag(self: *Encoder, tag_: Tag, val: anytype) !void {
 
     switch (@typeInfo(T)) {
         .@"struct" => |info| {
-            inline for (0..info.fields.len) |i| {
-                const f = info.fields[info.fields.len - i - 1];
-                const field_val = @field(val, f.name);
-                const field_tag = FieldTag.fromContainer(T, f.name);
+            inline for (0..info.field_names.len) |i| {
+                const f_idx = info.field_names.len - i - 1;
+                const f_name = info.field_names[f_idx];
+                const f_type = info.field_types[f_idx];
+                const f_attrs = info.field_attrs[f_idx];
+                const field_val = @field(val, f_name);
+                const field_tag = FieldTag.fromContainer(T, f_name);
 
                 // > The encoding of a set value or sequence value shall not include an encoding for any
                 // > component value which is equal to its default value.
-                const is_default = if (f.is_comptime) false else if (f.default_value_ptr) |v| brk: {
-                    const default_val: *const f.type = @ptrCast(@alignCast(v));
-                    break :brk std.mem.eql(u8, std.mem.asBytes(default_val), std.mem.asBytes(&field_val));
+                const is_default = if (f_attrs.@"comptime") false else if (f_attrs.defaultValue(f_type)) |default_val| brk: {
+                    break :brk std.mem.eql(u8, std.mem.asBytes(&default_val), std.mem.asBytes(&field_val));
                 } else false;
 
                 if (!is_default) {
@@ -46,7 +48,7 @@ fn anyTag(self: *Encoder, tag_: Tag, val: anytype) !void {
                     self.field_tag = field_tag;
                     // will merge with self.field_tag.
                     // may mutate self.field_tag.
-                    try self.anyTag(Tag.fromZig(f.type), field_val);
+                    try self.anyTag(Tag.fromZig(f_type), field_val);
                     if (field_tag) |ft| {
                         if (ft.explicit) {
                             try self.length(self.buffer.data.len - start2);
@@ -129,7 +131,7 @@ fn int(self: *Encoder, comptime T: type, value: T) !void {
     const needs_padding: u1 = if (value == 0)
         1
     else if (bits_needed > 8) brk: {
-        const RightShift = std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(bits_needed)) - 1);
+        const RightShift = @Int(.unsigned, @bitSizeOf(@TypeOf(bits_needed)) - 1);
         const right_shift: RightShift = @intCast(bits_needed - 9);
         break :brk if (value >> right_shift == 0x1ff) 1 else 0;
     } else 0;

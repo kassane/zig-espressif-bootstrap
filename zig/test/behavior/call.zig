@@ -375,7 +375,7 @@ test "Enum constructed by @Enum passed as generic argument" {
             try expect(@intFromEnum(a) == b);
         }
     };
-    inline for (@typeInfo(S.E).@"enum".fields, 0..) |_, i| {
+    inline for (@typeInfo(S.E).@"enum".field_names, 0..) |_, i| {
         try S.foo(@as(S.E, @enumFromInt(i)), i);
     }
 }
@@ -556,7 +556,7 @@ test "value returned from comptime function is comptime known" {
             else => unreachable,
         } {
             return switch (@typeInfo(T)) {
-                .@"struct" => |info| info.fields.len,
+                .@"struct" => |info| info.field_names.len,
                 else => unreachable,
             };
         }

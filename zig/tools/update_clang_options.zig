@@ -660,9 +660,9 @@ pub fn main(init: std.process.Init) !void {
 
     var llvm_to_zig_cpu_features = std.StringHashMap([]const u8).init(arena);
 
-    inline for (@typeInfo(cpu_targets).@"struct".decls) |decl| {
-        const Feature = @field(cpu_targets, decl.name).Feature;
-        const all_features = @field(cpu_targets, decl.name).all_features;
+    inline for (@typeInfo(cpu_targets).@"struct".decl_names) |decl_name| {
+        const Feature = @field(cpu_targets, decl_name).Feature;
+        const all_features = @field(cpu_targets, decl_name).all_features;
 
         for (all_features, 0..) |feat, i| {
             const llvm_name = feat.llvm_name orelse continue;
@@ -675,7 +675,7 @@ pub fn main(init: std.process.Init) !void {
     const child_args = [_][]const u8{
         llvm_tblgen_exe,
         "--dump-json",
-        try std.fmt.allocPrint(arena, "{s}/clang/include/clang/Driver/Options.td", .{llvm_src_root}),
+        try std.fmt.allocPrint(arena, "{s}/clang/include/clang/Options/Options.td", .{llvm_src_root}),
         try std.fmt.allocPrint(arena, "-I={s}/llvm/include", .{llvm_src_root}),
         try std.fmt.allocPrint(arena, "-I={s}/clang/include/clang/Driver", .{llvm_src_root}),
     };

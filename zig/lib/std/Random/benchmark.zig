@@ -55,12 +55,12 @@ const csprngs = [_]Rng{
     Rng{
         .ty = Random.Ascon,
         .name = "ascon",
-        .init_u8s = &[_]u8{0} ** 32,
+        .init_u8s = &@as([32]u8, @splat(0)),
     },
     Rng{
         .ty = Random.ChaCha,
         .name = "chacha",
-        .init_u8s = &[_]u8{0} ** 32,
+        .init_u8s = &@as([32]u8, @splat(0)),
     },
 };
 

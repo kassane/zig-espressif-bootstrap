@@ -37,7 +37,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     const target = comp.getTarget();
 
     // The old 32-bit x86 variant of SEH doesn't use tables.
-    const unwind_tables: std.builtin.UnwindTables = if (target.cpu.arch != .x86) .async else .none;
+    const unwind_tables: std.lang.UnwindTables = if (target.cpu.arch != .x86) .async else .none;
 
     switch (crt_file) {
         .crt2_o => {
@@ -135,8 +135,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 try addCcArgs(comp, arena, &winpthreads_args);
                 try winpthreads_args.appendSlice(&[_][]const u8{
                     "-DIN_WINPTHREAD",
-                    // winpthreads incorrectly assumes that Clang has `-Wprio-ctor-dtor`.
-                    "-Wno-unknown-warning-option",
                 });
 
                 switch (comp.compilerRtOptMode()) {
@@ -170,6 +168,7 @@ fn addCcArgs(
     args: *std.array_list.Managed([]const u8),
 ) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
+        "-w", // Disable all warnings.
         "-std=gnu11",
         "-D__USE_MINGW_ANSI_STDIO=0",
 
@@ -851,13 +850,10 @@ const mingw32_x86_src = [_][]const u8{
     "complex" ++ path.sep_str ++ "ctanl.c",
     "math" ++ path.sep_str ++ "cbrtl.c",
     "math" ++ path.sep_str ++ "erfl.c",
-    "math" ++ path.sep_str ++ "fdiml.c",
     "math" ++ path.sep_str ++ "fmal.c",
     "math" ++ path.sep_str ++ "llrintl.c",
     "math" ++ path.sep_str ++ "llroundl.c",
-    "math" ++ path.sep_str ++ "lrintl.c",
     "math" ++ path.sep_str ++ "lroundl.c",
-    "math" ++ path.sep_str ++ "rintl.c",
     "math" ++ path.sep_str ++ "tgammal.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "acoshl.c",
@@ -915,7 +911,6 @@ const mingw32_winpthreads_src = [_][]const u8{
     "winpthreads" ++ path.sep_str ++ "rwlock.c",
     "winpthreads" ++ path.sep_str ++ "sched.c",
     "winpthreads" ++ path.sep_str ++ "sem.c",
-    "winpthreads" ++ path.sep_str ++ "spinlock.c",
     "winpthreads" ++ path.sep_str ++ "thread.c",
 };
 

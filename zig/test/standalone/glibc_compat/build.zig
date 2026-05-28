@@ -88,69 +88,6 @@ pub fn build(b: *std.Build) void {
                 test_step.dependOn(&run_cmd.step);
             }
         }
-        const check = exe.checkObject();
-
-        // __errno_location is always a dynamically linked symbol
-        check.checkInDynamicSymtab();
-        check.checkExact("0 0 UND FUNC GLOBAL DEFAULT __errno_location");
-
-        // before v2.32 fstat redirects through __fxstat, afterwards its a
-        // normal dynamic symbol
-        check.checkInDynamicSymtab();
-        if (glibc_ver.order(.{ .major = 2, .minor = 32, .patch = 0 }) == .lt) {
-            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT __fxstat");
-
-            check.checkInSymtab();
-            check.checkContains("FUNC LOCAL HIDDEN fstat");
-        } else {
-            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT fstat");
-
-            check.checkInSymtab();
-            check.checkNotPresent("__fxstat");
-        }
-
-        // before v2.26 reallocarray is not supported
-        check.checkInDynamicSymtab();
-        if (glibc_ver.order(.{ .major = 2, .minor = 26, .patch = 0 }) == .lt) {
-            check.checkNotPresent("reallocarray");
-        } else {
-            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT reallocarray");
-        }
-
-        // before v2.38 strlcpy is not supported
-        check.checkInDynamicSymtab();
-        if (glibc_ver.order(.{ .major = 2, .minor = 38, .patch = 0 }) == .lt) {
-            check.checkNotPresent("strlcpy");
-        } else {
-            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT strlcpy");
-        }
-
-        // v2.16 introduced getauxval()
-        check.checkInDynamicSymtab();
-        if (glibc_ver.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
-            check.checkNotPresent("getauxval");
-        } else {
-            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT getauxval");
-        }
-
-        // Always have dynamic "exit", "pow", and "powf" references
-        check.checkInDynamicSymtab();
-        check.checkExact("0 0 UND FUNC GLOBAL DEFAULT exit");
-        check.checkInDynamicSymtab();
-        check.checkExact("0 0 UND FUNC GLOBAL DEFAULT pow");
-        check.checkInDynamicSymtab();
-        check.checkExact("0 0 UND FUNC GLOBAL DEFAULT powf");
-
-        if (target.result.cpu.arch != .s390x) {
-            // An atexit local symbol is defined, and depends on undefined dynamic
-            // __cxa_atexit.
-            check.checkInSymtab();
-            check.checkContains("FUNC LOCAL HIDDEN atexit");
-            check.checkInDynamicSymtab();
-            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT __cxa_atexit");
-        }
-
-        test_step.dependOn(&check.step);
     }
 
     // Build & run a Zig test case against a sampling of supported glibc versions
@@ -180,12 +117,44 @@ pub fn build(b: *std.Build) void {
             }
         }
 
+        const malloc_translation = b.addTranslateC(.{
+            .root_source_file = b.path("include_malloc.h"),
+            .target = target,
+            .optimize = .Debug,
+            .link_libc = true,
+        });
+        const stdlib_translation = b.addTranslateC(.{
+            .root_source_file = b.path("include_stdlib.h"),
+            .target = target,
+            .optimize = .Debug,
+            .link_libc = true,
+        });
+        const string_translation = b.addTranslateC(.{
+            .root_source_file = b.path("include_string.h"),
+            .target = target,
+            .optimize = .Debug,
+            .link_libc = true,
+        });
         const exe = b.addExecutable(.{
             .name = t,
             .root_module = b.createModule(.{
                 .root_source_file = b.path("glibc_runtime_check.zig"),
                 .target = target,
                 .link_libc = true,
+                .imports = &.{
+                    .{
+                        .name = "malloc.h",
+                        .module = malloc_translation.createModule(),
+                    },
+                    .{
+                        .name = "stdlib.h",
+                        .module = stdlib_translation.createModule(),
+                    },
+                    .{
+                        .name = "string.h",
+                        .module = string_translation.createModule(),
+                    },
+                },
             }),
         });
         // We disable UBSAN for these tests as the libc being tested here is
@@ -204,63 +173,5 @@ pub fn build(b: *std.Build) void {
                 test_step.dependOn(&run_cmd.step);
             }
         }
-        const check = exe.checkObject();
-
-        // __errno_location is always a dynamically linked symbol
-        check.checkInDynamicSymtab();
-        check.checkExact("0 0 UND FUNC GLOBAL DEFAULT __errno_location");
-
-        // before v2.32 fstatat redirects through __fxstatat, afterwards its a
-        // normal dynamic symbol
-        if (glibc_ver.order(.{ .major = 2, .minor = 32, .patch = 0 }) == .lt) {
-            check.checkInDynamicSymtab();
-            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT __fxstatat");
-
-            check.checkInSymtab();
-            check.checkContains("FUNC LOCAL HIDDEN fstatat");
-        } else {
-            check.checkInDynamicSymtab();
-            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT fstatat");
-
-            check.checkInSymtab();
-            check.checkNotPresent("FUNC LOCAL HIDDEN fstatat");
-        }
-
-        // before v2.26 reallocarray is not supported
-        if (glibc_ver.order(.{ .major = 2, .minor = 26, .patch = 0 }) == .lt) {
-            check.checkInDynamicSymtab();
-            check.checkNotPresent("reallocarray");
-        } else {
-            check.checkInDynamicSymtab();
-            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT reallocarray");
-        }
-
-        // before v2.38 strlcpy is not supported
-        if (glibc_ver.order(.{ .major = 2, .minor = 38, .patch = 0 }) == .lt) {
-            check.checkInDynamicSymtab();
-            check.checkNotPresent("strlcpy");
-        } else {
-            check.checkInDynamicSymtab();
-            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT strlcpy");
-        }
-
-        // v2.16 introduced getauxval(), so always present
-        check.checkInDynamicSymtab();
-        check.checkExact("0 0 UND FUNC GLOBAL DEFAULT getauxval");
-
-        // Always have a dynamic "exit" reference
-        check.checkInDynamicSymtab();
-        check.checkExact("0 0 UND FUNC GLOBAL DEFAULT exit");
-
-        if (target.result.cpu.arch != .s390x) {
-            // An atexit local symbol is defined, and depends on undefined dynamic
-            // __cxa_atexit.
-            check.checkInSymtab();
-            check.checkContains("FUNC LOCAL HIDDEN atexit");
-            check.checkInDynamicSymtab();
-            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT __cxa_atexit");
-        }
-
-        test_step.dependOn(&check.step);
     }
 }

@@ -2829,6 +2829,7 @@ pub const Feature = packed struct(u8) {
         @"exception-handling",
         @"extended-const",
         fp16,
+        gc,
         memory64,
         multimemory,
         multivalue,
@@ -2852,6 +2853,7 @@ pub const Feature = packed struct(u8) {
                 .exception_handling => .@"exception-handling",
                 .extended_const => .@"extended-const",
                 .fp16 => .fp16,
+                .gc => .gc,
                 .multimemory => .multimemory,
                 .multivalue => .multivalue,
                 .mutable_globals => .@"mutable-globals",
@@ -2875,6 +2877,7 @@ pub const Feature = packed struct(u8) {
                 .@"exception-handling" => .exception_handling,
                 .@"extended-const" => .extended_const,
                 .fp16 => .fp16,
+                .gc => .gc,
                 .memory64 => null, // Linker-only feature.
                 .multimemory => .multimemory,
                 .multivalue => .multivalue,
@@ -2989,8 +2992,8 @@ pub fn createEmpty(
 
     if (options.object_host_name) |name| wasm.object_host_name = (try wasm.internString(name)).toOptional();
 
-    inline for (@typeInfo(PreloadedStrings).@"struct".fields) |field| {
-        @field(wasm.preloaded_strings, field.name) = try wasm.internString(field.name);
+    inline for (@typeInfo(PreloadedStrings).@"struct".field_names) |field_name| {
+        @field(wasm.preloaded_strings, field_name) = try wasm.internString(field_name);
     }
 
     wasm.entry_name = switch (options.entry) {
@@ -3345,8 +3348,7 @@ pub fn updateLineNumber(wasm: *Wasm, pt: Zcu.PerThread, ti_id: InternPool.Tracke
     const diags = &comp.link_diags;
     if (wasm.dwarf) |*dw| {
         dw.updateLineNumber(pt.zcu, ti_id) catch |err| switch (err) {
-            error.Overflow => return error.Overflow,
-            error.OutOfMemory => return error.OutOfMemory,
+            error.Overflow, error.OutOfMemory => |e| return e,
             else => |e| return diags.fail("failed to update dwarf line numbers: {s}", .{@errorName(e)}),
         };
     }
@@ -3873,15 +3875,14 @@ pub fn flush(
     try wasm.flush_buffer.data_imports.reinit(gpa, wasm.data_imports.keys(), wasm.data_imports.values());
 
     return wasm.flush_buffer.finish(wasm) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.LinkFailure => return error.LinkFailure,
+        error.OutOfMemory, error.LinkFailure => |e| return e,
         else => |e| return diags.fail("failed to flush wasm: {s}", .{@errorName(e)}),
     };
 }
 
 fn defaultEntrySymbolName(
     preloaded_strings: *const PreloadedStrings,
-    wasi_exec_model: std.builtin.WasiExecModel,
+    wasi_exec_model: std.lang.WasiExecModel,
 ) String {
     return switch (wasi_exec_model) {
         .reactor => preloaded_strings._initialize,
@@ -3961,7 +3962,7 @@ pub fn getExistingFuncType2(wasm: *const Wasm, params: []const std.wasm.Valtype,
 
 pub fn internFunctionType(
     wasm: *Wasm,
-    cc: std.builtin.CallingConvention,
+    cc: std.lang.CallingConvention,
     params: []const InternPool.Index,
     return_type: Zcu.Type,
     target: *const std.Target,
@@ -3975,7 +3976,7 @@ pub fn internFunctionType(
 
 pub fn getExistingFunctionType(
     wasm: *Wasm,
-    cc: std.builtin.CallingConvention,
+    cc: std.lang.CallingConvention,
     params: []const InternPool.Index,
     return_type: Zcu.Type,
     target: *const std.Target,
@@ -4209,7 +4210,7 @@ pub fn errorNameTableAddr(wasm: *Wasm) u32 {
 
 fn convertZcuFnType(
     comp: *Compilation,
-    cc: std.builtin.CallingConvention,
+    cc: std.lang.CallingConvention,
     params: []const InternPool.Index,
     return_type: Zcu.Type,
     target: *const std.Target,

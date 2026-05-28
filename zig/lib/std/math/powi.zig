@@ -15,12 +15,12 @@ const testing = std.testing;
 ///  - Underflow: Absolute value of result smaller than 1
 ///
 /// Edge case rules ordered by precedence:
-///  - powi(T, x, 0)   = 1 unless T is i1, i0, u0
+///  - powi(T, x, 0)   = 1 unless T is i1, u0
 ///  - powi(T, 0, x)   = 0 when x > 0
 ///  - powi(T, 0, x)   = Overflow
 ///  - powi(T, 1, y)   = 1
 ///  - powi(T, -1, y)  = -1 for y an odd integer
-///  - powi(T, -1, y)  = 1 unless T is i1, i0, u0
+///  - powi(T, -1, y)  = 1 unless T is i1, u0
 ///  - powi(T, -1, y)  = Overflow
 ///  - powi(T, x, y)   = Overflow when y >= @bitSizeOf(x)
 ///  - powi(T, x, y)   = Underflow when y < 0
@@ -189,7 +189,6 @@ test "powi.special" {
 
 test "powi.narrow" {
     try testing.expectError(error.Overflow, powi(u0, 0, 0));
-    try testing.expectError(error.Overflow, powi(i0, 0, 0));
     try testing.expectError(error.Overflow, powi(i1, 0, 0));
     try testing.expectError(error.Overflow, powi(i1, -1, 0));
     try testing.expectError(error.Overflow, powi(i1, 0, -1));

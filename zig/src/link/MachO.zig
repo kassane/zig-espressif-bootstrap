@@ -38,7 +38,7 @@ symtab_cmd: macho.symtab_command = .{},
 dysymtab_cmd: macho.dysymtab_command = .{},
 function_starts_cmd: macho.linkedit_data_command = .{ .cmd = .FUNCTION_STARTS },
 data_in_code_cmd: macho.linkedit_data_command = .{ .cmd = .DATA_IN_CODE },
-uuid_cmd: macho.uuid_command = .{ .uuid = [_]u8{0} ** 16 },
+uuid_cmd: macho.uuid_command = .{ .uuid = @splat(0) },
 codesig_cmd: macho.linkedit_data_command = .{ .cmd = .CODE_SIGNATURE },
 
 pagezero_seg_index: ?u8 = null,
@@ -504,7 +504,7 @@ pub fn flush(
     try self.resolveSymbols();
     try self.convertTentativeDefsAndResolveSpecialSymbols();
     self.dedupLiterals() catch |err| switch (err) {
-        error.LinkFailure => return error.LinkFailure,
+        error.LinkFailure => |e| return e,
         else => |e| return diags.fail("failed to deduplicate literals: {s}", .{@errorName(e)}),
     };
 
@@ -542,7 +542,7 @@ pub fn flush(
 
     try self.initSegments();
     self.allocateSections() catch |err| switch (err) {
-        error.LinkFailure => return error.LinkFailure,
+        error.LinkFailure => |e| return e,
         else => |e| return diags.fail("failed to allocate sections: {s}", .{@errorName(e)}),
     };
     self.allocateSegments();
@@ -567,8 +567,7 @@ pub fn flush(
     try self.writeSectionsToFile();
     try self.allocateLinkeditSegment();
     self.writeLinkeditSectionsToFile() catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.LinkFailure => return error.LinkFailure,
+        error.OutOfMemory, error.LinkFailure => |e| return e,
         else => |e| return diags.fail("failed to write linkedit sections to file: {t}", .{e}),
     };
 
@@ -595,25 +594,22 @@ pub fn flush(
 
     const ncmds, const sizeofcmds, const uuid_cmd_offset = self.writeLoadCommands() catch |err| switch (err) {
         error.WriteFailed => unreachable,
-        error.OutOfMemory => return error.OutOfMemory,
-        error.LinkFailure => return error.LinkFailure,
+        error.OutOfMemory, error.LinkFailure => |e| return e,
     };
     try self.writeHeader(ncmds, sizeofcmds);
     self.writeUuid(uuid_cmd_offset, self.requiresCodeSig()) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.LinkFailure => return error.LinkFailure,
+        error.OutOfMemory, error.LinkFailure => |e| return e,
         else => |e| return diags.fail("failed to calculate and write uuid: {s}", .{@errorName(e)}),
     };
     if (self.getDebugSymbols()) |dsym| dsym.flush(self) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
+        error.OutOfMemory => |e| return e,
         else => |e| return diags.fail("failed to get debug symbols: {s}", .{@errorName(e)}),
     };
 
     // Code signing always comes last.
     if (codesig) |*csig| {
         self.writeCodeSignature(csig) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.LinkFailure => return error.LinkFailure,
+            error.OutOfMemory, error.LinkFailure => |e| return e,
             else => |e| return diags.fail("failed to write code signature: {s}", .{@errorName(e)}),
         };
         const emit = self.base.emit;
@@ -3767,7 +3763,7 @@ pub fn addSection(
 }
 
 pub fn makeStaticString(bytes: []const u8) [16]u8 {
-    var buf = [_]u8{0} ** 16;
+    var buf: [16]u8 = @splat(0);
     @memcpy(buf[0..bytes.len], bytes);
     return buf;
 }

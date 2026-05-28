@@ -25,7 +25,7 @@ allocator: Allocator,
 file: ?Io.File,
 
 symtab_cmd: macho.symtab_command = .{},
-uuid_cmd: macho.uuid_command = .{ .uuid = [_]u8{0} ** 16 },
+uuid_cmd: macho.uuid_command = .{ .uuid = @splat(0) },
 
 segments: std.ArrayList(macho.segment_command_64) = .empty,
 sections: std.ArrayList(macho.section_64) = .empty,

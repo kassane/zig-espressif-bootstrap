@@ -261,19 +261,28 @@ test "strings" {
     }
 }
 
-const nesting_test_cases = .{
-    .{ null, "[]" },
-    .{ null, "{}" },
-    .{ error.SyntaxError, "[}" },
-    .{ error.SyntaxError, "{]" },
-    .{ null, "[" ** 1000 ++ "]" ** 1000 },
-    .{ null, "{\"\":" ** 1000 ++ "0" ++ "}" ** 1000 },
-    .{ error.SyntaxError, "[" ** 1000 ++ "]" ** 999 ++ "}" },
-    .{ error.SyntaxError, "{\"\":" ** 1000 ++ "0" ++ "}" ** 999 ++ "]" },
-    .{ error.SyntaxError, "[" ** 1000 ++ "]" ** 1001 },
-    .{ error.SyntaxError, "{\"\":" ** 1000 ++ "0" ++ "}" ** 1001 },
-    .{ error.UnexpectedEndOfInput, "[" ** 1000 ++ "]" ** 999 },
-    .{ error.UnexpectedEndOfInput, "{\"\":" ** 1000 ++ "0" ++ "}" ** 999 },
+const nesting_test_cases = cases: {
+    const open_arrays: *const [1000]u8 = &@splat('[');
+    const close_arrays: *const [1000]u8 = &@splat(']');
+
+    const open_objects_buf: [1000][4]u8 = @splat("{\"\":".*);
+    const open_objects: []const u8 = @ptrCast(&open_objects_buf);
+    const close_objects: *const [1000]u8 = &@splat('}');
+
+    break :cases .{
+        .{ null, "[]" },
+        .{ null, "{}" },
+        .{ error.SyntaxError, "[}" },
+        .{ error.SyntaxError, "{]" },
+        .{ null, open_arrays ++ close_arrays },
+        .{ null, open_objects ++ "0" ++ close_objects },
+        .{ error.SyntaxError, open_arrays ++ close_arrays[0..999] ++ "}" },
+        .{ error.SyntaxError, open_objects ++ "0" ++ close_objects[0..999] ++ "]" },
+        .{ error.SyntaxError, open_arrays ++ close_arrays ++ "]" },
+        .{ error.SyntaxError, open_objects ++ "0" ++ close_objects ++ "}" },
+        .{ error.UnexpectedEndOfInput, open_arrays ++ close_arrays[0..999] },
+        .{ error.UnexpectedEndOfInput, open_objects ++ "0" ++ close_objects[0..999] },
+    };
 };
 
 test "nesting" {
@@ -421,11 +430,12 @@ test "skipValue" {
     try testSkipValue("{\"foo\": \"bar\\nbaz\"}");
 
     // An absurd number of nestings
-    const nestings = 1000;
-    try testSkipValue("[" ** nestings ++ "]" ** nestings);
+    const open_all: [1000]u8 = @splat('[');
+    const close_all: [1000]u8 = @splat(']');
+    try testSkipValue(&(open_all ++ close_all));
 
     // Would a number token cause problems in a deeply-nested array?
-    try testSkipValue("[" ** nestings ++ "0.118, 999, 881.99, 911.9, 725, 3" ++ "]" ** nestings);
+    try testSkipValue(&open_all ++ "0.118, 999, 881.99, 911.9, 725, 3" ++ &close_all);
 
     // Mismatched brace/square bracket
     try std.testing.expectError(error.SyntaxError, testSkipValue("[102, 111, 111}"));
@@ -474,7 +484,8 @@ test "enableDiagnostics" {
 
     inline for ([_]comptime_int{ 5, 6, 7, 99 }) |reps| {
         // The error happens 1 byte before the end.
-        const s = "[" ** reps ++ "}";
+        const open_all: [reps]u8 = @splat('[');
+        const s = &open_all ++ "}";
         try testDiagnostics(error.SyntaxError, 1, s.len, s.len - 1, s);
     }
 }

@@ -1,4 +1,4 @@
-/*	$NetBSD: stdlib.h,v 1.125.2.2 2024/10/13 10:39:53 martin Exp $	*/
+/*	$NetBSD: stdlib.h,v 1.130 2025/03/02 16:35:40 riastradh Exp $	*/
 
 /*-
  * Copyright (c) 1990, 1993
@@ -184,7 +184,6 @@ void	 srandom(unsigned int) __RENAME(__srandom60);
 #endif
 #ifdef _NETBSD_SOURCE
 #define	RANDOM_MAX	0x7fffffff	/* (((long)1 << 31) - 1) */
-int	 mkostemp(char *, int);
 int	 mkostemps(char *, int, int);
 #endif
 
@@ -318,8 +317,12 @@ int	 getenv_r(const char *, char *, size_t);
 void	 cfree(void *);
 
 int	 heapsort(void *, size_t, size_t, int (*)(const void *, const void *));
+int	 heapsort_r(void *, size_t, size_t,
+	    int (*)(const void *, const void *, void *), void *);
 int	 mergesort(void *, size_t, size_t,
 	    int (*)(const void *, const void *));
+int	 mergesort_r(void *, size_t, size_t,
+	    int (*)(const void *, const void *, void *), void *);
 int	 ptsname_r(int, char *, size_t);
 int	 radixsort(const unsigned char **, int, const unsigned char *,
 	    unsigned);
@@ -398,6 +401,12 @@ size_t	 wcstombs_l(char * __restrict, const wchar_t * __restrict, size_t,
     defined(_NETBSD_SOURCE) || defined(_OPENBSD_SOURCE)
 void	*reallocarray(void *, size_t, size_t);
 #endif	/* _POSIX_C_SOURCE >= 202405L || _NETBSD_SOURCE || _OPENBSD_SOURCE */
+
+#if (_POSIX_C_SOURCE - 0) >= 202405L || defined(_NETBSD_SOURCE)
+int	 mkostemp(char *, int);
+void	 qsort_r(void *, size_t, size_t,
+	    int (*)(const void *, const void *, void *), void *);
+#endif /* _POSIX_C_SOURCE >= 202405L || _NETBSD_SOURCE */
 
 __END_DECLS
 

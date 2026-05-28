@@ -12,8 +12,8 @@
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/InputInfo.h"
-#include "clang/Driver/Options.h"
 #include "clang/Driver/SanitizerArgs.h"
+#include "clang/Options/Options.h"
 #include "llvm/Config/llvm-config.h" // for LLVM_HOST_TRIPLE
 #include "llvm/Option/ArgList.h"
 #include "llvm/Support/FileSystem.h"
@@ -555,7 +555,7 @@ toolchains::MinGW::MinGW(const Driver &D, const llvm::Triple &Triple,
     getFilePaths().push_back(Base + "lib");
 
   NativeLLVMSupport =
-      Args.getLastArgValue(options::OPT_fuse_ld_EQ, CLANG_DEFAULT_LINKER)
+      Args.getLastArgValue(options::OPT_fuse_ld_EQ, D.getPreferredLinker())
           .equals_insensitive("lld");
 }
 

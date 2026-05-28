@@ -1,4 +1,4 @@
-/*	$NetBSD: pfkeyv2.h,v 1.34.2.1 2023/01/04 12:17:08 martin Exp $	*/
+/*	$NetBSD: pfkeyv2.h,v 1.35 2023/01/04 01:58:33 knakahara Exp $	*/
 /*	$KAME: pfkeyv2.h,v 1.36 2003/07/25 09:33:37 itojun Exp $	*/
 
 /*

@@ -77,7 +77,6 @@ fn testPopCountIntegers() !void {
 
 test "@popCount vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -89,16 +88,16 @@ test "@popCount vectors" {
 
 fn testPopCountVectors() !void {
     {
-        var x: @Vector(8, u32) = [1]u32{0xffffffff} ** 8;
+        var x: @Vector(8, u32) = @splat(0xffffffff);
         _ = &x;
-        const expected = [1]u6{32} ** 8;
+        const expected: [8]u6 = @splat(32);
         const result: [8]u6 = @popCount(x);
         try expect(std.mem.eql(u6, &expected, &result));
     }
     {
-        var x: @Vector(8, i16) = [1]i16{-1} ** 8;
+        var x: @Vector(8, i16) = @splat(-1);
         _ = &x;
-        const expected = [1]u5{16} ** 8;
+        const expected: [8]u5 = @splat(16);
         const result: [8]u5 = @popCount(x);
         try expect(std.mem.eql(u5, &expected, &result));
     }

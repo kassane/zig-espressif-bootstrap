@@ -1,4 +1,4 @@
-/*	$NetBSD: ext2fs_dir.h,v 1.22.46.1 2024/08/23 17:10:10 martin Exp $	*/
+/*	$NetBSD: ext2fs_dir.h,v 1.23 2024/03/10 17:36:33 christos Exp $	*/
 
 /*
  * Copyright (c) 1982, 1986, 1989, 1993

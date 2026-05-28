@@ -54,8 +54,8 @@ cache: struct {
     bool_type: ?Id = null,
     void_type: ?Id = null,
     opaque_types: std.StringHashMapUnmanaged(Id) = .empty,
-    int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, Id) = .empty,
-    float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, Id) = .empty,
+    int_types: std.AutoHashMapUnmanaged(std.lang.Type.Int, Id) = .empty,
+    float_types: std.AutoHashMapUnmanaged(std.lang.Type.Float, Id) = .empty,
     vector_types: std.AutoHashMapUnmanaged(struct { Id, u32 }, Id) = .empty,
     array_types: std.AutoHashMapUnmanaged(struct { Id, Id }, Id) = .empty,
     struct_types: std.ArrayHashMapUnmanaged(StructType, Id, StructType.HashContext, true) = .empty,
@@ -280,7 +280,7 @@ pub fn idBound(module: Module) Word {
 pub fn addEntryPointDeps(
     module: *Module,
     decl_index: Decl.Index,
-    seen: *std.DynamicBitSetUnmanaged,
+    seen: *std.bit_set.Dynamic,
     interface: *std.array_list.Managed(Id),
 ) !void {
     const decl = module.declPtr(decl_index);
@@ -310,7 +310,7 @@ fn entryPoints(module: *Module) !Section {
     var interface = std.array_list.Managed(Id).init(module.gpa);
     defer interface.deinit();
 
-    var seen = try std.DynamicBitSetUnmanaged.initEmpty(module.gpa, module.decls.items.len);
+    var seen: std.bit_set.Dynamic = try .initEmpty(module.gpa, module.decls.items.len);
     defer seen.deinit(module.gpa);
 
     for (module.entry_points.keys(), module.entry_points.values()) |entry_point_id, entry_point| {
@@ -582,7 +582,7 @@ pub fn backingIntBits(module: *Module, bits: u16) struct { u16, bool } {
     return .{ std.mem.alignForward(u16, bits, big_int_bits), true };
 }
 
-pub fn intType(module: *Module, signedness: std.builtin.Signedness, bits: u16) !Id {
+pub fn intType(module: *Module, signedness: std.lang.Signedness, bits: u16) !Id {
     assert(bits > 0);
 
     const target = module.zcu.getTarget();
@@ -918,7 +918,7 @@ pub fn debugString(module: *Module, string: []const u8) !Id {
     return entry.value_ptr.*;
 }
 
-pub fn storageClass(module: *Module, as: std.builtin.AddressSpace) spec.StorageClass {
+pub fn storageClass(module: *Module, as: std.lang.AddressSpace) spec.StorageClass {
     const target = module.zcu.getTarget();
     return switch (as) {
         .generic => .function,

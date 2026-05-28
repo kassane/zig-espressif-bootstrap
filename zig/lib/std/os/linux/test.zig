@@ -10,8 +10,6 @@ const expectEqual = std.testing.expectEqual;
 const fs = std.fs;
 
 test "fallocate" {
-    if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/30220
-
     const io = std.testing.io;
 
     var tmp = std.testing.tmpDir(.{});
@@ -72,7 +70,7 @@ test "timer" {
     try expect(err == .SUCCESS);
 
     const events_one: linux.epoll_event = undefined;
-    var events = [_]linux.epoll_event{events_one} ** 8;
+    var events: [8]linux.epoll_event = @splat(events_one);
 
     err = linux.errno(linux.epoll_wait(@as(i32, @intCast(epoll_fd)), &events, 8, -1));
     try expect(err == .SUCCESS);

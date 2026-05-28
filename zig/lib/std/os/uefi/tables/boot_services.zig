@@ -158,12 +158,10 @@ pub const BootServices = extern struct {
     _locateProtocol: *const fn (protocol: *const Guid, registration: ?EventRegistration, interface: *?*const anyopaque) callconv(cc) Status,
 
     /// Installs one or more protocol interfaces into the boot services environment
-    // TODO: use callconv(cc) instead once that works
-    _installMultipleProtocolInterfaces: *const fn (handle: *Handle, ...) callconv(.c) Status,
+    _installMultipleProtocolInterfaces: *const fn (handle: *?Handle, ...) callconv(cc) Status,
 
     /// Removes one or more protocol interfaces into the boot services environment
-    // TODO: use callconv(cc) instead once that works
-    _uninstallMultipleProtocolInterfaces: *const fn (handle: *Handle, ...) callconv(.c) Status,
+    _uninstallMultipleProtocolInterfaces: *const fn (handle: Handle, ...) callconv(cc) Status,
 
     /// Computes and returns a 32-bit CRC for a data buffer.
     _calculateCrc32: *const fn (data: [*]const u8, data_size: usize, *u32) callconv(cc) Status,
@@ -1238,8 +1236,9 @@ fn protocolInterfaces(
         @TypeOf(interfaces),
     ) = undefined;
     result[0] = handle_arg;
+    result[result.len - 1] = null;
 
-    var idx: usize = 1;
+    comptime var idx: usize = 1;
     inline for (interfaces) |interface| {
         const InterfacePtr = @TypeOf(interface);
         const Interface = switch (@typeInfo(InterfacePtr)) {
@@ -1272,13 +1271,15 @@ fn ProtocolInterfaces(HandleType: type, Interfaces: type) type {
         @compileError("expected tuple of protocol interfaces, got " ++ @typeName(Interfaces));
     const interfaces_info = interfaces_type_info.@"struct";
 
-    var tuple_types: [interfaces_info.fields.len * 2 + 1]type = undefined;
+    var tuple_types: [interfaces_info.field_names.len * 2 + 2]type = undefined;
     tuple_types[0] = HandleType;
+    tuple_types[tuple_types.len - 1] = ?*const Guid;
+
     var idx = 1;
-    while (idx < tuple_types.len) : (idx += 2) {
+    while (idx < tuple_types.len - 1) : (idx += 2) {
         tuple_types[idx] = *const Guid;
         tuple_types[idx + 1] = *const anyopaque;
     }
 
-    return std.meta.Tuple(tuple_types[0..]);
+    return @Tuple(tuple_types[0..]);
 }

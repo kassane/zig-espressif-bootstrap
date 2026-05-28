@@ -1,5 +1,5 @@
 /*	$KAME: sctp.h,v 1.18 2005/03/06 16:04:16 itojun Exp $	*/
-/*	$NetBSD: sctp.h,v 1.5 2021/10/24 20:00:12 andvar Exp $ */
+/*	$NetBSD: sctp.h,v 1.7 2025/02/28 09:07:12 andvar Exp $ */
 
 #ifndef _NETINET_SCTP_H_
 #define _NETINET_SCTP_H_
@@ -146,8 +146,8 @@ struct sctp_paramhdr {
 #define SCTP_PEER_PUBLIC_KEY            0x00000100 /* get the peers public key */
 #define SCTP_MY_PUBLIC_KEY              0x00000101 /* get/set my endpoints public key */
 #define SCTP_SET_AUTH_SECRET            0x00000102 /* get/set my shared secret */
-#define SCTP_SET_AUTH_CHUNKS            0x00000103/* specify what chunks you want
-						    * the system may have additional requirments
+#define SCTP_SET_AUTH_CHUNKS            0x00000103 /* specify what chunks you want
+						     * the system may have additional requirements
 						     * as well. I.e. probably ASCONF/ASCONF-ACK no matter
 						     * if you want it or not.
 						     */
@@ -285,7 +285,7 @@ struct sctp_error_unrecognized_chunk {
 
 #define SCTP_SAT_NETWORK_MIN	     400	/* min ms for RTT to set satellite time */
 #define SCTP_SAT_NETWORK_BURST_INCR  2		/* how many times to multiply maxburst in sat */
-/* Data Chuck Specific Flags */
+/* Data Chunk Specific Flags */
 #define SCTP_DATA_FRAG_MASK	0x03
 #define SCTP_DATA_MIDDLE_FRAG	0x00
 #define SCTP_DATA_LAST_FRAG	0x01

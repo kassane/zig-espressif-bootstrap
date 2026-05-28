@@ -1,4 +1,4 @@
-/* $NetBSD: efiio.h,v 1.2.4.1 2023/08/01 16:05:12 martin Exp $ */
+/* $NetBSD: efiio.h,v 1.3 2023/05/22 16:27:58 riastradh Exp $ */
 
 /*-
  * Copyright (c) 2021 The NetBSD Foundation, Inc.

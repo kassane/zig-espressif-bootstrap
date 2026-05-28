@@ -67,38 +67,30 @@ pub fn generate(gpa: Allocator, tree: Ast, options: Options) Allocator.Error!Zoi
     }
 
     if (zg.compile_errors.items.len > 0) {
-        const string_bytes = try zg.string_bytes.toOwnedSlice(gpa);
-        errdefer gpa.free(string_bytes);
-        const compile_errors = try zg.compile_errors.toOwnedSlice(gpa);
-        errdefer gpa.free(compile_errors);
-        const error_notes = try zg.error_notes.toOwnedSlice(gpa);
-        errdefer gpa.free(error_notes);
+        try zg.string_bytes.shrinkToLen(gpa);
+        try zg.compile_errors.shrinkToLen(gpa);
+        try zg.error_notes.shrinkToLen(gpa);
 
         return .{
             .nodes = .empty,
             .extra = &.{},
             .limbs = &.{},
-            .string_bytes = string_bytes,
-            .compile_errors = compile_errors,
-            .error_notes = error_notes,
+            .string_bytes = zg.string_bytes.toOwnedSliceAssert(),
+            .compile_errors = zg.compile_errors.toOwnedSliceAssert(),
+            .error_notes = zg.error_notes.toOwnedSliceAssert(),
         };
     } else {
         assert(zg.error_notes.items.len == 0);
 
-        var nodes = zg.nodes.toOwnedSlice();
-        errdefer nodes.deinit(gpa);
-        const extra = try zg.extra.toOwnedSlice(gpa);
-        errdefer gpa.free(extra);
-        const limbs = try zg.limbs.toOwnedSlice(gpa);
-        errdefer gpa.free(limbs);
-        const string_bytes = try zg.string_bytes.toOwnedSlice(gpa);
-        errdefer gpa.free(string_bytes);
+        try zg.extra.shrinkToLen(gpa);
+        try zg.limbs.shrinkToLen(gpa);
+        try zg.string_bytes.shrinkToLen(gpa);
 
         return .{
-            .nodes = nodes,
-            .extra = extra,
-            .limbs = limbs,
-            .string_bytes = string_bytes,
+            .nodes = zg.nodes.toOwnedSlice(),
+            .extra = zg.extra.toOwnedSliceAssert(),
+            .limbs = zg.limbs.toOwnedSliceAssert(),
+            .string_bytes = zg.string_bytes.toOwnedSliceAssert(),
             .compile_errors = &.{},
             .error_notes = &.{},
         };
@@ -174,7 +166,6 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
         .less_than,
         .less_or_equal,
         .array_cat,
-        .array_mult,
         .bool_and,
         .bool_or,
         .bool_not,
@@ -427,10 +418,11 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
             });
 
             // For short initializers, track the names on the stack rather than going through gpa.
-            var sfba_state = std.heap.stackFallback(256, gpa);
-            const sfba = sfba_state.get();
+            var bfa_buf: [256]u8 = undefined;
+            var bfa_state: std.heap.BufferFirstAllocator = .init(&bfa_buf, gpa);
+            const bfa = bfa_state.allocator();
             var field_names: std.AutoHashMapUnmanaged(Zoir.NullTerminatedString, Ast.TokenIndex) = .empty;
-            defer field_names.deinit(sfba);
+            defer field_names.deinit(bfa);
 
             var reported_any_duplicate = false;
 
@@ -438,7 +430,7 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
                 const name_token = tree.firstToken(elem_node) - 2;
                 if (zg.identAsString(name_token)) |name_str| {
                     zg.extra.items[extra_name_idx] = @intFromEnum(name_str);
-                    const gop = try field_names.getOrPut(sfba, name_str);
+                    const gop = try field_names.getOrPut(bfa, name_str);
                     if (gop.found_existing and !reported_any_duplicate) {
                         reported_any_duplicate = true;
                         const earlier_token = gop.value_ptr.*;
@@ -667,7 +659,7 @@ fn numberLiteral(zg: *ZonGen, num_node: Ast.Node.Index, src_node: Ast.Node.Index
             big_int.setString(@intFromEnum(base), num_without_prefix) catch |err| switch (err) {
                 error.InvalidCharacter => unreachable, // caught in `parseNumberLiteral`
                 error.InvalidBase => unreachable, // we only pass 16, 8, 2, see above
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
             };
             switch (sign) {
                 .positive => {},

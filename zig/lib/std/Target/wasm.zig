@@ -12,6 +12,7 @@ pub const Feature = enum {
     exception_handling,
     extended_const,
     fp16,
+    gc,
     multimemory,
     multivalue,
     mutable_globals,
@@ -31,7 +32,7 @@ pub const featureSetHasAny = CpuFeature.FeatureSetFns(Feature).featureSetHasAny;
 pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
-    const len = @typeInfo(Feature).@"enum".fields.len;
+    const len = @typeInfo(Feature).@"enum".field_names.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.atomics)] = .{
@@ -69,6 +70,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.fp16)] = .{
         .llvm_name = "fp16",
         .description = "Enable FP16 instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.gc)] = .{
+        .llvm_name = "gc",
+        .description = "Enable wasm gc",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.multimemory)] = .{
@@ -133,7 +139,7 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.@"enum".fields[i].name;
+        elem.name = ti.@"enum".field_names[i];
     }
     break :blk result;
 };
@@ -148,6 +154,7 @@ pub const cpu = struct {
             .exception_handling,
             .extended_const,
             .fp16,
+            .gc,
             .multimemory,
             .multivalue,
             .mutable_globals,

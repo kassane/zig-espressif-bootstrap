@@ -39,8 +39,6 @@ pub fn fmaxq(x: f128, y: f128) callconv(.c) f128 {
 
 pub fn fmaxl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return __fmaxh(x, y),
-        32 => return fmaxf(x, y),
         64 => return fmax(x, y),
         80 => return __fmaxx(x, y),
         128 => return fmaxq(x, y),
@@ -61,7 +59,7 @@ inline fn generic_fmax(comptime T: type, x: T, y: T) T {
 test "generic_fmax" {
     inline for ([_]type{ f32, f64, c_longdouble, f80, f128 }) |T| {
         const nan_val = math.nan(T);
-        const Int = std.meta.Int(.unsigned, @bitSizeOf(T));
+        const Int = @Int(.unsigned, @bitSizeOf(T));
 
         try std.testing.expect(math.isNan(generic_fmax(T, nan_val, nan_val)));
         try std.testing.expectEqual(@as(T, 1.0), generic_fmax(T, nan_val, 1.0));

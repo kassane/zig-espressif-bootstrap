@@ -1,3 +1,3 @@
-/*	$NetBSD: limits.h,v 1.1 2002/12/09 12:16:07 scw Exp $	*/
+/* $NetBSD: limits.h,v 1.1 2014/09/19 17:36:26 matt Exp $ */
 
-#include <powerpc/limits.h>
+#include <sys/common_limits.h>

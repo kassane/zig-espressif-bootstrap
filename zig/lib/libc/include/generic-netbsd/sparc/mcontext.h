@@ -1,4 +1,4 @@
-/*	$NetBSD: mcontext.h,v 1.18 2019/12/27 00:32:17 kamil Exp $	*/
+/*	$NetBSD: mcontext.h,v 1.22 2024/11/30 01:04:14 christos Exp $	*/
 
 /*-
  * Copyright (c) 2001 The NetBSD Foundation, Inc.
@@ -32,9 +32,9 @@
 #ifndef _SPARC_MCONTEXT_H_
 #define	_SPARC_MCONTEXT_H_
 
-#define	_UC_SETSTACK	0x00010000
-#define	_UC_CLRSTACK	0x00020000
-#define	_UC_TLSBASE	0x00080000
+#define	_UC_SETSTACK	_UC_MD_BIT16
+#define	_UC_CLRSTACK	_UC_MD_BIT17
+#define	_UC_TLSBASE	_UC_MD_BIT19
 
 /*
  * Layout of mcontext_t according the System V Application Binary Interface,
@@ -160,23 +160,5 @@ do {									\
 	(uc)->uc_mcontext.__gregs[_REG_PC] = (pc);			\
 	(uc)->uc_mcontext.__gregs[_REG_nPC] = (pc) + 4;			\
 } while (/*CONSTCOND*/0)
-
-#if defined(_RTLD_SOURCE) || defined(_LIBC_SOURCE) || \
-    defined(__LIBPTHREAD_SOURCE__)
-#include <sys/tls.h>
-
-__BEGIN_DECLS
-static __inline void *
-__lwp_getprivate_fast(void)
-{
-	register void *__tmp;
-
-	__asm volatile("mov %%g7, %0" : "=r" (__tmp));
-
-	return __tmp;
-}
-__END_DECLS
-
-#endif
 
 #endif	/* !_SPARC_MCONTEXT_H_ */

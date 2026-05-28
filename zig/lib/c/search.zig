@@ -9,6 +9,7 @@ comptime {
     }
 }
 
+/// Not defined in `std.c` because C headers don't either.
 const Node = extern struct {
     next: ?*Node,
     prev: ?*Node,
@@ -37,31 +38,4 @@ fn remque(element: *anyopaque) callconv(.c) void {
 
     if (e.next) |next| next.prev = e.prev;
     if (e.prev) |prev| prev.next = e.next;
-}
-
-test "insque and remque" {
-    var first = Node{ .next = null, .prev = null };
-    var second = Node{ .next = null, .prev = null };
-    var third = Node{ .next = null, .prev = null };
-
-    insque(&first, null);
-    try std.testing.expectEqual(@as(?*Node, null), first.next);
-    try std.testing.expectEqual(@as(?*Node, null), first.prev);
-
-    insque(&second, &first);
-    try std.testing.expectEqual(@as(?*Node, &second), first.next);
-    try std.testing.expectEqual(@as(?*Node, &first), second.prev);
-
-    insque(&third, &first);
-    try std.testing.expectEqual(@as(?*Node, &third), first.next);
-    try std.testing.expectEqual(@as(?*Node, &second), third.next);
-    try std.testing.expectEqual(@as(?*Node, &first), third.prev);
-    try std.testing.expectEqual(@as(?*Node, &third), second.prev);
-
-    remque(&third);
-    try std.testing.expectEqual(@as(?*Node, &second), first.next);
-    try std.testing.expectEqual(@as(?*Node, &first), second.prev);
-
-    remque(&second);
-    try std.testing.expectEqual(@as(?*Node, null), first.next);
 }

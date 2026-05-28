@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Target = std.Target;
-const Signedness = std.builtin.Signedness;
+const Signedness = std.lang.Signedness;
 const assert = std.debug.assert;
 const log = std.log.scoped(.codegen);
 
@@ -569,7 +569,7 @@ const ArithmeticTypeInfo = struct {
     /// Null if this type is a scalar, or the length of the vector otherwise.
     vector_len: ?u32,
     /// Whether the inner type is signed. Only relevant for integers.
-    signedness: std.builtin.Signedness,
+    signedness: std.lang.Signedness,
 };
 
 fn arithmeticTypeInfo(cg: *CodeGen, ty: Type) ArithmeticTypeInfo {
@@ -1327,12 +1327,12 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
             .indirect => return try cg.resolveType(.u1, .indirect),
         },
         .int => {
-            const int_info = ty.intInfo(zcu);
-            if (int_info.bits == 0) {
+            if (ty.toIntern() == .u0_type) {
                 assert(repr == .indirect);
                 if (target.os.tag != .opencl) return cg.fail("cannot generate opaque type", .{});
                 return try cg.module.opaqueType("u0");
             }
+            const int_info = ty.intInfo(zcu);
             return try cg.module.intType(int_info.signedness, int_info.bits);
         },
         .@"enum" => return try cg.resolveType(ty.intTagType(zcu), repr),
@@ -2251,7 +2251,7 @@ fn buildBinary(cg: *CodeGen, opcode: Opcode, lhs: Temporary, rhs: Temporary) !Te
 /// or OpIMul and s_mul_hi or u_mul_hi on OpenCL.
 fn buildWideMul(
     cg: *CodeGen,
-    signedness: std.builtin.Signedness,
+    signedness: std.lang.Signedness,
     lhs: Temporary,
     rhs: Temporary,
 ) !struct { Temporary, Temporary } {
@@ -2358,7 +2358,7 @@ fn buildWideMul(
 /// The SPIR-V backend is not yet advanced enough to support the std testing infrastructure.
 /// In order to be able to run tests, we "temporarily" lower test kernels into separate entry-
 /// points. The test executor will then be able to invoke these to run the tests.
-/// Note that tests are lowered according to std.builtin.TestFn, which is `fn () anyerror!void`.
+/// Note that tests are lowered according to std.lang.TestFn, which is `fn () anyerror!void`.
 /// (anyerror!void has the same layout as anyerror).
 /// Each test declaration generates a function like.
 ///   %anyerror = OpTypeInt 0 16
@@ -2693,8 +2693,6 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) Error!void {
             .bit_and  => try cg.airBinOpSimple(inst, .OpBitwiseAnd),
             .bit_or   => try cg.airBinOpSimple(inst, .OpBitwiseOr),
             .xor      => try cg.airBinOpSimple(inst, .OpBitwiseXor),
-            .bool_and => try cg.airBinOpSimple(inst, .OpLogicalAnd),
-            .bool_or  => try cg.airBinOpSimple(inst, .OpLogicalOr),
 
             .shl, .shl_exact => try cg.airShift(inst, .OpShiftLeftLogical, .OpShiftLeftLogical),
             .shr, .shr_exact => try cg.airShift(inst, .OpShiftRightLogical, .OpShiftRightArithmetic),
@@ -4831,7 +4829,7 @@ fn structuredBreak(cg: *CodeGen, target_block: Id) !void {
     assert(cg.control_flow == .structured);
 
     const gpa = cg.module.gpa;
-    const sblock = cg.control_flow.structured.block_stack.getLast();
+    const sblock = cg.control_flow.structured.block_stack.getLast().?;
     const merge_block = switch (sblock.*) {
         .selection => |*merge| blk: {
             const merge_label = cg.module.allocId();
@@ -5046,7 +5044,7 @@ fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, body: []const Air.Inst.Index) 
         .operand_2 = this_block,
     });
 
-    const sblock = cf.block_stack.getLast();
+    const sblock = cf.block_stack.getLast().?;
 
     if (ty.isNoReturn(zcu)) {
         // If this block is noreturn, this instruction is the last of a block,
@@ -5978,7 +5976,7 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     return null;
 }
 
-fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !?Id {
+fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier) !?Id {
     _ = modifier;
 
     const gpa = cg.module.gpa;

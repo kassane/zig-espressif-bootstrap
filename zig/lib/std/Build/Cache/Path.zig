@@ -2,7 +2,6 @@ const Path = @This();
 
 const std = @import("../../std.zig");
 const Io = std.Io;
-const fs = std.fs;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
@@ -24,7 +23,7 @@ pub fn cwd() Path {
 }
 
 pub fn initCwd(sub_path: []const u8) Path {
-    return .{ .root_dir = Cache.Directory.cwd(), .sub_path = sub_path };
+    return .{ .root_dir = .cwd(), .sub_path = sub_path };
 }
 
 pub fn join(p: Path, arena: Allocator, sub_path: []const u8) Allocator.Error!Path {
@@ -33,13 +32,13 @@ pub fn join(p: Path, arena: Allocator, sub_path: []const u8) Allocator.Error!Pat
         if (p.sub_path.len == 0) &.{sub_path} else &.{ p.sub_path, sub_path };
     return .{
         .root_dir = p.root_dir,
-        .sub_path = try fs.path.join(arena, parts),
+        .sub_path = try Io.Dir.path.join(arena, parts),
     };
 }
 
 pub fn resolvePosix(p: Path, arena: Allocator, sub_path: []const u8) Allocator.Error!Path {
     if (sub_path.len == 0) return p;
-    const new_sub_path = try fs.path.resolvePosix(arena, &.{ p.sub_path, sub_path });
+    const new_sub_path = try Io.Dir.path.resolvePosix(arena, &.{ p.sub_path, sub_path });
     return .{
         .root_dir = p.root_dir,
         // Use "" instead of "." to represent `root_dir` itself.
@@ -59,10 +58,10 @@ pub fn joinStringZ(p: Path, gpa: Allocator, sub_path: []const u8) Allocator.Erro
     return p.root_dir.joinZ(gpa, parts);
 }
 
-pub fn openFile(p: Path, io: Io, sub_path: []const u8, flags: Io.File.OpenFlags) !Io.File {
-    var buf: [fs.max_path_bytes]u8 = undefined;
+pub fn openFile(p: Path, io: Io, sub_path: []const u8, flags: Io.Dir.OpenFileOptions) !Io.File {
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const joined_path = if (p.sub_path.len == 0) sub_path else p: {
-        break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
+        break :p std.fmt.bufPrint(&buf, "{s}" ++ Io.Dir.path.sep_str ++ "{s}", .{
             p.sub_path, sub_path,
         }) catch return error.NameTooLong;
     };
@@ -75,19 +74,19 @@ pub fn openDir(
     sub_path: []const u8,
     args: Io.Dir.OpenOptions,
 ) Io.Dir.OpenError!Io.Dir {
-    var buf: [fs.max_path_bytes]u8 = undefined;
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const joined_path = if (p.sub_path.len == 0) sub_path else p: {
-        break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
+        break :p std.fmt.bufPrint(&buf, "{s}" ++ Io.Dir.path.sep_str ++ "{s}", .{
             p.sub_path, sub_path,
         }) catch return error.NameTooLong;
     };
     return p.root_dir.handle.openDir(io, joined_path, args);
 }
 
-pub fn createDirPathOpen(p: Path, io: Io, sub_path: []const u8, opts: Io.Dir.OpenOptions) !Io.Dir {
-    var buf: [fs.max_path_bytes]u8 = undefined;
+pub fn createDirPathOpen(p: Path, io: Io, sub_path: []const u8, opts: Io.Dir.CreateDirPathOpenOptions) !Io.Dir {
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const joined_path = if (p.sub_path.len == 0) sub_path else p: {
-        break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
+        break :p std.fmt.bufPrint(&buf, "{s}" ++ Io.Dir.path.sep_str ++ "{s}", .{
             p.sub_path, sub_path,
         }) catch return error.NameTooLong;
     };
@@ -95,9 +94,9 @@ pub fn createDirPathOpen(p: Path, io: Io, sub_path: []const u8, opts: Io.Dir.Ope
 }
 
 pub fn statFile(p: Path, io: Io, sub_path: []const u8) !Io.Dir.Stat {
-    var buf: [fs.max_path_bytes]u8 = undefined;
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const joined_path = if (p.sub_path.len == 0) sub_path else p: {
-        break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
+        break :p std.fmt.bufPrint(&buf, "{s}" ++ Io.Dir.path.sep_str ++ "{s}", .{
             p.sub_path, sub_path,
         }) catch return error.NameTooLong;
     };
@@ -108,21 +107,21 @@ pub fn atomicFile(
     p: Path,
     io: Io,
     sub_path: []const u8,
-    options: Io.Dir.AtomicFileOptions,
-    buf: *[fs.max_path_bytes]u8,
-) !fs.AtomicFile {
+    options: Io.Dir.CreateFileAtomicOptions,
+    buf: *[Io.Dir.max_path_bytes]u8,
+) !Io.File.Atomic {
     const joined_path = if (p.sub_path.len == 0) sub_path else p: {
-        break :p std.fmt.bufPrint(buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
+        break :p std.fmt.bufPrint(buf, "{s}" ++ Io.Dir.path.sep_str ++ "{s}", .{
             p.sub_path, sub_path,
         }) catch return error.NameTooLong;
     };
-    return p.root_dir.handle.atomicFile(io, joined_path, options);
+    return p.root_dir.handle.createFileAtomic(io, joined_path, options);
 }
 
 pub fn access(p: Path, io: Io, sub_path: []const u8, flags: Io.Dir.AccessOptions) !void {
-    var buf: [fs.max_path_bytes]u8 = undefined;
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const joined_path = if (p.sub_path.len == 0) sub_path else p: {
-        break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
+        break :p std.fmt.bufPrint(&buf, "{s}" ++ Io.Dir.path.sep_str ++ "{s}", .{
             p.sub_path, sub_path,
         }) catch return error.NameTooLong;
     };
@@ -130,9 +129,9 @@ pub fn access(p: Path, io: Io, sub_path: []const u8, flags: Io.Dir.AccessOptions
 }
 
 pub fn createDirPath(p: Path, io: Io, sub_path: []const u8) !void {
-    var buf: [fs.max_path_bytes]u8 = undefined;
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const joined_path = if (p.sub_path.len == 0) sub_path else p: {
-        break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
+        break :p std.fmt.bufPrint(&buf, "{s}" ++ Io.Dir.path.sep_str ++ "{s}", .{
             p.sub_path, sub_path,
         }) catch return error.NameTooLong;
     };
@@ -154,7 +153,7 @@ pub fn fmtEscapeString(path: Path) std.fmt.Alt(Path, formatEscapeString) {
 pub fn formatEscapeString(path: Path, writer: *Io.Writer) Io.Writer.Error!void {
     if (path.root_dir.path) |p| {
         try std.zig.stringEscape(p, writer);
-        if (path.sub_path.len > 0) try std.zig.stringEscape(fs.path.sep_str, writer);
+        if (path.sub_path.len > 0) try std.zig.stringEscape(Io.Dir.path.sep_str, writer);
     }
     if (path.sub_path.len > 0) {
         try std.zig.stringEscape(path.sub_path, writer);
@@ -170,7 +169,7 @@ pub fn fmtEscapeChar(path: Path) std.fmt.Alt(Path, formatEscapeChar) {
 pub fn formatEscapeChar(path: Path, writer: *Io.Writer) Io.Writer.Error!void {
     if (path.root_dir.path) |p| {
         for (p) |byte| try std.zig.charEscape(byte, writer);
-        if (path.sub_path.len > 0) try writer.writeByte(fs.path.sep);
+        if (path.sub_path.len > 0) try writer.writeByte(Io.Dir.path.sep);
     }
     if (path.sub_path.len > 0) {
         for (path.sub_path) |byte| try std.zig.charEscape(byte, writer);
@@ -178,14 +177,14 @@ pub fn formatEscapeChar(path: Path, writer: *Io.Writer) Io.Writer.Error!void {
 }
 
 pub fn format(self: Path, writer: *Io.Writer) Io.Writer.Error!void {
-    if (fs.path.isAbsolute(self.sub_path)) {
+    if (Io.Dir.path.isAbsolute(self.sub_path)) {
         try writer.writeAll(self.sub_path);
         return;
     }
     if (self.root_dir.path) |p| {
         try writer.writeAll(p);
         if (self.sub_path.len > 0) {
-            try writer.writeAll(fs.path.sep_str);
+            try writer.writeAll(Io.Dir.path.sep_str);
             try writer.writeAll(self.sub_path);
         }
         return;
@@ -210,11 +209,18 @@ pub fn subPathOrDot(self: Path) []const u8 {
 }
 
 pub fn stem(p: Path) []const u8 {
-    return fs.path.stem(p.sub_path);
+    return Io.Dir.path.stem(p.sub_path);
+}
+
+pub fn dirname(p: Path) ?Path {
+    return .{
+        .root_dir = p.root_dir,
+        .sub_path = Io.Dir.path.dirname(p.subPathOpt() orelse return null) orelse "",
+    };
 }
 
 pub fn basename(p: Path) []const u8 {
-    return fs.path.basename(p.sub_path);
+    return Io.Dir.path.basename(p.sub_path);
 }
 
 /// Useful to make `Path` a key in `std.ArrayHashMap`.

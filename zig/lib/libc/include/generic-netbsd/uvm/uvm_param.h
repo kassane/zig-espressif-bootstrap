@@ -1,4 +1,4 @@
-/*	$NetBSD: uvm_param.h,v 1.41.20.1 2023/08/09 17:42:01 martin Exp $	*/
+/*	$NetBSD: uvm_param.h,v 1.42 2023/07/11 09:48:56 riastradh Exp $	*/
 
 /*
  * Copyright (c) 1991, 1993

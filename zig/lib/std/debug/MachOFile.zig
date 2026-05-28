@@ -504,8 +504,8 @@ fn loadOFile(gpa: Allocator, io: Io, o_file_name: []const u8) !OFile {
 
         if (!std.mem.eql(u8, "__DWARF", sect.segName())) continue;
 
-        const section_index: usize = inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |section, i| {
-            if (mem.eql(u8, "__" ++ section.name, sect.sectName())) break i;
+        const section_index: usize = inline for (@typeInfo(Dwarf.Section.Id).@"enum".field_names, 0..) |section_name, i| {
+            if (mem.eql(u8, "__" ++ section_name, sect.sectName())) break i;
         } else continue;
 
         if (mapped_ofile.len < sect.offset + sect.size) return error.InvalidMachO;

@@ -7,27 +7,26 @@
 //! Path must be absolute.
 
 const std = @import("std");
+const Io = std.Io;
 
 pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+
     var args = try init.minimal.args.iterateAllocator(init.gpa);
     defer args.deinit();
-    _ = args.next() orelse unreachable; // skip binary name
+    _ = args.next().?; // skip binary name
 
     const path = args.next() orelse {
         std.log.err("missing <path> argument", .{});
         return error.BadUsage;
     };
 
-    const dir_path = std.Io.Dir.path.dirname(path) orelse unreachable;
-    const basename = std.Io.Dir.path.basename(path);
+    const dir_path = Io.Dir.path.dirname(path).?;
+    const basename = Io.Dir.path.basename(path);
 
-    const io = std.Io.Threaded.global_single_threaded.io();
-
-    var dir = try std.Io.Dir.cwd().openDir(io, dir_path, .{});
+    var dir = try Io.Dir.cwd().openDir(io, dir_path, .{});
     defer dir.close(io);
 
-    _ = dir.statFile(io, basename, .{}) catch {
-        var file = try dir.createFile(io, basename, .{});
-        file.close(io);
-    };
+    var file = try dir.createFile(io, basename, .{ .truncate = false });
+    file.close(io);
 }

@@ -63,21 +63,27 @@ pub fn main(init: std.process.Init) !void {
     try stdout.print("pure ASCII strings\n", .{});
     try stdout.flush();
     {
-        const result = try benchmarkCodepointCount("hello" ** 16, io);
+        const part = "hello";
+        const buf: [16][part.len]u8 = @splat(part.*);
+        const result = try benchmarkCodepointCount(@ptrCast(&buf), io);
         try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
     }
 
     try stdout.print("pure Unicode strings\n", .{});
     try stdout.flush();
     {
-        const result = try benchmarkCodepointCount("こんにちは" ** 16, io);
+        const part = "こんにちは";
+        const buf: [16][part.len]u8 = @splat(part.*);
+        const result = try benchmarkCodepointCount(@ptrCast(&buf), io);
         try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
     }
 
     try stdout.print("mixed ASCII/Unicode strings\n", .{});
     try stdout.flush();
     {
-        const result = try benchmarkCodepointCount("Hyvää huomenta" ** 16, io);
+        const part = "Hyvää huomenta";
+        const buf: [16][part.len]u8 = @splat(part.*);
+        const result = try benchmarkCodepointCount(@ptrCast(&buf), io);
         try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
     }
     try stdout.flush();

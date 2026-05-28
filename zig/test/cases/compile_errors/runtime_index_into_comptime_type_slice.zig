@@ -6,12 +6,11 @@ fn getIndex() usize {
 }
 export fn entry() void {
     const index = getIndex();
-    const field = @typeInfo(Struct).@"struct".fields[index];
+    const field = @typeInfo(Struct).@"struct".field_types[index];
     _ = field;
 }
 
 // error
 //
-// :9:54: error: values of type 'builtin.Type.StructField' must be comptime-known, but index value is runtime-known
-// : note: struct requires comptime because of this field
+// :9:59: error: values of type 'type' must be comptime-known, but index value is runtime-known
 // : note: types are not available at runtime

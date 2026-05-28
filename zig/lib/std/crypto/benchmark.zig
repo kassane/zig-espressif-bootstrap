@@ -173,7 +173,7 @@ const signatures = [_]Crypto{
 };
 
 pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count: comptime_int, io: std.Io) !u64 {
-    const msg = [_]u8{0} ** 64;
+    const msg: [64]u8 = @splat(0);
     const key_pair = Signature.KeyPair.generate(io);
 
     const start = benchTime(io);
@@ -200,7 +200,7 @@ const signature_verifications = [_]Crypto{
 };
 
 pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int, io: std.Io) !u64 {
-    const msg = [_]u8{0} ** 64;
+    const msg: [64]u8 = @splat(0);
     const key_pair = Signature.KeyPair.generate(io);
     const sig = try key_pair.sign(&msg, null);
 
@@ -223,7 +223,7 @@ pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime sign
 const batch_signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" }};
 
 pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int, io: std.Io) !u64 {
-    const msg = [_]u8{0} ** 64;
+    const msg: [64]u8 = @splat(0);
     const key_pair = Signature.KeyPair.generate(io);
     const sig = try key_pair.sign(&msg, null);
 
@@ -367,7 +367,7 @@ pub fn benchmarkAes(comptime Aes: anytype, comptime count: comptime_int, io: Io)
     random.bytes(key[0..]);
     const ctx = Aes.initEnc(key);
 
-    var in = [_]u8{0} ** 16;
+    var in: [16]u8 = @splat(0);
 
     const start = benchTime(io);
     {
@@ -395,7 +395,7 @@ pub fn benchmarkAes8(comptime Aes: anytype, comptime count: comptime_int, io: Io
     random.bytes(key[0..]);
     const ctx = Aes.initEnc(key);
 
-    var in = [_]u8{0} ** (8 * 16);
+    var in: [8 * 16]u8 = @splat(0);
 
     const start = benchTime(io);
     {
@@ -444,7 +444,7 @@ fn benchmarkPwhash(
     comptime count: comptime_int,
     io: std.Io,
 ) !f64 {
-    const password = "testpass" ** 2;
+    const password = "testpasstestpass";
     const opts = ty.HashOptions{
         .allocator = allocator,
         .params = @as(*const ty.Params, @ptrCast(@alignCast(params))).*,
@@ -456,7 +456,7 @@ fn benchmarkPwhash(
     const strHashFnInfo = @typeInfo(@TypeOf(strHash)).@"fn";
     const needs_io = strHashFnInfo.params.len == 4 and strHashFnInfo.params[3].type == std.Io;
     const needs_salt = strHashFnInfo.params.len == 4 and strHashFnInfo.params[3].type != std.Io;
-    const salt: [16]u8 = .{0} ** 16;
+    const salt: [16]u8 = @splat(0);
 
     const start = benchTime(io);
     {

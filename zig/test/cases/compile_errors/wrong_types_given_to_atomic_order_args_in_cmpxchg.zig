@@ -5,5 +5,5 @@ export fn entry() void {
 
 // error
 //
-// :3:47: error: expected type 'builtin.AtomicOrder', found 'u32'
+// :3:47: error: expected type 'lang.AtomicOrder', found 'u32'
 // :?:?: note: enum declared here

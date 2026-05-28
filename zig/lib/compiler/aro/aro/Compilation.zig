@@ -78,12 +78,12 @@ pub const Environment = struct {
     pub fn loadAll(environ_map: *const std.process.Environ.Map) Environment {
         var env: Environment = .{};
 
-        inline for (@typeInfo(@TypeOf(env)).@"struct".fields) |field| {
-            std.debug.assert(@field(env, field.name) == null);
+        inline for (@typeInfo(@TypeOf(env)).@"struct".field_names) |field_name| {
+            std.debug.assert(@field(env, field_name) == null);
 
-            var env_var_buf: [field.name.len]u8 = undefined;
-            const env_var_name = std.ascii.upperString(&env_var_buf, field.name);
-            @field(env, field.name) = environ_map.get(env_var_name);
+            var env_var_buf: [field_name.len]u8 = undefined;
+            const env_var_name = std.ascii.upperString(&env_var_buf, field_name);
+            @field(env, field_name) = environ_map.get(env_var_name);
         }
         return env;
     }
@@ -498,7 +498,6 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
                 .{ .fma, "__FMA__" },
                 .{ .f16c, "__F16C__" },
                 .{ .gfni, "__GFNI__" },
-                .{ .evex512, "__EVEX512__" },
 
                 .{ .avx10_1, "__AVX10_1__" },
                 .{ .avx10_1, "__AVX10_1_512__" },
@@ -560,7 +559,6 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
                 .{ .amx_complex, "__AMX_COMPLEX__" },
                 .{ .amx_fp8, "__AMX_FP8__" },
                 .{ .amx_movrs, "__AMX_MOVRS__" },
-                .{ .amx_transpose, "__AMX_TRANSPOSE__" },
                 .{ .amx_avx512, "__AMX_AVX512__" },
                 .{ .amx_tf32, "__AMX_TF32__" },
                 .{ .cmpccxadd, "__CMPCCXADD__" },
@@ -798,7 +796,6 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
                 .{ .fullfp16, "FP16_SCALAR_ARITHMETIC" },
                 .{ .dotprod, "DOTPROD" },
                 .{ .mte, "MEMORY_TAGGING" },
-                .{ .tme, "TME" },
                 .{ .i8mm, "MATMUL_INT8" },
                 .{ .lse, "ATOMICS" },
                 .{ .f64mm, "SVE_MATMUL_FP64" },
@@ -826,17 +823,13 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
         .xtensa, .xtensaeb => {
             try define(w, "__xtensa__");
             try define(w, "__XTENSA__");
-            if (target.cpu.arch == .xtensaeb) {
-                try define(w, "__XTENSAEB__");
-            }
-            if (target.cpu.model == &std.Target.xtensa.cpu.esp32) {
-                try define(w, "__ESP32__");
-            } else if (target.cpu.model == &std.Target.xtensa.cpu.esp32s2) {
-                try define(w, "__ESP32_S2__");
-            } else if (target.cpu.model == &std.Target.xtensa.cpu.esp32s3) {
-                try define(w, "__ESP32_S3__");
-            } else if (target.cpu.model == &std.Target.xtensa.cpu.esp8266) {
-                try define(w, "__ESP8266__");
+            if (target.cpu.arch == .xtensaeb) try define(w, "__XTENSAEB__");
+            switch (target.os.tag) {
+                .esp32 => try define(w, "__ESP32__"),
+                .esp32s2 => try define(w, "__ESP32_S2__"),
+                .esp32s3 => try define(w, "__ESP32_S3__"),
+                .esp8266 => try define(w, "__ESP8266__"),
+                else => {},
             }
         },
         .wasm32, .wasm64 => {
@@ -870,30 +863,18 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
         .riscv32, .riscv32be, .riscv64, .riscv64be => {
             try define(w, "__riscv");
             try w.print("#define __riscv_xlen {d}\n", .{ptr_width});
-            if (target.cpu.model == &std.Target.riscv.cpu.esp32c2) {
-                try define(w, "__ESP32_C2__");
-            } else if (target.cpu.model == &std.Target.riscv.cpu.esp32c3) {
-                try define(w, "__ESP32_C3__");
-            } else if (target.cpu.model == &std.Target.riscv.cpu.esp32c5) {
-                try define(w, "__ESP32_C5__");
-            } else if (target.cpu.model == &std.Target.riscv.cpu.esp32c6) {
-                try define(w, "__ESP32_C6__");
-            } else if (target.cpu.model == &std.Target.riscv.cpu.esp32c61 or
-                target.cpu.model == &std.Target.riscv.cpu.esp32c61eco0)
-            {
-                try define(w, "__ESP32_C61__");
-            } else if (target.cpu.model == &std.Target.riscv.cpu.esp32p4 or
-                target.cpu.model == &std.Target.riscv.cpu.esp32p4eco4)
-            {
-                try define(w, "__ESP32_P4__");
-            } else if (target.cpu.model == &std.Target.riscv.cpu.esp32h2) {
-                try define(w, "__ESP32_H2__");
-            } else if (target.cpu.model == &std.Target.riscv.cpu.esp32h21) {
-                try define(w, "__ESP32_H21__");
-            } else if (target.cpu.model == &std.Target.riscv.cpu.esp32h4) {
-                try define(w, "__ESP32_H4__");
-            } else if (target.cpu.model == &std.Target.riscv.cpu.esp32s31) {
-                try define(w, "__ESP32_S31__");
+            switch (target.os.tag) {
+                .esp32c2 => try define(w, "__ESP32_C2__"),
+                .esp32c3 => try define(w, "__ESP32_C3__"),
+                .esp32c5 => try define(w, "__ESP32_C5__"),
+                .esp32c6 => try define(w, "__ESP32_C6__"),
+                .esp32c61 => try define(w, "__ESP32_C61__"),
+                .esp32h2 => try define(w, "__ESP32_H2__"),
+                .esp32h21 => try define(w, "__ESP32_H21__"),
+                .esp32h4 => try define(w, "__ESP32_H4__"),
+                .esp32p4 => try define(w, "__ESP32_P4__"),
+                .esp32s31 => try define(w, "__ESP32_S31__"),
+                else => {},
             }
         },
         else => {},
@@ -1802,8 +1783,9 @@ fn addToSearchPath(comp: *Compilation, include: Include, verbose: bool) !void {
     try comp.search_path.append(comp.gpa, include);
 }
 fn removeDuplicateSearchPaths(comp: *Compilation, start: usize, verbose: bool) !void {
-    var sf = std.heap.stackFallback(1024, comp.gpa);
-    const allocator = sf.get();
+    var bfa_buf: [1024]u8 = undefined;
+    var bfa: std.heap.BufferFirstAllocator = .init(&bfa_buf, comp.gpa);
+    const allocator = bfa.allocator();
     var seen_includes: std.StringHashMapUnmanaged(void) = .empty;
     defer seen_includes.deinit(allocator);
     var seen_frameworks: std.StringHashMapUnmanaged(void) = .empty;
@@ -2017,10 +1999,11 @@ const FindInclude = struct {
     ) Allocator.Error!?Result {
         const comp = find.comp;
 
-        var stack_fallback = std.heap.stackFallback(path_buf_stack_limit, comp.gpa);
-        const sfa = stack_fallback.get();
-        const header_path = try std.fmt.allocPrint(sfa, format, args);
-        defer sfa.free(header_path);
+        var bfa_buf: [path_buf_stack_limit]u8 = undefined;
+        var bfa_state: std.heap.BufferFirstAllocator = .init(&bfa_buf, comp.gpa);
+        const bfa = bfa_state.allocator();
+        const header_path = try std.fmt.allocPrint(bfa, format, args);
+        defer bfa.free(header_path);
         find.comp.normalizePath(header_path);
 
         const source = comp.addSourceFromPathExtra(header_path, kind) catch |err| switch (err) {
@@ -2109,36 +2092,37 @@ pub fn findEmbed(
         }
     }
 
-    var stack_fallback = std.heap.stackFallback(path_buf_stack_limit, comp.gpa);
-    const sf_allocator = stack_fallback.get();
+    var bfa_buf: [path_buf_stack_limit]u8 = undefined;
+    var bfa_state: std.heap.BufferFirstAllocator = .init(&bfa_buf, comp.gpa);
+    const bfa = bfa_state.allocator();
 
     switch (include_type) {
         .quotes, .cli => {
             const dir = std.fs.path.dirname(comp.getSource(includer_token_source).path) orelse ".";
-            const path = try std.fs.path.join(sf_allocator, &.{ dir, filename });
-            defer sf_allocator.free(path);
+            const path = try std.fs.path.join(bfa, &.{ dir, filename });
+            defer bfa.free(path);
             comp.normalizePath(path);
             if (comp.getPathContents(path, limit)) |some| {
                 errdefer comp.gpa.free(some);
                 if (opt_dep_file) |dep_file| try dep_file.addDependencyDupe(comp.gpa, comp.arena, filename);
                 return some;
             } else |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
                 else => {},
             }
         },
         .angle_brackets => {},
     }
     for (comp.embed_dirs.items) |embed_dir| {
-        const path = try std.fs.path.join(sf_allocator, &.{ embed_dir, filename });
-        defer sf_allocator.free(path);
+        const path = try std.fs.path.join(bfa, &.{ embed_dir, filename });
+        defer bfa.free(path);
         comp.normalizePath(path);
         if (comp.getPathContents(path, limit)) |some| {
             errdefer comp.gpa.free(some);
             if (opt_dep_file) |dep_file| try dep_file.addDependencyDupe(comp.gpa, comp.arena, filename);
             return some;
         } else |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfMemory => |e| return e,
             else => {},
         }
     }

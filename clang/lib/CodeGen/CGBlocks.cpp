@@ -420,13 +420,11 @@ static void addBlockLayout(CharUnits align, CharUnits size,
 
 /// Determines if the given type is safe for constant capture in C++.
 static bool isSafeForCXXConstantCapture(QualType type) {
-  const RecordType *recordType =
-    type->getBaseElementTypeUnsafe()->getAs<RecordType>();
+  const auto *record = type->getBaseElementTypeUnsafe()->getAsCXXRecordDecl();
 
   // Only records can be unsafe.
-  if (!recordType) return true;
-
-  const auto *record = cast<CXXRecordDecl>(recordType->getDecl());
+  if (!record)
+    return true;
 
   // Maintain semantics for classes with non-trivial dtors or copy ctors.
   if (!record->hasTrivialDestructor()) return false;
@@ -1209,7 +1207,7 @@ RValue CodeGenFunction::EmitBlockCallExpr(const CallExpr *E,
   } else {
     // Bitcast the block literal to a generic block literal.
     BlockPtr =
-        Builder.CreatePointerCast(BlockPtr, UnqualPtrTy, "block.literal");
+        Builder.CreatePointerCast(BlockPtr, DefaultPtrTy, "block.literal");
     // Get pointer to the block invoke function
     FuncPtr = Builder.CreateStructGEP(GenBlockTy, BlockPtr, 3);
 
@@ -1584,8 +1582,8 @@ llvm::Function *CodeGenFunction::GenerateBlockFunction(
   llvm::BasicBlock *resume = Builder.GetInsertBlock();
 
   // Go back to the entry.
-  if (entry_ptr->getNextNonDebugInstruction())
-    entry_ptr = entry_ptr->getNextNonDebugInstruction()->getIterator();
+  if (entry_ptr->getNextNode())
+    entry_ptr = entry_ptr->getNextNode()->getIterator();
   else
     entry_ptr = entry->end();
   Builder.SetInsertPoint(entry, entry_ptr);

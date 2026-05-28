@@ -11,16 +11,17 @@ const bits = switch (@import("builtin").cpu.arch) {
     .powerpc64le,
     .sparc,
     .sparc64,
+    .alpha,
     => .{ .size = 13, .dir = 3, .none = 1, .read = 2, .write = 4 },
     else => .{ .size = 14, .dir = 2, .none = 0, .read = 2, .write = 1 },
 };
 
-const Direction = std.meta.Int(.unsigned, bits.dir);
+const Direction = @Int(.unsigned, bits.dir);
 
 pub const Request = packed struct {
     nr: u8,
     io_type: u8,
-    size: std.meta.Int(.unsigned, bits.size),
+    size: @Int(.unsigned, bits.size),
     dir: Direction,
 };
 

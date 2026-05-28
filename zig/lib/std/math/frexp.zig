@@ -22,16 +22,16 @@ pub fn frexp(x: anytype) Frexp(@TypeOf(x)) {
     const T: type = @TypeOf(x);
 
     const bits: comptime_int = @typeInfo(T).float.bits;
-    const Int: type = std.meta.Int(.unsigned, bits);
+    const Int: type = @Int(.unsigned, bits);
 
     const exp_bits: comptime_int = math.floatExponentBits(T);
     const mant_bits: comptime_int = math.floatMantissaBits(T);
     const frac_bits: comptime_int = math.floatFractionalBits(T);
     const exp_min: comptime_int = math.floatExponentMin(T);
 
-    const ExpInt: type = std.meta.Int(.unsigned, exp_bits);
-    const MantInt: type = std.meta.Int(.unsigned, mant_bits);
-    const FracInt: type = std.meta.Int(.unsigned, frac_bits);
+    const ExpInt: type = @Int(.unsigned, exp_bits);
+    const MantInt: type = @Int(.unsigned, mant_bits);
+    const FracInt: type = @Int(.unsigned, frac_bits);
 
     const unreal_exponent: comptime_int = (1 << exp_bits) - 1;
     const bias: comptime_int = (1 << (exp_bits - 1)) - 2;

@@ -1,4 +1,4 @@
-/*	$NetBSD: if_bridgevar.h,v 1.37.4.1 2024/09/05 09:27:12 martin Exp $	*/
+/*	$NetBSD: if_bridgevar.h,v 1.40 2025/04/22 05:47:51 ozaki-r Exp $	*/
 
 /*
  * Copyright 2001 Wasabi Systems, Inc.
@@ -332,6 +332,7 @@ struct bridge_softc {
 	uint32_t		sc_filter_flags; /* ipf and flags */
 	int			sc_csum_flags_tx;
 	int			sc_capenable;
+	bool			sc_stopping;
 };
 
 extern const uint8_t bstp_etheraddr[];
@@ -353,8 +354,6 @@ void	bridge_calc_csum_flags(struct bridge_softc *);
 #define BRIDGE_UNLOCK(_sc)	mutex_exit(BRIDGE_LOCK_OBJ(_sc))
 #define BRIDGE_LOCKED(_sc)	mutex_owned(BRIDGE_LOCK_OBJ(_sc))
 
-#define BRIDGE_PSZ_RENTER(__s)	do { __s = pserialize_read_enter(); } while (0)
-#define BRIDGE_PSZ_REXIT(__s)	do { pserialize_read_exit(__s); } while (0)
 #define BRIDGE_PSZ_PERFORM(_sc)	pserialize_perform((_sc)->sc_iflist_psref.bip_psz)
 
 #define BRIDGE_IFLIST_READER_FOREACH(_bif, _sc) \

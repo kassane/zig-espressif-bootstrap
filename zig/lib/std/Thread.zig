@@ -695,6 +695,9 @@ const PosixThreadImpl = struct {
             .linux => {
                 return LinuxThreadImpl.getCpuCount();
             },
+            .emscripten => {
+                return @as(usize, @intCast(std.os.emscripten.emscripten_num_logical_cores()));
+            },
             .openbsd => {
                 var count: c_int = undefined;
                 var count_size: usize = @sizeOf(c_int);
@@ -1214,8 +1217,8 @@ const LinuxThreadImpl = struct {
                     \\ ldi $16, 0
                     \\ callsys
                     :
-                    : [ptr] "{r16}" (@intFromPtr(self.mapped.ptr)),
-                      [len] "{r17}" (self.mapped.len),
+                    : [ptr] "{$16}" (@intFromPtr(self.mapped.ptr)),
+                      [len] "{$17}" (self.mapped.len),
                 ),
                 .hexagon => asm volatile (
                     \\  r6 = #215 // SYS_munmap
@@ -1408,6 +1411,16 @@ const LinuxThreadImpl = struct {
                     : [ptr] "{r4}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{r5}" (self.mapped.len),
                     : .{ .memory = true }),
+                .xtensa, .xtensaeb => asm volatile (
+                    \\ movi a2, 81 // SYS_munmap
+                    \\ syscall
+                    \\ movi a6, 0
+                    \\ movi a2, 118 // SYS_exit
+                    \\ syscall
+                    :
+                    : [ptr] "{a6}" (@intFromPtr(self.mapped.ptr)),
+                      [len] "{a3}" (self.mapped.len),
+                    : .{ .memory = true }),
                 else => |cpu_arch| @compileError("Unsupported linux arch: " ++ @tagName(cpu_arch)),
             }
             unreachable;
@@ -1574,9 +1587,9 @@ const LinuxThreadImpl = struct {
 };
 
 fn testThreadName(io: Io, thread: *Thread) !void {
-    const testCases = &[_][]const u8{
+    const testCases: []const []const u8 = &.{
         "mythread",
-        "b" ** max_name_len,
+        &@as([max_name_len]u8, @splat('b')),
     };
 
     inline for (testCases) |tc| {

@@ -315,8 +315,9 @@ pub const Parser = struct {
         if (p.errored) return;
         if (p.comp.diagnostics.effectiveKind(diagnostic) == .off) return;
 
-        var sf = std.heap.stackFallback(1024, p.comp.gpa);
-        var allocating: std.Io.Writer.Allocating = .init(sf.get());
+        var bfa_buf: [1024]u8 = undefined;
+        var bfa: std.heap.BufferFirstAllocator = .init(&bfa_buf, p.comp.gpa);
+        var allocating: std.Io.Writer.Allocating = .init(bfa.allocator());
         defer allocating.deinit();
 
         formatArgs(&allocating.writer, diagnostic.fmt, args) catch return error.OutOfMemory;
@@ -334,8 +335,8 @@ pub const Parser = struct {
 
     fn formatArgs(w: *std.Io.Writer, fmt: []const u8, args: anytype) !void {
         var i: usize = 0;
-        inline for (std.meta.fields(@TypeOf(args))) |arg_info| {
-            const arg = @field(args, arg_info.name);
+        inline for (comptime std.meta.fieldNames(@TypeOf(args))) |arg_name| {
+            const arg = @field(args, arg_name);
             i += switch (@TypeOf(arg)) {
                 []const u8 => try Diagnostics.formatString(w, fmt[i..], arg),
                 Ascii => try arg.format(w, fmt[i..]),

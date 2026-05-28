@@ -130,7 +130,7 @@ pub const Wyhash = struct {
 
     inline fn read(comptime bytes: usize, data: []const u8) u64 {
         std.debug.assert(bytes <= 8);
-        const T = std.meta.Int(.unsigned, 8 * bytes);
+        const T = @Int(.unsigned, 8 * bytes);
         return @as(u64, std.mem.readInt(T, data[0..bytes], .little));
     }
 
@@ -253,7 +253,7 @@ test "iterative api" {
 }
 
 test "iterative maintains last sixteen" {
-    const input = "Z" ** 48 ++ "01234567890abcdefg";
+    const input = &@as([48]u8, @splat('Z')) ++ "01234567890abcdefg";
     const seed = 0;
 
     for (0..17) |i| {

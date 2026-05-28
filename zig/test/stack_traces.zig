@@ -226,12 +226,15 @@ pub fn addCases(cases: *@import("tests.zig").StackTracesContext, os: std.Target.
 
     cases.addCase(.{
         .name = "simple inline panic",
+        // The main function has two inline calls to ensure
+        // that inlinees in PDBs are properly deduplicated.
         .source =
         \\pub fn main() void {
-        \\    foo();
+        \\    foo(false);
+        \\    foo(true);
         \\}
-        \\inline fn foo() void {
-        \\    @panic("oh no");
+        \\inline fn foo(b: bool) void {
+        \\    if (b) @panic("oh no");
         \\}
         \\
         ,
@@ -242,11 +245,11 @@ pub fn addCases(cases: *@import("tests.zig").StackTracesContext, os: std.Target.
             // so the first location has only a row.
             .windows =>
             \\panic: oh no
-            \\source.zig:5: [address] in foo
-            \\    @panic("oh no");
+            \\source.zig:6: [address] in foo
+            \\    if (b) @panic("oh no");
             \\
-            \\source.zig:2:8: [address] in main
-            \\    foo();
+            \\source.zig:3:8: [address] in main
+            \\    foo(true);
             \\       ^
             \\
             ,
@@ -254,9 +257,9 @@ pub fn addCases(cases: *@import("tests.zig").StackTracesContext, os: std.Target.
             // resolve the inline callers.
             else =>
             \\panic: oh no
-            \\source.zig:5:5: [address] in foo
-            \\    @panic("oh no");
-            \\    ^
+            \\source.zig:6:12: [address] in foo
+            \\    if (b) @panic("oh no");
+            \\           ^
             ,
         },
         .expect_strip = switch (os) {

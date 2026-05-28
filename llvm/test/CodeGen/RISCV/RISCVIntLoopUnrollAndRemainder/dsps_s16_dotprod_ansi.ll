@@ -15,18 +15,18 @@ define dso_local noundef i32 @dsps_dotprod_s16_ansi(ptr nocapture noundef readon
 ; CHECK:       for.body.preheader:
 ; CHECK-NEXT:    [[TMP0:%.*]] = add nsw i32 [[AND]], -1
 ; CHECK-NEXT:    [[TMP1:%.*]] = and i32 [[TMP0]], -8
-; CHECK-NEXT:    br label [[FOR_BODY_7:%.*]]
+; CHECK-NEXT:    br label [[FOR_COND_CLEANUP_LOOPEXIT:%.*]]
 ; CHECK:       for.cond.cleanup.loopexit:
 ; CHECK-NEXT:    [[TMP2:%.*]] = add i32 [[TMP1]], 8
 ; CHECK-NEXT:    br label [[FOR_COND73_PREHEADER]]
 ; CHECK:       for.cond73.preheader:
-; CHECK-NEXT:    [[I_0_LCSSA:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[TMP2]], [[FOR_COND_CLEANUP_LOOPEXIT:%.*]] ]
-; CHECK-NEXT:    [[RESULT0_0_LCSSA:%.*]] = phi i64 [ [[CONV1]], [[ENTRY]] ], [ [[ADD_7:%.*]], [[FOR_COND_CLEANUP_LOOPEXIT]] ]
+; CHECK-NEXT:    [[I_0_LCSSA:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[TMP2]], [[FOR_COND_CLEANUP_LOOPEXIT1:%.*]] ]
+; CHECK-NEXT:    [[RESULT0_0_LCSSA:%.*]] = phi i64 [ [[CONV1]], [[ENTRY]] ], [ [[ADD_7:%.*]], [[FOR_COND_CLEANUP_LOOPEXIT1]] ]
 ; CHECK-NEXT:    [[CMP74172:%.*]] = icmp slt i32 [[I_0_LCSSA]], [[LEN]]
 ; CHECK-NEXT:    br i1 [[CMP74172]], label [[FOR_BODY_CLONE:%.*]], label [[FOR_END85:%.*]]
 ; CHECK:       for.body.7:
-; CHECK-NEXT:    [[RESULT0_0:%.*]] = phi i64 [ [[CONV1]], [[FOR_BODY_PREHEADER]] ], [ [[ADD_7]], [[FOR_BODY_7]] ]
-; CHECK-NEXT:    [[I_025:%.*]] = phi i32 [ 0, [[FOR_BODY_PREHEADER]] ], [ [[INC_7:%.*]], [[FOR_BODY_7]] ]
+; CHECK-NEXT:    [[RESULT0_0:%.*]] = phi i64 [ [[CONV1]], [[FOR_BODY_PREHEADER]] ], [ [[ADD_7]], [[FOR_COND_CLEANUP_LOOPEXIT]] ]
+; CHECK-NEXT:    [[I_025:%.*]] = phi i32 [ 0, [[FOR_BODY_PREHEADER]] ], [ [[INC_7:%.*]], [[FOR_COND_CLEANUP_LOOPEXIT]] ]
 ; CHECK-NEXT:    [[INC:%.*]] = or disjoint i32 [[I_025]], 1
 ; CHECK-NEXT:    [[INC_1:%.*]] = or disjoint i32 [[I_025]], 2
 ; CHECK-NEXT:    [[INC_2:%.*]] = or disjoint i32 [[I_025]], 3
@@ -108,7 +108,7 @@ define dso_local noundef i32 @dsps_dotprod_s16_ansi(ptr nocapture noundef readon
 ; CHECK-NEXT:    [[ADD_7]] = add nsw i64 [[ADD_6]], [[CONV6_7]]
 ; CHECK-NEXT:    [[INC_7]] = add nuw nsw i32 [[I_025]], 8
 ; CHECK-NEXT:    [[EXITCOND_NOT_7:%.*]] = icmp slt i32 [[INC_7]], [[AND]]
-; CHECK-NEXT:    br i1 [[EXITCOND_NOT_7]], label [[FOR_BODY_7]], label [[FOR_COND_CLEANUP_LOOPEXIT]]
+; CHECK-NEXT:    br i1 [[EXITCOND_NOT_7]], label [[FOR_COND_CLEANUP_LOOPEXIT]], label [[FOR_COND_CLEANUP_LOOPEXIT1]]
 ; CHECK:       for.body.clone:
 ; CHECK-NEXT:    [[TMP19:%.*]] = phi i64 [ [[ADD_CLONE:%.*]], [[FOR_BODY_CLONE]] ], [ [[RESULT0_0_LCSSA]], [[FOR_COND73_PREHEADER]] ]
 ; CHECK-NEXT:    [[I_025_CLONE:%.*]] = phi i32 [ [[INC_CLONE:%.*]], [[FOR_BODY_CLONE]] ], [ [[I_0_LCSSA]], [[FOR_COND73_PREHEADER]] ]

@@ -879,16 +879,16 @@ fn parseAbbrevTable(di: *Dwarf, gpa: Allocator, offset: u64) !Abbrev.Table {
     var fr: Reader = .fixed(di.section(.debug_abbrev).?);
     fr.seek = cast(usize, offset) orelse return bad();
 
-    var abbrevs = std.array_list.Managed(Abbrev).init(gpa);
+    var abbrevs: std.ArrayList(Abbrev) = .empty;
     defer {
         for (abbrevs.items) |*abbrev| {
             abbrev.deinit(gpa);
         }
-        abbrevs.deinit();
+        abbrevs.deinit(gpa);
     }
 
-    var attrs = std.array_list.Managed(Abbrev.Attr).init(gpa);
-    defer attrs.deinit();
+    var attrs: std.ArrayList(Abbrev.Attr) = .empty;
+    defer attrs.deinit(gpa);
 
     while (true) {
         const code = try fr.takeLeb128(u64);
@@ -900,7 +900,7 @@ fn parseAbbrevTable(di: *Dwarf, gpa: Allocator, offset: u64) !Abbrev.Table {
             const attr_id = try fr.takeLeb128(u64);
             const form_id = try fr.takeLeb128(u64);
             if (attr_id == 0 and form_id == 0) break;
-            try attrs.append(.{
+            try attrs.append(gpa, .{
                 .id = attr_id,
                 .form_id = form_id,
                 .payload = switch (form_id) {
@@ -909,18 +909,18 @@ fn parseAbbrevTable(di: *Dwarf, gpa: Allocator, offset: u64) !Abbrev.Table {
                 },
             });
         }
-
-        try abbrevs.append(.{
+        try abbrevs.ensureUnusedCapacity(gpa, 1);
+        abbrevs.appendAssumeCapacity(.{
             .code = code,
             .tag_id = tag_id,
             .has_children = has_children,
-            .attrs = try attrs.toOwnedSlice(),
+            .attrs = try attrs.toOwnedSlice(gpa),
         });
     }
 
     return .{
         .offset = offset,
-        .abbrevs = try abbrevs.toOwnedSlice(),
+        .abbrevs = try abbrevs.toOwnedSlice(gpa),
     };
 }
 
@@ -1204,10 +1204,13 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, endian: Endian, compile_unit:
         }
     }{ .keys = line_table.keys() });
 
+    try directories.shrinkToLen(gpa);
+    try file_entries.shrinkToLen(gpa);
+
     return .{
         .line_table = line_table,
-        .directories = try directories.toOwnedSlice(gpa),
-        .files = try file_entries.toOwnedSlice(gpa),
+        .directories = directories.toOwnedSliceAssert(),
+        .files = file_entries.toOwnedSliceAssert(),
         .version = version,
     };
 }
@@ -1343,7 +1346,7 @@ const FileEntry = struct {
     dir_index: u32 = 0,
     mtime: u64 = 0,
     size: u64 = 0,
-    md5: [16]u8 = [1]u8{0} ** 16,
+    md5: [16]u8 = @splat(0),
 };
 
 const LineNumberProgram = struct {
@@ -1433,6 +1436,7 @@ pub fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u16 {
 pub fn ipRegNum(arch: std.Target.Cpu.Arch) ?u16 {
     return switch (arch) {
         .aarch64, .aarch64_be => 32,
+        .alpha => 64,
         .arc, .arceb => 160,
         .arm, .armeb, .thumb, .thumbeb => 15,
         .csky => 64,
@@ -1441,6 +1445,7 @@ pub fn ipRegNum(arch: std.Target.Cpu.Arch) ?u16 {
         .lanai => 2,
         .loongarch32, .loongarch64 => 64,
         .m68k => 26,
+        .m88k => 64,
         .mips, .mipsel, .mips64, .mips64el => 66,
         .or1k => 35,
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => 67,
@@ -1457,6 +1462,7 @@ pub fn ipRegNum(arch: std.Target.Cpu.Arch) ?u16 {
 pub fn fpRegNum(arch: std.Target.Cpu.Arch) u16 {
     return switch (arch) {
         .aarch64, .aarch64_be => 29,
+        .alpha => 15,
         .arc, .arceb => 27,
         .arm, .armeb, .thumb, .thumbeb => 11,
         .csky => 14,
@@ -1465,6 +1471,7 @@ pub fn fpRegNum(arch: std.Target.Cpu.Arch) u16 {
         .lanai => 5,
         .loongarch32, .loongarch64 => 22,
         .m68k => 14,
+        .m88k => 30,
         .mips, .mipsel, .mips64, .mips64el => 30,
         .or1k => 2,
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => 1,
@@ -1482,6 +1489,7 @@ pub fn fpRegNum(arch: std.Target.Cpu.Arch) u16 {
 pub fn spRegNum(arch: std.Target.Cpu.Arch) u16 {
     return switch (arch) {
         .aarch64, .aarch64_be => 31,
+        .alpha => 30,
         .arc, .arceb => 28,
         .arm, .armeb, .thumb, .thumbeb => 13,
         .csky => 14,
@@ -1490,6 +1498,7 @@ pub fn spRegNum(arch: std.Target.Cpu.Arch) u16 {
         .lanai => 4,
         .loongarch32, .loongarch64 => 3,
         .m68k => 15,
+        .m88k => 31,
         .mips, .mipsel, .mips64, .mips64el => 29,
         .or1k => 1,
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => 1,

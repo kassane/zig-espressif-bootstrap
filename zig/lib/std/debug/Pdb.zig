@@ -26,10 +26,11 @@ pub const Module = struct {
     symbols: []u8,
     subsect_info: []u8,
     checksum_offset: ?usize,
-    /// The inlinee source lines, sorted by inlinee. This saves us from repeatedly doing linear
-    /// searches over all inlinees. We prefer binary search over a hashmap as LLVM somtimes outputs
-    /// multiple entries for a single inlinee ID, see `getInlineeSourceLines` for more info.
-    inlinee_source_lines: []InlineeSourceLine,
+    /// The inlinee source lines, sorted by inlinee, then file, then line number.
+    /// This saves us from repeatedly doing linear searches over all inlinees.
+    /// We prefer binary search over a hashmap as LLVM somtimes outputs multiple entries
+    /// for a single inlinee ID, see `getInlineeSourceLines` for more info.
+    inlinee_source_lines: []*align(1) const pdb.InlineeSourceLine,
 
     pub fn deinit(self: *Module, allocator: Allocator) void {
         allocator.free(self.module_name);
@@ -83,8 +84,8 @@ pub fn parseDbiStream(self: *Pdb) !void {
     const mod_info_size = header.mod_info_size;
     const section_contrib_size = header.section_contribution_size;
 
-    var modules = std.array_list.Managed(Module).init(gpa);
-    errdefer modules.deinit();
+    var modules: std.ArrayList(Module) = .empty;
+    defer modules.deinit(gpa);
 
     // Module Info Substream
     var mod_info_offset: usize = 0;
@@ -113,11 +114,16 @@ pub fn parseDbiStream(self: *Pdb) !void {
             this_record_len += march_forward_bytes;
         }
 
-        try modules.append(.{
-            .mod_info = mod_info,
-            .module_name = try module_name.toOwnedSlice(),
-            .obj_file_name = try obj_file_name.toOwnedSlice(),
+        try modules.ensureUnusedCapacity(gpa, 1);
+        const module_name_slice = try module_name.toOwnedSlice();
+        errdefer gpa.free(module_name_slice);
+        const obj_file_name_slice = try obj_file_name.toOwnedSlice();
+        errdefer gpa.free(obj_file_name_slice);
 
+        modules.appendAssumeCapacity(.{
+            .mod_info = mod_info,
+            .module_name = module_name_slice,
+            .obj_file_name = obj_file_name_slice,
             .populated = false,
             .symbols = undefined,
             .subsect_info = undefined,
@@ -131,20 +137,20 @@ pub fn parseDbiStream(self: *Pdb) !void {
     }
 
     // Section Contribution Substream
-    var sect_contribs = std.array_list.Managed(pdb.SectionContribEntry).init(gpa);
-    errdefer sect_contribs.deinit();
+    var sect_contribs: std.ArrayList(pdb.SectionContribEntry) = .empty;
+    defer sect_contribs.deinit(gpa);
 
     var sect_cont_offset: usize = 0;
     if (section_contrib_size != 0) {
         const version = reader.takeEnum(pdb.SectionContrSubstreamVersion, .little) catch |err| switch (err) {
             error.InvalidEnumTag, error.EndOfStream => return error.InvalidDebugInfo,
-            error.ReadFailed => return error.ReadFailed,
+            error.ReadFailed => |e| return e,
         };
         _ = version;
         sect_cont_offset += @sizeOf(u32);
     }
     while (sect_cont_offset != section_contrib_size) {
-        const entry = try sect_contribs.addOne();
+        const entry = try sect_contribs.addOne(gpa);
         entry.* = try reader.takeStruct(pdb.SectionContribEntry, .little);
         sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
 
@@ -152,8 +158,11 @@ pub fn parseDbiStream(self: *Pdb) !void {
             return error.InvalidDebugInfo;
     }
 
-    self.modules = try modules.toOwnedSlice();
-    self.sect_contribs = try sect_contribs.toOwnedSlice();
+    try sect_contribs.shrinkToLen(gpa);
+    try modules.shrinkToLen(gpa);
+
+    self.sect_contribs = sect_contribs.toOwnedSliceAssert();
+    self.modules = modules.toOwnedSliceAssert();
 }
 
 pub fn parseIpiStream(self: *Pdb) !void {
@@ -661,44 +670,68 @@ pub fn getSymbolName(self: *Pdb, proc_sym: *align(1) const pdb.ProcSym) []const 
     return std.mem.sliceTo(@as([*:0]const u8, @ptrCast(&proc_sym.name[0])), 0);
 }
 
-pub const InlineeSourceLine = struct {
-    signature: pdb.InlineeSourceLineSignature,
-    info: *align(1) const pdb.InlineeSourceLine,
+fn inlineeSourceLineLessThan(
+    _: void,
+    lhs: *align(1) const pdb.InlineeSourceLine,
+    rhs: *align(1) const pdb.InlineeSourceLine,
+) bool {
+    if (lhs.inlinee < rhs.inlinee) return true;
+    if (lhs.inlinee > rhs.inlinee) return false;
+    if (lhs.file_id < rhs.file_id) return true;
+    if (lhs.file_id > rhs.file_id) return false;
+    return lhs.source_line_num < rhs.source_line_num;
+}
 
-    fn lessThan(_: void, lhs: InlineeSourceLine, rhs: InlineeSourceLine) bool {
-        return lhs.info.inlinee < rhs.info.inlinee;
-    }
+fn compareInlineeSourceLineInlinee(
+    inlinee: u32,
+    inlinee_src_line: *align(1) const pdb.InlineeSourceLine,
+) std.math.Order {
+    return std.math.order(inlinee, inlinee_src_line.inlinee);
+}
 
-    fn compare(inlinee: u32, self: InlineeSourceLine) std.math.Order {
-        return std.math.order(inlinee, self.info.inlinee);
+pub const InlineeSourceLocationIterator = struct {
+    /// The iterator assumes that all source lines in the slice are associated
+    /// with the same inlinee, and that it is sorted by file, then line number.
+    lines: []*align(1) const pdb.InlineeSourceLine,
+
+    pub const empty: InlineeSourceLocationIterator = .{ .lines = &.{} };
+
+    pub fn next(iter: *InlineeSourceLocationIterator) ?*align(1) const pdb.InlineeSourceLine {
+        if (iter.lines.len == 0) return null;
+        const line = iter.lines[0];
+        iter.lines = iter.lines[1..];
+        // Filter out duplicate entries
+        while (iter.lines.len != 0 and
+            iter.lines[0].file_id == line.file_id and
+            iter.lines[0].source_line_num == line.source_line_num)
+        {
+            iter.lines = iter.lines[1..];
+        }
+        return line;
     }
 };
 
-/// Returns all `InlineeSourceLine`s for a given module with the given inlinee. Ideally there would
-/// only be one entry per inlinee, but LLVM appears to assign all functions that share a name the
-/// same inlinee ID. This appears to be a bug, so the best the caller can do right now is print all
-/// the results.
-pub fn getInlineeSourceLines(
-    self: *Pdb,
-    mod: *Module,
-    inlinee: u32,
-) []const InlineeSourceLine {
+/// Returns all `pdb.InlineeSourceLine`s for a given module with the given inlinee. Ideally
+/// there would only be one entry per inlinee, but LLVM appears to assign all functions that share
+/// a name the same inlinee ID. This is a bug: https://github.com/llvm/llvm-project/issues/191787
+/// The best the caller can do right now is print all the results.
+pub fn getInlineeSourceLines(self: *Pdb, mod: *Module, inlinee: u32) InlineeSourceLocationIterator {
     _ = self;
 
     // Binary search to an arbitrary match, if there are other matches they will be adjacent
     const any = std.sort.binarySearch(
-        InlineeSourceLine,
+        *align(1) const pdb.InlineeSourceLine,
         mod.inlinee_source_lines,
         inlinee,
-        InlineeSourceLine.compare,
-    ) orelse return &.{};
+        compareInlineeSourceLineInlinee,
+    ) orelse return .empty;
 
     // Linearly scan to the first match
     const begin = b: {
         var begin = any;
         while (begin > 0) {
             const prev = begin - 1;
-            if (mod.inlinee_source_lines[prev].info.inlinee != inlinee) break;
+            if (mod.inlinee_source_lines[prev].inlinee != inlinee) break;
             begin = prev;
         }
         break :b begin;
@@ -708,13 +741,13 @@ pub fn getInlineeSourceLines(
     const end = b: {
         var end = any + 1;
         while (end < mod.inlinee_source_lines.len and
-            mod.inlinee_source_lines[end].info.inlinee == inlinee) : (end += 1)
+            mod.inlinee_source_lines[end].inlinee == inlinee) : (end += 1)
         {}
         break :b end;
     };
 
-    // Return a slice of all the matches
-    return mod.inlinee_source_lines[begin..end];
+    // Return an iterator over all matches (the iterator filters out duplicate entries)
+    return .{ .lines = mod.inlinee_source_lines[begin..end] };
 }
 
 pub fn getLineNumberInfo(self: *Pdb, gpa: Allocator, module: *Module, address: u64) !std.debug.SourceLocation {
@@ -837,7 +870,7 @@ pub fn getModule(self: *Pdb, index: usize) !?*Module {
     mod.subsect_info = try reader.readAlloc(gpa, mod.mod_info.c13_byte_size);
     errdefer gpa.free(mod.subsect_info);
     mod.inlinee_source_lines = b: {
-        var inlinee_source_lines: std.ArrayList(InlineeSourceLine) = .empty;
+        var inlinee_source_lines: std.ArrayList(*align(1) const pdb.InlineeSourceLine) = .empty;
         defer inlinee_source_lines.deinit(gpa);
         var subsects: Io.Reader = .fixed(mod.subsect_info);
         while (subsects.takeStructPointer(pdb.DebugSubsectionHeader) catch null) |subsect_hdr| {
@@ -858,15 +891,17 @@ pub fn getModule(self: *Pdb, index: usize) !?*Module {
                             return error.InvalidDebugInfo;
                     }
 
-                    try inlinee_source_lines.append(gpa, .{
-                        .signature = inlinee_source_line_signature,
-                        .info = info,
-                    });
+                    try inlinee_source_lines.append(gpa, info);
                 }
             }
         }
 
-        std.mem.sortUnstable(InlineeSourceLine, inlinee_source_lines.items, {}, InlineeSourceLine.lessThan);
+        std.mem.sortUnstable(
+            *align(1) const pdb.InlineeSourceLine,
+            inlinee_source_lines.items,
+            {},
+            inlineeSourceLineLessThan,
+        );
         break :b try inlinee_source_lines.toOwnedSlice(gpa);
     };
     errdefer gpa.free(mod.inlinee_source_lines);
@@ -1098,22 +1133,22 @@ const MsfStream = struct {
     }
 };
 
-fn readSparseBitVector(reader: *Io.Reader, allocator: Allocator) ![]u32 {
+fn readSparseBitVector(reader: *Io.Reader, gpa: Allocator) ![]u32 {
     const num_words = try reader.takeInt(u32, .little);
-    var list = std.array_list.Managed(u32).init(allocator);
-    errdefer list.deinit();
+    var list: std.ArrayList(u32) = .empty;
+    defer list.deinit(gpa);
     var word_i: u32 = 0;
     while (word_i != num_words) : (word_i += 1) {
         const word = try reader.takeInt(u32, .little);
         var bit_i: u5 = 0;
         while (true) : (bit_i += 1) {
             if (word & (@as(u32, 1) << bit_i) != 0) {
-                try list.append(word_i * 32 + bit_i);
+                try list.append(gpa, word_i * 32 + bit_i);
             }
             if (bit_i == std.math.maxInt(u5)) break;
         }
     }
-    return try list.toOwnedSlice();
+    return try list.toOwnedSlice(gpa);
 }
 
 fn blockCountFromSize(size: u32, block_size: u32) u32 {

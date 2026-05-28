@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bridge.h,v 1.73 2021/11/11 10:03:10 claudio Exp $	*/
+/*	$OpenBSD: if_bridge.h,v 1.77 2025/11/21 04:44:26 dlg Exp $	*/
 
 /*
  * Copyright (c) 1999, 2000 Jason L. Wright (jason@thought.net)
@@ -39,6 +39,12 @@
 #include <sys/timeout.h>
 #include <net/pfvar.h>
 
+#define IFBR_PVID_NULL		EVL_VLID_NULL
+#define IFBR_PVID_MIN		EVL_VLID_MIN
+#define IFBR_PVID_MAX		EVL_VLID_MAX
+#define IFBR_PVID_NONE		0xffff
+#define IFBR_PVID_DECLINE	0xfffe
+
 /*
  * Bridge control request: add/delete member interfaces.
  */
@@ -51,6 +57,7 @@ struct ifbreq {
 
 	u_int8_t	ifbr_state;		/* member stp state */
 	u_int8_t	ifbr_priority;		/* member stp priority */
+	u_int16_t	ifbr_pvid;		/* member port vlan id */
 	u_int32_t	ifbr_path_cost;		/* member stp path cost */
 	u_int32_t	ifbr_stpflags;          /* member stp flags */
 	u_int8_t	ifbr_proto;		/* member stp protocol */
@@ -74,6 +81,8 @@ struct ifbreq {
 #define IFBIF_BSTP_AUTOPTP	0x0080	/* member stp autoptp enabled */
 #define	IFBIF_SPAN		0x0100	/* ifs is a span port (ro) */
 #define	IFBIF_LOCAL		0x1000	/* local port in switch(4) */
+#define	IFBIF_LOCKED		0x2000	/* restrict rx src mac with fib */
+#define	IFBIF_PVLAN_PTAGS	0x4000	/* only use tags for primary pvlans */
 #define	IFBIF_RO_MASK		0x0f00	/* read only bits */
 
 /* SIOCBRDGFLUSH */
@@ -133,15 +142,19 @@ struct ifbareq {
 #define	IFBAF_DYNAMIC		0x00		/* dynamically learned */
 #define	IFBAF_STATIC		0x01		/* static address */
 
+struct ifbvareq;
+
 struct ifbaconf {
 	char			ifbac_name[IFNAMSIZ];	/* bridge ifs name */
 	u_int32_t		ifbac_len;		/* buffer size */
 	union {
 		caddr_t	ifbacu_buf;			/* buffer */
 		struct ifbareq *ifbacu_req;		/* request pointer */
+		struct ifbvareq *ifbacu_vreq;		/* request pointer */
 	} ifbac_ifbacu;
 #define	ifbac_buf	ifbac_ifbacu.ifbacu_buf
 #define	ifbac_req	ifbac_ifbacu.ifbacu_req
+#define	ifbac_vreq	ifbac_ifbacu.ifbacu_vreq
 };
 
 struct ifbrparam {
@@ -235,6 +248,40 @@ struct ifbrlconf {
 	} ifbrl_ifbrlu;
 #define	ifbrl_buf	ifbrl_ifbrlu.ifbrlu_buf
 #define	ifbrl_req	ifbrl_ifbrlu.ifbrlu_req
+};
+
+struct ifbvareq {
+	char			ifbva_name[IFNAMSIZ];	/* bridge name */
+	char			ifbva_ifsname[IFNAMSIZ];	/* destination ifs */
+	time_t			ifbva_created;		/* monotime */
+	time_t			ifbva_used;		/* monotime */
+	unsigned int		ifbva_flags;		/* address flags */
+	uint16_t		ifbva_vid;		/* vlan */
+	struct ether_addr	ifbva_dst;		/* destination addr */
+	struct sockaddr_storage	ifbva_dstsa;		/* tunnel endpoint */
+};
+
+struct ifbrvidmap {
+	char			ifbrvm_name[IFNAMSIZ];
+	char			ifbrvm_ifsname[IFNAMSIZ];
+	unsigned int		ifbrvm_op;
+#define IFBRVM_OP_SET			0x0	/* kernel = ifbrvm_map */
+#define IFBRVM_OP_OR			0x1	/* kernel |= ifbrvm_map */
+#define IFBRVM_OP_ANDNOT		0x2	/* kernel &= ~ifbrvm_map */
+	unsigned int		ifbrvm_gen;
+	uint8_t			ifbrvm_map[512];
+};
+
+struct ifbrpvlan {
+	char			ifbrpv_name[IFNAMSIZ];
+	uint16_t		ifbrpv_primary;
+	uint16_t		ifbrpv_secondary;
+	unsigned int		ifbrpv_type;
+#define IFBRPV_T_PRIMARY		0
+#define IFBRPV_T_SECONDARY		1	/* for searching */
+#define IFBRPV_T_ISOLATED		2
+#define IFBRPV_T_COMMUNITY		3
+	unsigned int		ifbrpv_gen;
 };
 
 #ifdef _KERNEL

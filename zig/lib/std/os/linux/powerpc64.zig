@@ -2,7 +2,11 @@ const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const SYS = std.os.linux.SYS;
 
-pub fn syscall0(number: SYS) u64 {
+pub const syscall_arg_t = u64;
+
+pub fn syscall0(
+    number: SYS,
+) u64 {
     // r0 is both an input register and a clobber. musl and glibc achieve this with
     // a "+" constraint, which isn't supported in Zig, so instead we separately list
     // r0 as both an input and an output. (Listing it as an input and a clobber would
@@ -19,7 +23,10 @@ pub fn syscall0(number: SYS) u64 {
         : .{ .memory = true, .cr0 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
-pub fn syscall1(number: SYS, arg1: u64) u64 {
+pub fn syscall1(
+    number: SYS,
+    arg1: syscall_arg_t,
+) u64 {
     // r0 is both an input and a clobber.
     var r0_out: u64 = undefined;
     return asm volatile (
@@ -34,7 +41,11 @@ pub fn syscall1(number: SYS, arg1: u64) u64 {
         : .{ .memory = true, .cr0 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
-pub fn syscall2(number: SYS, arg1: u64, arg2: u64) u64 {
+pub fn syscall2(
+    number: SYS,
+    arg1: syscall_arg_t,
+    arg2: syscall_arg_t,
+) u64 {
     // These registers are both inputs and clobbers.
     var r0_out: u64 = undefined;
     var r4_out: u64 = undefined;
@@ -52,7 +63,12 @@ pub fn syscall2(number: SYS, arg1: u64, arg2: u64) u64 {
         : .{ .memory = true, .cr0 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
-pub fn syscall3(number: SYS, arg1: u64, arg2: u64, arg3: u64) u64 {
+pub fn syscall3(
+    number: SYS,
+    arg1: syscall_arg_t,
+    arg2: syscall_arg_t,
+    arg3: syscall_arg_t,
+) u64 {
     // These registers are both inputs and clobbers.
     var r0_out: u64 = undefined;
     var r4_out: u64 = undefined;
@@ -73,7 +89,13 @@ pub fn syscall3(number: SYS, arg1: u64, arg2: u64, arg3: u64) u64 {
         : .{ .memory = true, .cr0 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
-pub fn syscall4(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64) u64 {
+pub fn syscall4(
+    number: SYS,
+    arg1: syscall_arg_t,
+    arg2: syscall_arg_t,
+    arg3: syscall_arg_t,
+    arg4: syscall_arg_t,
+) u64 {
     // These registers are both inputs and clobbers.
     var r0_out: u64 = undefined;
     var r4_out: u64 = undefined;
@@ -97,7 +119,14 @@ pub fn syscall4(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64) u64 {
         : .{ .memory = true, .cr0 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
-pub fn syscall5(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) u64 {
+pub fn syscall5(
+    number: SYS,
+    arg1: syscall_arg_t,
+    arg2: syscall_arg_t,
+    arg3: syscall_arg_t,
+    arg4: syscall_arg_t,
+    arg5: syscall_arg_t,
+) u64 {
     // These registers are both inputs and clobbers.
     var r0_out: u64 = undefined;
     var r4_out: u64 = undefined;
@@ -126,12 +155,12 @@ pub fn syscall5(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u
 
 pub fn syscall6(
     number: SYS,
-    arg1: u64,
-    arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-    arg6: u64,
+    arg1: syscall_arg_t,
+    arg2: syscall_arg_t,
+    arg3: syscall_arg_t,
+    arg4: syscall_arg_t,
+    arg5: syscall_arg_t,
+    arg6: syscall_arg_t,
 ) u64 {
     // These registers are both inputs and clobbers.
     var r0_out: u64 = undefined;

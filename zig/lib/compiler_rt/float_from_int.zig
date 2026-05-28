@@ -1,5 +1,4 @@
 const std = @import("std");
-const Int = std.meta.Int;
 const math = std.math;
 
 pub fn floatFromInt(comptime T: type, x: anytype) T {
@@ -7,14 +6,14 @@ pub fn floatFromInt(comptime T: type, x: anytype) T {
 
     // Various constants whose values follow from the type parameters.
     // Any reasonable optimizer will fold and propagate all of these.
-    const Z = Int(.unsigned, @bitSizeOf(@TypeOf(x)));
-    const uT = Int(.unsigned, @bitSizeOf(T));
+    const Z = @Int(.unsigned, @bitSizeOf(@TypeOf(x)));
+    const uT = @Int(.unsigned, @bitSizeOf(T));
     const inf = math.inf(T);
     const float_bits = @bitSizeOf(T);
     const int_bits = @bitSizeOf(@TypeOf(x));
     const exp_bits = math.floatExponentBits(T);
     const fractional_bits = math.floatFractionalBits(T);
-    const exp_bias = math.maxInt(Int(.unsigned, exp_bits - 1));
+    const exp_bias = math.maxInt(@Int(.unsigned, exp_bits - 1));
     const implicit_bit = if (T != f80) @as(uT, 1) << fractional_bits else 0;
     const max_exp = exp_bias;
 
@@ -98,7 +97,7 @@ pub inline fn floatFromBigInt(comptime T: type, comptime signedness: std.builtin
         if (limb(x, limb_index) != 0) break true;
     } else limb(x, exponent_limb) & ((@as(u32, 1) << @truncate(exponent)) - 1) != 0;
     return math.ldexp(@as(T, @floatFromInt(
-        std.mem.readPackedIntNative(I, std.mem.sliceAsBytes(x), exponent) | @intFromBool(sticky),
+        std.mem.readPackedInt(I, std.mem.sliceAsBytes(x), exponent, .native) | @intFromBool(sticky),
     )), @intCast(exponent));
 }
 

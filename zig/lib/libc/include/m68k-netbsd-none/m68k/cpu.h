@@ -1,4 +1,4 @@
-/*	$NetBSD: cpu.h,v 1.17 2019/12/01 15:34:44 ad Exp $	*/
+/*	$NetBSD: cpu.h,v 1.25 2024/02/28 13:05:39 thorpej Exp $	*/
 
 /*
  * Copyright (c) 1988 University of Utah.
@@ -41,26 +41,12 @@
 #ifndef _M68K_CPU_H_
 #define	_M68K_CPU_H_
 
+#if defined(_KERNEL_OPT)
+#include "opt_m68k_arch.h"	/* XXX Should not do this here. */
+#endif
+
 /*
  * Exported definitions common to Motorola m68k-based ports.
- *
- * Note that are some port-specific definitions here, such as
- * HP and Sun MMU types.  These facilitate adding very small
- * amounts of port-specific code to what would otherwise be
- * identical.  The is especially true in the case of the HP
- * and other m68k pmaps.
- *
- * Individual ports are expected to define the following CPP symbols
- * in <machine/cpu.h> to enable conditional code:
- *
- *	M68K_MMU_MOTOROLA	Machine has a Motorola MMU (incl.
- *				68851, 68030, 68040, 68060)
- *
- *	M68K_MMU_HP		Machine has an HP MMU.
- *
- * Note also that while m68k-generic code conditionalizes on the
- * M68K_MMU_HP CPP symbol, none of the HP MMU definitions are in this
- * file (since none are used in otherwise sharable code).
  */
 
 /*
@@ -72,46 +58,6 @@
  */
 
 #include <m68k/m68k.h>
-
-/* XXX - Move this stuff into <m68k/mmu030.h> maybe? */
-
-/*
- * 68851 and 68030 MMU
- */
-#define	PMMU_LVLMASK	0x0007
-#define	PMMU_INV	0x0400
-#define	PMMU_WP		0x0800
-#define	PMMU_ALV	0x1000
-#define	PMMU_SO		0x2000
-#define	PMMU_LV		0x4000
-#define	PMMU_BE		0x8000
-#define	PMMU_FAULT	(PMMU_WP|PMMU_INV)
-
-/* XXX - Move this stuff into <m68k/mmu040.h> maybe? */
-
-/*
- * 68040 MMU
- */
-#define	MMU40_RES	0x001
-#define	MMU40_TTR	0x002
-#define	MMU40_WP	0x004
-#define	MMU40_MOD	0x010
-#define	MMU40_CMMASK	0x060
-#define	MMU40_SUP	0x080
-#define	MMU40_U0	0x100
-#define	MMU40_U1	0x200
-#define	MMU40_GLB	0x400
-#define	MMU40_BE	0x800
-
-/* XXX - Move this stuff into <m68k/fcode.h> maybe? */
-
-/* 680X0 function codes */
-#define	FC_USERD	1	/* user data space */
-#define	FC_USERP	2	/* user program space */
-#define	FC_PURGE	3	/* HPMMU: clear TLB entries */
-#define	FC_SUPERD	5	/* supervisor data space */
-#define	FC_SUPERP	6	/* supervisor program space */
-#define	FC_CPU		7	/* CPU space */
 
 /* XXX - Move this stuff into <m68k/cacr.h> maybe? */
 
@@ -196,6 +142,87 @@ void	cpu_proc_fork(struct proc *, struct proc *);
 #define cpu_number()			0
 
 #define LWP_PC(l)	(((struct trapframe *)((l)->l_md.md_regs))->tf_pc)
+
+/*
+ * Arguments to hardclock and gatherstats encapsulate the previous
+ * machine state in an opaque clockframe.  On the m68k platforms, we use
+ * what the interrupt stub puts on the stack before calling C code.
+ */
+struct clockframe {
+	/* regs saved on the stack by the interrupt stub */
+	u_int	cf_regs[4];	/* d0,d1,a0,a1 */
+	/* hardware frame */
+	u_short	cf_sr;		/* sr at time of interrupt */
+	u_long	cf_pc;		/* pc at time of interrupt */
+	u_short	cf_vo;		/* vector offset (4-word HW frame) */
+} __attribute__((__packed__));
+
+#define	CLKF_USERMODE(framep)	(((framep)->cf_sr & PSL_S) == 0)
+#define	CLKF_PC(framep)		((framep)->cf_pc)
+
+#if 0
+/*
+ * We can determine if we were previously in an interrupt context
+ * if we were running on the interrupt stack (as opposed to the
+ * "master" stack).
+ *
+ * XXX Actually, we can't, because we don't use the master stack
+ * XXX right now.
+ *
+ * (Actually, it's unlikely that we'll ever use the master stack in NetBSD.
+ * It would complicate the spl*() functions considerably and it just doesn't
+ * seem like a good trade-off for what seems like extremely marginal gains.
+ * So, just blissfully run the kernel on the interrupt stack all the time,
+ * and it's been that way for >30 years and no one has really complained
+ * about it.)
+ */
+#define	CLKF_INTR(framep)	(((framep)->cf_sr & PSL_M) == 0)
+#else
+/*
+ * The clock interrupt handler can determine if it's a nested
+ * interrupt by checking for intr_depth > 1.
+ * (Remember, the clock interrupt handler itself will cause the
+ * depth counter to be incremented).
+ */
+extern volatile unsigned int intr_depth;
+#define	CLKF_INTR(framep)	(intr_depth > 1)
+#endif
+
+#ifndef __HAVE_M68K_HW_AST
+#define	cpu_set_hw_ast(l)	__nothing
+#endif
+
+extern volatile int astpending;
+#define	cpu_set_ast(l)							\
+	do {								\
+		__USE(l); astpending = 1; cpu_set_hw_ast(l);		\
+	} while (/*CONSTCOND*/0)
+
+/*
+ * Preempt the current process if in interrupt from user mode,
+ * or after the current trap/syscall if in system mode.
+ */
+#define	cpu_need_resched(ci, l, flags)					\
+	do {								\
+		__USE(ci); __USE(flags); cpu_set_ast(l);		\
+	} while (/*CONSTCOND*/0)
+
+/*
+ * Give a profiling tick to the current process when the user profiling
+ * buffer pages are invalid.  On m68k, request an ast to send us through
+ * trap, marking the proc as needing a profiling tick.
+ */
+#define	cpu_need_proftick(l)						\
+	do {								\
+		(l)->l_pflag |= LP_OWEUPC; cpu_set_ast(l);		\
+	} while (/*CONSTCOND*/0)
+
+/*
+ * Notify the current process (p) that it has a signal pending,
+ * process as soon as possible.
+ */
+#define	cpu_signotify(l)	cpu_set_ast(l)
+
 #endif /* _KERNEL */
 
 #endif /* _M68K_CPU_H_ */

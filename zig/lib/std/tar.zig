@@ -734,6 +734,10 @@ test PaxIterator {
         value: []const u8 = undefined,
         err: ?anyerror = null,
     };
+    const long_path: *const [1000]u8 = comptime path: {
+        const buf: [100][10]u8 = @splat("0123456789".*);
+        break :path @ptrCast(&buf);
+    };
     const cases = [_]struct {
         data: []const u8,
         attrs: []const Attr,
@@ -816,9 +820,9 @@ test PaxIterator {
             },
         },
         .{ // 1000 characters path
-            .data = "1011 path=" ++ "0123456789" ** 100 ++ "\n",
+            .data = "1011 path=" ++ long_path ++ "\n",
             .attrs = &[_]Attr{
-                .{ .kind = .path, .value = "0123456789" ** 100 },
+                .{ .kind = .path, .value = long_path },
             },
         },
     };
@@ -879,7 +883,7 @@ test "header parse size" {
     };
 
     for (cases) |case| {
-        var bytes = [_]u8{0} ** Header.SIZE;
+        var bytes: [Header.SIZE]u8 = @splat(0);
         @memcpy(bytes[124 .. 124 + case.in.len], case.in);
         var header = Header{ .bytes = &bytes };
         if (case.err) |err| {
@@ -904,7 +908,7 @@ test "header parse mode" {
         .{ .in = "777777777777", .want = 0o77777777 },
     };
     for (cases) |case| {
-        var bytes = [_]u8{0} ** Header.SIZE;
+        var bytes: [Header.SIZE]u8 = @splat(0);
         @memcpy(bytes[100 .. 100 + case.in.len], case.in);
         var header = Header{ .bytes = &bytes };
         if (case.err) |err| {

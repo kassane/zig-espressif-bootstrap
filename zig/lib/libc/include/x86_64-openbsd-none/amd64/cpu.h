@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.180 2025/04/28 16:18:25 bluhm Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.185 2026/03/31 16:46:22 deraadt Exp $	*/
 /*	$NetBSD: cpu.h,v 1.1 2003/04/26 18:39:39 fvdl Exp $	*/
 
 /*-
@@ -53,6 +53,7 @@
 #include <sys/sched.h>
 #include <sys/sensors.h>
 #include <sys/srp.h>
+#include <sys/xcall.h>
 #include <uvm/uvm_percpu.h>
 
 #ifdef _KERNEL
@@ -187,6 +188,7 @@ struct cpu_info {
 	int		ci_inatomic;		/* [o] */
 
 #define __HAVE_CPU_TOPOLOGY
+	u_int32_t	ci_cputype;		/* [I] */
 	u_int32_t	ci_smt_id;		/* [I] */
 	u_int32_t	ci_core_id;		/* [I] */
 	u_int32_t	ci_pkg_id;		/* [I] */
@@ -215,6 +217,7 @@ struct cpu_info {
 
 #ifdef MULTIPROCESSOR
 	struct srp_hazard	ci_srp_hazards[SRP_HAZARD_NUM];
+	struct xcall_cpu	ci_xcall;
 #define __HAVE_UVM_PERCPU
 	struct uvm_pmr_cache	ci_uvm;		/* [o] page cache */
 #endif
@@ -289,7 +292,7 @@ extern void need_resched(struct cpu_info *);
 
 #if defined(MULTIPROCESSOR)
 
-#define MAXCPUS		64	/* bitmask */
+#define MAXCPUS		255
 
 #define CPU_STARTUP(_ci)	((_ci)->ci_func->start(_ci))
 #define CPU_STOP(_ci)		((_ci)->ci_func->stop(_ci))
@@ -431,6 +434,7 @@ extern void (*cpu_suspend_cycle_fcn)(void);
 #define	cpu_idle_leave()	do { /* nothing */ } while (0)
 extern void (*initclock_func)(void);
 extern void (*startclock_func)(void);
+extern int hibernate_delay;
 
 struct region_descriptor;
 void	lgdt(struct region_descriptor *);
@@ -444,6 +448,9 @@ void	startclocks(void);
 void	rtcinit(void);
 void	rtcstart(void);
 void	rtcstop(void);
+int	rtcalarm_suspend(struct timeval *tv);
+void	rtcalarm_resume(void);
+int	rtcalarm_fired(void);
 void	i8254_delay(int);
 void	i8254_initclocks(void);
 void	i8254_startclock(void);
@@ -496,13 +503,15 @@ void mp_setperf_init(void);
 #define CPU_CPUFEATURE		8	/* cpuid features */
 #define CPU_KBDRESET		10	/* keyboard reset under pcvt */
 #define CPU_XCRYPT		12	/* supports VIA xcrypt in userland */
+#define CPU_HIBERNATEDELAY	13	/* hibernate delay after suspend */
 #define CPU_LIDACTION		14	/* action caused by lid close */
 #define CPU_FORCEUKBD		15	/* Force ukbd(4) as console keyboard */
 #define CPU_TSCFREQ		16	/* TSC frequency */
 #define CPU_INVARIANTTSC	17	/* has invariant TSC */
 #define CPU_PWRACTION		18	/* action caused by power button */
 #define CPU_RETPOLINE		19	/* cpu requires retpoline pattern */
-#define CPU_MAXID		20	/* number of valid machdep ids */
+#define CPU_VMMODE		20	/* virtualization mode */
+#define CPU_MAXID		21	/* number of valid machdep ids */
 
 #define	CTL_MACHDEP_NAMES { \
 	{ 0, 0 }, \
@@ -518,13 +527,14 @@ void mp_setperf_init(void);
 	{ "kbdreset", CTLTYPE_INT }, \
 	{ 0, 0 }, \
 	{ "xcrypt", CTLTYPE_INT }, \
-	{ 0, 0 }, \
+	{ "hibernatedelay", CTLTYPE_INT }, \
 	{ "lidaction", CTLTYPE_INT }, \
 	{ "forceukbd", CTLTYPE_INT }, \
 	{ "tscfreq", CTLTYPE_QUAD }, \
 	{ "invarianttsc", CTLTYPE_INT }, \
 	{ "pwraction", CTLTYPE_INT }, \
 	{ "retpoline", CTLTYPE_INT }, \
+	{ "vmmode", CTLTYPE_STRING }, \
 }
 
 #endif /* !_MACHINE_CPU_H_ */

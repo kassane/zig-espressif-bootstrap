@@ -1,4 +1,4 @@
-/*	$NetBSD: cpu.h,v 1.183 2021/11/02 11:26:04 ryo Exp $	*/
+/*	$NetBSD: cpu.h,v 1.185 2023/09/04 20:58:52 mrg Exp $	*/
 
 /*-
  * Copyright (c) 1990 The Regents of the University of California.
@@ -45,12 +45,20 @@
 static struct cpu_info *x86_curcpu(void);
 static lwp_t *x86_curlwp(void);
 
+/*
+ * XXXGCC12 has:
+ * ./machine/cpu.h:57:9: error: array subscript 0 is outside array bounds of 'struct cpu_info * const[0]' [-Werror=array-bounds]
+ *    56 |         __asm("movq %%gs:%1, %0" :
+ */
+#pragma GCC push_options
+#pragma GCC diagnostic ignored "-Warray-bounds"
+
 __inline __always_inline static struct cpu_info * __unused
 x86_curcpu(void)
 {
 	struct cpu_info *ci;
 
-	__asm volatile("movl %%fs:%1, %0" :
+	__asm("movl %%fs:%1, %0" :
 	    "=r" (ci) :
 	    "m"
 	    (*(struct cpu_info * const *)offsetof(struct cpu_info, ci_self)));
@@ -62,13 +70,16 @@ x86_curlwp(void)
 {
 	lwp_t *l;
 
-	__asm volatile("movl %%fs:%1, %0" :
+	__asm("movl %%fs:%1, %0" :
 	    "=r" (l) :
 	    "m"
 	    (*(struct cpu_info * const *)offsetof(struct cpu_info, ci_curlwp)));
 	return l;
 }
-#endif
+
+#pragma GCC pop_options
+
+#endif	/* __GNUC__ && !_MODULE */
 
 #ifdef XENPV
 #define	CLKF_USERMODE(frame)	(curcpu()->ci_xen_clockf_usermode)

@@ -1,4 +1,4 @@
-/*	$NetBSD: psl.h,v 1.15 2012/07/27 05:36:11 matt Exp $	*/
+/*	$NetBSD: psl.h,v 1.19 2024/01/16 05:29:44 thorpej Exp $	*/
 
 /*
  * Copyright (c) 1982, 1986, 1993
@@ -65,6 +65,9 @@
 #define	PSL_USERSET	(0)
 #define	PSL_USERCLR	(PSL_S | PSL_IPL7 | PSL_MBZ)
 
+#define	PSLTOIPL(x)	(((x) >> 8) & 0x7)
+#define	IPLTOPSL(x)	((((x) & 0x7) << 8) | PSL_S)
+
 #define	USERMODE(ps)	(((ps) & PSL_S) == 0)
 
 #if defined(_KERNEL) && !defined(_LOCORE)
@@ -75,26 +78,42 @@
  * spl functions; platform-specific code must define spl0 and splx().
  */
 
-static __inline int
+static inline int
+getsr(void)
+{
+	int sr;
+
+	__asm volatile("clrl %0; movew %%sr,%0" : "=&d" (sr));
+
+	return sr;
+}
+
+static inline int
 _spl(int s)
 {
 	int sr;
 
-	__asm volatile ("movew %%sr,%0; movew %1,%%sr" :
+	__asm volatile ("clrl %0; movew %%sr,%0; movew %1,%%sr" :
 	    "=&d" (sr) : "di" (s) : "memory");
 
 	return sr;
 }
 
-static __inline int
+static inline void
+_splx(int s)
+{
+	__asm volatile("movew %0,%%sr" : : "di" (s) : "memory");
+}
+
+static inline int
 _splraise(int level)
 {
 	int sr;
 
-	__asm volatile("movw %%sr,%0" : "=d" (sr));
+	__asm volatile("clrl %0; movew %%sr,%0" : "=&d" (sr));
 
-	if ((u_int16_t)level >= PSL_HIGHIPL || (u_int16_t)level > (u_int16_t)sr)
-		__asm volatile("movw %0,%%sr" :: "di" (level) : "memory");
+	if ((uint16_t)level >= PSL_HIGHIPL || (uint16_t)level > (uint16_t)sr)
+		__asm volatile("movew %0,%%sr" : : "di" (level) : "memory");
 
 	return sr;
 }

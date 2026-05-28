@@ -41,7 +41,7 @@ fn zonCast(comptime Result: type, zon_value: anytype, symbols: anytype) Result {
         .void, .bool, .int, .float, .pointer, .comptime_float, .comptime_int, .@"enum" => return zon_value,
         .@"struct" => |zon_struct| switch (@typeInfo(Result)) {
             .pointer => |result_pointer| {
-                comptime assert(result_pointer.size == .slice and result_pointer.is_const);
+                comptime assert(result_pointer.size == .slice and result_pointer.attrs.@"const");
                 const elems = comptime blk: {
                     var temp_elems: [zon_value.len]result_pointer.child = undefined;
                     for (&temp_elems, zon_value) |*elem, zon_elem| elem.* = zonCast(result_pointer.child, zon_elem, symbols);
@@ -52,16 +52,17 @@ fn zonCast(comptime Result: type, zon_value: anytype, symbols: anytype) Result {
             .@"struct" => |result_struct| {
                 comptime var used_zon_fields = 0;
                 var result: Result = undefined;
-                inline for (result_struct.fields) |result_field| @field(result, result_field.name) = if (@hasField(ZonValue, result_field.name)) result: {
-                    used_zon_fields += 1;
-                    break :result zonCast(@FieldType(Result, result_field.name), @field(zon_value, result_field.name), symbols);
-                } else result_field.defaultValue() orelse @compileError(std.fmt.comptimePrint("missing zon field '{s}': {} <- {any}", .{ result_field.name, Result, zon_value }));
-                if (used_zon_fields != zon_struct.fields.len) @compileError(std.fmt.comptimePrint("unused zon field: {} <- {any}", .{ Result, zon_value }));
+                inline for (result_struct.field_names, result_struct.field_types, result_struct.field_attrs) |result_field_name, result_field_type, result_field_attrs|
+                    @field(result, result_field_name) = if (@hasField(ZonValue, result_field_name)) result: {
+                        used_zon_fields += 1;
+                        break :result zonCast(@FieldType(Result, result_field_name), @field(zon_value, result_field_name), symbols);
+                    } else result_field_attrs.defaultValue(result_field_type) orelse @compileError(std.fmt.comptimePrint("missing zon field '{s}': {} <- {any}", .{ result_field_name, Result, zon_value }));
+                if (used_zon_fields != zon_struct.field_names.len) @compileError(std.fmt.comptimePrint("unused zon field: {} <- {any}", .{ Result, zon_value }));
                 return result;
             },
             .@"union" => {
-                if (zon_struct.fields.len != 1) @compileError(std.fmt.comptimePrint("{} <- {any}", .{ Result, zon_value }));
-                const field_name = zon_struct.fields[0].name;
+                if (zon_struct.field_names.len != 1) @compileError(std.fmt.comptimePrint("{} <- {any}", .{ Result, zon_value }));
+                const field_name = zon_struct.field_names[0];
                 return @unionInit(
                     Result,
                     field_name,
@@ -106,12 +107,12 @@ const matchers = matchers: {
     var mut_matchers: [instructions.len]*const fn (as: *Assemble) error{InvalidSyntax}!?Instruction = undefined;
     for (instructions, &mut_matchers) |instruction, *matcher| matcher.* = struct {
         fn match(as: *Assemble) !?Instruction {
-            comptime for (@typeInfo(@TypeOf(instruction)).@"struct".fields) |field| {
-                if (std.mem.eql(u8, field.name, "requires")) continue;
-                if (std.mem.eql(u8, field.name, "pattern")) continue;
-                if (std.mem.eql(u8, field.name, "symbols")) continue;
-                if (std.mem.eql(u8, field.name, "encode")) continue;
-                @compileError("unexpected field '" ++ field.name ++ "'");
+            comptime for (@typeInfo(@TypeOf(instruction)).@"struct".field_names) |field_name| {
+                if (std.mem.eql(u8, field_name, "requires")) continue;
+                if (std.mem.eql(u8, field_name, "pattern")) continue;
+                if (std.mem.eql(u8, field_name, "symbols")) continue;
+                if (std.mem.eql(u8, field_name, "encode")) continue;
+                @compileError("unexpected field '" ++ field_name ++ "'");
             };
             if (@hasField(@TypeOf(instruction), "requires")) _ = zonCast(
                 []const std.Target.aarch64.Feature,
@@ -119,12 +120,12 @@ const matchers = matchers: {
                 .{},
             );
             var symbols: Symbols: {
-                const symbols = @typeInfo(@TypeOf(instruction.symbols)).@"struct".fields;
-                var field_names: [symbols.len][]const u8 = undefined;
-                var field_types: [symbols.len]type = undefined;
-                for (symbols, &field_names, &field_types) |symbol, *field_name, *FieldType| {
-                    field_name.* = symbol.name;
-                    FieldType.* = zonCast(SymbolSpec, @field(instruction.symbols, symbol.name), .{}).Storage();
+                const symbol_names = @typeInfo(@TypeOf(instruction.symbols)).@"struct".field_names;
+                var field_names: [symbol_names.len][]const u8 = undefined;
+                var field_types: [symbol_names.len]type = undefined;
+                for (symbol_names, &field_names, &field_types) |symbol_name, *field_name, *FieldType| {
+                    field_name.* = symbol_name;
+                    FieldType.* = zonCast(SymbolSpec, @field(instruction.symbols, symbol_name), .{}).Storage();
                 }
                 break :Symbols @Struct(.auto, null, &field_names, &field_types, &@splat(.{}));
             } = undefined;
@@ -158,8 +159,8 @@ const matchers = matchers: {
                     const encode = @field(Instruction, @tagName(instruction.encode[0]));
                     const Encode = @TypeOf(encode);
                     var args: std.meta.ArgsTuple(Encode) = undefined;
-                    inline for (&args, @typeInfo(Encode).@"fn".params, 1..instruction.encode.len) |*arg, param, encode_index|
-                        arg.* = zonCast(param.type.?, instruction.encode[encode_index], symbols);
+                    inline for (&args, @typeInfo(Encode).@"fn".param_types, 1..instruction.encode.len) |*arg, param_type, encode_index|
+                        arg.* = zonCast(param_type.?, instruction.encode[encode_index], symbols);
                     return @call(.auto, encode, args);
                 } else if (pattern_token[0] == '<') {
                     const symbol_name = comptime pattern_token[1 .. std.mem.indexOfScalarPos(u8, pattern_token, 1, '|') orelse
@@ -307,7 +308,7 @@ const SymbolSpec = union(enum) {
     },
     systemreg,
     imm: struct {
-        type: std.builtin.Type.Int,
+        type: std.lang.Type.Int,
         multiple_of: ?comptime_int = null,
         min_valid: ?comptime_int = null,
         max_valid: ?comptime_int = null,
@@ -369,7 +370,7 @@ const SymbolSpec = union(enum) {
                 var buf: [
                     max_len: {
                         var max_len = 0;
-                        for (@typeInfo(Result).@"enum".fields) |field| max_len = @max(max_len, field.name.len);
+                        for (@typeInfo(Result).@"enum".field_names) |field_name| max_len = @max(max_len, field_name.len);
                         break :max_len max_len;
                     } + 1
                 ]u8 = undefined;
@@ -466,7 +467,7 @@ const SymbolSpec = union(enum) {
                 var buf: [
                     max_len: {
                         var max_len = 0;
-                        for (@typeInfo(Result).@"enum".fields) |field| max_len = @max(max_len, field.name.len);
+                        for (@typeInfo(Result).@"enum".field_names) |field_name| max_len = @max(max_len, field_name.len);
                         break :max_len max_len;
                     } + 1
                 ]u8 = undefined;
@@ -487,7 +488,7 @@ const SymbolSpec = union(enum) {
                 var buf: [
                     max_len: {
                         var max_len = 0;
-                        for (@typeInfo(Result).@"enum".fields) |field| max_len = @max(max_len, field.name.len);
+                        for (@typeInfo(Result).@"enum".field_names) |field_name| max_len = @max(max_len, field_name.len);
                         break :max_len max_len;
                     } + 1
                 ]u8 = undefined;
@@ -508,7 +509,7 @@ const SymbolSpec = union(enum) {
                 var buf: [
                     max_len: {
                         var max_len = 0;
-                        for (@typeInfo(Result).@"enum".fields) |field| max_len = @max(max_len, field.name.len);
+                        for (@typeInfo(Result).@"enum".field_names) |field_name| max_len = @max(max_len, field_name.len);
                         break :max_len max_len;
                     } + 1
                 ]u8 = undefined;

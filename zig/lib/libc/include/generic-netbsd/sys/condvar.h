@@ -1,4 +1,4 @@
-/*	$NetBSD: condvar.h,v 1.17 2020/05/11 03:59:33 riastradh Exp $	*/
+/*	$NetBSD: condvar.h,v 1.19 2023/11/02 10:31:55 martin Exp $	*/
 
 /*-
  * Copyright (c) 2006, 2007, 2008, 2020 The NetBSD Foundation, Inc.

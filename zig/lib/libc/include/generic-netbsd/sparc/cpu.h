@@ -1,4 +1,4 @@
-/*	$NetBSD: cpu.h,v 1.110.4.1 2023/08/09 17:42:02 martin Exp $ */
+/*	$NetBSD: cpu.h,v 1.111 2023/07/13 12:06:20 riastradh Exp $ */
 
 /*
  * Copyright (c) 1992, 1993

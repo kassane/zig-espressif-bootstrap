@@ -378,16 +378,10 @@ test endsWithIgnoreCase {
     try std.testing.expect(!endsWithIgnoreCase("BoB", "Bo"));
 }
 
-/// Deprecated in favor of `findIgnoreCase`.
-pub const indexOfIgnoreCase = findIgnoreCase;
-
 /// Finds `needle` in `haystack`, ignoring case, starting at index 0.
 pub fn findIgnoreCase(haystack: []const u8, needle: []const u8) ?usize {
     return findIgnoreCasePos(haystack, 0, needle);
 }
-
-/// Deprecated in favor of `findIgnoreCasePos`.
-pub const indexOfIgnoreCasePos = findIgnoreCasePos;
 
 /// Finds `needle` in `haystack`, ignoring case, starting at `start_index`.
 /// Uses Boyer-Moore-Horspool algorithm on large inputs; `findIgnoreCasePosLinear` on small inputs.
@@ -409,9 +403,6 @@ pub fn findIgnoreCasePos(haystack: []const u8, start_index: usize, needle: []con
 
     return null;
 }
-
-/// Deprecated in favor of `findIgnoreCaseLinear`.
-pub const indexOfIgnoreCasePosLinear = findIgnoreCasePosLinear;
 
 /// Consider using `findIgnoreCasePos` instead of this, which will automatically use a
 /// more sophisticated algorithm on larger inputs.

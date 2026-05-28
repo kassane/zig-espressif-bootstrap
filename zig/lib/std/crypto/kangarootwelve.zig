@@ -881,7 +881,7 @@ fn ktMultiThreaded(
         // Buffer for out-of-order results (select_buf slots get reused)
         const pending_cv_buf = try allocator.alloc([leaves_per_batch * cv_size]u8, max_concurrent);
         defer allocator.free(pending_cv_buf);
-        var pending_cv_lens: [256]usize = .{0} ** 256;
+        var pending_cv_lens: [256]usize = @splat(0);
 
         var select_outstanding: usize = 0;
         var select: Select = .init(io, select_buf);

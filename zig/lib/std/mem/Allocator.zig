@@ -23,6 +23,8 @@ pub const VTable = struct {
     /// Return a pointer to `len` bytes with specified `alignment`, or return
     /// `null` indicating the allocation failed.
     ///
+    /// `new_len` must be greater than zero.
+    ///
     /// `ret_addr` is optionally provided as the first return address of the
     /// allocation call stack. If the value is `0` it means no return address
     /// has been provided.
@@ -167,7 +169,7 @@ pub fn create(a: Allocator, comptime T: type) Error!*T {
         const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), @alignOf(T));
         return @ptrFromInt(ptr);
     }
-    const ptr: *T = @ptrCast(try a.allocBytesWithAlignment(.of(T), @sizeOf(T), @returnAddress()));
+    const ptr: *T = @ptrCast(try a.allocBytesAligned(.of(T), @sizeOf(T), @returnAddress()));
     return ptr;
 }
 
@@ -181,7 +183,7 @@ pub fn destroy(self: Allocator, ptr: anytype) void {
     const non_const_ptr = @as([*]u8, @ptrCast(@constCast(ptr)));
     self.rawFree(
         non_const_ptr[0..@sizeOf(T)],
-        .fromByteUnits(info.alignment orelse @alignOf(T)),
+        .fromByteUnits(info.attrs.@"align" orelse @alignOf(T)),
         @returnAddress(),
     );
 }
@@ -283,10 +285,10 @@ fn allocWithSizeAndAlignment(
     return_address: usize,
 ) Error![*]align(alignment.toByteUnits()) u8 {
     const byte_count = math.mul(usize, size, n) catch return error.OutOfMemory;
-    return self.allocBytesWithAlignment(alignment, byte_count, return_address);
+    return self.allocBytesAligned(alignment, byte_count, return_address);
 }
 
-fn allocBytesWithAlignment(
+pub fn allocBytesAligned(
     self: Allocator,
     comptime alignment: Alignment,
     byte_count: usize,
@@ -329,7 +331,7 @@ pub fn resize(self: Allocator, allocation: anytype, new_len: usize) bool {
     const new_len_bytes = math.mul(usize, @sizeOf(T), new_len) catch return false;
     return self.rawResize(
         old_memory,
-        .fromByteUnits(slice_info.alignment orelse @alignOf(T)),
+        .fromByteUnits(slice_info.attrs.@"align" orelse @alignOf(T)),
         new_len_bytes,
         @returnAddress(),
     );
@@ -375,7 +377,7 @@ pub fn remap(self: Allocator, allocation: anytype, new_len: usize) ?@TypeOf(allo
     const new_len_bytes = math.mul(usize, @sizeOf(T), new_len) catch return null;
     const new_ptr = self.rawRemap(
         old_memory,
-        .fromByteUnits(slice_info.alignment orelse @alignOf(T)),
+        .fromByteUnits(slice_info.attrs.@"align" orelse @alignOf(T)),
         new_len_bytes,
         @returnAddress(),
     ) orelse return null;
@@ -410,11 +412,11 @@ pub fn reallocAdvanced(
     comptime assert(slice_info.size == .slice);
     const T = slice_info.child;
     if (old_mem.len == 0) {
-        return self.allocAdvancedWithRetAddr(T, .fromByteUnitsOptional(slice_info.alignment), new_n, return_address);
+        return self.allocAdvancedWithRetAddr(T, .fromByteUnitsOptional(slice_info.attrs.@"align"), new_n, return_address);
     }
     if (new_n == 0) {
         self.free(old_mem);
-        const alignment = slice_info.alignment orelse @alignOf(T);
+        const alignment = slice_info.attrs.@"align" orelse @alignOf(T);
         const addr = comptime std.mem.alignBackward(usize, math.maxInt(usize), alignment);
         const ptr: *align(alignment) [0]T = @ptrFromInt(addr);
         return ptr;
@@ -423,16 +425,16 @@ pub fn reallocAdvanced(
     const old_byte_slice: []u8 = @ptrCast(@constCast(mem.absorbSentinel(old_mem)));
     const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return error.OutOfMemory;
     // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
-    if (self.rawRemap(old_byte_slice, .fromByteUnits(slice_info.alignment orelse @alignOf(T)), byte_count, return_address)) |p| {
+    if (self.rawRemap(old_byte_slice, .fromByteUnits(slice_info.attrs.@"align" orelse @alignOf(T)), byte_count, return_address)) |p| {
         return @ptrCast(@alignCast(p[0..byte_count]));
     }
 
-    const new_mem = self.rawAlloc(byte_count, .fromByteUnits(slice_info.alignment orelse @alignOf(T)), return_address) orelse
+    const new_mem = self.rawAlloc(byte_count, .fromByteUnits(slice_info.attrs.@"align" orelse @alignOf(T)), return_address) orelse
         return error.OutOfMemory;
     const copy_len = @min(byte_count, old_byte_slice.len);
     @memcpy(new_mem[0..copy_len], old_byte_slice[0..copy_len]);
     @memset(old_byte_slice, undefined);
-    self.rawFree(old_byte_slice, .fromByteUnits(slice_info.alignment orelse @alignOf(T)), return_address);
+    self.rawFree(old_byte_slice, .fromByteUnits(slice_info.attrs.@"align" orelse @alignOf(T)), return_address);
 
     return @ptrCast(@alignCast(new_mem[0..byte_count]));
 }
@@ -446,7 +448,7 @@ pub fn free(self: Allocator, memory: anytype) void {
     const bytes: []u8 = @ptrCast(@constCast(mem.absorbSentinel(memory)));
     if (bytes.len == 0) return;
     @memset(bytes, undefined);
-    self.rawFree(bytes, .fromByteUnits(slice_info.alignment orelse @alignOf(slice_info.child)), @returnAddress());
+    self.rawFree(bytes, .fromByteUnits(slice_info.attrs.@"align" orelse @alignOf(slice_info.child)), @returnAddress());
 }
 
 /// Copies `m` to newly allocated memory. Caller owns the memory.
@@ -454,12 +456,6 @@ pub fn dupe(allocator: Allocator, comptime T: type, m: []const T) Error![]T {
     const new_buf = try allocator.alloc(T, m.len);
     @memcpy(new_buf, m);
     return new_buf;
-}
-
-/// Deprecated in favor of `dupeSentinel`
-/// Copies `m` to newly allocated memory, with a null-terminated element. Caller owns the memory.
-pub fn dupeZ(allocator: Allocator, comptime T: type, m: []const T) Error![:0]T {
-    return allocator.dupeSentinel(T, m, 0);
 }
 
 /// Copies `m` to newly allocated memory, with a null-terminated element. Caller owns the memory.

@@ -206,7 +206,7 @@ const MyErrSet = error{
 };
 
 fn testErrorSetType() !void {
-    try expect(@typeInfo(MyErrSet).error_set.?.len == 2);
+    try expect(@typeInfo(MyErrSet).error_set.error_names.?.len == 2);
 
     const a: MyErrSet!i32 = 5678;
     const b: MyErrSet!i32 = MyErrSet.OutOfMemory;
@@ -1125,9 +1125,9 @@ test "@errorCast into own inferred error set" {
         try expect(err == error.Bad);
     }
 
-    const errors = @typeInfo(@typeInfo(@TypeOf(static.foo(false))).error_union.error_set).error_set.?;
-    comptime assert(errors.len == 1);
-    comptime assert(std.mem.eql(u8, errors[0].name, "Bad"));
+    const error_names = @typeInfo(@typeInfo(@TypeOf(static.foo(false))).error_union.error_set).error_set.error_names.?;
+    comptime assert(error_names.len == 1);
+    comptime assert(std.mem.eql(u8, error_names[0], "Bad"));
 }
 
 test "@errorCast into other inferred error set" {

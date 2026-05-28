@@ -394,20 +394,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             return renderBlock(r, node, statements, space);
         },
 
-        .@"errdefer" => {
-            const defer_token = tree.nodeMainToken(node);
-            const maybe_payload_token, const expr = tree.nodeData(node).opt_token_and_node;
-
-            try renderToken(r, defer_token, .maybe_space);
-            if (maybe_payload_token.unwrap()) |payload_token| {
-                try renderToken(r, payload_token - 1, .none); // |
-                try renderIdentifier(r, payload_token, .none, .preserve_when_shadowing); // identifier
-                try renderToken(r, payload_token + 1, .maybe_space); // |
-            }
-            return renderExpression(r, expr, space);
-        },
-
         .@"defer",
+        .@"errdefer",
         .@"comptime",
         .@"nosuspend",
         .@"suspend",
@@ -520,7 +508,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .add_wrap,
         .add_sat,
         .array_cat,
-        .array_mult,
         .bang_equal,
         .bit_and,
         .bit_or,
@@ -998,8 +985,8 @@ fn rendersMultiline(r: *const Render, node: Ast.Node.Index) error{OutOfMemory}!b
         .fixups = r.fixups,
     };
 
-    renderExpression(&sub_r, node, .none) catch |e| return switch (e) {
-        error.OutOfMemory => return error.OutOfMemory,
+    renderExpression(&sub_r, node, .none) catch |err| return switch (err) {
+        error.OutOfMemory => |e| return e,
         error.WriteFailed => return true,
     };
     if (sub_ais.disabled_offset != null) return true;
@@ -1040,16 +1027,6 @@ fn renderPtrType(r: *Render, ptr_type: Ast.full.PtrType, space: Space) Error!voi
 
     switch (ptr_type.size) {
         .one => {
-            // Since ** tokens exist and the same token is shared by two
-            // nested pointer types, we check to see if we are the parent
-            // in such a relationship. If so, skip rendering anything for
-            // this pointer type and rely on the child to render our asterisk
-            // as well when it renders the ** token.
-            if (tree.tokenTag(main_token) == .asterisk_asterisk and
-                main_token == tree.nodeMainToken(ptr_type.ast.child_type))
-            {
-                return renderExpression(r, ptr_type.ast.child_type, space);
-            }
             try renderToken(r, main_token, .none); // asterisk
         },
         .many => {
@@ -1685,7 +1662,7 @@ fn renderBuiltinCall(
             assert(tree.tokenTag(str_lit_token) == .string_literal);
             const token_bytes = tree.tokenSlice(str_lit_token);
             const imported_string = std.zig.string_literal.parseAlloc(r.gpa, token_bytes) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
                 error.InvalidLiteral => break :f,
             };
             defer r.gpa.free(imported_string);
@@ -3235,7 +3212,6 @@ fn nodeCausesSliceOpSpace(tag: Ast.Node.Tag) bool {
         .add,
         .add_wrap,
         .array_cat,
-        .array_mult,
         .assign,
         .assign_bit_and,
         .assign_bit_or,
@@ -3466,7 +3442,7 @@ const AutoIndentingStream = struct {
     /// Sets current indentation level to be the same as that of the last pushSpace.
     pub fn enableSpaceMode(ais: *AutoIndentingStream, space: Space) void {
         if (ais.space_stack.items.len == 0) return;
-        const curr = ais.space_stack.getLast();
+        const curr = ais.space_stack.getLast().?;
         if (curr.space != space) return;
         ais.space_mode = curr.indent_count;
     }
@@ -3477,7 +3453,7 @@ const AutoIndentingStream = struct {
 
     pub fn lastSpaceModeIndent(ais: *AutoIndentingStream) usize {
         if (ais.space_stack.items.len == 0) return 0;
-        return ais.space_stack.getLast().indent_count * ais.indent_delta;
+        return ais.space_stack.getLast().?.indent_count * ais.indent_delta;
     }
 
     /// Push default indentation

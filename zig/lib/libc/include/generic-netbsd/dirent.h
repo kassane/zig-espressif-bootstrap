@@ -1,4 +1,4 @@
-/*	$NetBSD: dirent.h,v 1.37.2.1 2022/12/28 18:00:15 martin Exp $	*/
+/*	$NetBSD: dirent.h,v 1.38 2022/12/28 11:51:21 nia Exp $	*/
 
 /*-
  * Copyright (c) 1989, 1993

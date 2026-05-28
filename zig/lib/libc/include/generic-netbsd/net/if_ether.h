@@ -1,4 +1,4 @@
-/*	$NetBSD: if_ether.h,v 1.89 2022/06/20 08:14:48 yamaguchi Exp $	*/
+/*	$NetBSD: if_ether.h,v 1.91 2024/02/05 21:46:06 andvar Exp $	*/
 
 /*
  * Copyright (c) 1982, 1986, 1993
@@ -110,7 +110,7 @@ struct ether_header {
 	 (((etype) == ETHERTYPE_PPPOE) ? ETHER_PPPOE_ENCAP_LEN : 0))
 
 /*
- * Ethernet CRC32 polynomials (big- and little-endian verions).
+ * Ethernet CRC32 polynomials (big- and little-endian versions).
  */
 #define	ETHER_CRC_POLY_LE	0xedb88320
 #define	ETHER_CRC_POLY_BE	0x04c11db6
@@ -255,7 +255,8 @@ void	ether_set_vlan_cb(struct ethercom *, ether_vlancb_t);
 int	ether_ioctl(struct ifnet *, u_long, void *);
 int	ether_addmulti(const struct sockaddr *, struct ethercom *);
 int	ether_delmulti(const struct sockaddr *, struct ethercom *);
-int	ether_multiaddr(const struct sockaddr *, uint8_t[], uint8_t[]);
+int	ether_multiaddr(const struct sockaddr *, uint8_t[ETHER_ADDR_LEN],
+			uint8_t[ETHER_ADDR_LEN]);
 void    ether_input(struct ifnet *, struct mbuf *);
 
 /*

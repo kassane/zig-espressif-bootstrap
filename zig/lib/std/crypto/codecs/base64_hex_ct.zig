@@ -3,7 +3,7 @@
 //! This is designed to be used in cryptographic applications where timing attacks are a concern.
 const std = @import("std");
 const testing = std.testing;
-const StaticBitSet = std.StaticBitSet;
+const StaticBitSet = std.bit_set.Static;
 
 pub const Error = error{
     /// An invalid character was found in the input.
@@ -47,8 +47,7 @@ pub const hex = struct {
         }
         _ = decodeAny(bin, encoded, null) catch |err| {
             switch (err) {
-                error.InvalidCharacter => return error.InvalidCharacter,
-                error.InvalidPadding => return error.InvalidPadding,
+                error.InvalidCharacter, error.InvalidPadding => |e| return e,
                 else => unreachable,
             }
         };
@@ -228,8 +227,7 @@ pub const base64 = struct {
     pub fn decode(bin: []u8, encoded: []const u8, comptime variant: Variant) error{ InvalidCharacter, InvalidPadding }![]const u8 {
         return decodeAny(bin, encoded, variant, null) catch |err| {
             switch (err) {
-                error.InvalidCharacter => return error.InvalidCharacter,
-                error.InvalidPadding => return error.InvalidPadding,
+                error.InvalidCharacter, error.InvalidPadding => |e| return e,
                 else => unreachable,
             }
         };

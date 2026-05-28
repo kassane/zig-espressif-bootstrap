@@ -8,11 +8,11 @@ test "reflection: function return type, var args, and param types" {
     comptime {
         const info = @typeInfo(@TypeOf(dummy)).@"fn";
         try expect(info.return_type.? == i32);
-        try expect(!info.is_var_args);
-        try expect(info.params.len == 3);
-        try expect(info.params[0].type.? == bool);
-        try expect(info.params[1].type.? == i32);
-        try expect(info.params[2].type.? == f32);
+        try expect(!info.attrs.varargs);
+        try expect(info.param_types.len == 3);
+        try expect(info.param_types[0].? == bool);
+        try expect(info.param_types[1].? == i32);
+        try expect(info.param_types[2].? == f32);
     }
 }
 
@@ -31,7 +31,7 @@ test "reflection: @field" {
     var f = Foo{
         .one = 42,
         .two = true,
-        .three = void{},
+        .three = {},
     };
 
     try expect(f.one == f.one);

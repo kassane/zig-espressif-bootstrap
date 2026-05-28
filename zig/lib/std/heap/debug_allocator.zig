@@ -164,7 +164,7 @@ pub fn DebugAllocator(comptime config: Config) type {
     return struct {
         backing_allocator: Allocator = std.heap.page_allocator,
         /// Tracks the active bucket, which is the one that has free slots in it.
-        buckets: [small_bucket_count]?*BucketHeader = [1]?*BucketHeader{null} ** small_bucket_count,
+        buckets: [small_bucket_count]?*BucketHeader = @splat(null),
         large_allocations: LargeAllocTable = .empty,
         total_requested_bytes: @TypeOf(total_requested_bytes_init) = total_requested_bytes_init,
         requested_memory_limit: @TypeOf(requested_memory_limit_init) = requested_memory_limit_init,
@@ -189,7 +189,7 @@ pub fn DebugAllocator(comptime config: Config) type {
         const page_size = config.page_size;
         const page_align: mem.Alignment = .fromByteUnits(page_size);
         /// Integer type for pointing to slots in a small allocation
-        const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size) + 1);
+        const SlotIndex = @Int(.unsigned, math.log2(page_size) + 1);
 
         const total_requested_bytes_init = if (config.enable_memory_limit) @as(usize, 0) else {};
         const requested_memory_limit_init = if (config.enable_memory_limit) @as(usize, math.maxInt(usize)) else {};

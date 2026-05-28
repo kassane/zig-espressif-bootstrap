@@ -235,7 +235,7 @@ pub const ModuleBlock = struct {
         is_const: AddrSpaceAndIsConst,
         initid: u32,
         linkage: Builder.Linkage,
-        alignment: std.meta.Int(.unsigned, @bitSizeOf(Builder.Alignment)),
+        alignment: @Int(.unsigned, @bitSizeOf(Builder.Alignment)),
         section: usize,
         visibility: Builder.Visibility,
         thread_local: Builder.ThreadLocal,
@@ -275,7 +275,7 @@ pub const ModuleBlock = struct {
         is_proto: bool,
         linkage: Builder.Linkage,
         paramattr: usize,
-        alignment: std.meta.Int(.unsigned, @bitSizeOf(Builder.Alignment)),
+        alignment: @Int(.unsigned, @bitSizeOf(Builder.Alignment)),
         section: usize,
         visibility: Builder.Visibility,
         unnamed_addr: Builder.UnnamedAddr,
@@ -1214,7 +1214,7 @@ pub const ModuleBlock = struct {
             };
             ptr: u32,
             ty: Builder.Type,
-            alignment: std.meta.Int(.unsigned, @bitSizeOf(Builder.Alignment)),
+            alignment: @Int(.unsigned, @bitSizeOf(Builder.Alignment)),
             is_volatile: bool,
         };
 
@@ -1230,7 +1230,7 @@ pub const ModuleBlock = struct {
             };
             ptr: u32,
             ty: Builder.Type,
-            alignment: std.meta.Int(.unsigned, @bitSizeOf(Builder.Alignment)),
+            alignment: @Int(.unsigned, @bitSizeOf(Builder.Alignment)),
             is_volatile: bool,
             success_ordering: Builder.AtomicOrdering,
             sync_scope: Builder.SyncScope,
@@ -1246,7 +1246,7 @@ pub const ModuleBlock = struct {
             };
             ptr: u32,
             val: u32,
-            alignment: std.meta.Int(.unsigned, @bitSizeOf(Builder.Alignment)),
+            alignment: @Int(.unsigned, @bitSizeOf(Builder.Alignment)),
             is_volatile: bool,
         };
 
@@ -1262,7 +1262,7 @@ pub const ModuleBlock = struct {
             };
             ptr: u32,
             val: u32,
-            alignment: std.meta.Int(.unsigned, @bitSizeOf(Builder.Alignment)),
+            alignment: @Int(.unsigned, @bitSizeOf(Builder.Alignment)),
             is_volatile: bool,
             success_ordering: Builder.AtomicOrdering,
             sync_scope: Builder.SyncScope,
@@ -1317,7 +1317,7 @@ pub const ModuleBlock = struct {
             is_volatile: bool,
             success_ordering: Builder.AtomicOrdering,
             sync_scope: Builder.SyncScope,
-            alignment: std.meta.Int(.unsigned, @bitSizeOf(Builder.Alignment)),
+            alignment: @Int(.unsigned, @bitSizeOf(Builder.Alignment)),
         };
 
         pub const CmpXchg = struct {
@@ -1341,7 +1341,7 @@ pub const ModuleBlock = struct {
             sync_scope: Builder.SyncScope,
             failure_ordering: Builder.AtomicOrdering,
             is_weak: bool,
-            alignment: std.meta.Int(.unsigned, @bitSizeOf(Builder.Alignment)),
+            alignment: @Int(.unsigned, @bitSizeOf(Builder.Alignment)),
         };
 
         pub const Fence = struct {

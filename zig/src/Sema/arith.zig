@@ -20,7 +20,7 @@ pub fn incrementDefinedInt(
     const zcu = pt.zcu;
     assert(prev_val.typeOf(zcu).toIntern() == ty.toIntern());
     assert(!prev_val.isUndef(zcu));
-    if (ty.intInfo(zcu).bits == 0) {
+    if (ty.toIntern() == .u0_type) {
         return .{ .overflow = true, .val = try comptimeIntAdd(sema, prev_val, .one_comptime_int) };
     }
     const res = try intAdd(sema, prev_val, try pt.intValue(ty, 1), ty);
@@ -1191,7 +1191,7 @@ pub fn truncate(
     val: Value,
     ty: Type,
     dest_ty: Type,
-    dest_signedness: std.builtin.Signedness,
+    dest_signedness: std.lang.Signedness,
     dest_bits: u16,
 ) CompileError!Value {
     const pt = sema.pt;
@@ -1313,7 +1313,7 @@ fn bitwiseBinScalar(
             0b11 => return pt.undefValue(ty),
         };
     };
-    if (ty.toIntern() == .u0_type or ty.toIntern() == .i0_type) return pt.intValue(ty, 0);
+    if (ty.toIntern() == .u0_type) return pt.intValue(ty, 0);
     // zig fmt: off
     switch (op) {
         .@"and" => return intBitwiseAnd(sema, def_lhs, def_rhs, ty),
@@ -1808,7 +1808,7 @@ fn intTruncate(
     sema: *Sema,
     val: Value,
     dest_ty: Type,
-    dest_signedness: std.builtin.Signedness,
+    dest_signedness: std.lang.Signedness,
     dest_bits: u16,
 ) !Value {
     const pt = sema.pt;
@@ -2209,9 +2209,13 @@ fn intBitwiseNot(sema: *Sema, val: Value, ty: Type) !Value {
     const zcu = pt.zcu;
 
     if (val.isUndef(zcu)) return pt.undefValue(ty);
-    if (ty.toIntern() == .bool_type) return .makeBool(!val.toBool());
+    switch (ty.toIntern()) {
+        .bool_type => return .makeBool(!val.toBool()),
+        .u0_type => return val,
+        else => {},
+    }
+
     const info = ty.intInfo(zcu);
-    if (info.bits == 0) return val;
 
     var val_space: Value.BigIntSpace = undefined;
     const val_bigint = val.toBigInt(&val_space, zcu);
@@ -2231,7 +2235,7 @@ fn intValueAa(sema: *Sema, ty: Type) !Value {
     const zcu = pt.zcu;
 
     if (ty.toIntern() == .bool_type) return .true;
-    if (ty.toIntern() == .u0_type or ty.toIntern() == .i0_type) return pt.intValue(ty, 0);
+    if (ty.toIntern() == .u0_type) return pt.intValue(ty, 0);
     const info = ty.intInfo(zcu);
 
     const buf = try sema.arena.alloc(u8, (info.bits + 7) / 8);

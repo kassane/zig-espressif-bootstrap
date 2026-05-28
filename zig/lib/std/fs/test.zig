@@ -135,7 +135,7 @@ const TestContext = struct {
         const allocator = self.arena.allocator();
         const transformed_path = try self.transform_fn(allocator, self.io, self.dir, relative_path);
         if (native_os == .windows) {
-            const transformed_sep_path = try allocator.dupeZ(u8, transformed_path);
+            const transformed_sep_path = try allocator.dupeSentinel(u8, transformed_path, 0);
             std.mem.replaceScalar(u8, transformed_sep_path, switch (self.path_sep) {
                 '/' => '\\',
                 '\\' => '/',
@@ -153,7 +153,7 @@ const TestContext = struct {
     pub fn toCanonicalPathSep(self: *TestContext, path: [:0]const u8) ![:0]const u8 {
         if (native_os == .windows) {
             const allocator = self.arena.allocator();
-            const transformed_sep_path = try allocator.dupeZ(u8, path);
+            const transformed_sep_path = try allocator.dupeSentinel(u8, path, 0);
             std.mem.replaceScalar(u8, transformed_sep_path, '/', '\\');
             return transformed_sep_path;
         }
@@ -1074,6 +1074,47 @@ test "Dir.rename file <-> dir" {
     }.impl);
 }
 
+test "Dir.renamePreserve onto existing" {
+    if (native_os == .windows) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/35359
+
+    try testWithAllSupportedPathTypes(struct {
+        fn impl(ctx: *TestContext) !void {
+            const io = ctx.io;
+
+            const test_file_path = try ctx.transformPath("test_file");
+            const target_file_path = try ctx.transformPath("target_file");
+            const test_dir_path = try ctx.transformPath("test_dir");
+            const target_dir_path = try ctx.transformPath("target_dir");
+
+            try ctx.dir.writeFile(io, .{ .sub_path = test_file_path, .data = "" });
+            try ctx.dir.writeFile(io, .{ .sub_path = target_file_path, .data = "" });
+            try ctx.dir.createDir(io, test_dir_path, .default_dir);
+            try ctx.dir.createDir(io, target_dir_path, .default_dir);
+
+            // file -> file
+            try expectError(error.PathAlreadyExists, ctx.dir.renamePreserve(test_file_path, ctx.dir, target_file_path, io));
+            // file -> dir
+            try expectError(error.PathAlreadyExists, ctx.dir.renamePreserve(test_file_path, ctx.dir, target_dir_path, io));
+
+            // TODO: fix dir renaming on non-Linux, non-Windows systems, see https://codeberg.org/ziglang/zig/issues/35340
+            if (native_os != .windows and native_os != .linux) return;
+
+            // dir -> file
+            try expectError(error.PathAlreadyExists, ctx.dir.renamePreserve(test_dir_path, ctx.dir, target_file_path, io));
+            // dir -> dir
+            try expectError(error.PathAlreadyExists, ctx.dir.renamePreserve(test_dir_path, ctx.dir, target_dir_path, io));
+
+            // dir -> non-empty dir
+            {
+                const target_dir = try ctx.dir.openDir(io, target_dir_path, .{});
+                defer target_dir.close(io);
+                try target_dir.writeFile(io, .{ .sub_path = "test_file", .data = "" });
+            }
+            try expectError(error.PathAlreadyExists, ctx.dir.renamePreserve(test_dir_path, ctx.dir, target_dir_path, io));
+        }
+    }.impl);
+}
+
 test "rename" {
     const io = testing.io;
 
@@ -1449,11 +1490,15 @@ test "max file name component lengths" {
     if (native_os == .windows) {
         // U+FFFF is the character with the largest code point that is encoded as a single
         // WTF-16 code unit, so Windows allows for NAME_MAX of them.
-        const maxed_windows_filename1 = ("\u{FFFF}".*) ** windows.NAME_MAX;
+        const codepoint1 = "\u{FFFF}".*;
+        const buf1: [windows.NAME_MAX][codepoint1.len]u8 = @splat(codepoint1);
+        const maxed_windows_filename1: []const u8 = @ptrCast(&buf1);
         // This is also a code point that is encoded as one WTF-16 code unit, but
         // three WTF-8 bytes, so it exercises the limits of both WTF-16 and WTF-8 encodings.
-        const maxed_windows_filename2 = ("€".*) ** windows.NAME_MAX;
-        try testFilenameLimits(io, tmp.dir, &maxed_windows_filename1, &maxed_windows_filename2);
+        const codepoint2 = "€".*;
+        const buf2: [windows.NAME_MAX][codepoint2.len]u8 = @splat(codepoint2);
+        const maxed_windows_filename2: []const u8 = @ptrCast(&buf2);
+        try testFilenameLimits(io, tmp.dir, maxed_windows_filename1, maxed_windows_filename2);
     } else if (native_os == .wasi) {
         // On WASI, the maxed filename depends on the host OS, so in order for this test to
         // work on any host, we need to use a length that will work for all platforms

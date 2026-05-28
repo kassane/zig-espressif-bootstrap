@@ -1,7 +1,4 @@
 //! Fail the build step if a file does not match certain checks.
-//! TODO: make this more flexible, supporting more kinds of checks.
-//! TODO: generalize the code in std.testing.expectEqualStrings and make this
-//! CheckFile step produce those helpful diagnostics when there is not a match.
 const CheckFile = @This();
 
 const std = @import("std");
@@ -9,83 +6,40 @@ const Io = std.Io;
 const Step = std.Build.Step;
 const fs = std.fs;
 const mem = std.mem;
+const Configuration = std.Build.Configuration;
 
 step: Step,
-expected_matches: []const []const u8,
-expected_exact: ?[]const u8,
-source: std.Build.LazyPath,
-max_bytes: usize = 20 * 1024 * 1024,
+file: std.Build.LazyPath,
+expected_matches: []const Configuration.Bytes,
+expected_exact: ?Configuration.Bytes,
+max_bytes: ?u32,
 
-pub const base_id: Step.Id = .check_file;
+pub const base_tag: Step.Tag = .check_file;
 
 pub const Options = struct {
     expected_matches: []const []const u8 = &.{},
     expected_exact: ?[]const u8 = null,
+    max_bytes: ?u32 = null,
 };
 
-pub fn create(
-    owner: *std.Build,
-    source: std.Build.LazyPath,
-    options: Options,
-) *CheckFile {
-    const check_file = owner.allocator.create(CheckFile) catch @panic("OOM");
+pub fn create(owner: *std.Build, file: std.Build.LazyPath, options: Options) *CheckFile {
+    const graph = owner.graph;
+    const check_file = graph.create(CheckFile);
     check_file.* = .{
-        .step = Step.init(.{
-            .id = base_id,
+        .step = .init(.{
+            .tag = base_tag,
             .name = "CheckFile",
             .owner = owner,
-            .makeFn = make,
         }),
-        .source = source.dupe(owner),
-        .expected_matches = owner.dupeStrings(options.expected_matches),
-        .expected_exact = options.expected_exact,
+        .file = file.dupe(graph),
+        .expected_matches = graph.addBytesList(options.expected_matches),
+        .expected_exact = if (options.expected_exact) |b| graph.addBytes(b) else null,
+        .max_bytes = options.max_bytes,
     };
-    check_file.source.addStepDependencies(&check_file.step);
+    file.addStepDependencies(&check_file.step);
     return check_file;
 }
 
 pub fn setName(check_file: *CheckFile, name: []const u8) void {
     check_file.step.name = name;
-}
-
-fn make(step: *Step, options: Step.MakeOptions) !void {
-    _ = options;
-    const b = step.owner;
-    const io = b.graph.io;
-    const check_file: *CheckFile = @fieldParentPtr("step", step);
-    try step.singleUnchangingWatchInput(check_file.source);
-
-    const src_path = check_file.source.getPath2(b, step);
-    const contents = Io.Dir.cwd().readFileAlloc(io, src_path, b.allocator, .limited(check_file.max_bytes)) catch |err| {
-        return step.fail("unable to read '{s}': {s}", .{
-            src_path, @errorName(err),
-        });
-    };
-
-    for (check_file.expected_matches) |expected_match| {
-        if (mem.find(u8, contents, expected_match) == null) {
-            return step.fail(
-                \\
-                \\========= expected to find: ===================
-                \\{s}
-                \\========= but file does not contain it: =======
-                \\{s}
-                \\===============================================
-            , .{ expected_match, contents });
-        }
-    }
-
-    if (check_file.expected_exact) |expected_exact| {
-        if (!mem.eql(u8, expected_exact, contents)) {
-            return step.fail(
-                \\
-                \\========= expected: =====================
-                \\{s}
-                \\========= but found: ====================
-                \\{s}
-                \\========= from the following file: ======
-                \\{s}
-            , .{ expected_exact, contents, src_path });
-        }
-    }
 }

@@ -1,4 +1,4 @@
-/*	$NetBSD: cpu.h,v 1.123.4.1 2023/08/09 17:42:01 martin Exp $	*/
+/*	$NetBSD: cpu.h,v 1.125 2023/07/11 11:01:18 riastradh Exp $	*/
 
 /*
  * Copyright (c) 1994-1996 Mark Brinicombe.
@@ -236,8 +236,6 @@ struct cpu_info {
 	uint32_t	ci_vfp_id;
 	uint64_t	ci_lastintr;
 
-	struct pmap_tlb_info *
-			ci_tlb_info;
 	struct pmap *	ci_pmap_lastuser;
 	struct pmap *	ci_pmap_cur;
 	tlb_asid_t	ci_pmap_asid_cur;

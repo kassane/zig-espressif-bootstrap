@@ -1,3 +1,3 @@
-/*	$NetBSD: wchar_limits.h,v 1.2 2005/12/11 12:17:12 christos Exp $	*/
+/* $NetBSD: wchar_limits.h,v 1.1 2014/09/19 17:36:26 matt Exp $ */
 
-#include <powerpc/wchar_limits.h>
+#include <sys/common_wchar_limits.h>

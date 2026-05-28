@@ -1,4 +1,4 @@
-/*	$NetBSD: lua.h,v 1.8.48.1 2023/08/09 17:42:01 martin Exp $ */
+/*	$NetBSD: lua.h,v 1.9 2023/07/11 14:57:21 martin Exp $ */
 
 /*
  * Copyright (c) 2014 by Lourival Vieira Neto <lneto@NetBSD.org>.

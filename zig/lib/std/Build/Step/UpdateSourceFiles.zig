@@ -1,116 +1,63 @@
-//! Writes data to paths relative to the package root, effectively mutating the
-//! package's source files. Be careful with the latter functionality; it should
-//! not be used during the normal build process, but as a utility run by a
-//! developer with intention to update source files, which will then be
-//! committed to version control.
 const UpdateSourceFiles = @This();
 
 const std = @import("std");
-const Io = std.Io;
 const Step = std.Build.Step;
-const fs = std.fs;
-const ArrayList = std.ArrayList;
+const Configuration = std.Build.Configuration;
 
 step: Step,
-output_source_files: std.ArrayList(OutputSourceFile),
+embeds: std.ArrayList(Embed) = .empty,
+copies: std.ArrayList(Copy) = .empty,
 
-pub const base_id: Step.Id = .update_source_files;
+pub const base_tag: Step.Tag = .update_source_files;
 
-pub const OutputSourceFile = struct {
-    contents: Contents,
-    sub_path: []const u8,
-};
-
-pub const Contents = union(enum) {
-    bytes: []const u8,
-    copy: std.Build.LazyPath,
-};
+pub const Embed = Step.WriteFile.Embed;
+pub const Copy = Step.WriteFile.Copy;
 
 pub fn create(owner: *std.Build) *UpdateSourceFiles {
-    const usf = owner.allocator.create(UpdateSourceFiles) catch @panic("OOM");
+    const graph = owner.graph;
+    const usf = graph.create(UpdateSourceFiles);
     usf.* = .{
-        .step = Step.init(.{
-            .id = base_id,
+        .step = .init(.{
+            .tag = base_tag,
             .name = "UpdateSourceFiles",
             .owner = owner,
-            .makeFn = make,
         }),
-        .output_source_files = .empty,
     };
     return usf;
 }
 
-/// A path relative to the package root.
+/// Overwrites a path relative to the build root with the contents of another file.
 ///
-/// Be careful with this because it updates source files. This should not be
-/// used as part of the normal build process, but as a utility occasionally
-/// run by a developer with intent to modify source files and then commit
-/// those changes to version control.
-pub fn addCopyFileToSource(usf: *UpdateSourceFiles, source: std.Build.LazyPath, sub_path: []const u8) void {
-    const b = usf.step.owner;
-    usf.output_source_files.append(b.allocator, .{
-        .contents = .{ .copy = source },
-        .sub_path = sub_path,
+/// Because it updates source files, this should not be used as part of the
+/// normal build process, but as a utility occasionally run by a developer with
+/// intent to modify source files and then commit those changes to version
+/// control.
+pub fn addCopyFileToSource(usf: *UpdateSourceFiles, src_file: std.Build.LazyPath, sub_path: []const u8) void {
+    const graph = usf.step.owner.graph;
+    const wc = &graph.wip_configuration;
+    const arena = graph.arena;
+
+    usf.copies.append(arena, .{
+        .sub_path = wc.addString(sub_path) catch @panic("OOM"),
+        .src_file = src_file.dupe(graph),
     }) catch @panic("OOM");
-    source.addStepDependencies(&usf.step);
+
+    src_file.addStepDependencies(&usf.step);
 }
 
-/// A path relative to the package root.
+/// Overwrites a path relative to the package root with the provided bytes.
 ///
-/// Be careful with this because it updates source files. This should not be
-/// used as part of the normal build process, but as a utility occasionally
-/// run by a developer with intent to modify source files and then commit
-/// those changes to version control.
-pub fn addBytesToSource(usf: *UpdateSourceFiles, bytes: []const u8, sub_path: []const u8) void {
-    const b = usf.step.owner;
-    usf.output_source_files.append(b.allocator, .{
-        .contents = .{ .bytes = bytes },
-        .sub_path = sub_path,
+/// Because it updates source files, this should not be used as part of the
+/// normal build process, but as a utility occasionally run by a developer with
+/// intent to modify source files and then commit those changes to version
+/// control.
+pub fn addBytesToSource(usf: *UpdateSourceFiles, contents: []const u8, sub_path: []const u8) void {
+    const graph = usf.step.owner.graph;
+    const wc = &graph.wip_configuration;
+    const arena = graph.arena;
+
+    usf.embeds.append(arena, .{
+        .sub_path = wc.addString(sub_path) catch @panic("OOM"),
+        .contents = wc.addBytes(contents) catch @panic("OOM"),
     }) catch @panic("OOM");
-}
-
-fn make(step: *Step, options: Step.MakeOptions) !void {
-    _ = options;
-    const b = step.owner;
-    const io = b.graph.io;
-    const usf: *UpdateSourceFiles = @fieldParentPtr("step", step);
-
-    var any_miss = false;
-    for (usf.output_source_files.items) |output_source_file| {
-        if (fs.path.dirname(output_source_file.sub_path)) |dirname| {
-            b.build_root.handle.createDirPath(io, dirname) catch |err| {
-                return step.fail("unable to make path '{f}{s}': {t}", .{ b.build_root, dirname, err });
-            };
-        }
-        switch (output_source_file.contents) {
-            .bytes => |bytes| {
-                b.build_root.handle.writeFile(io, .{ .sub_path = output_source_file.sub_path, .data = bytes }) catch |err| {
-                    return step.fail("unable to write file '{f}{s}': {t}", .{
-                        b.build_root, output_source_file.sub_path, err,
-                    });
-                };
-                any_miss = true;
-            },
-            .copy => |file_source| {
-                if (!step.inputs.populated()) try step.addWatchInput(file_source);
-
-                const source_path = file_source.getPath2(b, step);
-                const prev_status = Io.Dir.updateFile(
-                    .cwd(),
-                    io,
-                    source_path,
-                    b.build_root.handle,
-                    output_source_file.sub_path,
-                    .{},
-                ) catch |err| {
-                    return step.fail("unable to update file from '{s}' to '{f}{s}': {t}", .{
-                        source_path, b.build_root, output_source_file.sub_path, err,
-                    });
-                };
-                any_miss = any_miss or prev_status == .stale;
-            },
-        }
-    }
-
-    step.result_cached = !any_miss;
 }

@@ -437,8 +437,8 @@ pub fn free(gpa: Allocator, value: anytype) void {
             const array: [vector.len]vector.child = value;
             freeArray(gpa, @TypeOf(array), &array);
         },
-        .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {
-            free(gpa, @field(value, field.name));
+        .@"struct" => |@"struct"| inline for (@"struct".field_names) |field_name| {
+            free(gpa, @field(value, field_name));
         },
         .@"union" => |@"union"| if (@"union".tag_type == null) {
             if (comptime requiresAllocator(Value)) unreachable;
@@ -464,13 +464,13 @@ fn requiresAllocator(T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => true,
         .array => |array| return array.len > 0 and requiresAllocator(array.child),
-        .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {
-            if (requiresAllocator(field.type)) {
+        .@"struct" => |@"struct"| inline for (@"struct".field_types) |field_type| {
+            if (requiresAllocator(field_type)) {
                 break true;
             }
         } else false,
-        .@"union" => |@"union"| inline for (@"union".fields) |field| {
-            if (requiresAllocator(field.type)) {
+        .@"union" => |@"union"| inline for (@"union".field_types) |field_type| {
+            if (requiresAllocator(field_type)) {
                 break true;
             }
         } else false,
@@ -589,9 +589,9 @@ const Parser = struct {
                 .one => return self.failExpectedTypeInner(pointer.child, opt, node),
                 .slice => {
                     if (pointer.child == u8 and
-                        pointer.is_const and
+                        pointer.attrs.@"const" and
                         (pointer.sentinel() == null or pointer.sentinel() == 0) and
-                        (pointer.alignment == null or pointer.alignment == 1))
+                        (pointer.attrs.@"align" == null or pointer.attrs.@"align" == 1))
                     {
                         if (opt) {
                             return self.failNode(node, "expected optional string");
@@ -669,10 +669,10 @@ const Parser = struct {
         switch (node.get(self.zoir)) {
             .enum_literal => |field_name| {
                 // Create a comptime string map for the enum fields
-                const enum_fields = @typeInfo(T).@"enum".fields;
-                comptime var kvs_list: [enum_fields.len]struct { []const u8, T } = undefined;
-                inline for (enum_fields, 0..) |field, i| {
-                    kvs_list[i] = .{ field.name, @enumFromInt(field.value) };
+                const enum_info = @typeInfo(T).@"enum";
+                comptime var kvs_list: [enum_info.field_names.len]struct { []const u8, T } = undefined;
+                inline for (enum_info.field_names, enum_info.field_values, 0..) |enum_field_name, enum_field_value, i| {
+                    kvs_list[i] = .{ enum_field_name, @enumFromInt(enum_field_value) };
                 }
                 const enum_tags = std.StaticStringMap(T).initComptime(kvs_list);
 
@@ -715,9 +715,9 @@ const Parser = struct {
 
         if (pointer.child != u8 or
             pointer.size != .slice or
-            !pointer.is_const or
+            !pointer.attrs.@"const" or
             (pointer.sentinel() != null and pointer.sentinel() != 0) or
-            (pointer.alignment != null and pointer.alignment != 1))
+            (pointer.attrs.@"align" != null and pointer.attrs.@"align" != 1))
         {
             return error.WrongType;
         }
@@ -742,7 +742,7 @@ const Parser = struct {
         const slice = try self.gpa.allocWithOptions(
             pointer.child,
             nodes.len,
-            .fromByteUnitsOptional(pointer.alignment),
+            .fromByteUnitsOptional(pointer.attrs.@"align"),
             pointer.sentinel(),
         );
         errdefer self.gpa.free(slice);
@@ -808,30 +808,30 @@ const Parser = struct {
             else => return error.WrongType,
         };
 
-        const field_infos = @typeInfo(T).@"struct".fields;
+        const info = @typeInfo(T).@"struct";
 
         // Build a map from field name to index.
         // The special value `comptime_field` indicates that this is actually a comptime field.
         const comptime_field = std.math.maxInt(usize);
         const field_indices: std.StaticStringMap(usize) = comptime b: {
-            var kvs_list: [field_infos.len]struct { []const u8, usize } = undefined;
-            for (&kvs_list, field_infos, 0..) |*kv, field, i| {
-                kv.* = .{ field.name, if (field.is_comptime) comptime_field else i };
+            var kvs_list: [info.field_names.len]struct { []const u8, usize } = undefined;
+            for (&kvs_list, info.field_names, info.field_attrs, 0..) |*kv, field_name, field_attrs, i| {
+                kv.* = .{ field_name, if (field_attrs.@"comptime") comptime_field else i };
             }
             break :b .initComptime(kvs_list);
         };
 
         // Parse the struct
         var result: T = undefined;
-        var field_found: [field_infos.len]bool = @splat(false);
+        var field_found: [info.field_names.len]bool = @splat(false);
 
         // If we fail partway through, free all already initialized fields
         var initialized: usize = 0;
-        errdefer if (self.options.free_on_error and field_infos.len > 0) {
+        errdefer if (self.options.free_on_error and info.field_names.len > 0) {
             for (fields.names[0..initialized]) |name_runtime| {
                 switch (field_indices.get(name_runtime.get(self.zoir)) orelse continue) {
-                    inline 0...(field_infos.len - 1) => |name_index| {
-                        const name = field_infos[name_index].name;
+                    inline 0...(info.field_names.len - 1) => |name_index| {
+                        const name = info.field_names[name_index];
                         free(self.gpa, @field(result, name));
                     },
                     else => unreachable, // Can't be out of bounds
@@ -856,11 +856,11 @@ const Parser = struct {
             field_found[field_index] = true;
 
             switch (field_index) {
-                inline 0...(field_infos.len - 1) => |j| {
-                    if (field_infos[j].is_comptime) unreachable;
+                inline 0...(info.field_names.len - 1) => |j| {
+                    if (info.field_attrs[j].@"comptime") unreachable;
 
-                    @field(result, field_infos[j].name) = try self.parseExpr(
-                        field_infos[j].type,
+                    @field(result, info.field_names[j]) = try self.parseExpr(
+                        info.field_types[j],
                         fields.vals.at(@intCast(i)),
                     );
                 },
@@ -873,15 +873,14 @@ const Parser = struct {
         // Fill in any missing default fields
         inline for (field_found, 0..) |found, i| {
             if (!found) {
-                const field_info = field_infos[i];
-                if (field_info.default_value_ptr) |default| {
-                    const typed: *const field_info.type = @ptrCast(@alignCast(default));
-                    @field(result, field_info.name) = typed.*;
+                const field_attrs = info.field_attrs[i];
+                if (field_attrs.defaultValue(info.field_types[i])) |default| {
+                    @field(result, info.field_names[i]) = default;
                 } else {
                     return self.failNodeFmt(
                         node,
                         "missing required field {s}",
-                        .{field_infos[i].name},
+                        .{info.field_names[i]},
                     );
                 }
             }
@@ -898,22 +897,21 @@ const Parser = struct {
         };
 
         var result: T = undefined;
-        const field_infos = @typeInfo(T).@"struct".fields;
+        const info = @typeInfo(T).@"struct";
 
-        if (nodes.len > field_infos.len) {
+        if (nodes.len > info.field_names.len) {
             return self.failNodeFmt(
-                nodes.at(field_infos.len),
+                nodes.at(info.field_names.len),
                 "index {} outside of tuple length {}",
-                .{ field_infos.len, field_infos.len },
+                .{ info.field_names.len, info.field_names.len },
             );
         }
 
-        inline for (0..field_infos.len) |i| {
+        inline for (0..info.field_names.len) |i| {
             // Check if we're out of bounds
             if (i >= nodes.len) {
-                if (field_infos[i].default_value_ptr) |default| {
-                    const typed: *const field_infos[i].type = @ptrCast(@alignCast(default));
-                    @field(result, field_infos[i].name) = typed.*;
+                if (info.field_attrs[i].defaultValue(info.field_types[i])) |default| {
+                    @field(result, info.field_names[i]) = default;
                 } else {
                     return self.failNodeFmt(node, "missing tuple field with index {}", .{i});
                 }
@@ -926,10 +924,10 @@ const Parser = struct {
                     }
                 };
 
-                if (field_infos[i].is_comptime) {
+                if (info.field_attrs[i].@"comptime") {
                     return self.failComptimeField(node, i);
                 } else {
-                    result[i] = try self.parseExpr(field_infos[i].type, nodes.at(i));
+                    result[i] = try self.parseExpr(info.field_types[i], nodes.at(i));
                 }
             }
         }
@@ -939,15 +937,14 @@ const Parser = struct {
 
     fn parseUnion(self: *@This(), T: type, node: Zoir.Node.Index) !T {
         const @"union" = @typeInfo(T).@"union";
-        const field_infos = @"union".fields;
 
-        if (field_infos.len == 0) comptime unreachable;
+        if (@"union".field_names.len == 0) comptime unreachable;
 
         // Gather info on the fields
         const field_indices = b: {
-            comptime var kvs_list: [field_infos.len]struct { []const u8, usize } = undefined;
-            inline for (field_infos, 0..) |field, i| {
-                kvs_list[i] = .{ field.name, i };
+            comptime var kvs_list: [@"union".field_names.len]struct { []const u8, usize } = undefined;
+            inline for (@"union".field_names, 0..) |field_name, i| {
+                kvs_list[i] = .{ field_name, i };
             }
             break :b std.StaticStringMap(usize).initComptime(kvs_list);
         };
@@ -970,13 +967,13 @@ const Parser = struct {
 
                 // Initialize the union from the given field.
                 switch (field_index) {
-                    inline 0...field_infos.len - 1 => |i| {
+                    inline 0...@"union".field_names.len - 1 => |i| {
                         // Fail if the field is not void
-                        if (field_infos[i].type != void)
+                        if (@"union".field_types[i] != void)
                             return self.failNode(node, "expected union");
 
                         // Instantiate the union
-                        return @unionInit(T, field_infos[i].name, {});
+                        return @unionInit(T, @"union".field_names[i], {});
                     },
                     else => unreachable, // Can't be out of bounds
                 }
@@ -994,12 +991,12 @@ const Parser = struct {
                     return self.failUnexpected(T, "field", node, 0, field_name_str);
 
                 switch (field_index) {
-                    inline 0...field_infos.len - 1 => |i| {
-                        if (field_infos[i].type == void) {
+                    inline 0...@"union".field_names.len - 1 => |i| {
+                        if (@"union".field_types[i] == void) {
                             return self.failNode(field_val, "expected type 'void'");
                         } else {
-                            const value = try self.parseExpr(field_infos[i].type, field_val);
-                            return @unionInit(T, field_infos[i].name, value);
+                            const value = try self.parseExpr(@"union".field_types[i], field_val);
+                            return @unionInit(T, @"union".field_names[i], value);
                         }
                     },
                     else => unreachable, // Can't be out of bounds
@@ -1106,7 +1103,7 @@ const Parser = struct {
         } else self.ast.nodeMainToken(node.getAstNode(self.zoir));
         switch (@typeInfo(T)) {
             inline .@"struct", .@"union", .@"enum" => |info| {
-                const note: Error.TypeCheckFailure.Note = if (info.fields.len == 0) b: {
+                const note: Error.TypeCheckFailure.Note = if (info.field_names.len == 0) b: {
                     break :b .{
                         .token = token,
                         .offset = 0,
@@ -1118,9 +1115,9 @@ const Parser = struct {
                     var buf: std.ArrayList(u8) = try .initCapacity(gpa, 64);
                     defer buf.deinit(gpa);
                     try buf.appendSlice(gpa, msg);
-                    inline for (info.fields, 0..) |field_info, i| {
+                    inline for (info.field_names, 0..) |field_name, i| {
                         if (i != 0) try buf.appendSlice(gpa, ", ");
-                        try buf.print(gpa, "'{f}'", .{std.zig.fmtIdFlags(field_info.name, .{
+                        try buf.print(gpa, "'{f}'", .{std.zig.fmtIdFlags(field_name, .{
                             .allow_primitive = true,
                             .allow_underscore = true,
                         })});
@@ -1236,8 +1233,8 @@ fn canParseTypeInner(
         .@"struct" => |@"struct"| {
             for (visited) |V| if (T == V) return true;
             const new_visited = visited ++ .{T};
-            for (@"struct".fields) |field| {
-                if (!field.is_comptime and !canParseTypeInner(field.type, new_visited, false)) {
+            for (@"struct".field_types, @"struct".field_attrs) |field_type, field_attrs| {
+                if (!field_attrs.@"comptime" and !canParseTypeInner(field_type, new_visited, false)) {
                     return false;
                 }
             }
@@ -1246,8 +1243,8 @@ fn canParseTypeInner(
         .@"union" => |@"union"| {
             for (visited) |V| if (T == V) return true;
             const new_visited = visited ++ .{T};
-            for (@"union".fields) |field| {
-                if (field.type != void and !canParseTypeInner(field.type, new_visited, false)) {
+            for (@"union".field_types) |field_type| {
+                if (field_type != void and !canParseTypeInner(field_type, new_visited, false)) {
                     return false;
                 }
             }
@@ -3129,7 +3126,7 @@ test "std.zon free on error" {
 
 test "std.zon vector" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/15330
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .s390x) return error.SkipZigTest; // github.com/ziglang/zig/issues/25957
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .s390x) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25957
 
     const gpa = std.testing.allocator;
 

@@ -34,7 +34,7 @@ pub const featureSetHasAny = CpuFeature.FeatureSetFns(Feature).featureSetHasAny;
 pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
-    const len = @typeInfo(Feature).@"enum".fields.len;
+    const len = @typeInfo(Feature).@"enum".field_names.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.@"32bit")] = .{
@@ -153,7 +153,7 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.@"enum".fields[i].name;
+        elem.name = ti.@"enum".field_names[i];
     }
     break :blk result;
 };
@@ -172,6 +172,24 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .lsx,
+            .ual,
+        }),
+    };
+    pub const la32rv1_0: CpuModel = .{
+        .name = "la32rv1_0",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .@"32bit",
+            .ual,
+        }),
+    };
+    pub const la32v1_0: CpuModel = .{
+        .name = "la32v1_0",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .@"32bit",
+            .@"32s",
+            .d,
             .ual,
         }),
     };

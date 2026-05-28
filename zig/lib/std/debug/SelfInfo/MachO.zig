@@ -408,8 +408,8 @@ fn unwindFrameInner(si: *SelfInfo, io: Io, context: *UnwindContext) !usize {
                 const ip_ptr = fp + @sizeOf(usize);
 
                 var reg_addr = fp - @sizeOf(usize);
-                inline for (@typeInfo(@TypeOf(frame.x_reg_pairs)).@"struct".fields, 0..) |field, i| {
-                    if (@field(frame.x_reg_pairs, field.name) != 0) {
+                inline for (@typeInfo(@TypeOf(frame.x_reg_pairs)).@"struct".field_names, 0..) |field_name, i| {
+                    if (@field(frame.x_reg_pairs, field_name) != 0) {
                         (try dwarfRegNative(&context.cpu_state, 19 + i)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
                         reg_addr += @sizeOf(usize);
                         (try dwarfRegNative(&context.cpu_state, 20 + i)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;

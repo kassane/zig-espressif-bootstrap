@@ -104,18 +104,6 @@ test "array init with concat" {
     try expect(std.mem.eql(u8, &i, "abcd"));
 }
 
-test "array init with mult" {
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    const a = 'a';
-    var i: [8]u8 = [2]u8{ a, 'b' } ** 4;
-    try expect(std.mem.eql(u8, &i, "abababab"));
-
-    var j: [4]u8 = [1]u8{'a'} ** 4;
-    try expect(std.mem.eql(u8, &j, "aaaa"));
-}
-
 test "array literal with explicit type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -196,7 +184,7 @@ test "array with sentinels" {
 
 test "void arrays" {
     var array: [4]void = undefined;
-    array[0] = void{};
+    array[0] = {};
     array[1] = array[2];
     try expect(@sizeOf(@TypeOf(array)) == 0);
     try expect(array.len == 4);
@@ -320,7 +308,7 @@ test "set global var array via slice embedded in struct" {
     try expect(s_array[2].b == 3);
 }
 
-test "read/write through global variable array of struct fields initialized via array mult" {
+test "read/write through global variable array of struct fields initialized via splat" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -335,7 +323,7 @@ test "read/write through global variable array of struct fields initialized via 
             term: usize,
         };
 
-        var storage: [1]MyStruct = [_]MyStruct{MyStruct{ .term = 1 }} ** 1;
+        var storage: [1]MyStruct = @splat(.{ .term = 1 });
     };
     try S.doTheTest();
 }
@@ -641,8 +629,8 @@ test "array of array agregate init" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    var a = [1]u32{11} ** 10;
-    var b = [1][10]u32{a} ** 2;
+    var a: [10]u32 = @splat(11);
+    var b: [2][10]u32 = @splat(a);
     _ = .{ &a, &b };
     try std.testing.expect(b[1][1] == 11);
 }

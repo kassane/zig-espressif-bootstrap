@@ -249,7 +249,6 @@ const Code = struct {
     link_libc: bool,
     link_mode: ?std.builtin.LinkMode,
     disable_cache: bool,
-    verbose_cimport: bool,
     additional_options: []const []const u8,
 
     const Id = union(enum) {
@@ -326,7 +325,6 @@ fn walk(arena: Allocator, io: Io, tokenizer: *Tokenizer, out_dir: Dir, w: anytyp
                     var link_libc = false;
                     var link_mode: ?std.builtin.LinkMode = null;
                     var disable_cache = false;
-                    var verbose_cimport = false;
                     var additional_options = std.array_list.Managed([]const u8).init(arena);
 
                     const source_token = while (true) {
@@ -340,8 +338,6 @@ fn walk(arena: Allocator, io: Io, tokenizer: *Tokenizer, out_dir: Dir, w: anytyp
                             mode = .ReleaseSafe;
                         } else if (mem.eql(u8, end_tag_name, "code_disable_cache")) {
                             disable_cache = true;
-                        } else if (mem.eql(u8, end_tag_name, "code_verbose_cimport")) {
-                            verbose_cimport = true;
                         } else if (mem.eql(u8, end_tag_name, "code_link_object")) {
                             _ = try eatToken(tokenizer, .separator);
                             const obj_tok = try eatToken(tokenizer, .tag_content);
@@ -419,7 +415,6 @@ fn walk(arena: Allocator, io: Io, tokenizer: *Tokenizer, out_dir: Dir, w: anytyp
 
                     if (link_libc) try code.print("// link_libc\n", .{});
                     if (disable_cache) try code.print("// disable_cache\n", .{});
-                    if (verbose_cimport) try code.print("// verbose_cimport\n", .{});
 
                     if (link_mode) |m|
                         try code.print("// link_mode={s}\n", .{@tagName(m)});

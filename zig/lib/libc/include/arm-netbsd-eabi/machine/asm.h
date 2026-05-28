@@ -1,4 +1,4 @@
-/*	$NetBSD: asm.h,v 1.34 2020/04/23 23:22:41 jakllsch Exp $	*/
+/*	$NetBSD: asm.h,v 1.39.2.1 2026/04/02 19:12:03 martin Exp $	*/
 
 /*-
  * Copyright (c) 2014 The NetBSD Foundation, Inc.
@@ -73,8 +73,10 @@
 
 #ifdef __thumb__
 #define THUMB_INSN(n)	n
+#define _INSN_SIZE	(2)
 #else
 #define THUMB_INSN(n)
+#define _INSN_SIZE	(4)
 #endif
 
 #define	__BIT(n)	(1 << (n))
@@ -130,7 +132,7 @@
 
 #ifdef GPROF
 # define _PROF_PROLOGUE	\
-	mov ip, lr; bl __mcount
+	push {lr}; bl __gnu_mcount_nc
 #else
 # define _PROF_PROLOGUE
 #endif
@@ -194,21 +196,25 @@
 #define	GOT_GET(x,got,sym)	\
 	ldr	x, sym;		\
 	ldr	x, [x, got]
-#define	GOT_INIT(got,gotsym,pclabel) \
-	ldr	got, gotsym;	\
-	pclabel: add	got, got, pc
-#ifdef __thumb__
-#define	GOT_INITSYM(gotsym,pclabel) \
+
+/*
+ * Load _GLOBAL_OFFSET_TABLE_ address into register:
+ *
+ * 0:	GOT_INIT(rX, .Lgot)
+ *	...
+ *
+ *      // and in the data after the function
+ *	GOT_INITSYM(.Lgot, 0b)
+ */
+#define	GOT_INIT(Rgot, gotsym)	  \
+	ldr	Rgot, gotsym	; \
+	add	Rgot, Rgot, pc
+#define	GOT_INITSYM(gotsym, initlabel)	\
 	.align 0;		\
-	gotsym: .word _C_LABEL(_GLOBAL_OFFSET_TABLE_) - (pclabel+4)
-#else
-#define	GOT_INITSYM(gotsym,pclabel) \
-	.align 0;		\
-	gotsym: .word _C_LABEL(_GLOBAL_OFFSET_TABLE_) - (pclabel+8)
-#endif
+	gotsym:	.word _C_LABEL(_GLOBAL_OFFSET_TABLE_) - (initlabel+(1+2)*_INSN_SIZE)
 
 #ifdef __STDC__
-#define	PIC_SYM(x,y)	x ## ( ## y ## )
+#define	PIC_SYM(x,y)	x(y)
 #else
 #define	PIC_SYM(x,y)	x/**/(/**/y/**/)
 #endif
@@ -219,14 +225,37 @@
 #define	GOT_SYM(x)	x
 #define	GOT_GET(x,got,sym)	\
 	ldr	x, sym;
-#define	GOT_INIT(got,gotsym,pclabel)
-#define	GOT_INITSYM(gotsym,pclabel)
+#define	GOT_INIT(Rgot, gotsym)
+#define	GOT_INITSYM(gotsym, initlabel)
 #define	PIC_SYM(x,y)	x
 #endif	/* __PIC__ */
 
-#define RCSID(x)	.pushsection ".ident","MS",%progbits,1;		\
-			.asciz x;					\
+/*
+ * Annoyingly, gas on arm seems to generate _two_ NUL-terminated
+ * strings for
+ *
+ *	.asciz "foo" "bar"
+ *
+ * instead of concatenating it into a single NUL-terminated string as
+ * on other architectures.
+ *
+ * To work around this, we concatenate into a single NUL-terminated by:
+ *
+ *	.ascii "foo"
+ *	.asciz "bar"
+ */
+#define _IDENTSTR(x)	.pushsection ".ident","MS",%progbits,1;		\
+			x;						\
 			.popsection
+
+#ifdef _NETBSD_REVISIONID
+#define	RCSID(_s)							\
+	_IDENTSTR(.asciz _s);						\
+	_IDENTSTR(.ascii "$"; .ascii "NetBSD: "; .ascii __FILE__;	\
+	    .ascii " "; .ascii _NETBSD_REVISIONID; .asciz " $")
+#else
+#define	RCSID(_s)	_IDENTSTR(.asciz _s)
+#endif
 
 #define	WEAK_ALIAS(alias,sym)						\
 	.weak alias;							\
@@ -241,7 +270,7 @@
 
 #ifdef __STDC__
 #define	WARN_REFERENCES(sym,msg)					\
-	.pushsection .gnu.warning. ## sym;				\
+	.pushsection .gnu.warning.sym;					\
 	.ascii msg;							\
 	.popsection
 #else

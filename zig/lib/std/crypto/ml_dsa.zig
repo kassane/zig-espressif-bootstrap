@@ -156,7 +156,7 @@ const Params = struct {
 const Poly = struct {
     cs: [N]u32,
 
-    const zero: Poly = .{ .cs = .{0} ** N };
+    const zero: Poly = .{ .cs = @splat(0) };
 
     // Add two polynomials (no normalization)
     fn add(a: Poly, b: Poly) Poly {
@@ -302,7 +302,7 @@ fn PolyVec(comptime len: u8) type {
         ps: [len]Poly,
 
         const Self = @This();
-        const zero: Self = .{ .ps = .{Poly.zero} ** len };
+        const zero: Self = .{ .ps = @splat(.zero) };
 
         /// Apply a unary operation to each polynomial in the vector
         fn map(v: Self, comptime op: fn (Poly) Poly) Self {
@@ -581,7 +581,7 @@ fn PolyVec(comptime len: u8) type {
 
         /// Unpack hints from bytes
         fn unpackHint(comptime omega: u16, buf: []const u8) ?Self {
-            var result: Self = .{ .ps = .{Poly.zero} ** len };
+            var result: Self = .{ .ps = @splat(.zero) };
             var prev_sop: u8 = 0; // previous switch-over-point
 
             for (0..len) |i| {
@@ -1839,7 +1839,7 @@ fn MLDSAImpl(comptime p: Params) type {
                 return Signer{
                     .h = h,
                     .secret_key = secret_key,
-                    .rnd = noise orelse .{0} ** 32,
+                    .rnd = noise orelse @splat(0),
                 };
             }
 
@@ -2324,7 +2324,7 @@ test "decompose correctness for ML-DSA-87" {
 
 test "polyDeriveUniform deterministic" {
     // Test that polyDeriveUniform produces deterministic results
-    const seed: [32]u8 = .{0x01} ++ .{0x00} ** 31;
+    const seed: [32]u8 = .{0x01} ++ @as([31]u8, @splat(0x00));
     const nonce: u16 = 0;
 
     const p1 = polyDeriveUniform(&seed, nonce);
@@ -2343,7 +2343,7 @@ test "polyDeriveUniform deterministic" {
 
 test "polyDeriveUniform different nonces" {
     // Test that different nonces produce different polynomials
-    const seed: [32]u8 = .{0x01} ++ .{0x00} ** 31;
+    const seed: [32]u8 = .{0x01} ++ @as([31]u8, @splat(0x00));
 
     const p1 = polyDeriveUniform(&seed, 0);
     const p2 = polyDeriveUniform(&seed, 1);
@@ -2361,7 +2361,7 @@ test "polyDeriveUniform different nonces" {
 
 test "expandS with eta=2" {
     // Test eta=2 sampling
-    const seed: [64]u8 = .{0x02} ++ .{0x00} ** 63;
+    const seed: [64]u8 = .{0x02} ++ @as([63]u8, @splat(0x00));
     const nonce: u16 = 0;
 
     const p = expandS(2, &seed, nonce);
@@ -2378,7 +2378,7 @@ test "expandS with eta=2" {
 
 test "expandS with eta=4" {
     // Test eta=4 sampling
-    const seed: [64]u8 = .{0x03} ++ .{0x00} ** 63;
+    const seed: [64]u8 = .{0x03} ++ @as([63]u8, @splat(0x00));
     const nonce: u16 = 0;
 
     const p = expandS(4, &seed, nonce);
@@ -2395,7 +2395,7 @@ test "expandS with eta=4" {
 test "sampleInBall has correct weight" {
     // Test that ball polynomial has exactly tau non-zero coefficients
     const tau = 39; // From ML-DSA-44
-    const seed: [32]u8 = .{0x04} ++ .{0x00} ** 31;
+    const seed: [32]u8 = .{0x03} ++ @as([31]u8, @splat(0x00));
 
     const p = sampleInBall(tau, &seed);
 
@@ -2415,7 +2415,7 @@ test "sampleInBall has correct weight" {
 test "sampleInBall deterministic" {
     // Test that ball sampling is deterministic
     const tau = 49; // From ML-DSA-65
-    const seed: [32]u8 = .{0x05} ++ .{0x00} ** 31;
+    const seed: [32]u8 = .{0x05} ++ @as([31]u8, @splat(0x00));
 
     const p1 = sampleInBall(tau, &seed);
     const p2 = sampleInBall(tau, &seed);
@@ -2851,13 +2851,13 @@ test "Key generation basic - all variants" {
         .{ .variant = MLDSA65, .seed_byte = 0x65 },
         .{ .variant = MLDSA87, .seed_byte = 0x87 },
     }) |config| {
-        const seed = [_]u8{config.seed_byte} ** 32;
+        const seed: [32]u8 = @splat(config.seed_byte);
         try testKeyGenerationBasic(config.variant, seed);
     }
 }
 
 test "Key generation determinism" {
-    const seed = [_]u8{ 0x12, 0x34, 0x56, 0x78 } ++ [_]u8{0xAB} ** 28;
+    const seed = [_]u8{ 0x12, 0x34, 0x56, 0x78 } ++ @as([28]u8, @splat(0xAB));
 
     // Generate two key pairs from the same seed
     const result1 = MLDSA44.newKeyFromSeed(&seed);
@@ -2874,7 +2874,7 @@ test "Key generation determinism" {
 }
 
 test "Private key can compute public key" {
-    const seed = [_]u8{0xFF} ** 32;
+    const seed: [32]u8 = @splat(0xFF);
     const result = MLDSA44.newKeyFromSeed(&seed);
     const pk = result.pk;
     const sk = result.sk;
@@ -2907,13 +2907,13 @@ test "Sign and verify - all variants" {
         .{ .variant = MLDSA65, .seed_byte = 0x65, .message = "Hello, ML-DSA-65!" },
         .{ .variant = MLDSA87, .seed_byte = 0x87, .message = "Hello, ML-DSA-87!" },
     }) |config| {
-        const seed = [_]u8{config.seed_byte} ** 32;
+        const seed: [32]u8 = @splat(config.seed_byte);
         try testSignAndVerify(config.variant, seed, config.message);
     }
 }
 
 test "Invalid signature rejection" {
-    const seed = [_]u8{0x99} ** 32;
+    const seed: [32]u8 = @splat(0x99);
     const result = MLDSA44.newKeyFromSeed(&seed);
     const kp = try MLDSA44.KeyPair.fromSecretKey(result.sk);
 
@@ -2934,7 +2934,7 @@ test "Invalid signature rejection" {
 }
 
 test "Context string support" {
-    const seed = [_]u8{0xAA} ** 32;
+    const seed: [32]u8 = @splat(0xAA);
     const result = MLDSA44.newKeyFromSeed(&seed);
     const kp = try MLDSA44.KeyPair.fromSecretKey(result.sk);
 
@@ -2964,17 +2964,17 @@ test "Context string support" {
     try testing.expectError(error.SignatureVerificationFailed, sig2.verifyWithContext(message, kp.public_key, context1));
 
     // Test maximum context length (255 bytes)
-    const max_context = [_]u8{0xBB} ** 255;
+    const max_context: [255]u8 = @splat(0xBB);
     const sig3 = try kp.signWithContext(message, null, &max_context);
     try sig3.verifyWithContext(message, kp.public_key, &max_context);
 
     // Test context too long (256 bytes should fail)
-    const too_long_context = [_]u8{0xCC} ** 256;
+    const too_long_context: [256]u8 = @splat(0xCC);
     try testing.expectError(error.ContextTooLong, kp.signWithContext(message, null, &too_long_context));
 }
 
 test "Context string with streaming API" {
-    const seed = [_]u8{0xDD} ** 32;
+    const seed: [32]u8 = @splat(0xDD);
     const result = MLDSA44.newKeyFromSeed(&seed);
     const kp = try MLDSA44.KeyPair.fromSecretKey(result.sk);
 
@@ -3002,12 +3002,12 @@ test "Context string with streaming API" {
 }
 
 test "Signature determinism (same rnd)" {
-    const seed = [_]u8{0x11} ** 32;
+    const seed: [32]u8 = @splat(0x11);
     const result = MLDSA44.newKeyFromSeed(&seed);
     const sk = result.sk;
 
     const message = "Deterministic test";
-    const rnd = [_]u8{0x22} ** 32;
+    const rnd: [32]u8 = @splat(0x22);
 
     // Sign twice with same randomness using streaming API
     var st1 = try sk.signer(rnd);
@@ -3023,7 +3023,7 @@ test "Signature determinism (same rnd)" {
 }
 
 test "Signature toBytes/fromBytes roundtrip" {
-    const seed = [_]u8{0x33} ** 32;
+    const seed: [32]u8 = @splat(0x33);
     const result = MLDSA44.newKeyFromSeed(&seed);
     const kp = try MLDSA44.KeyPair.fromSecretKey(result.sk);
 
@@ -3043,7 +3043,7 @@ test "Signature toBytes/fromBytes roundtrip" {
 }
 
 test "Empty message signing" {
-    const seed = [_]u8{0x44} ** 32;
+    const seed: [32]u8 = @splat(0x44);
     const result = MLDSA44.newKeyFromSeed(&seed);
     const kp = try MLDSA44.KeyPair.fromSecretKey(result.sk);
 
@@ -3057,12 +3057,12 @@ test "Empty message signing" {
 }
 
 test "Long message signing" {
-    const seed = [_]u8{0x55} ** 32;
+    const seed: [32]u8 = @splat(0x55);
     const result = MLDSA44.newKeyFromSeed(&seed);
     const kp = try MLDSA44.KeyPair.fromSecretKey(result.sk);
 
     // Create a long message (1KB)
-    const long_message = [_]u8{0xAB} ** 1024;
+    const long_message: [1024]u8 = @splat(0xAB);
 
     // Sign long message
     const sig = try kp.sign(&long_message, null);
@@ -3209,7 +3209,7 @@ test "KeyPair API - generate and sign" {
 
 test "KeyPair API - generateDeterministic" {
     // Test deterministic key generation
-    const seed = [_]u8{42} ** 32;
+    const seed: [32]u8 = @splat(42);
     const kp1 = try MLDSA44.KeyPair.generateDeterministic(seed);
     const kp2 = try MLDSA44.KeyPair.generateDeterministic(seed);
 
@@ -3240,7 +3240,7 @@ test "Signature verification with noise" {
     const msg = "Message to be signed with randomness";
 
     // Create some noise
-    const noise = [_]u8{ 1, 2, 3, 4, 5 } ++ [_]u8{0} ** 27;
+    const noise = [_]u8{ 1, 2, 3, 4, 5 } ++ @as([27]u8, @splat(0));
 
     // Sign with noise
     const sig = try kp.sign(msg, noise);
@@ -3262,7 +3262,7 @@ test "Signature verification failure" {
 }
 
 test "Streaming API - sign and verify" {
-    const seed = [_]u8{0x55} ** 32;
+    const seed: [32]u8 = @splat(0x55);
     const kp = try MLDSA44.KeyPair.generateDeterministic(seed);
 
     const msg = "Test message for streaming API";
@@ -3279,7 +3279,7 @@ test "Streaming API - sign and verify" {
 }
 
 test "Streaming API - chunked message" {
-    const seed = [_]u8{0x66} ** 32;
+    const seed: [32]u8 = @splat(0x66);
     const kp = try MLDSA44.KeyPair.generateDeterministic(seed);
 
     // Create a message in chunks
@@ -3313,7 +3313,7 @@ test "Streaming API - chunked message" {
 }
 
 test "Streaming API - large message" {
-    const seed = [_]u8{0x77} ** 32;
+    const seed: [32]u8 = @splat(0x77);
     const kp = try MLDSA44.KeyPair.generateDeterministic(seed);
 
     // Create a large message (1MB)
@@ -3344,7 +3344,7 @@ test "Streaming API - all parameter sets" {
 
     // ML-DSA-44
     {
-        const seed = [_]u8{0x44} ** 32;
+        const seed: [32]u8 = @splat(0x44);
         const kp = try MLDSA44.KeyPair.generateDeterministic(seed);
         var signer = try kp.signer(null);
         signer.update(test_msg);
@@ -3356,7 +3356,7 @@ test "Streaming API - all parameter sets" {
 
     // ML-DSA-65
     {
-        const seed = [_]u8{0x65} ** 32;
+        const seed: [32]u8 = @splat(0x65);
         const kp = try MLDSA65.KeyPair.generateDeterministic(seed);
         var signer = try kp.signer(null);
         signer.update(test_msg);
@@ -3368,7 +3368,7 @@ test "Streaming API - all parameter sets" {
 
     // ML-DSA-87
     {
-        const seed = [_]u8{0x87} ** 32;
+        const seed: [32]u8 = @splat(0x87);
         const kp = try MLDSA87.KeyPair.generateDeterministic(seed);
         var signer = try kp.signer(null);
         signer.update(test_msg);
@@ -3413,7 +3413,7 @@ fn modularInverse(comptime T: type, comptime a: T, comptime p: T) T {
     // Use a signed type for EEA computation
     const type_info = @typeInfo(T);
     const SignedT = if (type_info == .int and type_info.int.signedness == .unsigned)
-        std.meta.Int(.signed, type_info.int.bits)
+        @Int(.signed, type_info.int.bits)
     else
         T;
 
@@ -3436,7 +3436,7 @@ fn modularInverse(comptime T: type, comptime a: T, comptime p: T) T {
 fn modularPow(comptime T: type, comptime a: T, s: T, comptime p: T) T {
     const type_info = @typeInfo(T);
     const bits = type_info.int.bits;
-    const WideT = std.meta.Int(.unsigned, bits * 2);
+    const WideT = @Int(.unsigned, bits * 2);
 
     var ret: T = 1;
     var base: T = a;
@@ -3465,14 +3465,14 @@ fn bitMask(comptime T: type, bit: T) T {
 
 /// Creates a mask from the sign bit of a signed integer.
 /// Returns all 1s (0xFF...FF) if x < 0, all 0s if x >= 0.
-fn signMask(comptime T: type, x: T) std.meta.Int(.unsigned, @typeInfo(T).int.bits) {
+fn signMask(comptime T: type, x: T) @Int(.unsigned, @typeInfo(T).int.bits) {
     const type_info = @typeInfo(T);
     if (type_info != .int) {
         @compileError("signMask requires an integer type");
     }
 
     const bits = type_info.int.bits;
-    const SignedT = std.meta.Int(.signed, bits);
+    const SignedT = @Int(.signed, bits);
 
     // Convert to signed if needed, arithmetic right shift to propagate sign bit
     const x_signed: SignedT = if (type_info.int.signedness == .signed) x else @bitCast(x);
@@ -3499,8 +3499,8 @@ fn montgomeryReduce(
     const m: OutT = @truncate(m_full);
 
     const yR = x -% @as(InT, m) * @as(InT, q);
-    const y_shifted = @as(std.meta.Int(.unsigned, @typeInfo(InT).Int.bits), @bitCast(yR)) >> r_bits;
-    return @bitCast(@as(std.meta.Int(.unsigned, @typeInfo(OutT).Int.bits), @truncate(y_shifted)));
+    const y_shifted = @as(@Int(.unsigned, @typeInfo(InT).Int.bits), @bitCast(yR)) >> r_bits;
+    return @bitCast(@as(@Int(.unsigned, @typeInfo(OutT).Int.bits), @truncate(y_shifted)));
 }
 
 /// Uniform sampling using SHAKE-128 with rejection sampling.

@@ -1,4 +1,4 @@
-/*	$NetBSD: unistd.h,v 1.163.2.1 2024/10/09 13:12:40 martin Exp $	*/
+/*	$NetBSD: unistd.h,v 1.169 2024/11/01 18:48:17 nia Exp $	*/
 
 /*-
  * Copyright (c) 1998, 1999, 2008 The NetBSD Foundation, Inc.
@@ -173,6 +173,7 @@ ssize_t	 readlink(const char * __restrict, char * __restrict, size_t);
  */
 #if (_POSIX_C_SOURCE - 0) >= 200112L || (_XOPEN_SOURCE - 0) >= 600 || \
     defined(_NETBSD_SOURCE)
+int	 gethostname(char *, size_t);
 int	 setegid(gid_t);
 int	 seteuid(uid_t);
 #endif
@@ -266,7 +267,6 @@ int	 fchown(int, uid_t, gid_t);
 #endif
 int	 getdtablesize(void);
 long	 gethostid(void);
-int	 gethostname(char *, size_t);
 __pure int
 	 getpagesize(void);		/* legacy */
 pid_t	 getpgid(pid_t);
@@ -326,8 +326,11 @@ int	fexecve(int, char * const *, char * const *);
 #if (_POSIX_C_SOURCE - 0) >= 202405L || (_XOPEN_SOURCE - 0 >= 800) || \
     defined(_NETBSD_SOURCE)
 int	 getentropy(void *, size_t);
+#ifndef __LIBC12_SOURCE__
+int	 dup3(int, int, int) __RENAME(__dup3100);
 #endif
-
+int	 pipe2(int *, int);
+#endif
 
 /*
  * Implementation-defined extensions
@@ -337,7 +340,6 @@ int	 acct(const char *);
 int	 closefrom(int);
 int	 des_cipher(const char *, char *, long, int);
 int	 des_setkey(const char *);
-int	 dup3(int, int, int);
 void	 endusershell(void);
 int	 exect(const char *, char * const *, char * const *);
 int	 execvpe(const char *, char * const *, char * const *);
@@ -371,7 +373,6 @@ int      issetugid(void);
 long	 lpathconf(const char *, int);
 int	 mkstemps(char *, int);
 int	 nfssvc(int, void *);
-int	 pipe2(int *, int);
 int	 profil(char *, size_t, unsigned long, unsigned int);
 #ifndef __PSIGNAL_DECLARED
 #define __PSIGNAL_DECLARED
@@ -419,6 +420,11 @@ extern const char *const *sys_siglist __RENAME(__sys_siglist14);
 #endif /* __SYS_SIGLIST_DECLARED */
 extern	 int optreset;		/* getopt(3) external variable */
 extern	 char *suboptarg;	/* getsubopt(3) external variable */
+#endif
+
+#ifdef _LIBC_INTERNAL
+pid_t	__fork(void);
+pid_t	__locked_fork(int *) __weak;
 #endif
 
 __END_DECLS

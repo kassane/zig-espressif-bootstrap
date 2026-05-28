@@ -22,7 +22,6 @@ const Primitives = struct {
     f32: f32,
     f64: f64,
     u0: u0,
-    i0: i0,
     u1: u1,
     i1: i1,
     u8: u8,
@@ -35,7 +34,6 @@ const primitives_0 = Primitives{
     .f32 = 0,
     .f64 = 0,
     .u0 = 0,
-    .i0 = 0,
     .u1 = 0,
     .i1 = 0,
     .u8 = 0,
@@ -48,7 +46,6 @@ const primitives_0_doc_0 =
     \\  "f32": 0,
     \\  "f64": 0,
     \\  "u0": 0,
-    \\  "i0": 0,
     \\  "u1": 0,
     \\  "i1": 0,
     \\  "u8": 0,
@@ -62,7 +59,6 @@ const primitives_0_doc_1 = // looks like a float.
     \\  "f32": 0.0,
     \\  "f64": 0.0,
     \\  "u0": 0.0,
-    \\  "i0": 0.0,
     \\  "u1": 0.0,
     \\  "i1": 0.0,
     \\  "u8": 0.0,
@@ -76,7 +72,6 @@ const primitives_1 = Primitives{
     .f32 = 1073741824,
     .f64 = 1152921504606846976,
     .u0 = 0,
-    .i0 = 0,
     .u1 = 1,
     .i1 = -1,
     .u8 = 255,
@@ -89,7 +84,6 @@ const primitives_1_doc_0 =
     \\  "f32": 1073741824,
     \\  "f64": 1152921504606846976,
     \\  "u0": 0,
-    \\  "i0": 0,
     \\  "u1": 1,
     \\  "i1": -1,
     \\  "u8": 255,
@@ -103,7 +97,6 @@ const primitives_1_doc_1 = // float rounding.
     \\  "f32": 1073741825,
     \\  "f64": 1152921504606846977,
     \\  "u0": 0,
-    \\  "i0": 0,
     \\  "u1": 1,
     \\  "i1": -1,
     \\  "u8": 255,
@@ -670,7 +663,7 @@ test "parse into tuple" {
         float: f64,
         string: []const u8,
     };
-    const T = std.meta.Tuple(&.{
+    const T = @Tuple(&.{
         i64,
         f64,
         bool,
@@ -680,7 +673,7 @@ test "parse into tuple" {
             foo: i32,
             bar: []const u8,
         },
-        std.meta.Tuple(&.{ u8, []const u8, u8 }),
+        @Tuple(&.{ u8, []const u8, u8 }),
         Union,
     });
     const str =

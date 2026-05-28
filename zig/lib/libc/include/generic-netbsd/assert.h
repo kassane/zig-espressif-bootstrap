@@ -1,4 +1,4 @@
-/*	$NetBSD: assert.h,v 1.25 2020/04/17 15:22:34 kamil Exp $	*/
+/*	$NetBSD: assert.h,v 1.27 2025/03/29 01:43:38 riastradh Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -48,46 +48,36 @@
 #undef assert
 
 #ifdef NDEBUG
-# ifndef __lint__
-#  define assert(e)	(__static_cast(void,0))
-# else /* !__lint__ */
-#  define assert(e)
-# endif /* __lint__ */
+# define assert(e)	(__static_cast(void,0))
 #else /* !NDEBUG */
 # if __STDC__
 #  define assert(e)							\
-	((e) ? __static_cast(void,0) : __assert13(__FILE__, __LINE__,	\
-	                                          __assert_function__, #e))
+	(__predict_true(e) ? __static_cast(void,0)			\
+	    : __assert13(__FILE__, __LINE__, __assert_function__, #e))
 # else	/* PCC */
 #  define assert(e)							\
-	((e) ? __static_cast(void,0) : __assert13(__FILE__, __LINE__,	\
-	                                          __assert_function__, "e"))
+	(__predict_true(e) ? __static_cast(void,0)			\
+	    : __assert13(__FILE__, __LINE__, __assert_function__, "e"))
 # endif /* !__STDC__ */
 #endif /* NDEBUG */
 
 #undef _DIAGASSERT
 #if !defined(_DIAGNOSTIC)
-# if !defined(__lint__)
-#  define _DIAGASSERT(e) (__static_cast(void,0))
-# else /* !__lint__ */
-#  define _DIAGASSERT(e)
-# endif /* __lint__ */
+# define _DIAGASSERT(e) (__static_cast(void,0))
 #else /* _DIAGNOSTIC */
 # if __STDC__
 #  define _DIAGASSERT(e)						\
-	((e) ? __static_cast(void,0) : __diagassert13(__FILE__, __LINE__, \
-	                                              __assert_function__, #e))
+	(__predict_true(e) ? __static_cast(void,0)			\
+	    : __diagassert13(__FILE__, __LINE__, __assert_function__, #e))
 # else	/* !__STDC__ */
 #  define _DIAGASSERT(e)	 					\
-	((e) ? __static_cast(void,0) : __diagassert13(__FILE__, __LINE__, \
-	                                              __assert_function__, "e"))
+	(__predict_true(e) ? __static_cast(void,0)			\
+	    : __diagassert13(__FILE__, __LINE__, __assert_function__, "e"))
 # endif
 #endif /* _DIAGNOSTIC */
 
 
-#if defined(__lint__)
-#define	__assert_function__	(__static_cast(const void *,0))
-#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
 #define	__assert_function__	__func__
 #elif __GNUC_PREREQ__(2, 6)
 #define	__assert_function__	__PRETTY_FUNCTION__

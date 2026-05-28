@@ -232,7 +232,7 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
                     cpu.model = &Target.x86.cpu.lunarlake;
                     return;
                 },
-                0xcc => {
+                0xcc, 0xd5 => {
                     cpu.model = &Target.x86.cpu.pantherlake;
                     return;
                 },
@@ -306,6 +306,20 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
             }
             cpu.model = &Target.x86.cpu.pentium4;
             return;
+        },
+        18 => switch (model) {
+            0x01, 0x03 => {
+                cpu.model = &Target.x86.cpu.novalake;
+                return;
+            },
+            else => return, // Unknown CPU Model
+        },
+        19 => switch (model) {
+            0x01 => {
+                cpu.model = &Target.x86.cpu.diamondrapids;
+                return;
+            },
+            else => return, // Unknown CPU Model
         },
         else => return, // Unknown CPU Model
     }
@@ -412,6 +426,8 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
     // AMX requires additional context to be saved by the OS.
     const has_amx_save = xcr0.xtilecfg and xcr0.xtiledata;
 
+    const has_apx_save = xcr0.apx;
+
     setFeature(cpu, .avx, has_avx_save);
     setFeature(cpu, .fma, bit(leaf.ecx, 12) and has_avx_save);
     // Only enable XSAVE if OS has enabled support for saving YMM state.
@@ -470,7 +486,20 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         }
     }
 
-    if (max_level >= 0x7) {
+    if (max_ext_level >= 0x80000021) {
+        leaf = cpuid(0x80000021, 0);
+
+        // AMD uses a different bit for prefetchi.
+        setFeature(cpu, .prefetchi, bit(leaf.eax, 20));
+    } else {
+        for ([_]Target.x86.Feature{
+            .prefetchi,
+        }) |feat| {
+            setFeature(cpu, feat, false);
+        }
+    }
+
+    const has_avx10 = if (max_level >= 0x7) has_avx10: {
         leaf = cpuid(0x7, 0);
 
         setFeature(cpu, .fsgsbase, bit(leaf.ebx, 0));
@@ -484,7 +513,6 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         setFeature(cpu, .rtm, bit(leaf.ebx, 11));
         // AVX512 is only supported if the OS supports the context save for it.
         setFeature(cpu, .avx512f, bit(leaf.ebx, 16) and has_avx512_save);
-        setFeature(cpu, .evex512, bit(leaf.ebx, 16) and has_avx512_save);
         setFeature(cpu, .avx512dq, bit(leaf.ebx, 17) and has_avx512_save);
         setFeature(cpu, .rdseed, bit(leaf.ebx, 18));
         setFeature(cpu, .adx, bit(leaf.ebx, 19));
@@ -556,15 +584,20 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
             setFeature(cpu, .avxneconvert, bit(leaf.edx, 5) and has_avx_save);
             setFeature(cpu, .amx_complex, bit(leaf.edx, 8) and has_amx_save);
             setFeature(cpu, .avxvnniint16, bit(leaf.edx, 10) and has_avx_save);
-            setFeature(cpu, .prefetchi, bit(leaf.edx, 14));
+            // This needs to account for prefetchi already being detected above on AMD.
+            setFeature(cpu, .prefetchi, cpu.has(.x86, .prefetchi) or bit(leaf.edx, 14));
             setFeature(cpu, .usermsr, bit(leaf.edx, 15));
             // APX
-            setFeature(cpu, .egpr, bit(leaf.edx, 21));
-            setFeature(cpu, .push2pop2, bit(leaf.edx, 21));
-            setFeature(cpu, .ppx, bit(leaf.edx, 21));
-            setFeature(cpu, .ndd, bit(leaf.edx, 21));
-            setFeature(cpu, .ccmp, bit(leaf.edx, 21));
-            setFeature(cpu, .cf, bit(leaf.edx, 21));
+            setFeature(cpu, .egpr, bit(leaf.edx, 21) and has_apx_save);
+            setFeature(cpu, .push2pop2, bit(leaf.edx, 21) and has_apx_save);
+            setFeature(cpu, .ppx, bit(leaf.edx, 21) and has_apx_save);
+            setFeature(cpu, .ndd, bit(leaf.edx, 21) and has_apx_save);
+            setFeature(cpu, .ccmp, bit(leaf.edx, 21) and has_apx_save);
+            setFeature(cpu, .nf, bit(leaf.edx, 21) and has_apx_save);
+            setFeature(cpu, .cf, bit(leaf.edx, 21) and has_apx_save);
+            setFeature(cpu, .zu, bit(leaf.edx, 21) and has_apx_save);
+
+            break :has_avx10 bit(leaf.edx, 19);
         } else {
             for ([_]Target.x86.Feature{
                 .sha512,
@@ -582,19 +615,23 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
                 .avxneconvert,
                 .amx_complex,
                 .avxvnniint16,
-                .prefetchi,
+                // prefetchi already handled earlier.
                 .usermsr,
                 .egpr,
                 .push2pop2,
                 .ppx,
                 .ndd,
                 .ccmp,
+                .nf,
                 .cf,
+                .zu,
             }) |feat| {
                 setFeature(cpu, feat, false);
             }
         }
-    } else {
+
+        break :has_avx10 false;
+    } else has_avx10: {
         for ([_]Target.x86.Feature{
             .fsgsbase,
             .sgx,
@@ -605,7 +642,6 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
             .invpcid,
             .rtm,
             .avx512f,
-            .evex512,
             .avx512dq,
             .rdseed,
             .adx,
@@ -664,18 +700,22 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
             .avxneconvert,
             .amx_complex,
             .avxvnniint16,
-            .prefetchi,
+            // prefetchi already handled earlier.
             .usermsr,
             .egpr,
             .push2pop2,
             .ppx,
             .ndd,
             .ccmp,
+            .nf,
             .cf,
+            .zu,
         }) |feat| {
             setFeature(cpu, feat, false);
         }
-    }
+
+        break :has_avx10 false;
+    };
 
     if (max_level >= 0xD and has_avx_save) {
         leaf = cpuid(0xD, 0x1);
@@ -721,10 +761,14 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
     if (max_level >= 0x24) {
         leaf = cpuid(0x24, 0);
 
-        setFeature(cpu, .avx10_1, bit(leaf.ebx, 18));
+        const avx_ver = leaf.ebx & 0xff;
+
+        setFeature(cpu, .avx10_1, has_avx10 and avx_ver >= 1);
+        setFeature(cpu, .avx10_2, has_avx10 and avx_ver >= 2);
     } else {
         for ([_]Target.x86.Feature{
             .avx10_1,
+            .avx10_2,
         }) |feat| {
             setFeature(cpu, feat, false);
         }

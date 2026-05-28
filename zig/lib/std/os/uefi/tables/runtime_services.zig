@@ -419,7 +419,7 @@ pub const RuntimeServices = extern struct {
     pub const DebugDisposition = enum(usize) {
         const Bits = packed struct(usize) {
             optional_ptr: bool = false,
-            _pad: std.meta.Int(.unsigned, @bitSizeOf(usize) - 1) = 0,
+            _pad: @Int(.unsigned, @bitSizeOf(usize) - 1) = 0,
         };
 
         pointer = @bitCast(Bits{}),
