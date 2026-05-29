@@ -4850,7 +4850,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
                 bindings.LLVMInitializeXtensaTargetMC();
                 bindings.LLVMInitializeXtensaAsmPrinter();
                 bindings.LLVMInitializeXtensaAsmParser();
-                bindings.LLVMInitializeXtensaDisassembler();
             }
         },
         .xcore => {

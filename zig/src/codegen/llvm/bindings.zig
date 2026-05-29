@@ -302,7 +302,6 @@ pub extern fn LLVMInitializeSystemZAsmParser() void;
 pub extern fn LLVMInitializeWebAssemblyAsmParser() void;
 pub extern fn LLVMInitializeX86AsmParser() void;
 pub extern fn LLVMInitializeXtensaAsmParser() void;
-pub extern fn LLVMInitializeXtensaDisassembler() void;
 pub extern fn LLVMInitializeM68kAsmParser() void;
 pub extern fn LLVMInitializeCSKYAsmParser() void;
 pub extern fn LLVMInitializeVEAsmParser() void;

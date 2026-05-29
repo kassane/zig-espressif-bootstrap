@@ -343,6 +343,7 @@ pub const cpu = struct {
             .sext,
             .threadptr,
             .timers3,
+            .windowed,
         }),
     };
     pub const esp32s2: CpuModel = .{
@@ -371,6 +372,7 @@ pub const cpu = struct {
             .sext,
             .threadptr,
             .timers3,
+            .windowed,
         }),
     };
     pub const esp32s3: CpuModel = .{
@@ -404,6 +406,7 @@ pub const cpu = struct {
             .sext,
             .threadptr,
             .timers3,
+            .windowed,
         }),
     };
     pub const esp8266: CpuModel = .{

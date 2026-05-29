@@ -16,6 +16,8 @@ pub const Feature = enum {
     b,
     bfext_fusion,
     c,
+    cm_popret,
+    cm_push_reverse,
     conditional_cmv_fusion,
     d,
     disable_latency_sched_heuristic,
@@ -25,6 +27,7 @@ pub const Feature = enum {
     disable_postmisched_store_clustering,
     dlen_factor_2,
     e,
+    enable_vsetvli_sched_heuristic,
     espv_lowering,
     exact_asm,
     experimental,
@@ -97,6 +100,11 @@ pub const Feature = enum {
     reserve_x30,
     reserve_x31,
     reserve_x4,
+    reserve_x5,
+    reserve_x6,
+    reserve_x7,
+    reserve_x8,
+    reserve_x9,
     rva20s64,
     rva20u64,
     rva22s64,
@@ -427,6 +435,16 @@ pub const all_features = blk: {
             .zca,
         }),
     };
+    result[@intFromEnum(Feature.cm_popret)] = .{
+        .llvm_name = "cm-popret",
+        .description = "Enable workaround for cm.popret/cm.popretz",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.cm_push_reverse)] = .{
+        .llvm_name = "cm-push-reverse",
+        .description = "Enable workaround for cm.push/cm.pop register order",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.conditional_cmv_fusion)] = .{
         .llvm_name = "conditional-cmv-fusion",
         .description = "Enable branch+c.mv fusion",
@@ -472,6 +490,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.e)] = .{
         .llvm_name = "e",
         .description = "'E' (Embedded Instruction Set with 16 GPRs)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.enable_vsetvli_sched_heuristic)] = .{
+        .llvm_name = "enable-vsetvli-sched-heuristic",
+        .description = "Enable vsetvli-based scheduling heuristic",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.espv_lowering)] = .{
@@ -866,6 +889,31 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.reserve_x4)] = .{
         .llvm_name = "reserve-x4",
         .description = "Reserve X4",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_x5)] = .{
+        .llvm_name = "reserve-x5",
+        .description = "Reserve X5",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_x6)] = .{
+        .llvm_name = "reserve-x6",
+        .description = "Reserve X6",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_x7)] = .{
+        .llvm_name = "reserve-x7",
+        .description = "Reserve X7",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_x8)] = .{
+        .llvm_name = "reserve-x8",
+        .description = "Reserve X8",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_x9)] = .{
+        .llvm_name = "reserve-x9",
+        .description = "Reserve X9",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.rva20s64)] = .{

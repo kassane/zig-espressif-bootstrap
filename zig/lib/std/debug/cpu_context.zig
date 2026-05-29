@@ -2156,20 +2156,16 @@ const signal_ucontext_t = switch (native_os) {
                 },
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/xtensa/include/uapi/asm/sigcontext.h
                 .xtensa, .xtensaeb => extern struct {
-                    _sc_ucontext: u32,
                     pc: u32,
                     _ps: u32,
-                    _l: extern struct {
-                        _beg: u32,
-                        _end: u32,
-                        _count: u32,
-                    },
+                    _lbeg: u32,
+                    _lend: u32,
+                    _lcount: u32,
                     _sar: u32,
-                    _acc: extern struct {
-                        _lo: u32,
-                        _hi: u32,
-                    },
+                    _acclo: u32,
+                    _acchi: u32,
                     a: [16]u32,
+                    _xtregs: u32, // void* to coprocessor save area
                 },
                 else => unreachable,
             },
