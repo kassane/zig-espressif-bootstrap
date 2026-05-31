@@ -391,10 +391,10 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         }
 
         /// XOR the block vector with a byte sequence.
-        pub fn xorBytes(block_vec: Self, bytes: *const [blocks_count * 16]u8) [32]u8 {
-            var out: Self = undefined;
+        pub fn xorBytes(block_vec: Self, bytes: *const [blocks_count * 16]u8) [blocks_count * 16]u8 {
+            var out: [blocks_count * 16]u8 = undefined;
             for (0..native_words) |i| {
-                out.repr[i] = block_vec.repr[i].xorBytes(bytes[i * native_word_size ..][0..native_word_size]);
+                out[i * native_word_size ..][0..native_word_size].* = block_vec.repr[i].xorBytes(bytes[i * native_word_size ..][0..native_word_size]);
             }
             return out;
         }
@@ -454,7 +454,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         }
 
         /// Apply the bitwise OR operation to the content of two block vectors.
-        pub fn orBlocks(block_vec1: Self, block_vec2: Block) Self {
+        pub fn orBlocks(block_vec1: Self, block_vec2: Self) Self {
             var out: Self = undefined;
             for (0..native_words) |i| {
                 out.repr[i] = block_vec1.repr[i].orBlocks(block_vec2.repr[i]);

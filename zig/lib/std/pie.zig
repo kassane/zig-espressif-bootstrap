@@ -270,9 +270,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 // embedded constant. Note that `call0` is a 3-byte instruction, so we need both
                 // `.balign` directives to be safe.
                 \\ .balign 4
-                \\ .begin no-transform
                 \\ call0 1f
-                \\ .end no-transform
                 \\ .balign 4
                 \\ .word _DYNAMIC - .
                 \\1:

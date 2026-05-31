@@ -29,7 +29,7 @@ const Package = @import("Package.zig");
 const link = @import("link.zig");
 const Air = @import("Air.zig");
 const Zir = std.zig.Zir;
-const trace = @import("tracy.zig").trace;
+const tracy = @import("tracy.zig");
 const AstGen = std.zig.AstGen;
 const Sema = @import("Sema.zig");
 const target_util = @import("target.zig");
@@ -2811,6 +2811,7 @@ pub const CompileError = error{
 
 pub fn init(zcu: *Zcu, gpa: Allocator, io: Io, thread_count: usize) !void {
     try zcu.intern_pool.init(gpa, io, thread_count);
+    zcu.initTracyPlots();
 }
 
 pub fn deinit(zcu: *Zcu) void {
@@ -3161,12 +3162,15 @@ pub fn markDependeeOutdated(
             try zcu.markTransitiveDependersPotentiallyOutdated(depender);
         }
     }
+
+    zcu.updateTracyOutdatedPlots();
 }
 
 pub fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
     if (std.debug.runtime_safety) zcu.outdated_lock.lockUncancelable(zcu.comp.io);
     defer if (std.debug.runtime_safety) zcu.outdated_lock.unlock(zcu.comp.io);
-    return markPoDependeeUpToDateInner(zcu, dependee);
+    try markPoDependeeUpToDateInner(zcu, dependee);
+    zcu.updateTracyOutdatedPlots();
 }
 /// Assumes that `zcu.outdated_lock` is already held exclusively.
 fn markPoDependeeUpToDateInner(zcu: *Zcu, dependee: InternPool.Dependee) !void {
@@ -3304,6 +3308,7 @@ pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
         // Everything is up-to-date. There could be lingering entries in `zcu.potentially_outdated`
         // from a dependency loop on a previous update.
         zcu.potentially_outdated.clearRetainingCapacity();
+        zcu.updateTracyOutdatedPlots();
         log.debug("findOutdatedToAnalyze: all up-to-date", .{});
         return null;
     }
@@ -3337,6 +3342,7 @@ pub fn flushRetryableFailures(zcu: *Zcu) !void {
         try zcu.markTransitiveDependersPotentiallyOutdated(depender);
     }
     zcu.retryable_failures.clearRetainingCapacity();
+    zcu.updateTracyOutdatedPlots();
 }
 
 pub fn mapOldZirToNew(
@@ -3580,6 +3586,7 @@ pub fn ensureFuncBodyAnalysisQueued(zcu: *Zcu, func: InternPool.Index) !void {
         try zcu.outdated_ready.funcs.ensureUnusedCapacity(gpa, 1);
         zcu.outdated.putAssumeCapacityNoClobber(.wrap(.{ .func = func }), 0);
         zcu.outdated_ready.funcs.putAssumeCapacityNoClobber(func, {});
+        zcu.updateTracyOutdatedPlots();
     }
 }
 
@@ -3598,6 +3605,7 @@ pub fn ensureNavValAnalysisQueued(zcu: *Zcu, nav: InternPool.Nav.Index) !void {
         zcu.outdated.putAssumeCapacityNoClobber(.wrap(.{ .nav_ty = nav }), 0);
         zcu.outdated_ready.other.putAssumeCapacityNoClobber(.wrap(.{ .nav_val = nav }), {});
         zcu.outdated_ready.other.putAssumeCapacityNoClobber(.wrap(.{ .nav_ty = nav }), {});
+        zcu.updateTracyOutdatedPlots();
     }
 }
 
@@ -3614,6 +3622,7 @@ pub fn queueComptimeUnitAnalysis(zcu: *Zcu, cu: InternPool.ComptimeUnit.Id) Allo
     try zcu.outdated_ready.other.ensureUnusedCapacity(gpa, 1);
     zcu.outdated.putAssumeCapacityNoClobber(unit, 0);
     zcu.outdated_ready.other.putAssumeCapacityNoClobber(unit, {});
+    zcu.updateTracyOutdatedPlots();
 }
 
 /// If `unit` was marked as outdated or porentially outdated, clears that status and returns `true`.
@@ -3632,8 +3641,10 @@ pub fn clearOutdatedState(zcu: *Zcu, unit: AnalUnit) bool {
         } else {
             assert(!was_ready);
         }
+        zcu.updateTracyOutdatedPlots();
         return true;
     } else if (zcu.potentially_outdated.swapRemove(unit)) {
+        zcu.updateTracyOutdatedPlots();
         return true;
     } else {
         return false;
@@ -4164,6 +4175,9 @@ pub fn resolveReferences(zcu: *Zcu) Allocator.Error!*const std.AutoArrayHashMapU
     return &zcu.resolved_references.?;
 }
 fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+    const trace = tracy.trace(@src());
+    defer trace.end();
+
     const gpa = zcu.gpa;
     const comp = zcu.comp;
     const ip = &zcu.intern_pool;
@@ -5265,6 +5279,7 @@ pub const CodegenTaskPool = struct {
             mir.deinit(zcu);
         }
         assert(pool.available_air_bytes == max_air_bytes_in_flight);
+        zcu.updateTracyPlot("air_bytes_in_flight", 0);
     }
 
     pub fn start(
@@ -5298,6 +5313,12 @@ pub const CodegenTaskPool = struct {
             }
 
             pool.available_air_bytes -= effective_air_bytes;
+
+            zcu.updateTracyPlot("air_bytes_in_flight", @max(
+                max_air_bytes_in_flight - pool.available_air_bytes,
+                actual_air_bytes,
+            ));
+
             break :index pool.free.pop().?;
         };
 
@@ -5326,8 +5347,9 @@ pub const CodegenTaskPool = struct {
         pub fn wait(
             index: Index,
             pool: *CodegenTaskPool,
-            io: Io,
+            zcu: *const Zcu,
         ) PerThread.RunCodegenError!struct { InternPool.Index, codegen.AnyMir } {
+            const io = zcu.comp.io;
             const func = pool.task_funcs[@intFromEnum(index)];
             assert(func != .none);
             const effective_air_bytes = pool.task_air_bytes[@intFromEnum(index)];
@@ -5343,6 +5365,7 @@ pub const CodegenTaskPool = struct {
                 pool.available_air_bytes += effective_air_bytes;
                 pool.free.appendAssumeCapacity(index);
                 pool.free_cond.signal(io);
+                zcu.updateTracyPlot("air_bytes_in_flight", max_air_bytes_in_flight - pool.available_air_bytes);
             }
 
             return .{ func, try result };
@@ -5376,3 +5399,29 @@ pub const CodegenTaskPool = struct {
         return pt.runCodegen(func_index, air);
     }
 };
+
+fn initTracyPlots(zcu: *const Zcu) void {
+    if (zcu.comp.skip_linker_dependencies) return;
+
+    tracy.plotConfig("air_bytes_in_flight", .{ .format = .memory, .mode = .step });
+
+    tracy.plotConfig("outdated + potentially_outdated", .{ .format = .number, .mode = .step, .color = 0xFFFF00 });
+    tracy.plotConfig("outdated", .{ .format = .number, .mode = .step, .color = 0xFF0000 });
+    tracy.plotConfig("potentially_outdated", .{ .format = .number, .mode = .step, .color = 0xFF7700 });
+    tracy.plotConfig("outdated_ready", .{ .format = .number, .mode = .step, .color = 0x00FF00 });
+}
+
+/// Marked `inline` to prevent binary bloat from trivial generic instances, and to ensure there is
+/// minimal overhead to this call when Tracy is disabled, even in Debug builds.
+inline fn updateTracyPlot(zcu: *const Zcu, comptime name: [*:0]const u8, val: u64) void {
+    if (zcu.comp.skip_linker_dependencies) return;
+    tracy.plotInt(name, @intCast(val));
+}
+
+/// Assumes that `zcu.outdated_lock` is already held.
+fn updateTracyOutdatedPlots(zcu: *const Zcu) void {
+    zcu.updateTracyPlot("outdated + potentially_outdated", zcu.outdated.count() + zcu.potentially_outdated.count());
+    zcu.updateTracyPlot("outdated", zcu.outdated.count());
+    zcu.updateTracyPlot("potentially_outdated", zcu.potentially_outdated.count());
+    zcu.updateTracyPlot("outdated_ready", zcu.outdated_ready.funcs.count() + zcu.outdated_ready.other.count());
+}

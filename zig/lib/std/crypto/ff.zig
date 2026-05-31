@@ -702,7 +702,9 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             var out = self.one();
             self.toMontgomery(&out) catch unreachable;
 
-            if (public and e.len < 3 or (e.len == 3 and e[if (endian == .big) 0 else 2] <= 0b1111)) {
+            if (public and
+                (e.len < 3 or (e.len == 3 and e[if (endian == .big) 0 else 2] <= 0b1111)))
+            {
                 // Do not use a precomputation table for short, public exponents
                 var x_m = x;
                 if (!x.montgomery) {

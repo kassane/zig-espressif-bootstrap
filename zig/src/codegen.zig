@@ -186,6 +186,12 @@ pub fn emitFunction(
     const zcu = pt.zcu;
     const func = zcu.funcInfo(func_index);
     const target = &zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
+
+    const tracy_trace = trace(@src());
+    defer tracy_trace.end();
+    tracy_trace.addText(zcu.intern_pool.getNav(func.owner_nav).fqn.toSlice(&zcu.intern_pool));
+    tracy_trace.addTextFmt("func_ip_index={d}", .{func_index});
+
     switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
         inline .stage2_aarch64,
@@ -236,6 +242,7 @@ pub fn generateLazySymbol(
 ) (CodeGenError || std.Io.Writer.Error)!void {
     const tracy = trace(@src());
     defer tracy.end();
+    tracy.addTextFmt("{t}, {f}", .{ lazy_sym.kind, Type.fromInterned(lazy_sym.ty).fmt(pt) });
 
     const comp = bin_file.comp;
     const zcu = pt.zcu;

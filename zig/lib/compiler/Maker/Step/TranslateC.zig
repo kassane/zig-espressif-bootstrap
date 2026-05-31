@@ -5,6 +5,7 @@ const Io = std.Io;
 const Configuration = std.Build.Configuration;
 const allocPrint = std.fmt.allocPrint;
 const assert = std.debug.assert;
+const OptimizeMode = std.lang.OptimizeMode;
 
 const Step = @import("../Step.zig");
 const Maker = @import("../../Maker.zig");
@@ -47,10 +48,13 @@ pub fn make(
         }
     }
 
-    switch (conf_tc.flags.optimize) {
-        .debug, .default => {}, // Skip since it's the default.
-        else => argv.appendAssumeCapacity(try allocPrint(arena, "-O{t}", .{conf_tc.flags.optimize})),
-    }
+    const opt: ?OptimizeMode = switch (conf_tc.flags.optimize) {
+        .debug, .default => null, // Skip since it's the default
+        .safe => .ReleaseSafe,
+        .fast => .ReleaseFast,
+        .small => .ReleaseSmall,
+    };
+    if (opt) |o| argv.appendAssumeCapacity(try allocPrint(arena, "-O{t}", .{o}));
 
     try argv.ensureUnusedCapacity(arena, conf_tc.include_dirs.len * 2);
     for (0..conf_tc.include_dirs.len) |i|

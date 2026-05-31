@@ -417,7 +417,8 @@ pub fn writableSliceGreedyPreserve(w: *Writer, preserve: usize, minimum_len: usi
     return w.buffer[w.end..];
 }
 
-/// Asserts the provided buffer has total capacity enough for `len`.
+/// Asserts the provided buffer has total capacity enough for `len`
+/// and `preserve` combined.
 ///
 /// Advances the buffer end position by `len`.
 ///
@@ -755,8 +756,14 @@ pub fn writeByte(w: *Writer, byte: u8) Error!void {
     }
 }
 
-/// When draining the buffer, ensures that at least `preserve` bytes
-/// remain buffered.
+/// On success, at least `preserve` bytes will remain buffered if there are
+/// enough buffered bytes to do so.
+/// The amount buffered by the writer after the call will only be less than
+/// `preserve` if `w.end + 1` is less than `preserve` before the call.
+/// The intentionally preserved bytes will include up to `preserve -| 1` bytes from
+/// the previously buffered bytes, plus the newly written byte.
+///
+/// Asserts buffer capacity is at least `preserve`.
 pub fn writeBytePreserve(w: *Writer, preserve: usize, byte: u8) Error!void {
     if (w.buffer.len - w.end != 0) {
         @branchHint(.likely);
@@ -784,6 +791,19 @@ test splatByteAll {
     try testing.expectEqualStrings(&@as([45]u8, @splat('7')), aw.writer.buffered());
 }
 
+/// Writes the same byte many times, performing the underlying write call as
+/// many times as necessary.
+///
+/// On success, at least `preserve` bytes will remain buffered if there are
+/// enough buffered bytes to do so.
+/// The amount buffered by the writer after the call will only be less than
+/// `preserve` if `w.end + n` is less than `preserve` before the call.
+/// The intentionally preserved bytes will include up to `preserve -| n` bytes from
+/// the previously buffered bytes, plus `@min(n, preserve_len)` of the newly
+/// written bytes.
+///
+/// Asserts buffer capacity is at least `preserve`.
+/// `n` can be greater than the buffer capacity.
 pub fn splatBytePreserve(w: *Writer, preserve: usize, byte: u8, n: usize) Error!void {
     const new_end = w.end + n;
     if (new_end <= w.buffer.len) {
@@ -2504,15 +2524,14 @@ pub fn Hashing(comptime Hasher: type) type {
 
         fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
             const this: *@This() = @alignCast(@fieldParentPtr("writer", w));
-            const hasher = &this.hasher;
-            hasher.update(w.buffered());
+            this.hasher.update(w.buffered());
             w.end = 0;
             var n: usize = 0;
             for (data[0 .. data.len - 1]) |slice| {
-                hasher.update(slice);
+                this.hasher.update(slice);
                 n += slice.len;
             }
-            for (0..splat) |_| hasher.update(data[data.len - 1]);
+            for (0..splat) |_| this.hasher.update(data[data.len - 1]);
             return n + splat * data[data.len - 1].len;
         }
     };
@@ -2753,10 +2772,14 @@ pub const Allocating = struct {
         if (limit == .nothing) return 0;
         const a: *Allocating = @fieldParentPtr("writer", w);
         const pos = file_reader.logicalPos();
-        const additional = if (file_reader.getSize()) |size| size - pos else |_| std.atomic.cache_line;
+        const additional, const exact = if (file_reader.getSize()) |size|
+            .{ size - pos, true }
+        else |_|
+            .{ std.atomic.cache_line, false };
         if (additional == 0) return error.EndOfStream;
         a.ensureUnusedCapacity(limit.minInt64(additional)) catch return error.WriteFailed;
-        const dest = limit.slice(a.writer.buffer[a.writer.end..]);
+        const buffer = a.writer.buffer[a.writer.end..];
+        const dest = if (exact) buffer[0..limit.minInt64(additional)] else limit.slice(buffer);
         const n = try file_reader.interface.readSliceShort(dest);
         if (n == 0) return error.EndOfStream;
         a.writer.end += n;

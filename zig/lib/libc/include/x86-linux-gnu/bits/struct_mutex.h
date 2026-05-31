@@ -32,7 +32,7 @@ struct __pthread_mutex_s
   int __kind;
 #ifdef __x86_64__
   short __spins;
-  short __unused;
+  short __glibc_reserved;
   __pthread_list_t __list;
 # define __PTHREAD_MUTEX_HAVE_PREV      1
 #else

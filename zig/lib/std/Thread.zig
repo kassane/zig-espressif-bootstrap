@@ -1220,6 +1220,16 @@ const LinuxThreadImpl = struct {
                     : [ptr] "{$16}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{$17}" (self.mapped.len),
                 ),
+                .arc, .arceb => asm volatile (
+                    \\ mov r8, 215 # SYS_munmap
+                    \\ trap_s 0
+                    \\ mov r8, 93 # SYS_exit
+                    \\ mov r0, 0
+                    \\ trap_s 0
+                    :
+                    : [ptr] "{r0}" (@intFromPtr(self.mapped.ptr)),
+                      [len] "{r1}" (self.mapped.len),
+                ),
                 .hexagon => asm volatile (
                     \\  r6 = #215 // SYS_munmap
                     \\  trap0(#1)
@@ -1410,6 +1420,16 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "{r4}" (@intFromPtr(self.mapped.ptr)),
                       [len] "{r5}" (self.mapped.len),
+                    : .{ .memory = true }),
+                .csky => asm volatile (
+                    \\ movi r7, 215 # SYS_munmap
+                    \\ trap 0
+                    \\ movi r7, 93 # SYS_exit
+                    \\ movi r0, 0
+                    \\ trap 0
+                    :
+                    : [ptr] "{r0}" (@intFromPtr(self.mapped.ptr)),
+                      [len] "{r1}" (self.mapped.len),
                     : .{ .memory = true }),
                 .xtensa, .xtensaeb => asm volatile (
                     \\ movi a2, 81 // SYS_munmap

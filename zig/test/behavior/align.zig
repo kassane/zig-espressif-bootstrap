@@ -29,6 +29,11 @@ test "large alignment of local constant" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // flaky
     if (builtin.zig_backend == .stage2_c and builtin.target.abi == .msvc) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) {
+        // https://codeberg.org/ziglang/zig/issues/35537
+        return error.SkipZigTest;
+    }
+
     const x: f32 align(128) = 12.34;
     try std.testing.expect(@intFromPtr(&x) % 128 == 0);
 }

@@ -3075,16 +3075,10 @@ pub fn updateFunc(
     func_index: InternPool.Index,
     mir: *const codegen.AnyMir,
 ) link.File.UpdateNavError!void {
-    if (build_options.skip_non_native and builtin.object_format != .macho) {
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-    }
     return self.getZigObject().?.updateFunc(self, pt, func_index, mir);
 }
 
 pub fn updateNav(self: *MachO, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.File.UpdateNavError!void {
-    if (build_options.skip_non_native and builtin.object_format != .macho) {
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-    }
     return self.getZigObject().?.updateNav(self, pt, nav);
 }
 
@@ -3098,9 +3092,6 @@ pub fn updateExports(
     exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
 ) link.File.UpdateExportsError!void {
-    if (build_options.skip_non_native and builtin.object_format != .macho) {
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-    }
     return self.getZigObject().?.updateExports(self, pt, exported, export_indices);
 }
 

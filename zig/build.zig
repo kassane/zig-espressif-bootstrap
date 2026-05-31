@@ -181,10 +181,10 @@ pub fn build(b: *std.Build) !void {
         return;
 
     const entitlements = b.option([]const u8, "entitlements", "Path to entitlements file for hot-code swapping without sudo on macOS");
-    const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
-    const tracy_callstack = b.option(bool, "tracy-callstack", "Include callstack information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
-    const tracy_allocation = b.option(bool, "tracy-allocation", "Include allocation information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
-    const tracy_callstack_depth: u32 = b.option(u32, "tracy-callstack-depth", "Declare callstack depth for Tracy data. Does nothing if -Dtracy_callstack is not provided") orelse 10;
+    const tracy = b.option(std.Build.LazyPath, "tracy", "Enable Tracy integration. Supply path to Tracy source");
+    const tracy_callstack = b.option(bool, "tracy-callstack", "Include callstack information with Tracy data. Does nothing if -Dtracy is not provided. Has a significant performance impact in some cases. Default: false") orelse false;
+    const tracy_allocation = b.option(bool, "tracy-allocation", "Include allocation information with Tracy data. Does nothing if -Dtracy is not provided. Default: true") orelse (tracy != null);
+    const tracy_callstack_depth: u32 = b.option(u32, "tracy-callstack-depth", "Declare callstack depth for Tracy data. Does nothing if -Dtracy-callstack is not provided") orelse 6;
     const debug_gpa = b.option(bool, "debug-allocator", "Force the compiler to use SafeAllocator") orelse false;
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse (enable_llvm or only_c);
     const sanitize_thread = b.option(bool, "sanitize-thread", "Enable thread-sanitization") orelse false;
@@ -233,7 +233,6 @@ pub fn build(b: *std.Build) !void {
     exe.root_module.addOptions("build_options", exe_options);
 
     exe_options.addOption(u32, "mem_leak_frames", mem_leak_frames);
-    exe_options.addOption(bool, "skip_non_native", skip_non_native);
     exe_options.addOption(bool, "have_llvm", enable_llvm);
     exe_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
     exe_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
@@ -373,32 +372,31 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "enable_tracy_allocation", tracy_allocation);
     exe_options.addOption(u32, "tracy_callstack_depth", tracy_callstack_depth);
     exe_options.addOption(bool, "value_tracing", value_tracing);
-    if (tracy) |tracy_path| {
-        const client_cpp = b.pathJoin(
-            &[_][]const u8{ tracy_path, "public", "TracyClient.cpp" },
-        );
-
-        const tracy_c_flags: []const []const u8 = &.{
-            "-DTRACY_ENABLE=1",
-            "-fno-sanitize=undefined",
-            "-DTRACY_FIBERS",
-        };
-
-        exe.root_module.addIncludePath(.{ .cwd_relative = tracy_path });
-        exe.root_module.addCSourceFile(.{
-            .file = .{ .cwd_relative = client_cpp },
-            .flags = tracy_c_flags[0..switch (io_mode) {
-                .threaded => 2,
-                .evented => 3,
-            }],
+    if (tracy) |tracy_dir| {
+        const tracy_mod = b.createModule(.{
+            .target = target,
+            // Always build Tracy in ReleaseFast so that it doesn't make Debug compiler builds unusable.
+            .optimize = .ReleaseFast,
+            .root_source_file = null,
+            .link_libc = true,
+            .link_libcpp = true,
         });
-        exe.root_module.link_libc = true;
-        exe.root_module.link_libcpp = true;
+
+        tracy_mod.addCMacro("TRACY_ENABLE", "1");
+
+        if (!tracy_callstack) {
+            tracy_mod.addCMacro("TRACY_NO_CALLSTACK", "1");
+        }
+
+        tracy_mod.addIncludePath(tracy_dir);
+        tracy_mod.addCSourceFile(.{ .file = tracy_dir.path(b, "public/TracyClient.cpp") });
 
         if (target.result.os.tag == .windows) {
-            exe.root_module.linkSystemLibrary("dbghelp", .{});
-            exe.root_module.linkSystemLibrary("ws2_32", .{});
+            tracy_mod.linkSystemLibrary("dbghelp", .{});
+            tracy_mod.linkSystemLibrary("ws2_32", .{});
         }
+
+        exe.root_module.addImport("tracy", tracy_mod);
     }
 
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};

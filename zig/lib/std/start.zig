@@ -490,14 +490,22 @@ fn _start() callconv(.naked) noreturn {
             \\ sub %%sp, 2047, %%sp
             \\ ba,a %[posixCallMainAndExit]
             ,
-            .xtensa, .xtensaeb =>
-            // a0 = LR, a7 = FP, a1 = SP
-            \\ movi a0, 0
-            \\ movi a7, 0
-            \\ mov a2, sp
-            \\ movi a8, -16
-            \\ and sp, sp, a8
-            \\ callx0 %[posixCallMainAndExit]
+            .xtensa, .xtensaeb => if (builtin.abi == .call0)
+                // a0 = LR, a15 = FP, a1 = SP
+                \\ movi a0, 0
+                \\ movi a15, 0
+                \\ mov a2, sp
+                \\ movi a8, -16
+                \\ and sp, sp, a8
+                \\ call0 %[posixCallMainAndExit]
+            else
+                // a0 = LR, a7 = FP, a1 = SP
+                \\ movi a0, 0
+                \\ movi a7, 0
+                \\ mov a6, sp
+                \\ movi a8, -16
+                \\ and sp, sp, a8
+                \\ call4 %[posixCallMainAndExit]
             ,
             else => @compileError("unsupported arch"),
         }

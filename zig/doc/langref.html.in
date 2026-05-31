@@ -814,7 +814,7 @@
       <p>
         A destructuring expression may only appear within a block (i.e. not at {#link|Namespace#} scope).
         The left hand side of the assignment must consist of a comma separated list,
-        each element of which may be either an lvalue (for instance, an existing `var`) or a variable declaration:
+        each element of which may be either an lvalue (for instance, an existing {#syntax#}var{#endsyntax#}) or a variable declaration:
       </p>
       {#code|destructuring_mixed.zig#}
 
@@ -1917,7 +1917,7 @@ or
       </p>
       <p>
       Vectors generally support the same builtin operators as their underlying base types.
-      The only exception to this is the keywords `and` and `or` on vectors of bools, since
+      The only exception to this is the keywords {#syntax#}and{#endsyntax#} and {#syntax#}or{#endsyntax#} on vectors of bools, since
       these operators affect control flow, which is not allowed for vectors.
       All other operations are performed element-wise, and return a vector of the same length
       as the input vectors. This includes:

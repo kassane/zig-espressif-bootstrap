@@ -1202,6 +1202,7 @@ fn readIndirect(c: *Client) Reader.Error!usize {
             .tls_1_2 => {
                 const pv = &p.tls_1_2;
                 const P = @TypeOf(p.*);
+                if (record_len < P.record_iv_length + P.mac_length) return failRead(c, error.TlsRecordOverflow);
                 const message_len: u16 = record_len - P.record_iv_length - P.mac_length;
                 const ad_header = input.take(tls.record_header_len) catch unreachable; // already peeked
                 const ad = mem.toBytes(big(c.read_seq)) ++
@@ -1674,7 +1675,7 @@ else
         .ECDHE_RSA_WITH_AES_256_GCM_SHA384,
     });
 
-fn testReadError(input_buf: []const u8, cipher: tls.ApplicationCipher) ReadError {
+fn testReadError(input_buf: []const u8, tls_version: tls.ProtocolVersion, cipher: tls.ApplicationCipher) ReadError {
     var input_reader: Reader = .fixed(input_buf);
     var read_buf: [tls.max_ciphertext_record_len]u8 = undefined;
     var c: Client = .{
@@ -1687,7 +1688,7 @@ fn testReadError(input_buf: []const u8, cipher: tls.ApplicationCipher) ReadError
         },
         .output = undefined,
         .writer = undefined,
-        .tls_version = .tls_1_3,
+        .tls_version = tls_version,
         .read_seq = 0,
         .write_seq = 0,
         .received_close_notify = false,
@@ -1715,6 +1716,7 @@ test "empty inner plaintext" {
 
     try std.testing.expectEqual(error.TlsDecodeError, testReadError(
         &record_header ++ ciphertext ++ tag,
+        .tls_1_3,
         .{ .CHACHA20_POLY1305_SHA256 = .{ .tls_1_3 = .{
             .server_key = key,
             .server_iv = iv,
@@ -1734,6 +1736,7 @@ test "record shorter than tag" {
 
     try std.testing.expectEqual(error.TlsRecordOverflow, testReadError(
         &wire,
+        .tls_1_3,
         .{ .CHACHA20_POLY1305_SHA256 = .{ .tls_1_3 = .{
             .server_key = undefined,
             .server_iv = undefined,
@@ -1742,5 +1745,17 @@ test "record shorter than tag" {
             .client_key = undefined,
             .client_iv = undefined,
         } } },
+    ));
+}
+
+test "TLS 1.2 record shorter than IV plus tag" {
+    const P = tls.ApplicationCipherT(crypto.aead.aes_gcm.Aes128Gcm, crypto.hash.sha2.Sha256, 8);
+    const record_len: u16 = P.record_iv_length + P.mac_length - 1;
+    const header = [_]u8{ 0x17, 0x03, 0x03 } ++ mem.toBytes(big(record_len));
+
+    try std.testing.expectEqual(error.TlsRecordOverflow, testReadError(
+        &(header ++ @as([record_len]u8, @splat(0))),
+        .tls_1_2,
+        .{ .AES_128_GCM_SHA256 = .{ .tls_1_2 = mem.zeroes(P.Tls_1_2) } },
     ));
 }

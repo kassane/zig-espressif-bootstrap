@@ -72,6 +72,8 @@ comptime {
         symbol(&finitef, "finitef");
         symbol(&frexp, "frexp");
         symbol(&hypot, "hypot");
+        symbol(&log1p, "log1p");
+        symbol(&log1pf, "log1pf");
         symbol(&lrint, "lrint");
         symbol(&lrintf, "lrintf");
         symbol(&modf, "modf");
@@ -254,6 +256,14 @@ fn isnanf(x: f32) callconv(.c) c_int {
 
 fn isnanl(x: c_longdouble) callconv(.c) c_int {
     return @intFromBool(math.isNan(x));
+}
+
+fn log1p(x: f64) callconv(.c) f64 {
+    return math.log1p(x);
+}
+
+fn log1pf(x: f32) callconv(.c) f32 {
+    return math.log1p(x);
 }
 
 fn lrint(x: f64) callconv(.c) c_long {

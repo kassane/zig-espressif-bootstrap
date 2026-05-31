@@ -24,6 +24,7 @@ pub fn any(self: *Encoder, val: anytype) !void {
 fn anyTag(self: *Encoder, tag_: Tag, val: anytype) !void {
     const T = @TypeOf(val);
     if (std.meta.hasFn(T, "encodeDer")) return try val.encodeDer(self);
+    const outer_field_tag = self.field_tag;
     const start = self.buffer.data.len;
     const merged_tag = self.mergedTag(tag_);
 
@@ -42,8 +43,9 @@ fn anyTag(self: *Encoder, tag_: Tag, val: anytype) !void {
                 const is_default = if (f_attrs.@"comptime") false else if (f_attrs.defaultValue(f_type)) |default_val| brk: {
                     break :brk std.mem.eql(u8, std.mem.asBytes(&default_val), std.mem.asBytes(&field_val));
                 } else false;
+                const is_null_optional = if (@typeInfo(f_type) == .optional) field_val == null else false;
 
-                if (!is_default) {
+                if (!is_default and !is_null_optional) {
                     const start2 = self.buffer.data.len;
                     self.field_tag = field_tag;
                     // will merge with self.field_tag.
@@ -58,6 +60,7 @@ fn anyTag(self: *Encoder, tag_: Tag, val: anytype) !void {
                     }
                 }
             }
+            self.field_tag = outer_field_tag;
         },
         .bool => try self.buffer.prependSlice(&[_]u8{if (val) 0xff else 0}),
         .int => try self.int(T, val),
@@ -68,7 +71,7 @@ fn anyTag(self: *Encoder, tag_: Tag, val: anytype) !void {
                 try self.int(e.tag_type, @intFromEnum(val));
             }
         },
-        .optional => if (val) |v| return try self.anyTag(tag_, v),
+        .optional => if (val) |v| return try self.anyTag(tag_, v) else return,
         .null => {},
         else => @compileError("cannot encode type " ++ @typeName(T)),
     }
@@ -80,7 +83,8 @@ fn anyTag(self: *Encoder, tag_: Tag, val: anytype) !void {
 /// Encode a tag.
 pub fn tag(self: *Encoder, tag_: Tag) !void {
     const t = self.mergedTag(tag_);
-    try t.encode(self.writer());
+    var buf: [Tag.max_encoded_len]u8 = undefined;
+    try self.buffer.prependSlice(t.encodeToSlice(&buf));
 }
 
 fn mergedTag(self: *Encoder, tag_: Tag) Tag {
@@ -96,19 +100,14 @@ fn mergedTag(self: *Encoder, tag_: Tag) Tag {
 
 /// Encode a length.
 pub fn length(self: *Encoder, len: usize) !void {
-    const writer_ = self.writer();
-    if (len < 128) {
-        try writer_.writeInt(u8, @intCast(len), .big);
-        return;
-    }
-    inline for ([_]type{ u8, u16, u32 }) |T| {
-        if (len < std.math.maxInt(T)) {
-            try writer_.writeInt(T, @intCast(len), .big);
-            try writer_.writeInt(u8, @sizeOf(T) | 0x80, .big);
-            return;
-        }
-    }
-    return error.InvalidLength;
+    if (len < 128) return self.buffer.prependSlice(&.{@intCast(len)});
+    const len32 = std.math.cast(u32, len) orelse return error.InvalidLength;
+    var buf: [@sizeOf(u32) + 1]u8 = undefined;
+    std.mem.writeInt(u32, buf[1..], len32, .big);
+    var first: usize = 1;
+    while (buf[first] == 0) first += 1;
+    buf[first - 1] = @intCast((buf.len - first) | 0x80);
+    return self.buffer.prependSlice(buf[first - 1 ..]);
 }
 
 /// Encode a tag and length-prefixed bytes.
@@ -118,28 +117,23 @@ pub fn tagBytes(self: *Encoder, tag_: Tag, bytes: []const u8) !void {
     try self.tag(tag_);
 }
 
-/// Warning: This writer writes backwards. `fn print` will NOT work as expected.
-pub fn writer(self: *Encoder) ArrayListReverse.Writer {
-    return self.buffer.writer();
+/// Write raw bytes. The encoder builds its output back-to-front, so chained
+/// calls should be made in reverse of the desired on-wire order.
+pub fn prependBytes(self: *Encoder, bytes: []const u8) !void {
+    return self.buffer.prependSlice(bytes);
 }
 
 fn int(self: *Encoder, comptime T: type, value: T) !void {
-    const big = std.mem.nativeTo(T, value, .big);
-    const big_bytes = std.mem.asBytes(&big);
+    const info = @typeInfo(T).int;
+    const Unsigned = @Int(.unsigned, info.bits);
+    const pad: u8 = if (info.signedness == .signed and value < 0) 0xff else 0;
+    var buf: [@sizeOf(Unsigned) + 1]u8 = undefined;
+    buf[0] = pad;
+    std.mem.writeInt(Unsigned, buf[1..], @bitCast(value), .big);
 
-    const bits_needed = @bitSizeOf(T) - @clz(value);
-    const needs_padding: u1 = if (value == 0)
-        1
-    else if (bits_needed > 8) brk: {
-        const RightShift = @Int(.unsigned, @bitSizeOf(@TypeOf(bits_needed)) - 1);
-        const right_shift: RightShift = @intCast(bits_needed - 9);
-        break :brk if (value >> right_shift == 0x1ff) 1 else 0;
-    } else 0;
-    const bytes_needed = try std.math.divCeil(usize, bits_needed, 8) + needs_padding;
-
-    const writer_ = self.writer();
-    for (0..bytes_needed - needs_padding) |i| try writer_.writeByte(big_bytes[big_bytes.len - i - 1]);
-    if (needs_padding == 1) try writer_.writeByte(0);
+    var first: usize = 0;
+    while (first + 1 < buf.len and buf[first] == pad and (buf[first + 1] ^ pad) & 0x80 == 0) first += 1;
+    try self.buffer.prependSlice(buf[first..]);
 }
 
 test int {
@@ -148,15 +142,84 @@ test int {
     defer encoder.deinit();
 
     try encoder.int(u8, 0);
-    try std.testing.expectEqualSlices(u8, &[_]u8{0}, encoder.buffer.data);
+    try std.testing.expectEqualSlices(u8, &.{0}, encoder.buffer.data);
 
     encoder.buffer.clearAndFree();
     try encoder.int(u16, 0x00ff);
-    try std.testing.expectEqualSlices(u8, &[_]u8{0xff}, encoder.buffer.data);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 0xff }, encoder.buffer.data);
 
     encoder.buffer.clearAndFree();
     try encoder.int(u32, 0xffff);
-    try std.testing.expectEqualSlices(u8, &[_]u8{ 0, 0xff, 0xff }, encoder.buffer.data);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 0xff, 0xff }, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.int(u32, 0x01020304);
+    try std.testing.expectEqualSlices(u8, &.{ 0x01, 0x02, 0x03, 0x04 }, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.int(u8, 127);
+    try std.testing.expectEqualSlices(u8, &.{0x7f}, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.int(u16, 128);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 0x80 }, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.int(u16, 256);
+    try std.testing.expectEqualSlices(u8, &.{ 0x01, 0x00 }, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.int(u8, 128);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 0x80 }, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.int(u8, 255);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 0xff }, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.int(u16, 0x8000);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 0x80, 0 }, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.int(i8, -1);
+    try std.testing.expectEqualSlices(u8, &.{0xff}, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.int(i8, -128);
+    try std.testing.expectEqualSlices(u8, &.{0x80}, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.int(i16, -129);
+    try std.testing.expectEqualSlices(u8, &.{ 0xff, 0x7f }, encoder.buffer.data);
+}
+
+test length {
+    const allocator = std.testing.allocator;
+    var encoder = Encoder.init(allocator);
+    defer encoder.deinit();
+
+    try encoder.length(127);
+    try std.testing.expectEqualSlices(u8, &.{0x7f}, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.length(128);
+    try std.testing.expectEqualSlices(u8, &.{ 0x81, 0x80 }, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.length(255);
+    try std.testing.expectEqualSlices(u8, &.{ 0x81, 0xff }, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.length(256);
+    try std.testing.expectEqualSlices(u8, &.{ 0x82, 0x01, 0x00 }, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.length(65535);
+    try std.testing.expectEqualSlices(u8, &.{ 0x82, 0xff, 0xff }, encoder.buffer.data);
+
+    encoder.buffer.clearAndFree();
+    try encoder.length(65536);
+    try std.testing.expectEqualSlices(u8, &.{ 0x83, 0x01, 0x00, 0x00 }, encoder.buffer.data);
 }
 
 const std = @import("std");

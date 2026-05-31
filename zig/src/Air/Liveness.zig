@@ -13,7 +13,7 @@ const Log2Int = std.math.Log2Int;
 const Writer = std.Io.Writer;
 
 const Liveness = @This();
-const trace = @import("../tracy.zig").trace;
+const traceNamed = @import("../tracy.zig").traceNamed;
 const Air = @import("../Air.zig");
 const InternPool = @import("../InternPool.zig");
 const Zcu = @import("../Zcu.zig");
@@ -140,7 +140,7 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
 }
 
 pub fn analyze(zcu: *Zcu, air: Air, intern_pool: *InternPool) Allocator.Error!Liveness {
-    const tracy = trace(@src());
+    const tracy = traceNamed(@src(), "analyze_liveness");
     defer tracy.end();
 
     const gpa = zcu.gpa;

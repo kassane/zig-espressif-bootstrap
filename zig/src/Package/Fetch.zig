@@ -1212,7 +1212,7 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
     {
         resource.* = .{ .http_request = .{
             .request = http_client.request(.GET, uri, .{}) catch |err|
-                return f.fail(f.location_tok, try eb.printString("unable to connect to server: {t}", .{err})),
+                return f.fail(f.location_tok, try eb.printString("server connection failed: {t}", .{err})),
             .response = undefined,
             .transfer_buffer = reader_buffer,
             .decompress_buffer = &.{},

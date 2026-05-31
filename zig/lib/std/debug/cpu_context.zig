@@ -51,7 +51,7 @@ pub fn fromPosixSignalContext(ctx_ptr: ?*const anyopaque) ?Native {
         };
 
         // I have no idea why the kernel is storing these registers in such a bizarre order...
-        std.mem.reverse(native.r[0..]);
+        std.mem.reverse(u32, native.r[0..]);
 
         return native;
     } else if (native_arch == .loongarch32 and native_os == .linux) {
@@ -351,7 +351,7 @@ const Alpha = extern struct {
             \\1:
             \\ stq $1, 0x100($0)
             :
-            : [ctx] "{r0}" (&ctx),
+            : [ctx] "{$0}" (&ctx),
             : .{ .r1 = true, .memory = true });
         return ctx;
     }
@@ -363,7 +363,7 @@ const Alpha = extern struct {
         return ctx.pc;
     }
 
-    pub fn dwarfRegisterBytes(ctx: *Aarch64, register_num: u16) DwarfRegisterError![]u8 {
+    pub fn dwarfRegisterBytes(ctx: *Alpha, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
             0...31 => return @ptrCast(&ctx.r[register_num]),
             64 => return @ptrCast(&ctx.pc),

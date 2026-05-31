@@ -178,22 +178,15 @@ pub fn formatEscapeChar(path: Path, writer: *Io.Writer) Io.Writer.Error!void {
 
 pub fn format(self: Path, writer: *Io.Writer) Io.Writer.Error!void {
     if (Io.Dir.path.isAbsolute(self.sub_path)) {
-        try writer.writeAll(self.sub_path);
-        return;
+        return writer.writeAll(self.sub_path);
+    } else if (self.root_dir.path) |p| {
+        var bufs: [3][]const u8 = .{ p, Io.Dir.path.sep_str, self.sub_path };
+        return writer.writeVecAll(bufs[0..if (self.sub_path.len > 0) 3 else 1]);
+    } else if (self.sub_path.len > 0) {
+        return writer.writeAll(self.sub_path);
+    } else {
+        return writer.writeByte('.');
     }
-    if (self.root_dir.path) |p| {
-        try writer.writeAll(p);
-        if (self.sub_path.len > 0) {
-            try writer.writeAll(Io.Dir.path.sep_str);
-            try writer.writeAll(self.sub_path);
-        }
-        return;
-    }
-    if (self.sub_path.len > 0) {
-        try writer.writeAll(self.sub_path);
-        return;
-    }
-    try writer.writeByte('.');
 }
 
 pub fn eql(self: Path, other: Path) bool {

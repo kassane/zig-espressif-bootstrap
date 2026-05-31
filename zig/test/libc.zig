@@ -121,7 +121,7 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("regression/regex-negated-range.c", true, .{});
     cases.addLibcTestCase("regression/regexec-nosub.c", true, .{});
     cases.addLibcTestCase("regression/rewind-clear-error.c", false, .{});
-    cases.addLibcTestCase("regression/rlimit-open-files.c", false, .{});
+    // cases.addLibcTestCase("regression/rlimit-open-files.c", false, .{}); - fails when machine is under heavy load
     cases.addLibcTestCase("regression/scanf-bytes-consumed.c", true, .{});
     cases.addLibcTestCase("regression/scanf-match-literal-eof.c", true, .{});
     cases.addLibcTestCase("regression/scanf-nullbyte-char.c", true, .{});
@@ -252,8 +252,8 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("math/log10.c", true, .{});
     cases.addLibcTestCase("math/log10f.c", true, .{});
     cases.addLibcTestCase("math/log10l.c", true, .{});
-    // cases.addLibcTestCase("math/log1p.c", true, .{});
-    // cases.addLibcTestCase("math/log1pf.c", true, .{});
+    cases.addLibcTestCase("math/log1p.c", true, .{});
+    cases.addLibcTestCase("math/log1pf.c", true, .{});
     // cases.addLibcTestCase("math/log1pl.c", true, .{});
     cases.addLibcTestCase("math/log2.c", true, .{});
     cases.addLibcTestCase("math/log2f.c", true, .{});

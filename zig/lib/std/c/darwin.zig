@@ -1184,6 +1184,10 @@ pub const CPUFAMILY = enum(u32) {
     ARM_BRAVA = 0x17d5b93a,
     ARM_TAHITI = 0x75d4acb9,
     ARM_TUPAI = 0x204526d0,
+    ARM_HIDRA = 0x1d5a87e8,
+    ARM_SOTRA = 0xf76c5b1a,
+    ARM_THERA = 0xab345f09,
+    ARM_TILOS = 0x01d7a72b,
     _,
 };
 

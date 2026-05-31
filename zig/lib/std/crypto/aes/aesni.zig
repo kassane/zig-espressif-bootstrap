@@ -312,7 +312,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         }
 
         /// Apply the bitwise OR operation to the content of two block vectors.
-        pub fn orBlocks(block_vec1: Self, block_vec2: Block) Self {
+        pub fn orBlocks(block_vec1: Self, block_vec2: Self) Self {
             var out: Self = undefined;
             inline for (0..native_words) |i| {
                 out.repr[i] = block_vec1.repr[i] | block_vec2.repr[i];

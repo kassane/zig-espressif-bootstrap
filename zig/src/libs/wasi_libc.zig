@@ -719,8 +719,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/math/llroundf.c",
     "musl/src/math/llroundl.c",
     "musl/src/math/log10l.c",
-    "musl/src/math/log1p.c",
-    "musl/src/math/log1pf.c",
     "musl/src/math/log1pl.c",
     "musl/src/math/log2l.c",
     "musl/src/math/logb.c",

@@ -1205,6 +1205,7 @@ pub const File = struct {
 
     pub fn loadInput(base: *File, input: Input) anyerror!void {
         if (base.tag == .lld) return;
+        assert(!base.post_prelink);
         switch (base.tag) {
             inline .elf, .elf2, .wasm => |tag| {
                 dev.check(tag.devFeature());
@@ -1424,6 +1425,8 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
         return;
     };
 
+    assert(!base.post_prelink);
+
     var timer = comp.startTimer();
     defer if (timer.finish(io)) |ns| {
         comp.mutex.lockUncancelable(io);
@@ -1573,7 +1576,7 @@ pub fn doZcuTask(comp: *Compilation, tid: Zcu.PerThread.Id, task: ZcuTask) void 
         },
         .link_func => |codegen_task| nav: {
             timer.pause(io);
-            const func, var mir = codegen_task.wait(&zcu.codegen_task_pool, io) catch |err| switch (err) {
+            const func, var mir = codegen_task.wait(&zcu.codegen_task_pool, zcu) catch |err| switch (err) {
                 error.Canceled, error.AlreadyReported => {
                     comp.link_prog_node.completeOne();
                     return;
@@ -1850,6 +1853,9 @@ pub fn resolveInputs(
     var ld_script_bytes: std.ArrayList(u8) = .empty;
     defer ld_script_bytes.deinit(gpa);
 
+    var archive_dedup: ArchiveDedupMap = .empty;
+    defer archive_dedup.deinit(gpa);
+
     var failed_libs: std.ArrayList(struct {
         name: []const u8,
         strategy: UnresolvedInput.SearchStrategy,
@@ -1889,6 +1895,7 @@ pub fn resolveInputs(
                             resolved_inputs,
                             &checked_paths,
                             &ld_script_bytes,
+                            &archive_dedup,
                             lib_directory,
                             name_query,
                             target,
@@ -1916,6 +1923,7 @@ pub fn resolveInputs(
                             resolved_inputs,
                             &checked_paths,
                             &ld_script_bytes,
+                            &archive_dedup,
                             lib_directory,
                             name_query,
                             target,
@@ -1944,6 +1952,7 @@ pub fn resolveInputs(
                                 resolved_inputs,
                                 &checked_paths,
                                 &ld_script_bytes,
+                                &archive_dedup,
                                 lib_directory,
                                 name_query,
                                 target,
@@ -1963,6 +1972,7 @@ pub fn resolveInputs(
                                 resolved_inputs,
                                 &checked_paths,
                                 &ld_script_bytes,
+                                &archive_dedup,
                                 lib_directory,
                                 name_query,
                                 target,
@@ -1994,6 +2004,7 @@ pub fn resolveInputs(
                     unresolved_inputs,
                     resolved_inputs,
                     &ld_script_bytes,
+                    &archive_dedup,
                     target,
                     .{
                         .path = Path.initCwd(an.name),
@@ -2012,6 +2023,7 @@ pub fn resolveInputs(
                                     unresolved_inputs,
                                     resolved_inputs,
                                     &ld_script_bytes,
+                                    &archive_dedup,
                                     target,
                                     .{
                                         .path = .{
@@ -2040,6 +2052,7 @@ pub fn resolveInputs(
                     unresolved_inputs,
                     resolved_inputs,
                     &ld_script_bytes,
+                    &archive_dedup,
                     target,
                     pq,
                     color,
@@ -2085,6 +2098,8 @@ fn resolveLibInput(
     checked_paths: *std.ArrayList(u8),
     /// Allocated via `gpa`.
     ld_script_bytes: *std.ArrayList(u8),
+    /// Allocated via `gpa`.
+    archive_dedup: *ArchiveDedupMap,
     lib_directory: Directory,
     name_query: UnresolvedInput.NameQuery,
     target: *const std.Target,
@@ -2092,6 +2107,7 @@ fn resolveLibInput(
     color: std.zig.Color,
 ) Allocator.Error!ResolveLibInputResult {
     try resolved_inputs.ensureUnusedCapacity(gpa, 1);
+    try archive_dedup.ensureUnusedCapacity(gpa, 1);
 
     const lib_name = name_query.name;
 
@@ -2107,7 +2123,7 @@ fn resolveLibInput(
             else => |e| fatal("unable to search for tbd library '{f}': {s}", .{ test_path, @errorName(e) }),
         };
         errdefer file.close(io);
-        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
+        return finishResolveLibInput(io, resolved_inputs, archive_dedup, test_path, file, link_mode, name_query.query);
     }
 
     {
@@ -2122,7 +2138,7 @@ fn resolveLibInput(
             }),
         };
         try checked_paths.print(gpa, "\n  {f}", .{test_path});
-        switch (try resolvePathInputLib(gpa, arena, io, unresolved_inputs, resolved_inputs, ld_script_bytes, target, .{
+        switch (try resolvePathInputLib(gpa, arena, io, unresolved_inputs, resolved_inputs, ld_script_bytes, archive_dedup, target, .{
             .path = test_path,
             .query = name_query.query,
         }, link_mode, color)) {
@@ -2146,7 +2162,7 @@ fn resolveLibInput(
             }),
         };
         errdefer file.close(io);
-        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
+        return finishResolveLibInput(io, resolved_inputs, archive_dedup, test_path, file, link_mode, name_query.query);
     }
 
     // In the case of MinGW, the main check will be .lib but we also need to
@@ -2162,26 +2178,61 @@ fn resolveLibInput(
             else => |e| fatal("unable to search for static library '{f}': {s}", .{ test_path, @errorName(e) }),
         };
         errdefer file.close(io);
-        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
+        return finishResolveLibInput(io, resolved_inputs, archive_dedup, test_path, file, link_mode, name_query.query);
     }
 
     return .no_match;
 }
 
+/// Deduplicates static archive link inputs based on their path. This is done for efficiency, so
+/// that linker implementations do not need to open and scan the archive just to determine that they
+/// need not extract any objects. At the time of writing, it also helps avoid "multiple definitions
+/// of symbol" errors in incomplete linker implementations.
+///
+/// Key is index into `resolved_inputs` of an `Input.archive`.
+///
+/// Accessed through `ArchiveDedupAdapter`.
+///
+const ArchiveDedupMap = std.array_hash_map.Custom(u32, void, void, true);
+/// Adapter for accessing `ArchiveDedupMap` with an effective key type of `Path`.
+const ArchiveDedupAdapter = struct {
+    resolved_inputs: []const Input,
+    pub fn hash(ctx: ArchiveDedupAdapter, path: Path) u32 {
+        _ = ctx;
+        return Path.TableAdapter.hash(.{}, path);
+    }
+    pub fn eql(ctx: ArchiveDedupAdapter, a_path: Path, b_input_index: u32, _: usize) bool {
+        const b_path = ctx.resolved_inputs[b_input_index].archive.path;
+        return a_path.eql(b_path);
+    }
+};
+
 fn finishResolveLibInput(
+    io: Io,
     resolved_inputs: *std.ArrayList(Input),
+    archive_dedup: *ArchiveDedupMap,
     path: Path,
     file: Io.File,
     link_mode: std.lang.LinkMode,
     query: UnresolvedInput.Query,
 ) ResolveLibInputResult {
     switch (link_mode) {
-        .static => resolved_inputs.appendAssumeCapacity(.{ .archive = .{
-            .path = path,
-            .file = file,
-            .must_link = query.must_link,
-            .hidden = query.hidden,
-        } }),
+        .static => {
+            const ctx: ArchiveDedupAdapter = .{ .resolved_inputs = resolved_inputs.items };
+            const gop = archive_dedup.getOrPutAssumeCapacityAdapted(path, ctx);
+            if (gop.found_existing) {
+                // Ignore duplicate archive input
+                file.close(io);
+                return .ok;
+            }
+            gop.key_ptr.* = @intCast(resolved_inputs.items.len);
+            resolved_inputs.appendAssumeCapacity(.{ .archive = .{
+                .path = path,
+                .file = file,
+                .must_link = query.must_link,
+                .hidden = query.hidden,
+            } });
+        },
         .dynamic => resolved_inputs.appendAssumeCapacity(.{ .dso = .{
             .path = path,
             .file = file,
@@ -2203,13 +2254,15 @@ fn resolvePathInput(
     resolved_inputs: *std.ArrayList(Input),
     /// Allocated via `gpa`.
     ld_script_bytes: *std.ArrayList(u8),
+    /// Allocated via `gpa`.
+    archive_dedup: *ArchiveDedupMap,
     target: *const std.Target,
     pq: UnresolvedInput.PathQuery,
     color: std.zig.Color,
 ) Allocator.Error!?ResolveLibInputResult {
     switch (Compilation.classifyFileExt(pq.path.sub_path)) {
-        .static_library => return try resolvePathInputLib(gpa, arena, io, unresolved_inputs, resolved_inputs, ld_script_bytes, target, pq, .static, color),
-        .shared_library => return try resolvePathInputLib(gpa, arena, io, unresolved_inputs, resolved_inputs, ld_script_bytes, target, pq, .dynamic, color),
+        .static_library => return try resolvePathInputLib(gpa, arena, io, unresolved_inputs, resolved_inputs, ld_script_bytes, archive_dedup, target, pq, .static, color),
+        .shared_library => return try resolvePathInputLib(gpa, arena, io, unresolved_inputs, resolved_inputs, ld_script_bytes, archive_dedup, target, pq, .dynamic, color),
         .object => {
             var file = pq.path.root_dir.handle.openFile(io, pq.path.sub_path, .{}) catch |err|
                 fatal("failed to open object {f}: {s}", .{ pq.path, @errorName(err) });
@@ -2246,12 +2299,15 @@ fn resolvePathInputLib(
     resolved_inputs: *std.ArrayList(Input),
     /// Allocated via `gpa`.
     ld_script_bytes: *std.ArrayList(u8),
+    /// Allocated via `gpa`.
+    archive_dedup: *ArchiveDedupMap,
     target: *const std.Target,
     pq: UnresolvedInput.PathQuery,
     link_mode: std.lang.LinkMode,
     color: std.zig.Color,
 ) Allocator.Error!ResolveLibInputResult {
     try resolved_inputs.ensureUnusedCapacity(gpa, 1);
+    try archive_dedup.ensureUnusedCapacity(gpa, 1);
 
     const test_path: Path = pq.path;
     // In the case of shared libraries, they might actually be "linker scripts"
@@ -2276,7 +2332,7 @@ fn resolvePathInputLib(
             mem.startsWith(u8, buf, std.elf.ARMAG_THIN))
         {
             // Appears to be an ELF or archive file.
-            return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, pq.query);
+            return finishResolveLibInput(io, resolved_inputs, archive_dedup, test_path, file, link_mode, pq.query);
         }
         const stat = file.stat(io) catch |err|
             fatal("failed to stat {f}: {t}", .{ test_path, err });
@@ -2346,7 +2402,7 @@ fn resolvePathInputLib(
         }),
     };
     errdefer file.close(io);
-    return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, pq.query);
+    return finishResolveLibInput(io, resolved_inputs, archive_dedup, test_path, file, link_mode, pq.query);
 }
 
 pub fn openObject(io: Io, path: Path, must_link: bool, hidden: bool) !Input.Object {

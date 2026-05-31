@@ -3192,10 +3192,6 @@ pub fn updateFunc(
     func_index: InternPool.Index,
     any_mir: *const codegen.AnyMir,
 ) !void {
-    if (build_options.skip_non_native and builtin.object_format != .wasm) {
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-    }
-
     dev.check(.wasm_backend);
 
     // This linker implementation only works with codegen backend `.stage2_wasm`.
@@ -3279,9 +3275,6 @@ pub fn updateFunc(
 // Generate code for the "Nav", storing it in memory to be later written to
 // the file on flush().
 pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
-    if (build_options.skip_non_native and builtin.object_format != .wasm) {
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-    }
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
@@ -3378,10 +3371,6 @@ pub fn updateExports(
     exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
 ) !void {
-    if (build_options.skip_non_native and builtin.object_format != .wasm) {
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-    }
-
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;

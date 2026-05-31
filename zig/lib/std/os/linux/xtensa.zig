@@ -115,9 +115,10 @@ pub fn clone() callconv(.naked) u32 {
     //
     // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
     //         a2         a6,    a3,    a4,   a5,  a8
-    asm volatile (
+    if (builtin.abi != .call0) asm volatile (
         \\ entry sp, 16
-        \\
+    );
+    asm volatile (
         \\ movi a8, -16
         \\ and a3, a3, a8
         \\
@@ -128,10 +129,29 @@ pub fn clone() callconv(.naked) u32 {
         \\ mov a8, a6
         \\ mov a6, a4
         \\ mov a4, a8
+    );
+    if (builtin.abi == .call0) asm volatile (
+        \\ l32i a8, sp, 0
+    ) else asm volatile (
         \\ l32i a8, sp, 16
+    );
+    asm volatile (
         \\ movi a2, 116 // SYS_clone
         \\ syscall
+    );
+    if (builtin.abi == .call0) asm volatile (
+        \\ beqz a2, 1f
+        \\ // parent
+        \\ ret
         \\
+        \\ // child
+        \\1:
+        \\ movi a15, 0
+        \\ movi a0, 0
+        \\
+        \\ mov a2, a10
+        \\ callx0 a9
+    ) else asm volatile (
         \\ beqz a2, 1f
         \\ // parent
         \\ retw
@@ -141,8 +161,10 @@ pub fn clone() callconv(.naked) u32 {
         \\ movi a7, 0
         \\ movi a0, 0
         \\
-        \\ mov a2, a10
-        \\ callx0 a9
+        \\ mov a6, a10
+        \\ callx4 a9
+    );
+    asm volatile (
         \\ movi a2, 118 // SYS_exit
         \\ syscall
     );

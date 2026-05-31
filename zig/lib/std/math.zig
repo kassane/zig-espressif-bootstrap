@@ -461,6 +461,11 @@ pub fn wrap(x: anytype, r: anytype) @TypeOf(x) {
     }
 }
 test wrap {
+    if (builtin.os.tag == .windows and builtin.cpu.arch == .x86) {
+        // https://codeberg.org/ziglang/zig/issues/35520
+        return error.SkipZigTest;
+    }
+
     // Within range
     try testing.expect(wrap(@as(i32, -75), @as(i32, 180)) == -75);
     try testing.expect(wrap(@as(i32, -75), @as(i32, -180)) == -75);

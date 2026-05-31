@@ -2870,8 +2870,8 @@ pub const UpdateError = error{
 
 /// Detect changes to source files, perform semantic analysis, and update the output files.
 pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateError!void {
-    const tracy_trace = trace(@src());
-    defer tracy_trace.end();
+    const tracy_frame = tracy.namedFrame(comp.root_name);
+    defer tracy_frame.end();
 
     const gpa = comp.gpa;
     const io = comp.io;
@@ -3008,10 +3008,19 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
 
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
     // Add a Job for each C object.
-    try comp.c_object_work_queue.ensureUnusedCapacity(gpa, comp.c_object_table.count());
-    for (comp.c_object_table.keys()) |c_object| {
-        comp.c_object_work_queue.pushBackAssumeCapacity(c_object);
-        try comp.appendFileSystemInput(try .fromUnresolved(arena, comp.dirs, &.{c_object.src.src_path}));
+    if (comp.bin_file != null and comp.bin_file.?.post_prelink) {
+        assert(comp.config.incremental);
+        // TODO: this indicates that we are using incremental compilation and this is not the first
+        // incremental update. The incremental linkers do not (currently?) support updating C inputs
+        // incrementally. The frontend needs to learn to trigger a full rebuild if a C link input
+        // changes. For now, to avoid crashing the linker in this case, don't kick off C object
+        // updates if we've done prelink already. https://codeberg.org/ziglang/zig/issues/32081
+    } else {
+        try comp.c_object_work_queue.ensureUnusedCapacity(gpa, comp.c_object_table.count());
+        for (comp.c_object_table.keys()) |c_object| {
+            comp.c_object_work_queue.pushBackAssumeCapacity(c_object);
+            try comp.appendFileSystemInput(try .fromUnresolved(arena, comp.dirs, &.{c_object.src.src_path}));
+        }
     }
 
     for (comp.link_inputs) |input| if (input.path()) |path| {
@@ -6333,6 +6342,8 @@ fn addCommonCCArgs(
                 // LLVM doesn't distinguish between Solaris and illumos, but the illumos GCC fork
                 // defines this macro.
                 .illumos => try argv.append("__illumos__"),
+                // This macro has not yet been upstreamed by SerenityOS to Clang.
+                .serenity => try argv.append("__serenity__"),
                 // Homebrew targets without LLVM support; use communities's preferred macros.
                 .@"3ds" => try argv.append("-D__3DS__"),
                 .psp => try argv.append("-D__PSP__"),
@@ -7595,6 +7606,9 @@ pub fn queuePrelinkTaskMode(comp: *Compilation, path: Cache.Path, must_link: boo
 
 /// Only valid to call during `update`.
 pub fn queuePrelinkTasks(comp: *Compilation, tasks: []const link.PrelinkTask) Io.Cancelable!void {
+    if (tasks.len > 0) {
+        if (comp.bin_file) |lf| assert(!lf.post_prelink);
+    }
     comp.link_prog_node.increaseEstimatedTotalItems(tasks.len);
     try comp.link_queue.enqueuePrelink(comp, tasks);
 }

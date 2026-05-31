@@ -1094,6 +1094,7 @@ const Parser = struct {
         name: []const u8,
     ) error{ OutOfMemory, ParseZon } {
         @branchHint(.cold);
+        if (self.diag == null) return error.ParseZon;
         const gpa = self.gpa;
         const token = if (field) |f| b: {
             var buf: [2]Ast.Node.Index = undefined;
@@ -1150,6 +1151,7 @@ const Parser = struct {
         field: usize,
     ) error{ OutOfMemory, ParseZon } {
         @branchHint(.cold);
+        if (self.diag == null) return error.ParseZon;
         const ast_node = node.getAstNode(self.zoir);
         var buf: [2]Ast.Node.Index = undefined;
         const token = if (self.ast.fullStructInit(&buf, ast_node)) |struct_init| b: {
@@ -3539,4 +3541,27 @@ test "std.zon no alloc" {
         Nested{ 1, 2, .{ 3, 4 } },
         try fromZoirNode(Nested, ast, zoir, .root, null, .{}),
     );
+}
+
+test "std.zon errors without diagnostics" {
+    const gpa = std.testing.allocator;
+
+    const Enum = enum {
+        foo,
+        bar,
+        baz,
+    };
+    try std.testing.expectError(error.ParseZon, fromSliceAlloc(Enum, gpa, ".nothing", null, .{}));
+
+    const Struct = struct {
+        name: []const u8,
+    };
+    try std.testing.expectError(error.ParseZon, fromSliceAlloc(Struct, gpa, ".{ .name = \"Alice\", .age = 25 }", null, .{}));
+
+    const Union = union(enum) {
+        x,
+        y: u32,
+    };
+    try std.testing.expectError(error.ParseZon, fromSliceAlloc(Union, gpa, ".a", null, .{}));
+    try std.testing.expectError(error.ParseZon, fromSliceAlloc(Union, gpa, ".{ .b = 8 }", null, .{}));
 }

@@ -35,6 +35,7 @@ const arch_bits = switch (native_arch) {
     .alpha => @import("linux/alpha.zig"),
     .arc, .arceb => @import("linux/arc.zig"),
     .arm, .armeb, .thumb, .thumbeb => @import("linux/arm.zig"),
+    .csky => @import("linux/csky.zig"),
     .hexagon => @import("linux/hexagon.zig"),
     .loongarch32 => @import("linux/loongarch32.zig"),
     .loongarch64 => @import("linux/loongarch64.zig"),
@@ -105,7 +106,7 @@ pub const user_desc = arch_bits.user_desc;
 
 pub const blkcnt_t = u64;
 pub const blksize_t = u32;
-pub const dev_t = u64;
+pub const dev_t = u32;
 pub const ino_t = u64;
 pub const mode_t = u32;
 pub const nlink_t = u32;
@@ -288,6 +289,7 @@ pub const MAP = switch (native_arch) {
     },
     .arc,
     .arceb,
+    .csky,
     .hexagon,
     .m68k,
     .or1k,
@@ -518,6 +520,7 @@ pub const O = switch (native_arch) {
     },
     .arc,
     .arceb,
+    .csky,
     .hexagon,
     .or1k,
     .s390x,
@@ -6633,7 +6636,7 @@ pub const k_sigaction = switch (native_arch) {
         handler: k_sigaction_funcs.handler,
         mask: sigset_t,
     },
-    .hexagon, .loongarch32, .loongarch64, .or1k, .riscv32, .riscv64 => extern struct {
+    .csky, .hexagon, .loongarch32, .loongarch64, .or1k, .riscv32, .riscv64 => extern struct {
         handler: k_sigaction_funcs.handler,
         flags: c_ulong,
         mask: sigset_t,
@@ -8549,7 +8552,7 @@ pub const V = if (is_mips) enum(u32) {
     STOP = 14,
     LNEXT = 15,
     DISCARD = 16,
-} else if (arch_bits == .alpha) enum(u32) {
+} else if (native_arch == .alpha) enum(u32) {
     EOF = 0,
     EOL = 1,
     EOL2 = 2,

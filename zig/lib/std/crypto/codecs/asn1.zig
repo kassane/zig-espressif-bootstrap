@@ -71,16 +71,18 @@ pub const Tag = struct {
 
     pub fn decode(reader: *std.Io.Reader) !Tag {
         const tag1: FirstTag = @bitCast(try reader.takeByte());
-        var number: u14 = tag1.number;
+        var number: std.meta.Tag(Tag.Number) = tag1.number;
 
-        if (tag1.number == 31) {
-            const tag2: NextTag = @bitCast(try reader.takeByte());
-            number = tag2.number;
-            if (tag2.continues) {
-                const tag3: NextTag = @bitCast(try reader.takeByte());
-                number = (number << 7) + tag3.number;
-                if (tag3.continues) return error.EndOfStream;
-            }
+        if (tag1.number == high_tag_marker) {
+            number = 0;
+            for (0..max_continuations) |i| {
+                const next: NextTag = @bitCast(try reader.takeByte());
+                if (i == 0 and next.number == 0) return error.InvalidEncoding;
+                number = std.math.shlExact(@TypeOf(number), number, 7) catch return error.InvalidEncoding;
+                number |= next.number;
+                if (!next.continues) break;
+            } else return error.InvalidEncoding;
+            if (number < high_tag_marker) return error.InvalidEncoding;
         }
 
         return Tag{
@@ -90,39 +92,50 @@ pub const Tag = struct {
         };
     }
 
-    pub fn encode(self: Tag, writer: *std.Io.Writer) @TypeOf(writer).Error!void {
-        var tag1 = FirstTag{
+    pub fn encodeToSlice(self: Tag, buf: *[max_encoded_len]u8) []const u8 {
+        const n = @intFromEnum(self.number);
+        var tag1: FirstTag = .{
             .number = undefined,
             .constructed = self.constructed,
             .class = self.class,
         };
 
-        var buffer: [3]u8 = undefined;
-        var writer2: std.Io.Writer = .init(&buffer);
-
-        switch (@intFromEnum(self.number)) {
-            0...std.math.maxInt(u5) => |n| {
-                tag1.number = @intCast(n);
-                writer2.writeByte(@bitCast(tag1)) catch unreachable;
-            },
-            std.math.maxInt(u5) + 1...std.math.maxInt(u7) => |n| {
-                tag1.number = 15;
-                const tag2 = NextTag{ .number = @intCast(n), .continues = false };
-                writer2.writeByte(@bitCast(tag1)) catch unreachable;
-                writer2.writeByte(@bitCast(tag2)) catch unreachable;
-            },
-            else => |n| {
-                tag1.number = 15;
-                const tag2 = NextTag{ .number = @intCast(n >> 7), .continues = true };
-                const tag3 = NextTag{ .number = @truncate(n), .continues = false };
-                writer2.writeByte(@bitCast(tag1)) catch unreachable;
-                writer2.writeByte(@bitCast(tag2)) catch unreachable;
-                writer2.writeByte(@bitCast(tag3)) catch unreachable;
-            },
+        if (n < high_tag_marker) {
+            tag1.number = @intCast(n);
+            buf[0] = @bitCast(tag1);
+            return buf[0..1];
         }
 
-        _ = try writer.write(writer2.buffered());
+        tag1.number = high_tag_marker;
+        buf[0] = @bitCast(tag1);
+
+        const bits_used = @bitSizeOf(@TypeOf(n)) - @clz(n);
+        const len = std.math.divCeil(usize, bits_used, 7) catch unreachable;
+
+        var remaining = n;
+        var i = len;
+        while (i > 0) : (i -= 1) {
+            buf[i] = @bitCast(NextTag{
+                .number = @truncate(remaining),
+                .continues = i != len,
+            });
+            remaining >>= 7;
+        }
+        return buf[0 .. 1 + len];
     }
+
+    pub fn encode(self: Tag, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        var buf: [max_encoded_len]u8 = undefined;
+        try writer.writeAll(self.encodeToSlice(&buf));
+    }
+
+    pub const max_encoded_len = 1 + (std.math.divCeil(
+        comptime_int,
+        @bitSizeOf(std.meta.Tag(Tag.Number)),
+        7,
+    ) catch unreachable);
+    const max_continuations = max_encoded_len - 1;
+    const high_tag_marker = std.math.maxInt(u5);
 
     const FirstTag = packed struct(u8) { number: u5, constructed: bool, class: Tag.Class };
     const NextTag = packed struct(u8) { number: u7, continues: bool };
@@ -165,6 +178,42 @@ test Tag {
     try std.testing.expectEqual(Tag.init(@enumFromInt(3), true, .context_specific), t);
 }
 
+test "Tag.encode produces the exact bytes from X.690" {
+    const cases = [_]struct { number: u16, expected: []const u8 }{
+        .{ .number = 0, .expected = &.{0x00} },
+        .{ .number = 30, .expected = &.{0x1e} },
+        .{ .number = 31, .expected = &.{ 0x1f, 0x1f } },
+        .{ .number = 127, .expected = &.{ 0x1f, 0x7f } },
+        .{ .number = 128, .expected = &.{ 0x1f, 0x81, 0x00 } },
+        .{ .number = 16383, .expected = &.{ 0x1f, 0xff, 0x7f } },
+        .{ .number = 16384, .expected = &.{ 0x1f, 0x81, 0x80, 0x00 } },
+        .{ .number = 65535, .expected = &.{ 0x1f, 0x83, 0xff, 0x7f } },
+    };
+    for (cases) |c| {
+        const tag = Tag.init(@enumFromInt(c.number), false, .universal);
+        var buf: [Tag.max_encoded_len]u8 = undefined;
+        try std.testing.expectEqualSlices(u8, c.expected, tag.encodeToSlice(&buf));
+    }
+}
+
+test "Tag.encode/decode round trip" {
+    for ([_]u16{ 0, 30, 31, 32, 127, 128, 16383, 16384, 65535 }) |n| {
+        const tag = Tag.init(@enumFromInt(n), false, .universal);
+        var buf: [Tag.max_encoded_len]u8 = undefined;
+        const encoded = tag.encodeToSlice(&buf);
+        var reader: std.Io.Reader = .fixed(encoded);
+        try std.testing.expectEqual(tag, try Tag.decode(&reader));
+        try std.testing.expectEqual(encoded.len, reader.seek);
+    }
+}
+
+test "Tag.decode rejects non-minimal high-tag form" {
+    for ([_][]const u8{ &.{ 0x1f, 0x1e }, &.{ 0x1f, 0x80, 0x01 } }) |bytes| {
+        var reader: std.Io.Reader = .fixed(bytes);
+        try std.testing.expectError(error.InvalidEncoding, Tag.decode(&reader));
+    }
+}
+
 /// A decoded view.
 pub const Element = struct {
     tag: Tag,
@@ -183,13 +232,14 @@ pub const Element = struct {
         }
     };
 
-    pub const DecodeError = error{EndOfStream};
+    pub const DecodeError = error{ EndOfStream, InvalidEncoding };
 
     /// Safely decode a DER/BER/CER element at `index`:
     /// - Ensures length uses shortest form
     /// - Ensures length is within `bytes`
     /// - Ensures length is less than `std.math.maxInt(Index)`
     pub fn decode(bytes: []const u8, index: Index) DecodeError!Element {
+        if (index > bytes.len) return error.EndOfStream;
         var reader: std.Io.Reader = .fixed(bytes[index..]);
 
         const tag = Tag.decode(&reader) catch |err| switch (err) {
@@ -327,12 +377,21 @@ pub const BitString = struct {
     }
 
     pub fn encodeDer(self: BitString, encoder: *der.Encoder) !void {
-        try encoder.writer().writeAll(self.bytes);
-        try encoder.writer().writeByte(self.right_padding);
+        try encoder.prependBytes(self.bytes);
+        try encoder.prependBytes(&.{self.right_padding});
         try encoder.length(self.bytes.len + 1);
         try encoder.tag(asn1_tag);
     }
 };
+
+test BitString {
+    const bs = BitString{ .bytes = &.{ 0x6e, 0x5d, 0xc0 }, .right_padding = 6 };
+    const allocator = std.testing.allocator;
+    const buf = try der.encode(allocator, bs);
+    defer allocator.free(buf);
+    try std.testing.expectEqualSlices(u8, &.{ 0x03, 0x04, 0x06, 0x6e, 0x5d, 0xc0 }, buf);
+    try std.testing.expectEqualDeep(bs, try der.decode(BitString, buf));
+}
 
 pub fn Opaque(comptime tag: Tag) type {
     return struct {

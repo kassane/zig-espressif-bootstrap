@@ -153,6 +153,9 @@
         .compiler_rt_panic = .{
             .path = "compiler_rt_panic",
         },
+        .ios = .{
+            .path = "ios",
+        },
         .depend_on_main_mod = .{
             .path = "depend_on_main_mod",
         },

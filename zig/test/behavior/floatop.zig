@@ -948,6 +948,11 @@ test "@log2 with vectors" {
         builtin.cpu.arch == .aarch64 and
         builtin.os.tag == .windows) return error.SkipZigTest;
 
+    if (builtin.os.tag == .windows and builtin.cpu.arch == .x86) {
+        // https://codeberg.org/ziglang/zig/issues/35518
+        return error.SkipZigTest;
+    }
+
     try testLog2WithVectors();
     try comptime testLog2WithVectors();
 }

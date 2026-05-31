@@ -148,12 +148,12 @@ pub const timespec = switch (native_os) {
 };
 
 pub const dev_t = switch (native_os) {
-    .linux => linux.dev_t,
     .emscripten => emscripten.dev_t,
     .wasi => wasi.device_t,
     .openbsd, .haiku, .illumos, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => i32,
+    // glibc and musl define dev_t as u64, while in Linux kernel it is u32.
     // https://github.com/SerenityOS/serenity/blob/b98f537f117b341788023ab82e0c11ca9ae29a57/Kernel/API/POSIX/sys/types.h#L43
-    .netbsd, .freebsd, .serenity => u64,
+    .linux, .netbsd, .freebsd, .serenity => u64,
     else => void,
 };
 
@@ -10552,6 +10552,7 @@ const sigrt_private = struct {
             .freebsd => 65,
             .netbsd => 33,
             .illumos => @truncate(sysconf(@intFromEnum(_SC.SIGRT_MIN))),
+            .haiku => @truncate(@as(c_uint, @bitCast(private.__signal_get_sigrtmin()))),
             else => @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmin()))),
         };
     }
@@ -10561,6 +10562,7 @@ const sigrt_private = struct {
             .freebsd => 126,
             .netbsd => 63,
             .illumos => @truncate(sysconf(@intFromEnum(_SC.SIGRT_MAX))),
+            .haiku => @truncate(@as(c_uint, @bitCast(private.__signal_get_sigrtmax()))),
             else => @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmax()))),
         };
     }
@@ -11649,6 +11651,8 @@ const private = struct {
 
     extern "c" fn __libc_current_sigrtmin() c_int;
     extern "c" fn __libc_current_sigrtmax() c_int;
+    extern "c" fn __signal_get_sigrtmin() c_int;
+    extern "c" fn __signal_get_sigrtmax() c_int;
 
     // Don't forget to add another clown when an OS picks yet another unique
     // symbol name for errno location!

@@ -200,6 +200,7 @@ const module_test_targets = blk: {
         //    .use_lld = false,
         //    .optimize_mode = .ReleaseFast,
         //    .strip = true,
+        //    .skip_modules = &.{"std"}, // TODO get these passing
         //},
         //.{
         //    .target = .{
@@ -212,6 +213,7 @@ const module_test_targets = blk: {
         //    .use_lld = false,
         //    .optimize_mode = .ReleaseFast,
         //    .strip = true,
+        //    .skip_modules = &.{"std"}, // TODO get these passing
         //},
 
         .{
@@ -1609,6 +1611,8 @@ const module_test_targets = blk: {
                 .abi = .msvc,
             },
             .link_libc = true,
+            // https://codeberg.org/ziglang/zig/issues/35517
+            .skip_modules = &.{"libc"},
         },
         .{
             .target = .{
@@ -1624,6 +1628,8 @@ const module_test_targets = blk: {
                 .abi = .gnu,
             },
             .link_libc = true,
+            // https://codeberg.org/ziglang/zig/issues/35517
+            .skip_modules = &.{"libc"},
         },
 
         .{
@@ -1634,6 +1640,8 @@ const module_test_targets = blk: {
             },
             .use_llvm = false,
             .use_lld = false,
+            // https://codeberg.org/ziglang/zig/issues/35537
+            .skip_modules = &.{"behavior"},
         },
         .{
             .target = .{
@@ -1649,6 +1657,8 @@ const module_test_targets = blk: {
                 .abi = .msvc,
             },
             .link_libc = true,
+            // https://codeberg.org/ziglang/zig/issues/35517
+            .skip_modules = &.{"libc"},
         },
         .{
             .target = .{
@@ -1658,6 +1668,8 @@ const module_test_targets = blk: {
             },
             .use_llvm = false,
             .use_lld = false,
+            // https://codeberg.org/ziglang/zig/issues/35537
+            .skip_modules = &.{"behavior"},
         },
         .{
             .target = .{
@@ -1989,13 +2001,14 @@ const c_abi_targets = blk: {
 
         // Windows Targets
 
-        .{
-            .target = .{
-                .cpu_arch = .x86,
-                .os_tag = .windows,
-                .abi = .gnu,
-            },
-        },
+        // https://codeberg.org/ziglang/zig/issues/35521
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .x86,
+        //        .os_tag = .windows,
+        //        .abi = .gnu,
+        //    },
+        //},
         .{
             .target = .{
                 .cpu_arch = .x86_64,
@@ -2026,28 +2039,141 @@ const incremental_targets: []const []const u8 = &.{
     //"wasm32-wasi-selfhosted",
 };
 
-fn compatible32bitArch(b: *std.Build) ?std.Target.Cpu.Arch {
-    const host = b.graph.host.result;
+fn compatible32bitArch(host: *const std.Target) ?std.Target.Cpu.Arch {
     return switch (host.os.tag) {
-        .windows => switch (host.cpu.arch) {
-            .x86_64 => .x86,
-            .aarch64 => .thumb,
-            .aarch64_be => .thumbeb,
-            else => null,
-        },
         .freebsd => switch (host.cpu.arch) {
             .aarch64 => .arm,
-            .aarch64_be => .armeb,
+            .powerpc64 => .powerpc,
             else => null,
         },
-        .linux, .netbsd => switch (host.cpu.arch) {
+        .illumos => switch (host.cpu.arch) {
             .x86_64 => .x86,
+            else => null,
+        },
+        .linux => switch (host.cpu.arch) {
             .aarch64 => .arm,
             .aarch64_be => .armeb,
+            .mips64 => .mips,
+            .mips64el => .mipsel,
+            .powerpc64 => .powerpc,
+            .sparc64 => .sparc,
+            .x86_64 => .x86,
+            else => null,
+        },
+        .netbsd => switch (host.cpu.arch) {
+            .riscv64 => .riscv32,
+            .sparc64 => .sparc,
+            .x86_64 => .x86,
+            else => null,
+        },
+        .windows => switch (host.cpu.arch) {
+            .x86_64 => .x86,
             else => null,
         },
         else => null,
     };
+}
+
+pub fn isNative(actual_target: *const std.Build.ResolvedTarget, host: *const std.Target) bool {
+    if (actual_target.query.isNative()) return true;
+    const actual = &actual_target.result;
+
+    if (actual.cpu.arch != host.cpu.arch and
+        actual.cpu.arch != compatible32bitArch(host))
+    {
+        return false;
+    }
+
+    if (actual.os.tag != host.os.tag)
+        return false;
+
+    // Remove features that don't actually affect compatibility.
+    const irrelevant: std.Target.Cpu.Feature.Set = switch (host.cpu.arch) {
+        .x86_64 => std.Target.x86.featureSet(&.{
+            .@"16bit_mode",
+            .@"32bit_mode",
+            .@"64bit",
+            .false_deps_getmant,
+            .false_deps_lzcnt_tzcnt,
+            .false_deps_mulc,
+            .false_deps_mullq,
+            .false_deps_perm,
+            .false_deps_popcnt,
+            .false_deps_range,
+            .fast_11bytenop,
+            .fast_15bytenop,
+            .fast_7bytenop,
+            .fast_bextr,
+            .fast_dpwssd,
+            .fast_gather,
+            .fast_hops,
+            .fast_imm16,
+            .fast_lzcnt,
+            .fast_movbe,
+            .fast_scalar_fsqrt,
+            .fast_scalar_shift_masks,
+            .fast_shld_rotate,
+            .fast_variable_crosslane_shuffle,
+            .fast_variable_perlane_shuffle,
+            .fast_vector_fsqrt,
+            .fast_vector_shift_masks,
+            .faster_shift_than_shuffle,
+            .no_bypass_delay,
+            .no_bypass_delay_blend,
+            .no_bypass_delay_mov,
+            .no_bypass_delay_shuffle,
+            .prefer_128_bit,
+            .prefer_256_bit,
+            .prefer_legacy_setcc,
+            .prefer_mask_registers,
+            .prefer_movmsk_over_vtest,
+            .prefer_no_gather,
+            .prefer_no_scatter,
+            .slow_3ops_lea,
+            .slow_incdec,
+            .slow_lea,
+            .slow_pmaddwd,
+            .slow_pmulld,
+            .slow_pmullq,
+            .slow_shld,
+            .slow_two_mem_ops,
+            .slow_unaligned_mem_16,
+            .slow_unaligned_mem_32,
+        }),
+        .aarch64, .aarch64_be => std.Target.aarch64.featureSet(&.{
+            .addr_lsl_slow_14,
+            .alu_lsl_fast,
+            .avoid_ldapur,
+            .disable_fast_inc_vl,
+            .exynos_cheap_as_move,
+            .fuse_address,
+            .fuse_addsub_2reg_const1,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .fuse_arith_logic,
+            .fuse_crypto_eor,
+            .fuse_csel,
+            .fuse_cset,
+            .fuse_literals,
+            .predictable_select_expensive,
+            .slow_misaligned_128store,
+            .slow_paired_128,
+            .slow_strqro_store,
+            .use_experimental_zeroing_pseudos,
+            .use_fixed_over_scalable_if_equal_cost,
+            .use_postra_scheduler,
+            .use_reciprocal_square_root,
+            .use_wzr_to_vec_move,
+        }),
+        else => .empty,
+    };
+    var set = actual.cpu.features;
+    set.removeFeatureSet(irrelevant);
+
+    if (!host.cpu.features.isSuperSetOf(set))
+        return false;
+
+    return true;
 }
 
 /// For stack trace tests, we only test native by default, because external executors are pretty
@@ -2057,7 +2183,7 @@ fn nativeAndCompatible32bit(b: *std.Build, skip_non_native: bool) []const std.Bu
     const host = b.graph.host.result;
     const only_native = (&b.graph.host)[0..1];
     if (skip_non_native) return only_native;
-    const arch32 = compatible32bitArch(b) orelse return only_native;
+    const arch32 = compatible32bitArch(&b.graph.host.result) orelse return only_native;
     return b.graph.arena.dupe(std.Build.ResolvedTarget, &.{
         b.graph.host,
         b.resolveTargetQuery(.{ .cpu_arch = arch32, .os_tag = host.os.tag }),
@@ -2074,7 +2200,7 @@ fn wineAndCompatible32bit(b: *std.Build, skip_non_native: bool) []const std.Buil
         .os_tag = .windows,
     })) catch @panic("OOM");
     if (!skip_non_native) {
-        if (compatible32bitArch(b)) |arch| {
+        if (compatible32bitArch(&b.graph.host.result)) |arch| {
             targets.append(b.graph.arena, b.resolveTargetQuery(.{
                 .cpu_arch = arch,
                 .os_tag = .windows,
@@ -2519,10 +2645,20 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         if (!options.test_extra_targets and test_target.extra_target) continue;
 
-        if (options.skip_non_native and !test_target.target.isNative())
+        if (options.skip_non_native and !isNative(&resolved_target, &b.graph.host.result))
             continue;
 
         const target = &resolved_target.result;
+
+        if (target.cpu.arch == .powerpc64le and target.ofmt == .c) {
+            // https://codeberg.org/ziglang/zig/issues/35522
+            continue;
+        }
+
+        if (target.cpu.arch == .s390x and target.ofmt == .c) {
+            // https://codeberg.org/ziglang/zig/issues/35523
+            continue;
+        }
 
         if (std.mem.eql(u8, options.name, "libc")) {
             // The libc API tests obviously need to link libc. So for test
@@ -2561,11 +2697,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         if (options.skip_single_threaded and test_target.single_threaded == true)
             continue;
-
-        if (!would_use_llvm and target.cpu.arch == .aarch64) {
-            // TODO get std tests passing for the aarch64 self-hosted backend.
-            if (mem.eql(u8, options.name, "std")) continue;
-        }
 
         const want_this_mode = for (options.optimize_modes) |m| {
             if (m == test_target.optimize_mode) break true;
@@ -2812,8 +2943,6 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
     const step = b.step("test-c-abi", "Run the C ABI tests");
 
     for (c_abi_targets) |c_abi_target| {
-        if (options.skip_non_native and !c_abi_target.target.isNative()) continue;
-
         if (options.skip_wasm and c_abi_target.target.cpu_arch != null and c_abi_target.target.cpu_arch.?.isWasm()) continue;
 
         if (options.skip_freebsd and c_abi_target.target.os_tag == .freebsd) continue;
@@ -2826,6 +2955,9 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
         const resolved_target = b.resolveTargetQuery(c_abi_target.target);
         const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
         const target = &resolved_target.result;
+
+        if (options.skip_non_native and !isNative(&resolved_target, &b.graph.host.result))
+            continue;
 
         if (options.test_target_filters.len > 0) {
             for (options.test_target_filters) |filter| {

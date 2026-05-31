@@ -1691,9 +1691,6 @@ pub fn updateFunc(
     func_index: InternPool.Index,
     mir: *const codegen.AnyMir,
 ) link.File.UpdateNavError!void {
-    if (build_options.skip_non_native and builtin.object_format != .elf) {
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-    }
     return self.zigObjectPtr().?.updateFunc(self, pt, func_index, mir);
 }
 
@@ -1702,9 +1699,6 @@ pub fn updateNav(
     pt: Zcu.PerThread,
     nav: InternPool.Nav.Index,
 ) link.File.UpdateNavError!void {
-    if (build_options.skip_non_native and builtin.object_format != .elf) {
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-    }
     return self.zigObjectPtr().?.updateNav(self, pt, nav);
 }
 
@@ -1714,9 +1708,6 @@ pub fn updateContainerType(
     ty: InternPool.Index,
     success: bool,
 ) link.File.UpdateContainerTypeError!void {
-    if (build_options.skip_non_native and builtin.object_format != .elf) {
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-    }
     return self.zigObjectPtr().?.updateContainerType(pt, ty, success) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
     };
@@ -1728,9 +1719,6 @@ pub fn updateExports(
     exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
 ) link.File.UpdateExportsError!void {
-    if (build_options.skip_non_native and builtin.object_format != .elf) {
-        @panic("Attempted to compile for object format that was disabled by build configuration");
-    }
     return self.zigObjectPtr().?.updateExports(self, pt, exported, export_indices);
 }
 

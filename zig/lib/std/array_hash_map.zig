@@ -57,8 +57,7 @@ pub const ArrayHashMap = Custom;
 /// the (well defined) behavior when mixing insertions and deletions with iteration.
 ///
 /// This type does not store an `Allocator` field - the `Allocator` must be passed in
-/// with each function call that requires it. See `ArrayHashMap` for a type that stores
-/// an `Allocator` field for convenience.
+/// with each function call that requires it.
 ///
 /// Can be initialized directly using the default field values.
 ///

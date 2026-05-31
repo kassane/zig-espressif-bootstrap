@@ -1486,3 +1486,36 @@ test "switch on large types" {
     try S.doTheTest(0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_1234, 0xFFFF_1234);
     try comptime S.doTheTest(0xFFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_1234, 0xFFFF_1234);
 }
+
+test "error captures narrow error sets" {
+    const S = struct {
+        fn doTheTest(err: error{ A, B, C, D }) !void {
+            switch (err) {
+                error.A, error.B => |e| comptime assert(@TypeOf(e) == error{ A, B }),
+                else => |e| comptime assert(@TypeOf(e) == error{ C, D }),
+            }
+            switch (err) {
+                inline error.A, error.B => |e| comptime {
+                    if (e == error.A)
+                        assert(@TypeOf(e) == error{A})
+                    else if (e == error.B)
+                        assert(@TypeOf(e) == error{B})
+                    else
+                        unreachable;
+                },
+                inline else => |e| comptime {
+                    if (e == error.C)
+                        assert(@TypeOf(e) == error{C})
+                    else if (e == error.D)
+                        assert(@TypeOf(e) == error{D})
+                    else
+                        unreachable;
+                },
+            }
+        }
+    };
+
+    try S.doTheTest(error.B);
+    try comptime S.doTheTest(error.B);
+    try comptime S.doTheTest(error.C);
+}

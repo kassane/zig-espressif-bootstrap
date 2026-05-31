@@ -116,7 +116,7 @@ pub const can_unwind: bool = s: {
             .x86,
             .x86_64,
         },
-        // Not supported yet: arm/armeb/thumb/thumbeb, hppa, hppa64, microblaze/microblazeel, xtensa/xtensaeb
+        // Not supported yet: arm/armeb/thumb/thumbeb, hppa, hppa64, microblaze/microblazeel
         .linux => &.{
             .aarch64,
             .aarch64_be,

@@ -194,7 +194,7 @@ pub fn main(init: process.Init.Minimal) !void {
     var max_rss: u64 = 0;
     var skip_oom_steps = false;
     var test_timeout_ns: ?u64 = null;
-    var color: Color = .auto;
+    var color: Color = .settingFromEnvironment(&graph.environ_map);
     var watch = false;
     var fuzz: ?Fuzz.Mode = null;
     var debounce_interval_ms: u16 = 50;
@@ -533,7 +533,7 @@ pub fn main(init: process.Init.Minimal) !void {
     }
 
     const main_progress_node = std.Progress.start(io, .{
-        .disable_printing = (color == .off),
+        .disable_printing = (graph.stderr_mode.? == .no_color),
     });
     defer main_progress_node.end();
 
@@ -1843,10 +1843,10 @@ pub fn relativePath(maker: *const Maker, arena: Allocator, relative: Configurati
             .root_dir = graph.zig_lib_directory,
             .sub_path = sub_path,
         },
-        .install_prefix => maker.install_paths.prefix,
-        .install_lib => maker.install_paths.lib,
-        .install_bin => maker.install_paths.bin,
-        .install_include => maker.install_paths.include,
+        .install_prefix => try maker.install_paths.prefix.join(arena, sub_path),
+        .install_lib => try maker.install_paths.lib.join(arena, sub_path),
+        .install_bin => try maker.install_paths.bin.join(arena, sub_path),
+        .install_include => try maker.install_paths.include.join(arena, sub_path),
     };
 }
 

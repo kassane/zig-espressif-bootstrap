@@ -136,21 +136,22 @@ test "resolve DNS" {
         };
 
         var addresses_found: usize = 0;
+        var found_canonical_name = false;
 
         while (results.getOne(io)) |result| switch (result) {
             .address => |address| {
                 if (address.eql(&localhost_v4) or address.eql(&localhost_v6))
                     addresses_found += 1;
             },
-            .canonical_name => |canonical_name| try testing.expectEqualStrings(
-                if (canonical_name.bytes[canonical_name.bytes.len - 1] == '.') "localhost." else "localhost",
-                canonical_name.bytes,
-            ),
+            // We can't test the actual string here because it might be "localhost.localdomain"
+            // or even the computer host name (as on Windows).
+            .canonical_name => found_canonical_name = true,
         } else |err| switch (err) {
             error.Closed => {},
             error.Canceled => |e| return e,
         }
 
+        try testing.expect(found_canonical_name);
         try testing.expect(addresses_found != 0);
     }
 

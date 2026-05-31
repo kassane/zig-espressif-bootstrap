@@ -400,7 +400,9 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b true;
         }
 
-        if (options.use_llvm == false) {
+        // If there's no ZCU we aren't using the LLVM backend but
+        // it shouldn't influence which linker we pick
+        if (!use_llvm and options.have_zcu) {
             if (options.use_lld == true) return error.LldCannotIncrementallyLink;
             break :b false;
         }

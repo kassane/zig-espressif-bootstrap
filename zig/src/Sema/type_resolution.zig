@@ -13,6 +13,7 @@ const LazySrcLoc = Zcu.LazySrcLoc;
 const InternPool = @import("../InternPool.zig");
 const Alignment = InternPool.Alignment;
 const arith = @import("arith.zig");
+const trace = @import("../tracy.zig").trace;
 
 pub const LayoutResolveReason = enum {
     variable,
@@ -173,6 +174,11 @@ pub fn resolveStructLayout(sema: *Sema, struct_ty: Type) CompileError!void {
     const io = comp.io;
     const gpa = comp.gpa;
     const ip = &zcu.intern_pool;
+
+    const tracy = trace(@src());
+    defer tracy.end();
+    tracy.addText(struct_ty.containerTypeName(ip).toSlice(ip));
+    tracy.addTextFmt("ip_index={d}", .{struct_ty.toIntern()});
 
     assert(sema.owner.unwrap().type_layout == struct_ty.toIntern());
 
@@ -548,6 +554,11 @@ pub fn resolveStructDefaults(sema: *Sema, struct_ty: Type) CompileError!void {
     const gpa = comp.gpa;
     const ip = &zcu.intern_pool;
 
+    const tracy = trace(@src());
+    defer tracy.end();
+    tracy.addText(struct_ty.containerTypeName(ip).toSlice(ip));
+    tracy.addTextFmt("ip_index={d}", .{struct_ty.toIntern()});
+
     assert(sema.owner.unwrap().struct_defaults == struct_ty.toIntern());
 
     // We always depend on the layout of `struct_ty`. However, we don't actually need to resolve it
@@ -654,6 +665,11 @@ pub fn resolveUnionLayout(sema: *Sema, union_ty: Type) CompileError!void {
     const io = comp.io;
     const gpa = comp.gpa;
     const ip = &zcu.intern_pool;
+
+    const tracy = trace(@src());
+    defer tracy.end();
+    tracy.addText(union_ty.containerTypeName(ip).toSlice(ip));
+    tracy.addTextFmt("ip_index={d}", .{union_ty.toIntern()});
 
     assert(sema.owner.unwrap().type_layout == union_ty.toIntern());
 
@@ -1133,6 +1149,11 @@ pub fn resolveEnumLayout(sema: *Sema, enum_ty: Type) CompileError!void {
     const io = comp.io;
     const gpa = comp.gpa;
     const ip = &zcu.intern_pool;
+
+    const tracy = trace(@src());
+    defer tracy.end();
+    tracy.addText(enum_ty.containerTypeName(ip).toSlice(ip));
+    tracy.addTextFmt("ip_index={d}", .{enum_ty.toIntern()});
 
     assert(sema.owner.unwrap().type_layout == enum_ty.toIntern());
 

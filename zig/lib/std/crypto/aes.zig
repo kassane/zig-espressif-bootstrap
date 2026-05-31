@@ -137,6 +137,18 @@ test "BlockVec invMixColumns" {
     }
 }
 
+test "BlockVec bitwise operations" {
+    const a_bytes: [32]u8 = @splat(0xaa);
+    const b_bytes: [32]u8 = @splat(0xbb);
+    const a = BlockVec(2).fromBytes(&a_bytes);
+    const b = BlockVec(2).fromBytes(&b_bytes);
+
+    try testing.expectEqual(@as([32]u8, @splat(0x11)), a.xorBytes(&b_bytes));
+    try testing.expectEqual(@as([32]u8, @splat(0x11)), a.xorBlocks(b).toBytes());
+    try testing.expectEqual(@as([32]u8, @splat(0xbb)), a.orBlocks(b).toBytes());
+    try testing.expectEqual(@as([32]u8, @splat(0xaa)), a.andBlocks(b).toBytes());
+}
+
 test "expand 256-bit key" {
     const key = [_]u8{
         0x60, 0x3d, 0xeb, 0x10,

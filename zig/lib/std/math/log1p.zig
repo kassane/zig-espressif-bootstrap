@@ -43,17 +43,14 @@ fn log1p_32(x: f32) f32 {
 
     // 1 + x < sqrt(2)+
     if (ix < 0x3ED413D0 or ix >> 31 != 0) {
-        // x <= -1.0
-        if (ix >= 0xBF800000) {
+        // x = -1.0
+        if (ix == 0xBF800000)
             // log1p(-1) = -inf
-            if (x == -1.0) {
-                return -math.inf(f32);
-            }
+            return x / 0.0;
+        // x < -1.0
+        if (ix > 0xBF800000)
             // log1p(x < -1) = nan
-            else {
-                return math.nan(f32);
-            }
-        }
+            return (x - x) / 0.0;
         // |x| < 2^(-24)
         if ((ix << 1) < (0x33800000 << 1)) {
             // underflow if subnormal
@@ -122,21 +119,18 @@ fn log1p_64(x: f64) f64 {
 
     // 1 + x < sqrt(2)
     if (hx < 0x3FDA827A or hx >> 31 != 0) {
-        // x <= -1.0
-        if (hx >= 0xBFF00000) {
+        // x = -1.0
+        if (ix == 0xBFF0000000000000)
             // log1p(-1) = -inf
-            if (x == -1.0) {
-                return -math.inf(f64);
-            }
+            return x / 0.0;
+        // x < -1.0
+        if (hx >= 0xBFF00000)
             // log1p(x < -1) = nan
-            else {
-                return math.nan(f64);
-            }
-        }
+            return (x - x) / 0.0;
         // |x| < 2^(-53)
         if ((hx << 1) < (0x3CA00000 << 1)) {
             if ((hx & 0x7FF00000) == 0) {
-                math.raiseUnderflow();
+                mem.doNotOptimizeAway(@as(f32, @floatCast(x)));
             }
             return x;
         }

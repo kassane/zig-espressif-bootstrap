@@ -626,6 +626,7 @@ pub const Clobbers = switch (@import("builtin").cpu.arch) {
         s30: bool = false,
         s31: bool = false,
 
+        // ESP32-S3 HIFI SIMD: 128-bit vector registers Q0–Q7 (XtensaRegisterInfo.td Q0-Q7)
         q0: bool = false,
         q1: bool = false,
         q2: bool = false,
@@ -634,14 +635,26 @@ pub const Clobbers = switch (@import("builtin").cpu.arch) {
         q5: bool = false,
         q6: bool = false,
         q7: bool = false,
-        q8: bool = false,
-        q9: bool = false,
-        q10: bool = false,
-        q11: bool = false,
-        q12: bool = false,
-        q13: bool = false,
-        q14: bool = false,
-        q15: bool = false,
+
+        // ESP32-S3 accumulators and special registers (ESP32S3R class)
+        accx_0: bool = false,
+        accx_1: bool = false,
+        qacc_h_0: bool = false,
+        qacc_h_1: bool = false,
+        qacc_h_2: bool = false,
+        qacc_h_3: bool = false,
+        qacc_h_4: bool = false,
+        qacc_l_0: bool = false,
+        qacc_l_1: bool = false,
+        qacc_l_2: bool = false,
+        qacc_l_3: bool = false,
+        qacc_l_4: bool = false,
+        sar_byte: bool = false,
+        fft_bit_width: bool = false,
+        ua_state_0: bool = false,
+        ua_state_1: bool = false,
+        ua_state_2: bool = false,
+        ua_state_3: bool = false,
     },
     .riscv32, .riscv32be, .riscv64, .riscv64be => packed struct {
         /// Whether the inline assembly code may perform stores to memory
@@ -824,6 +837,24 @@ pub const Clobbers = switch (@import("builtin").cpu.arch) {
         v29: bool = false,
         v30: bool = false,
         v31: bool = false,
+
+        // ESP32-P4 (xespv/xespdsp): 128-bit vector registers Q0–Q7
+        q0: bool = false,
+        q1: bool = false,
+        q2: bool = false,
+        q3: bool = false,
+        q4: bool = false,
+        q5: bool = false,
+        q6: bool = false,
+        q7: bool = false,
+
+        // ESP32-P4 (xespv): 512-bit QACC accumulator and sub-registers
+        qacc_l: bool = false,
+        qacc_h: bool = false,
+        qacc: bool = false,
+
+        // ESP32-P4 (xespdsp): 40-bit XACC accumulator
+        xacc: bool = false,
     },
     .xcore => packed struct {
         /// Whether the inline assembly code may perform stores to memory
