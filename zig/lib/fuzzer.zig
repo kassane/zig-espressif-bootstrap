@@ -340,7 +340,7 @@ const Fuzzer = struct {
             quality_buf: []Input.Best,
             input_buf: []Input.Best.Map,
         },
-        seen_uids: std.ArrayHashMapUnmanaged(Uid, struct {
+        seen_uids: std.array_hash_map.Custom(Uid, struct {
             slices: union {
                 ints: std.ArrayList([]u64),
                 bytes: std.ArrayList(Input.Data.Bytes),
@@ -505,7 +505,7 @@ const Fuzzer = struct {
                 }
             };
 
-            pub const UidSlices = std.ArrayHashMapUnmanaged(Uid, struct {
+            pub const UidSlices = std.array_hash_map.Custom(Uid, struct {
                 base: u32,
                 len: u32,
             }, Uid.hashmap_ctx, false);
@@ -584,7 +584,7 @@ const Fuzzer = struct {
         };
 
         pub const Builder = struct {
-            uid_slices: std.ArrayHashMapUnmanaged(Uid, union {
+            uid_slices: std.array_hash_map.Custom(Uid, union {
                 ints: std.MultiArrayList(struct {
                     value: u64,
                     order_i: u32,

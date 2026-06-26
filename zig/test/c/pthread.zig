@@ -7,6 +7,7 @@ const testing = std.testing;
 
 test "pthread_spinlock_t" {
     if (builtin.target.os.tag.isDarwin()) return; // Darwin doesn't have `pthread_spin_*`
+    if (builtin.target.os.tag == .windows and builtin.target.abi != .gnu) return; // winpthreads-only
 
     var spin: c.pthread_spinlock_t = undefined;
     _ = c.pthread_spin_init(&spin, c.PTHREAD_PROCESS_PRIVATE);

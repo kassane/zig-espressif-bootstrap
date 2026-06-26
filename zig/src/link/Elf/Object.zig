@@ -282,7 +282,7 @@ pub fn validateEFlags(
                 );
             }
 
-            if (any_errors) return error.LinkFailure;
+            if (any_errors) return error.AlreadyReported;
         },
         else => {},
     }
@@ -829,7 +829,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
                     var err = try diags.addErrorWithNotes(1);
                     try err.addMsg("string not null terminated", .{});
                     err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
-                    return error.LinkFailure;
+                    return error.AlreadyReported;
                 }
                 end += sh_entsize;
                 const string = data[start..end];
@@ -844,7 +844,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("size not a multiple of sh_entsize", .{});
                 err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
-                return error.LinkFailure;
+                return error.AlreadyReported;
             }
 
             var pos: u32 = 0;
@@ -873,7 +873,7 @@ pub fn initOutputMergeSections(self: *Object, elf_file: *Elf) !void {
 }
 
 pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
-    LinkFailure,
+    AlreadyReported,
     OutOfMemory,
     /// TODO report the error and remove this
     Overflow,
@@ -925,7 +925,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
             try err.addMsg("invalid symbol value: {x}", .{esym.st_value});
             err.addNote("for symbol {s}", .{sym.name(elf_file)});
             err.addNote("in {f}", .{self.fmtPath()});
-            return error.LinkFailure;
+            return error.AlreadyReported;
         };
 
         sym.ref = .{ .index = res.msub_index, .file = imsec.merge_section_index };
@@ -950,7 +950,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("invalid relocation at offset 0x{x}", .{rel.r_offset});
                 err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
-                return error.LinkFailure;
+                return error.AlreadyReported;
             };
 
             const sym_index = try self.addSymbol(gpa);

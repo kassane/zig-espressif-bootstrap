@@ -1171,7 +1171,7 @@ const LinuxThreadImpl = struct {
                       [len] "{ecx}" (self.mapped.len),
                 ),
                 .x86_64 => asm volatile (switch (target.abi) {
-                        .gnux32, .muslx32 =>
+                        .gnux32, .muslx32, .x32 =>
                         \\  movl $0x4000000b, %%eax # SYS_munmap
                         \\  syscall
                         \\  movl $0x4000003c, %%eax # SYS_exit
@@ -1264,7 +1264,7 @@ const LinuxThreadImpl = struct {
                     \\ ori r12, r0, 91 # SYS_munmap
                     \\ brki r14, 0x8
                     \\ ori r12, r0, 1 # SYS_exit
-                    \\ or r5, r0, r0
+                    \\ ori r5, r0, 0
                     \\ brki r14, 0x8
                     :
                     : [ptr] "{r5}" (@intFromPtr(self.mapped.ptr)),
@@ -1286,7 +1286,7 @@ const LinuxThreadImpl = struct {
                       [len] "{$5}" (self.mapped.len),
                 ),
                 .mips64, .mips64el => asm volatile (switch (target.abi) {
-                        .gnuabin32, .muslabin32 =>
+                        .gnuabin32, .muslabin32, .abin32 =>
                         \\ li $v0, 6011 # SYS_munmap
                         \\ syscall
                         \\ li $v0, 6058 # SYS_exit
@@ -1376,7 +1376,7 @@ const LinuxThreadImpl = struct {
                     \\  mov %%g1, %%o0 // ptr
                     \\  mov %%g2, %%o1 // len
                     \\  mov 73, %%g1 // SYS_munmap
-                    \\  t 0x3 # ST_FLUSH_WINDOWS
+                    \\  t 0x3 // ST_FLUSH_WINDOWS
                     \\  t 0x10
                     \\  mov 1, %%g1 // SYS_exit
                     \\  mov 0, %%o0

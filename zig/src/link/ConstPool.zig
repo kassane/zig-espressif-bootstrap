@@ -15,10 +15,10 @@
 /// * ensure that any `get` call is eventually followed by a `flushPending` call
 const ConstPool = @This();
 
-values: std.AutoArrayHashMapUnmanaged(InternPool.Index, void),
+values: std.array_hash_map.Auto(InternPool.Index, void),
 pending: std.ArrayList(Index),
-complete_containers: std.AutoArrayHashMapUnmanaged(InternPool.Index, void),
-container_deps: std.AutoArrayHashMapUnmanaged(InternPool.Index, ContainerDepEntry.Index),
+complete_containers: std.array_hash_map.Auto(InternPool.Index, void),
+container_deps: std.array_hash_map.Auto(InternPool.Index, ContainerDepEntry.Index),
 container_dep_entries: std.ArrayList(ContainerDepEntry),
 
 pub const empty: ConstPool = .{
@@ -196,6 +196,7 @@ fn checkType(pool: *const ConstPool, ty: Type, zcu: *const Zcu) bool {
         .null,
         .error_set,
         .@"opaque",
+        .spirv,
         .frame,
         .@"anyframe",
         .enum_literal,
@@ -241,6 +242,7 @@ fn registerTypeDeps(pool: *ConstPool, root: Index, ty: Type, zcu: *const Zcu) Al
         .null,
         .error_set,
         .@"opaque",
+        .spirv,
         .frame,
         .@"anyframe",
         .enum_literal,

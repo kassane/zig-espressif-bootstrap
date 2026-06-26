@@ -37,6 +37,7 @@ comptime {
         symbol(&hypotf, "hypotf");
         symbol(&hypotl, "hypotl");
         symbol(&lrintl, "lrintl");
+        symbol(&lroundl, "lroundl");
         symbol(&modfl, "modfl");
         symbol(&rintl, "rintl");
     }
@@ -76,6 +77,8 @@ comptime {
         symbol(&log1pf, "log1pf");
         symbol(&lrint, "lrint");
         symbol(&lrintf, "lrintf");
+        symbol(&lround, "lround");
+        symbol(&lroundf, "lroundf");
         symbol(&modf, "modf");
         symbol(&nan, "nan");
         symbol(&nanf, "nanf");
@@ -276,6 +279,18 @@ fn lrintf(x: f32) callconv(.c) c_long {
 
 fn lrintl(x: c_longdouble) callconv(.c) c_long {
     return @trunc(rintl(x));
+}
+
+fn lround(x: f64) callconv(.c) c_long {
+    return @round(x);
+}
+
+fn lroundf(x: f32) callconv(.c) c_long {
+    return @round(x);
+}
+
+fn lroundl(x: c_longdouble) callconv(.c) c_long {
+    return @round(x);
 }
 
 fn modfGeneric(comptime T: type, x: T, iptr: *T) T {

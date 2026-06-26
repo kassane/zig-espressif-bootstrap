@@ -207,11 +207,6 @@ pub fn createEmpty(
     const output_mode = comp.config.output_mode;
     const optimize_mode = comp.root_mod.optimize_mode;
 
-    const obj_file_ext: []const u8 = switch (target.ofmt) {
-        .coff => "obj",
-        .elf, .wasm => "o",
-        else => unreachable,
-    };
     const gc_sections: bool = options.gc_sections orelse switch (target.ofmt) {
         .coff => optimize_mode != .Debug,
         .elf => optimize_mode != .Debug and output_mode != .Obj,
@@ -230,7 +225,6 @@ pub fn createEmpty(
             .tag = .lld,
             .comp = comp,
             .emit = emit,
-            .zcu_object_basename = try allocPrint(arena, "{s}_zcu.{s}", .{ fs.path.stem(emit.sub_path), obj_file_ext }),
             .gc_sections = gc_sections,
             .print_gc_sections = options.print_gc_sections,
             .stack_size = stack_size,
@@ -255,7 +249,7 @@ pub fn flush(
     arena: Allocator,
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
-) link.File.FlushError!void {
+) link.Error!void {
     dev.check(.lld_linker);
     _ = tid;
 
@@ -277,7 +271,7 @@ pub fn flush(
         .wasm => wasmLink(lld, arena),
     };
     result catch |err| switch (err) {
-        error.OutOfMemory, error.LinkFailure => |e| return e,
+        error.OutOfMemory, error.AlreadyReported => |e| return e,
         else => |e| return lld.base.comp.link_diags.fail("failed to link with LLD: {t}", .{e}),
     };
 }
@@ -290,8 +284,8 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
     const full_out_path_z = try arena.dupeSentinel(u8, full_out_path, 0);
     const opt_zcu = comp.zcu;
 
-    const zcu_obj_path: ?Cache.Path = if (opt_zcu != null) p: {
-        break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
+    const zcu_obj_path: ?Cache.Path = if (opt_zcu) |zcu| p: {
+        break :p try comp.resolveEmitPathFlush(arena, .temp, zcu.llvm_object.?.out_bin_basename);
     } else null;
 
     log.debug("zcu_obj_path={?f}", .{zcu_obj_path});
@@ -310,23 +304,25 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
     // insight as to what's going on here you can read that function body which is more
     // well-commented.
 
-    const link_inputs = comp.link_inputs;
-
     var object_files: std.ArrayList([*:0]const u8) = .empty;
 
-    try object_files.ensureUnusedCapacity(arena, link_inputs.len);
-    for (link_inputs) |input| {
-        object_files.appendAssumeCapacity(try input.path().?.toStringZ(arena));
-    }
+    try object_files.ensureUnusedCapacity(arena, comp.link_inputs.len);
+    for (comp.link_inputs) |input| switch (input) {
+        .res, .dso, .dso_exact => {}, // shared libraries should not be included in static archives
+        .object, .archive => {
+            const path = try input.path().?.toStringZ(arena);
+            object_files.appendAssumeCapacity(path);
+        },
+    };
 
-    try object_files.ensureUnusedCapacity(arena, comp.c_object_table.count() +
-        comp.win32_resource_table.count() + 2);
+    try object_files.ensureUnusedCapacity(arena, comp.c_objects.items.len +
+        comp.win32_resources.items.len + 2);
 
-    for (comp.c_object_table.keys()) |key| {
-        object_files.appendAssumeCapacity(try key.status.success.object_path.toStringZ(arena));
+    for (comp.c_objects.items) |c_object| {
+        object_files.appendAssumeCapacity(try c_object.status.success.object_path.toStringZ(arena));
     }
-    for (comp.win32_resource_table.keys()) |key| {
-        object_files.appendAssumeCapacity(try arena.dupeSentinel(u8, key.status.success.res_path, 0));
+    for (comp.win32_resources.items) |win32_resource| {
+        object_files.appendAssumeCapacity(try arena.dupeSentinel(u8, win32_resource.status.success.res_path, 0));
     }
     if (zcu_obj_path) |p| object_files.appendAssumeCapacity(try p.toStringZ(arena));
     if (compiler_rt_path) |p| object_files.appendAssumeCapacity(try p.toStringZ(arena));
@@ -376,8 +372,8 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
     const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
 
-    const zcu_obj_path: ?Cache.Path = if (comp.zcu != null) p: {
-        break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
+    const zcu_obj_path: ?Cache.Path = if (comp.zcu) |zcu| p: {
+        break :p try comp.resolveEmitPathFlush(arena, .temp, zcu.llvm_object.?.out_bin_basename);
     } else null;
 
     const is_lib = comp.config.output_mode == .Lib;
@@ -401,8 +397,8 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
         const the_object_path = blk: {
             if (link.firstObjectInput(comp.link_inputs)) |obj| break :blk obj.path;
 
-            if (comp.c_object_table.count() != 0)
-                break :blk comp.c_object_table.keys()[0].status.success.object_path;
+            if (comp.c_objects.items.len != 0)
+                break :blk comp.c_objects.items[0].status.success.object_path;
 
             if (zcu_obj_path) |p|
                 break :blk p;
@@ -552,12 +548,12 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
             },
         };
 
-        for (comp.c_object_table.keys()) |key| {
-            try argv.append(try key.status.success.object_path.toString(arena));
+        for (comp.c_objects.items) |c_object| {
+            try argv.append(try c_object.status.success.object_path.toString(arena));
         }
 
-        for (comp.win32_resource_table.keys()) |key| {
-            try argv.append(key.status.success.res_path);
+        for (comp.win32_resources.items) |win32_resource| {
+            try argv.append(win32_resource.status.success.res_path);
         }
 
         if (zcu_obj_path) |p| {
@@ -766,8 +762,8 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
     const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
 
-    const zcu_obj_path: ?Cache.Path = if (comp.zcu != null) p: {
-        break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
+    const zcu_obj_path: ?Cache.Path = if (comp.zcu) |zcu| p: {
+        break :p try comp.resolveEmitPathFlush(arena, .temp, zcu.llvm_object.?.out_bin_basename);
     } else null;
 
     const output_mode = comp.config.output_mode;
@@ -811,8 +807,8 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
         const the_object_path = blk: {
             if (link.firstObjectInput(comp.link_inputs)) |obj| break :blk obj.path;
 
-            if (comp.c_object_table.count() != 0)
-                break :blk comp.c_object_table.keys()[0].status.success.object_path;
+            if (comp.c_objects.items.len != 0)
+                break :blk comp.c_objects.items[0].status.success.object_path;
 
             if (zcu_obj_path) |p|
                 break :blk p;
@@ -1105,8 +1101,8 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             whole_archive = false;
         }
 
-        for (comp.c_object_table.keys()) |key| {
-            try argv.append(try key.status.success.object_path.toString(arena));
+        for (comp.c_objects.items) |c_object| {
+            try argv.append(try c_object.status.success.object_path.toString(arena));
         }
 
         if (zcu_obj_path) |p| {
@@ -1301,21 +1297,21 @@ fn getLDMOption(target: *const std.Target) ?[]const u8 {
         },
         .mips64 => switch (target.os.tag) {
             .freebsd => switch (target.abi) {
-                .gnuabin32, .muslabin32 => "elf32btsmipn32_fbsd",
+                .gnuabin32, .muslabin32, .abin32 => "elf32btsmipn32_fbsd",
                 else => "elf64btsmip_fbsd",
             },
             else => switch (target.abi) {
-                .gnuabin32, .muslabin32 => "elf32btsmipn32",
+                .gnuabin32, .muslabin32, .abin32 => "elf32btsmipn32",
                 else => "elf64btsmip",
             },
         },
         .mips64el => switch (target.os.tag) {
             .freebsd => switch (target.abi) {
-                .gnuabin32, .muslabin32 => "elf32ltsmipn32_fbsd",
+                .gnuabin32, .muslabin32, .abin32 => "elf32ltsmipn32_fbsd",
                 else => "elf64ltsmip_fbsd",
             },
             else => switch (target.abi) {
-                .gnuabin32, .muslabin32 => "elf32ltsmipn32",
+                .gnuabin32, .muslabin32, .abin32 => "elf32ltsmipn32",
                 else => "elf64ltsmip",
             },
         },
@@ -1342,7 +1338,7 @@ fn getLDMOption(target: *const std.Target) ?[]const u8 {
             else => "elf_i386",
         },
         .x86_64 => switch (target.abi) {
-            .gnux32, .muslx32 => "elf32_x86_64",
+            .gnux32, .muslx32, .x32 => "elf32_x86_64",
             else => "elf_x86_64",
         },
         else => null,
@@ -1364,8 +1360,8 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
     const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
 
-    const zcu_obj_path: ?Cache.Path = if (comp.zcu != null) p: {
-        break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
+    const zcu_obj_path: ?Cache.Path = if (comp.zcu) |zcu| p: {
+        break :p try comp.resolveEmitPathFlush(arena, .temp, zcu.llvm_object.?.out_bin_basename);
     } else null;
 
     const is_obj = comp.config.output_mode == .Obj;
@@ -1387,8 +1383,8 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
         const the_object_path = blk: {
             if (link.firstObjectInput(comp.link_inputs)) |obj| break :blk obj.path;
 
-            if (comp.c_object_table.count() != 0)
-                break :blk comp.c_object_table.keys()[0].status.success.object_path;
+            if (comp.c_objects.items.len != 0)
+                break :blk comp.c_objects.items[0].status.success.object_path;
 
             if (zcu_obj_path) |p|
                 break :blk p;
@@ -1572,8 +1568,8 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
             whole_archive = false;
         }
 
-        for (comp.c_object_table.keys()) |key| {
-            try argv.append(try key.status.success.object_path.toString(arena));
+        for (comp.c_objects.items) |c_object| {
+            try argv.append(try c_object.status.success.object_path.toString(arena));
         }
         if (zcu_obj_path) |p| {
             try argv.append(try p.toString(arena));
@@ -1620,7 +1616,7 @@ fn spawnLld(comp: *Compilation, arena: Allocator, argv: []const []const u8) !voi
         const exit_code = try lldMain(arena, argv, false);
         if (exit_code == 0) return;
         if (comp.clang_passthrough_mode) std.process.exit(exit_code);
-        return error.LinkFailure;
+        return error.AlreadyReported;
     }
 
     var stderr: []u8 = &.{};
@@ -1720,7 +1716,7 @@ fn spawnLld(comp: *Compilation, arena: Allocator, argv: []const []const u8) !voi
         .exited => |code| if (code != 0) {
             if (comp.clang_passthrough_mode) std.process.exit(code);
             diags.lockAndParseLldStderr(argv[1], stderr);
-            return error.LinkFailure;
+            return error.AlreadyReported;
         },
         .signal => |sig| {
             if (comp.clang_passthrough_mode) std.process.abort();

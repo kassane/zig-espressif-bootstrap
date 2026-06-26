@@ -488,12 +488,19 @@ fn analyzeInst(
         => return analyzeFuncEnd(a, pass, data, inst, .{ .none, .none, .none }),
 
         .not,
-        .bitcast,
+        .bit_cast,
+        .ptr_cast,
+        .ptr_from_int,
+        .int_from_ptr,
+        .error_cast,
+        .error_from_int,
+        .int_from_error,
+        .union_from_enum,
         .load,
         .fpext,
         .fptrunc,
-        .intcast,
-        .intcast_safe,
+        .int_cast,
+        .int_cast_safe,
         .trunc,
         .optional_payload,
         .optional_payload_ptr,
@@ -673,7 +680,7 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.UnionInit, inst_datas[@intFromEnum(inst)].ty_pl.payload).data;
             return analyzeOperands(a, pass, data, inst, .{ extra.init, .none, .none });
         },
-        .struct_field_ptr, .struct_field_val => {
+        .struct_field_ptr, .struct_field_val, .spirv_runtime_array_len => {
             const extra = a.air.extraData(Air.StructField, inst_datas[@intFromEnum(inst)].ty_pl.payload).data;
             return analyzeOperands(a, pass, data, inst, .{ extra.struct_operand, .none, .none });
         },

@@ -351,7 +351,7 @@ pub const Manifest = struct {
         };
     };
 
-    pub const Files = std.ArrayHashMapUnmanaged(File, void, FilesContext, false);
+    pub const Files = std.array_hash_map.Custom(File, void, FilesContext, false);
 
     pub const FilesContext = struct {
         pub fn hash(fc: FilesContext, file: File) u32 {

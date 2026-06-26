@@ -8,3 +8,4 @@ export fn a() void {
 //
 // :4:6: error: type 'tmp.a.S' does not support indexing
 // :4:6: note: operand must be an array, slice, tuple, or vector
+// :2:15: note: struct declared here

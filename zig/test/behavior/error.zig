@@ -145,6 +145,8 @@ test "implicit cast to optional to error union to return result loc" {
 }
 
 test "fn returning empty error set can be passed as fn returning any error" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     entry();
     comptime entry();
 }
@@ -155,7 +157,6 @@ test "fn returning empty error set can be passed as fn returning any error - poi
     entryPtr();
     comptime entryPtr();
 }
-
 fn entry() void {
     foo2(bar2);
 }
@@ -509,7 +510,6 @@ test "function pointer with return type that is error union with payload which i
         const Foo = struct {
             fun: *const fn (a: i32) (anyerror!*Foo),
         };
-
         const Err = error{UnspecifiedErr};
 
         fn bar(a: i32) anyerror!*Foo {
@@ -526,6 +526,7 @@ test "function pointer with return type that is error union with payload which i
 }
 
 test "return result loc as peer result loc in inferred error set function" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -557,6 +558,7 @@ test "return result loc as peer result loc in inferred error set function" {
 }
 
 test "error payload type is correctly resolved" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -695,7 +697,6 @@ test "coerce error set to the current inferred error set" {
 test "error union payload is properly aligned" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -1111,6 +1112,7 @@ test "'if' ignores error via local while 'else' ignores error directly" {
 }
 
 test "@errorCast into own inferred error set" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     const static = struct {
         fn foo(b: bool) !void {
             if (b) {

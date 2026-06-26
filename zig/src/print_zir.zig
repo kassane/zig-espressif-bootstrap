@@ -204,6 +204,8 @@ const Writer = struct {
             .ensure_result_used,
             .ensure_result_non_error,
             .ensure_err_union_payload_void,
+            .deref,
+            .ref_deref,
             .ret_node,
             .ret_load,
             .resolve_inferred_alloc,
@@ -260,7 +262,6 @@ const Writer = struct {
             .bit_reverse,
             .@"resume",
             .make_ptr_const,
-            .validate_deref,
             .validate_const,
             .check_comptime_control_flow,
             .opt_eu_base_ptr_init,
@@ -679,6 +680,16 @@ const Writer = struct {
                 try self.writeInstRef(stream, extra.field_names);
                 try stream.writeAll(", ");
                 try self.writeInstRef(stream, extra.field_values);
+                try stream.writeAll(")) ");
+                const prev_parent_decl_node = self.parent_decl_node;
+                self.parent_decl_node = extra.node;
+                defer self.parent_decl_node = prev_parent_decl_node;
+                try self.writeSrcNode(stream, .zero);
+            },
+            .reify_spirv_type => {
+                const extra = self.code.extraData(Zir.Inst.ReifySpirvType, extended.operand).data;
+                try stream.print("line({d}), ", .{extra.src_line});
+                try self.writeInstRef(stream, extra.operand);
                 try stream.writeAll(")) ");
                 const prev_parent_decl_node = self.parent_decl_node;
                 self.parent_decl_node = extra.node;

@@ -772,7 +772,40 @@ test "parseFromTokenSource" {
 }
 
 test "max_value_len" {
-    try testing.expectError(error.ValueTooLong, parseFromSlice([]u8, testing.allocator, "\"0123456789\"", .{ .max_value_len = 5 }));
+    try testMaxValueLen([]u8, .alloc_if_needed);
+    try testMaxValueLen([]const u8, .alloc_always);
+    try testMaxValueLen([:0]u8, .alloc_if_needed);
+    try testMaxValueLen([:0]const u8, .alloc_if_needed);
+
+    // If the value can be returned as a reference to the buffer, max_value_len doesn't apply.
+    {
+        const parsed = try parseFromSlice([]const u8, testing.allocator, "\"123\"", .{ .max_value_len = 1 });
+        defer parsed.deinit();
+        try testing.expectEqualStrings("123", parsed.value);
+    }
+    // If the value is returned as a number without needing intermediate allocations, max_value_len doesn't apply.
+    {
+        const parsed = try parseFromSlice(u32, testing.allocator, "\"001\"", .{ .max_value_len = 1 });
+        defer parsed.deinit();
+        try testing.expectEqual(1, parsed.value);
+    }
+}
+
+fn testMaxValueLen(comptime T: type, when: Scanner.AllocWhen) !void {
+    const parsed = try parseFromSlice(T, testing.allocator, "\"12345\"", .{
+        .max_value_len = 5,
+        .allocate = when,
+    });
+    defer parsed.deinit();
+    try testing.expectEqualStrings("12345", parsed.value);
+
+    try testing.expectError(
+        error.ValueTooLong,
+        parseFromSlice(T, testing.allocator, "\"123456\"", .{
+            .max_value_len = 5,
+            .allocate = when,
+        }),
+    );
 }
 
 test "parse into vector" {

@@ -245,7 +245,7 @@ pub fn getMembers(
     };
     var renames: std.ArrayList(DeferredExport) = .empty;
     defer renames.deinit(allocator);
-    var regular_imports: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
+    var regular_imports: std.array_hash_map.String([]const u8) = .empty;
     defer regular_imports.deinit(allocator);
 
     for (module_def.exports.items) |*e| {
@@ -1012,7 +1012,7 @@ fn getShortImport(
 fn writeSymbol(writer: *std.Io.Writer, symbol: std.coff.Symbol) !void {
     try writer.writeAll(&symbol.name);
     try writer.writeInt(u32, symbol.value, .little);
-    try writer.writeInt(u16, @intFromEnum(symbol.section_number), .little);
+    try writer.writeInt(i16, @intFromEnum(symbol.section_number), .little);
     try writer.writeInt(u8, @intFromEnum(symbol.type.base_type), .little);
     try writer.writeInt(u8, @intFromEnum(symbol.type.complex_type), .little);
     try writer.writeInt(u8, @intFromEnum(symbol.storage_class), .little);

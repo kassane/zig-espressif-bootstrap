@@ -66,7 +66,7 @@ pub fn make(
 
     var prev_search_strategy: std.Build.Module.SystemLib.SearchStrategy = .paths_first;
     var prev_preferred_link_mode: std.builtin.LinkMode = .dynamic;
-    var seen_system_libs: std.AutoArrayHashMapUnmanaged(Configuration.String, []const []const u8) = .empty;
+    var seen_system_libs: std.array_hash_map.Auto(Configuration.String, []const []const u8) = .empty;
 
     for (conf_tc.system_libs.slice) |system_lib_index| {
         const system_lib = system_lib_index.get(conf);

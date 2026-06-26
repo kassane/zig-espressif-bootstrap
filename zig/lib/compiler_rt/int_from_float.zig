@@ -6,30 +6,14 @@ const compiler_rt = @import("../compiler_rt.zig");
 const symbol = compiler_rt.symbol;
 
 comptime {
-    if (compiler_rt.want_windows_v2u64_abi) {
-        symbol(&__fixxfti_windows_x86_64, "__fixxfti");
-    } else {
-        symbol(&__fixxfti, "__fixxfti");
-    }
-
+    symbol(&__fixxfti, "__fixxfti");
     symbol(&__fixhfsi, "__fixhfsi");
     symbol(&__fixhfdi, "__fixhfdi");
-
-    if (compiler_rt.want_windows_v2u64_abi) {
-        symbol(&__fixhfti_windows_x86_64, "__fixhfti");
-    } else {
-        symbol(&__fixhfti, "__fixhfti");
-    }
+    symbol(&__fixhfti, "__fixhfti");
 }
-
-const v2u64 = @Vector(2, u64);
 
 pub fn __fixhfti(a: f16) callconv(.c) i128 {
     return intFromFloat(i128, a);
-}
-
-fn __fixhfti_windows_x86_64(a: f16) callconv(.c) v2u64 {
-    return @bitCast(intFromFloat(i128, a));
 }
 
 fn __fixhfdi(a: f16) callconv(.c) i64 {
@@ -42,10 +26,6 @@ fn __fixhfsi(a: f16) callconv(.c) i32 {
 
 pub fn __fixxfti(a: f80) callconv(.c) i128 {
     return intFromFloat(i128, a);
-}
-
-fn __fixxfti_windows_x86_64(a: f80) callconv(.c) v2u64 {
-    return @bitCast(intFromFloat(i128, a));
 }
 
 pub inline fn intFromFloat(comptime I: type, a: anytype) I {
@@ -100,10 +80,18 @@ pub inline fn bigIntFromFloat(comptime signedness: std.builtin.Signedness, resul
     switch (result.len) {
         0 => return,
         inline 1...4 => |limbs_len| {
-            result[0..limbs_len].* = @bitCast(@as(
-                @Int(signedness, 32 * limbs_len),
-                @intFromFloat(a),
-            ));
+            const I = @Int(signedness, 32 * limbs_len);
+            const low_to_high: [limbs_len]u32 = @bitCast(@as(I, @intFromFloat(a)));
+            result[0..limbs_len].* = switch (@import("builtin").cpu.arch.endian()) {
+                .little => low_to_high,
+                .big => switch (limbs_len) {
+                    1 => .{low_to_high[0]},
+                    2 => .{ low_to_high[1], low_to_high[0] },
+                    3 => .{ low_to_high[2], low_to_high[1], low_to_high[0] },
+                    4 => .{ low_to_high[3], low_to_high[2], low_to_high[1], low_to_high[0] },
+                    else => comptime unreachable,
+                },
+            };
             return;
         },
         else => {},

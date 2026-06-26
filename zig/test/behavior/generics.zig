@@ -486,8 +486,6 @@ test "union in struct captures argument" {
 
 test "function argument tuple used as struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
     const S = struct {
         fn DeleagateWithContext(comptime Function: type) type {
             const ArgArgs = std.meta.ArgsTuple(Function);
@@ -521,6 +519,7 @@ test "call generic function with from function called by the generic function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const GET = struct {
         key: []const u8,

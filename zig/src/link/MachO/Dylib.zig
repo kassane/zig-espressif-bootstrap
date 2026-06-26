@@ -14,7 +14,7 @@ symbols: std.ArrayList(Symbol) = .empty,
 symbols_extra: std.ArrayList(u32) = .empty,
 globals: std.ArrayList(MachO.SymbolResolver.Index) = .empty,
 dependents: std.ArrayList(Id) = .empty,
-rpaths: std.StringArrayHashMapUnmanaged(void) = .empty,
+rpaths: std.array_hash_map.String(void) = .empty,
 umbrella: File.Index,
 platform: ?MachO.Platform = null,
 

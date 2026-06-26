@@ -216,6 +216,74 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
         },
     );
     db.addLldbTest(
+        "types",
+        target,
+        &.{
+            .{
+                .path = "types.zig",
+                .source =
+                \\fn testTypes(
+                \\    Anyopaque: type,
+                \\    Bool: type,
+                \\    Void: type,
+                \\    Type: type,
+                \\    ComptimeInt: type,
+                \\    ComptimeFloat: type,
+                \\    Noreturn: type,
+                \\    Null: type,
+                \\    Undefined: type,
+                \\    EnumLiteral: type,
+                \\) void {
+                \\    _ = Anyopaque;
+                \\    _ = Bool;
+                \\    _ = Void;
+                \\    _ = Type;
+                \\    _ = ComptimeInt;
+                \\    _ = ComptimeFloat;
+                \\    _ = Noreturn;
+                \\    _ = Null;
+                \\    _ = Undefined;
+                \\    _ = EnumLiteral;
+                \\}
+                \\pub fn main() void {
+                \\    testTypes(
+                \\        anyopaque,
+                \\        bool,
+                \\        void,
+                \\        type,
+                \\        comptime_int,
+                \\        comptime_float,
+                \\        noreturn,
+                \\        @TypeOf(null),
+                \\        @TypeOf(undefined),
+                \\        @EnumLiteral(),
+                \\    );
+                \\}
+                ,
+            },
+        },
+        \\breakpoint set --file types.zig --source-pattern-regexp '_ = Undefined;'
+        \\process launch
+        \\frame variable --show-all-children --show-types -- Anyopaque Bool Void Type ComptimeInt ComptimeFloat Noreturn Null Undefined EnumLiteral
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable --show-all-children --show-types -- Anyopaque Bool Void Type ComptimeInt ComptimeFloat Noreturn Null Undefined EnumLiteral
+            \\(type) Anyopaque = anyopaque
+            \\(type) Bool = bool
+            \\(type) Void = void
+            \\(type) Type = type
+            \\(type) ComptimeInt = comptime_int
+            \\(type) ComptimeFloat = comptime_float
+            \\(type) Noreturn = noreturn
+            \\(type) Null = @TypeOf(null)
+            \\(type) Undefined = @TypeOf(undefined)
+            \\(type) EnumLiteral = @EnumLiteral()
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
         "pointers",
         target,
         &.{
@@ -464,7 +532,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
     ,
         &.{
             \\(lldb) expression --show-types -- Enums
-            \\(type) Enums = struct {
+            \\(type) $0 = struct {
             \\  (type) Zero = enum {}
             \\  (type) One = enum {
             \\    (root.enums.Enums.One) first = .first
@@ -528,7 +596,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
     ,
         &.{
             \\(lldb) expression --show-types -- Errors
-            \\(type) Errors = struct {
+            \\(type) $0 = struct {
             \\  (type) Zero = error {}
             \\  (type) One = error {
             \\    (error{One}) One = error.One
@@ -661,7 +729,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
     ,
         &.{
             \\(lldb) expression --show-types -- Unions
-            \\(type) Unions = struct {
+            \\(type) $0 = struct {
             \\  (type) Untagged = union {}
             \\  (type) SafetyTagged = union(enum) {
             \\    (@typeInfo(unions.Unions.SafetyTagged).@"union".tag_type.?) void = .void

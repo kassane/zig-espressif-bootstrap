@@ -35,11 +35,11 @@ cc_argv: []const []const u8,
 structured_cfg: bool,
 no_builtin: bool,
 
-pub const Deps = std.StringArrayHashMapUnmanaged(*Module);
+pub const Deps = std.array_hash_map.String(*Module);
 
 pub const Tree = struct {
     /// Each `Package` exposes a `Module` with build.zig as its root source file.
-    build_module_table: std.AutoArrayHashMapUnmanaged(MultiHashHexDigest, *Module),
+    build_module_table: std.array_hash_map.Auto(MultiHashHexDigest, *Module),
 };
 
 pub const CreateOptions = struct {

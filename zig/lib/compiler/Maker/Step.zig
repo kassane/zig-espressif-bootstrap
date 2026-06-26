@@ -180,7 +180,7 @@ pub const Inputs = struct {
         .table = .{},
     };
 
-    pub const Table = std.ArrayHashMapUnmanaged(Path, Files, Path.TableAdapter, false);
+    pub const Table = std.array_hash_map.Custom(Path, Files, Path.TableAdapter, false);
     /// The special file name "." means any changes inside the directory.
     pub const Files = std.ArrayList([]const u8);
 

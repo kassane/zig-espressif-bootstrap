@@ -23,7 +23,7 @@ const Tree = @import("Tree.zig");
 const Token = Tree.Token;
 const TokenWithExpansionLocs = Tree.TokenWithExpansionLocs;
 
-const DefineMap = std.StringArrayHashMapUnmanaged(Macro);
+const DefineMap = std.array_hash_map.String(Macro);
 const RawTokenList = std.ArrayList(RawToken);
 const max_include_depth = 200;
 

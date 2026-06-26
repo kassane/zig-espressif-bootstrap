@@ -648,7 +648,7 @@ fn addSection(self: *InternalObject, allocator: Allocator, segname: []const u8, 
     return n_sect;
 }
 
-fn getSectionData(self: *const InternalObject, index: u32, macho_file: *MachO) error{LinkFailure}![]const u8 {
+fn getSectionData(self: *const InternalObject, index: u32, macho_file: *MachO) error{AlreadyReported}![]const u8 {
     const slice = self.sections.slice();
     assert(index < slice.items(.header).len);
     const sect = slice.items(.header)[index];

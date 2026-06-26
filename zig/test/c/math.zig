@@ -61,10 +61,13 @@ test "modf" {
 }
 
 test "modff" {
+    if (builtin.cpu.arch == .x86 and builtin.target.os.tag == .windows and builtin.target.abi != .gnu) return; // mingw-only
+
     try testModf(f32);
 }
 
 test "modfl" {
+    if (builtin.cpu.arch.isX86() and builtin.target.os.tag == .windows and builtin.target.abi != .gnu) return; // mingw-only
     if (builtin.target.cpu.arch.isPowerPC()) return error.SkipZigTest; // TODO: see https://codeberg.org/ziglang/zig/issues/30976
 
     try testModf(c_longdouble);

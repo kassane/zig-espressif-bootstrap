@@ -14,40 +14,14 @@ test {
     _ = TrailerFlags;
 }
 
-/// Returns the variant of an enum type, `T`, which is named `str`, or `null` if no such variant exists.
-pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
-    // Using StaticStringMap here is more performant, but it will start to take too
-    // long to compile if the enum is large enough, due to the current limits of comptime
-    // performance when doing things like constructing lookup maps at comptime.
-    // TODO The '100' here is arbitrary and should be increased when possible:
-    // - https://github.com/ziglang/zig/issues/4055
-    // - https://github.com/ziglang/zig/issues/3863
-    if (@typeInfo(T).@"enum".field_names.len <= 100) {
-        const kvs = comptime build_kvs: {
-            const EnumKV = struct { []const u8, T };
-            var kvs_array: [@typeInfo(T).@"enum".field_names.len]EnumKV = undefined;
-            for (@typeInfo(T).@"enum".field_names, 0..) |name, i| {
-                kvs_array[i] = .{ name, @field(T, name) };
-            }
-            break :build_kvs kvs_array[0..];
-        };
-        const map = std.StaticStringMap(T).initComptime(kvs);
-        return map.get(str);
-    } else {
-        inline for (@typeInfo(T).@"enum".field_names) |name| {
-            if (mem.eql(u8, str, name)) {
-                return @field(T, name);
-            }
-        }
-        return null;
-    }
+/// Returns the variant of an enum type corresponding to the provided tag name,
+/// or `null` if no such variant exists.
+pub fn stringToEnum(comptime T: type, tag_name: []const u8) ?T {
+    return std.StaticStringMap(T).initEnum().get(tag_name);
 }
 
 test stringToEnum {
-    const E1 = enum {
-        A,
-        B,
-    };
+    const E1 = enum { A, B };
     try testing.expect(E1.A == stringToEnum(E1, "A").?);
     try testing.expect(E1.B == stringToEnum(E1, "B").?);
     try testing.expect(null == stringToEnum(E1, "C"));
@@ -523,6 +497,15 @@ test DeclEnum {
     try expectEqualEnum(enum { a, b, c }, DeclEnum(B));
     try expectEqualEnum(enum { a, b, c }, DeclEnum(C));
     try expectEqualEnum(enum {}, DeclEnum(D));
+}
+
+pub fn BareUnion(comptime T: type) type {
+    const u = switch (@typeInfo(T)) {
+        .@"union" => |u| u,
+        else => @compileError("expected union type, found '" ++ @typeName(T) ++ "'"),
+    };
+
+    return @Union(u.layout, null, u.field_names, u.field_types[0..], u.field_attrs[0..]);
 }
 
 pub fn Tag(comptime T: type) type {

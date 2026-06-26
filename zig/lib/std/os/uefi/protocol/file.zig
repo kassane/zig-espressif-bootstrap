@@ -125,6 +125,22 @@ pub const File = extern struct {
         }
     }
 
+    pub fn readSize(self: *File) ReadError!usize {
+        const zerobuf: [0]u8 = undefined;
+        var size: usize = 0;
+        switch (self._read(self, &size, &zerobuf)) {
+            .success, .buffer_too_small => return size,
+            .no_media => return error.NoMedia,
+            .device_error => return error.DeviceError,
+            .volume_corrupted => return error.VolumeCorrupted,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
+    }
+
+    /// If `self` is a directory entry and `buffer` is too small to contain the
+    /// next entry, this function returns `Error.BufferTooSmall`. You can call
+    /// `readSize` before or after to determine how big the buffer should be to
+    /// call this function.
     pub fn read(self: *File, buffer: []u8) ReadError!usize {
         var size: usize = buffer.len;
         switch (self._read(self, &size, buffer.ptr)) {

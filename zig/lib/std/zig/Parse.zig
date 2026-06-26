@@ -2947,7 +2947,7 @@ fn parseAddrSpace(p: *Parse) !?Node.Index {
 /// such as in the case of anytype and `...`. Caller must look for rparen to find
 /// out when there are no more param decls left.
 ///
-/// ParamDecl <- doc_comment? (KEYWORD_noalias / KEYWORD_comptime / !KEYWORD_comptime) (IDENTIFIER COLON / !(IDENTIFIER_COLON)) ParamType
+/// ParamDecl <- doc_comment? (KEYWORD_noalias / KEYWORD_comptime / !KEYWORD_comptime) (IDENTIFIER COLON / !(IDENTIFIER COLON)) ParamType
 ///
 /// ParamType
 ///     <- KEYWORD_anytype
@@ -3137,7 +3137,7 @@ fn parsePtrModifiers(p: *Parse) !PtrModifiers {
 }
 
 /// SuffixOp
-///     <- LBRACKET Expr (DOT2 (Expr? (COLON Expr)?)?)? RBRACKET
+///     <- LBRACKET Expr (DOT2 Expr? (COLON Expr)?)? RBRACKET
 ///      / DOT IDENTIFIER
 ///      / DOTASTERISK
 ///      / DOTQUESTIONMARK

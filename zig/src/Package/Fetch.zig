@@ -162,9 +162,9 @@ pub const JobQueue = struct {
         /// Both non-lazy and lazy dependencies are always fetched.
         all,
     };
-    pub const Table = std.AutoArrayHashMapUnmanaged(Package.Hash, *Fetch);
-    pub const UnlazySet = std.AutoArrayHashMapUnmanaged(Package.Hash, void);
-    pub const ForkSet = std.ArrayHashMapUnmanaged(Fork, void, Fork.Context, false);
+    pub const Table = std.array_hash_map.Auto(Package.Hash, *Fetch);
+    pub const UnlazySet = std.array_hash_map.Auto(Package.Hash, void);
+    pub const ForkSet = std.array_hash_map.Custom(Fork, void, Fork.Context, false);
 
     pub const Fork = struct {
         path: Cache.Path,
@@ -1725,7 +1725,7 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
 
     // Track directories which had any files deleted from them so that empty directories
     // can be deleted.
-    var sus_dirs: std.StringArrayHashMapUnmanaged(void) = .empty;
+    var sus_dirs: std.array_hash_map.String(void) = .empty;
     defer sus_dirs.deinit(gpa);
 
     var walker = try root_dir.walk(gpa);
@@ -2002,7 +2002,7 @@ fn normalizePath(bytes: []u8) void {
 }
 
 const Filter = struct {
-    include_paths: std.StringArrayHashMapUnmanaged(void) = .empty,
+    include_paths: std.array_hash_map.String(void) = .empty,
 
     /// sub_path is relative to the package root.
     pub fn includePath(self: *const Filter, sub_path: []const u8) bool {

@@ -1743,8 +1743,10 @@ pub const Raw = struct {
         try Raw.rebaseInner(w, 0, w.buffer.len, false);
     }
 
-    fn finish(r: *Raw) Writer.Error!void {
+    pub fn finish(r: *Raw) Writer.Error!void {
+        defer r.writer = .failing;
         try Raw.rebaseInner(&r.writer, 0, r.writer.buffer.len, true);
+        // The footer is written in `rebaseInner` as part of the write vector
     }
 
     fn rebase(w: *Writer, preserve: usize, capacity: usize) Writer.Error!void {
@@ -2334,7 +2336,7 @@ pub const Huffman = struct {
         try h.bit_writer.byteAlignBlocks();
     }
 
-    fn finish(h: *Huffman) Writer.Error!void {
+    pub fn finish(h: *Huffman) Writer.Error!void {
         defer h.writer = .failing;
         try Huffman.rebaseInner(&h.writer, 0, h.writer.buffer.len, true);
         try h.bit_writer.output.rebase(0, 1);

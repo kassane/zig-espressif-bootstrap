@@ -87,6 +87,7 @@ fn ensureLayoutResolvedInner(sema: *Sema, ty: Type, orig_ty: Type, reason: *cons
         .ptr_type,
         .anyframe_type,
         .simple_type,
+        .spirv_type,
         .opaque_type,
         .error_set_type,
         .inferred_error_set_type,
@@ -288,10 +289,12 @@ pub fn resolveStructLayout(sema: *Sema, struct_ty: Type) CompileError!void {
     }
 
     // Resolve the layout of all fields, and check their types are allowed.
+    const fields_len = struct_obj.field_types.len;
     for (struct_obj.field_types.get(ip), 0..) |field_ty_ip, field_index| {
         const field_ty: Type = .fromInterned(field_ty_ip);
         assert(!field_ty.isGenericPoison());
         const field_ty_src = block.src(.{ .container_field_type = @intCast(field_index) });
+        const field_name_src = block.src(.{ .container_field_name = @intCast(field_index) });
         try sema.ensureLayoutResolved(field_ty, field_ty_src, .field);
         if (field_ty.zigTypeTag(zcu) == .@"opaque") {
             return sema.failWithOwnedErrorMsg(&block, msg: {
@@ -302,6 +305,35 @@ pub fn resolveStructLayout(sema: *Sema, struct_ty: Type) CompileError!void {
                 break :msg msg;
             });
         }
+        if (field_ty.zigTypeTag(zcu) == .spirv) {
+            if (field_ty.isSpirvRuntimeArray(zcu)) {
+                if (struct_obj.layout != .@"extern") {
+                    return sema.failWithOwnedErrorMsg(&block, msg: {
+                        const msg = try sema.errMsg(struct_ty.srcLoc(zcu), "non-extern struct cannot contain fields of type '{f}'", .{field_ty.fmt(pt)});
+                        errdefer msg.destroy(gpa);
+                        try sema.errNote(field_name_src, msg, "while checking this field", .{});
+                        break :msg msg;
+                    });
+                }
+                if (field_index != fields_len - 1) {
+                    return sema.failWithOwnedErrorMsg(&block, msg: {
+                        const msg = try sema.errMsg(struct_ty.srcLoc(zcu), "struct field of type '{f}' must be the last field", .{field_ty.fmt(pt)});
+                        errdefer msg.destroy(gpa);
+                        try sema.errNote(field_name_src, msg, "while checking this field", .{});
+                        break :msg msg;
+                    });
+                }
+            } else {
+                return sema.failWithOwnedErrorMsg(&block, msg: {
+                    const msg = try sema.errMsg(field_ty_src, "cannot directly embed SPIR-V type '{f}' in struct", .{field_ty.fmt(pt)});
+                    errdefer msg.destroy(gpa);
+                    try sema.errNote(field_ty_src, msg, "opaque types have unknown size", .{});
+                    try sema.addDeclaredHereNote(msg, field_ty);
+                    break :msg msg;
+                });
+            }
+        }
+
         if (struct_obj.layout == .@"extern" and !field_ty.validateExtern(.struct_field, zcu)) {
             return sema.failWithOwnedErrorMsg(&block, msg: {
                 const msg = try sema.errMsg(field_ty_src, "extern structs cannot contain fields of type '{f}'", .{field_ty.fmt(pt)});
@@ -413,7 +445,10 @@ pub fn resolveStructLayout(sema: *Sema, struct_ty: Type) CompileError!void {
         const field_ty: Type = .fromInterned(struct_obj.field_types.get(ip)[field_idx]);
         const offset = resolved_field_aligns[field_idx].forward(cur_offset);
         struct_obj.field_offsets.get(ip)[field_idx] = @truncate(offset); // truncate because the overflow is handled below
-        cur_offset = offset + field_ty.abiSize(zcu);
+        // A SPIR-V `runtime_array` always trails the struct and
+        // contributes nothing to the struct's static size.
+        const field_size = if (field_ty.isSpirvRuntimeArray(zcu)) 0 else field_ty.abiSize(zcu);
+        cur_offset = offset + field_size;
     }
     const struct_size: u32 = switch (class) {
         .no_possible_value => 0,
@@ -854,6 +889,14 @@ pub fn resolveUnionLayout(sema: *Sema, union_ty: Type) CompileError!void {
                 const msg = try sema.errMsg(field_ty_src, "cannot directly embed opaque type '{f}' in union", .{field_ty.fmt(pt)});
                 errdefer msg.destroy(gpa);
                 try sema.errNote(field_ty_src, msg, "opaque types have unknown size", .{});
+                try sema.addDeclaredHereNote(msg, field_ty);
+                break :msg msg;
+            });
+        }
+        if (field_ty.zigTypeTag(zcu) == .spirv) {
+            return sema.failWithOwnedErrorMsg(&block, msg: {
+                const msg = try sema.errMsg(field_ty_src, "SPIR-V type '{f}' have unknown size and therefore cannot be directly embedded in unions", .{field_ty.fmt(pt)});
+                errdefer msg.destroy(gpa);
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
             });

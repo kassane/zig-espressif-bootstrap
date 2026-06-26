@@ -15,13 +15,13 @@ const assert = std.debug.assert;
 /// String memory references the memory-mapped debug information.
 ///
 /// Protected by `mutex`.
-directories: std.ArrayHashMapUnmanaged(String, void, String.MapContext, false),
+directories: std.array_hash_map.Custom(String, void, String.MapContext, false),
 /// Provides a globally-scoped integer index for files.
 ///
 /// String memory references the memory-mapped debug information.
 ///
 /// Protected by `mutex`.
-files: std.ArrayHashMapUnmanaged(File, void, File.MapContext, false),
+files: std.array_hash_map.Custom(File, void, File.MapContext, false),
 string_bytes: std.ArrayList(u8),
 /// Protects the other fields.
 mutex: Io.Mutex,

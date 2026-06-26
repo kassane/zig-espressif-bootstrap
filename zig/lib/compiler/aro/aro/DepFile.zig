@@ -6,7 +6,7 @@ pub const Format = enum { make, nmake };
 const DepFile = @This();
 
 target: []const u8,
-deps: std.StringArrayHashMapUnmanaged(void) = .empty,
+deps: std.array_hash_map.String(void) = .empty,
 format: Format,
 
 pub fn deinit(d: *DepFile, gpa: Allocator) void {

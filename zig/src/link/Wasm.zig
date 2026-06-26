@@ -80,27 +80,27 @@ name: []const u8,
 /// List of relocatable files to be linked into the final binary.
 objects: std.ArrayList(Object) = .empty,
 
-func_types: std.AutoArrayHashMapUnmanaged(FunctionType, void) = .empty,
+func_types: std.array_hash_map.Auto(FunctionType, void) = .empty,
 /// Provides a mapping of both imports and provided functions to symbol name.
 /// Local functions may be unnamed.
 /// Key is symbol name, however the `FunctionImport` may have an name override for the import name.
-object_function_imports: std.AutoArrayHashMapUnmanaged(String, FunctionImport) = .empty,
+object_function_imports: std.array_hash_map.Auto(String, FunctionImport) = .empty,
 /// All functions for all objects.
 object_functions: std.ArrayList(ObjectFunction) = .empty,
 
 /// Provides a mapping of both imports and provided globals to symbol name.
 /// Local globals may be unnamed.
-object_global_imports: std.AutoArrayHashMapUnmanaged(String, GlobalImport) = .empty,
+object_global_imports: std.array_hash_map.Auto(String, GlobalImport) = .empty,
 /// All globals for all objects.
 object_globals: std.ArrayList(ObjectGlobal) = .empty,
 
 /// All table imports for all objects.
-object_table_imports: std.AutoArrayHashMapUnmanaged(String, TableImport) = .empty,
+object_table_imports: std.array_hash_map.Auto(String, TableImport) = .empty,
 /// All parsed table sections for all objects.
 object_tables: std.ArrayList(Table) = .empty,
 
 /// All memory imports for all objects.
-object_memory_imports: std.AutoArrayHashMapUnmanaged(String, MemoryImport) = .empty,
+object_memory_imports: std.array_hash_map.Auto(String, MemoryImport) = .empty,
 /// All parsed memory sections for all objects.
 object_memories: std.ArrayList(ObjectMemory) = .empty,
 
@@ -119,15 +119,15 @@ object_data_segments: std.ArrayList(ObjectDataSegment) = .empty,
 /// Each segment has many data symbols, which correspond logically to global
 /// constants.
 object_datas: std.ArrayList(ObjectData) = .empty,
-object_data_imports: std.AutoArrayHashMapUnmanaged(String, ObjectDataImport) = .empty,
+object_data_imports: std.array_hash_map.Auto(String, ObjectDataImport) = .empty,
 /// Non-synthetic section that can essentially be mem-cpy'd into place after performing relocations.
-object_custom_segments: std.AutoArrayHashMapUnmanaged(ObjectSectionIndex, CustomSegment) = .empty,
+object_custom_segments: std.array_hash_map.Auto(ObjectSectionIndex, CustomSegment) = .empty,
 
 /// All comdat information for all objects.
 object_comdats: std.ArrayList(Comdat) = .empty,
 /// A table that maps the relocations to be performed where the key represents
 /// the section (across all objects) that the slice of relocations applies to.
-object_relocations_table: std.AutoArrayHashMapUnmanaged(ObjectSectionIndex, ObjectRelocation.Slice) = .empty,
+object_relocations_table: std.array_hash_map.Auto(ObjectSectionIndex, ObjectRelocation.Slice) = .empty,
 /// Incremented across all objects in order to enable calculation of `ObjectSectionIndex` values.
 object_total_sections: u32 = 0,
 /// All comdat symbols from all objects concatenated.
@@ -150,7 +150,7 @@ nav_fixups: std.ArrayList(NavFixup) = .empty,
 func_table_fixups: std.ArrayList(FuncTableFixup) = .empty,
 /// Symbols to be emitted into an object file. Remains empty when not emitting
 /// an object file.
-symbol_table: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
+symbol_table: std.array_hash_map.Auto(String, void) = .empty,
 
 /// When importing objects from the host environment, a name must be supplied.
 /// LLVM uses "env" by default when none is given.
@@ -174,24 +174,24 @@ preloaded_strings: PreloadedStrings,
 
 /// This field is used when emitting an object; `navs_exe` used otherwise.
 /// Does not include externs since that data lives elsewhere.
-navs_obj: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, ZcuDataObj) = .empty,
+navs_obj: std.array_hash_map.Auto(InternPool.Nav.Index, ZcuDataObj) = .empty,
 /// This field is unused when emitting an object; `navs_obj` used otherwise.
 /// Does not include externs since that data lives elsewhere.
-navs_exe: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, ZcuDataExe) = .empty,
+navs_exe: std.array_hash_map.Auto(InternPool.Nav.Index, ZcuDataExe) = .empty,
 /// Tracks all InternPool values referenced by codegen. Needed for outputting
 /// the data segment. This one does not track ref count because object files
 /// require using max LEB encoding for these references anyway.
-uavs_obj: std.AutoArrayHashMapUnmanaged(InternPool.Index, ZcuDataObj) = .empty,
+uavs_obj: std.array_hash_map.Auto(InternPool.Index, ZcuDataObj) = .empty,
 /// Tracks ref count to optimize LEB encodings for UAV references.
-uavs_exe: std.AutoArrayHashMapUnmanaged(InternPool.Index, ZcuDataExe) = .empty,
+uavs_exe: std.array_hash_map.Auto(InternPool.Index, ZcuDataExe) = .empty,
 /// Sparse table of uavs that need to be emitted with greater alignment than
 /// the default for the type.
-overaligned_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment) = .empty,
+overaligned_uavs: std.array_hash_map.Auto(InternPool.Index, Alignment) = .empty,
 /// When the key is an enum type, this represents a `@tagName` function.
-zcu_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Index, ZcuFunc) = .empty,
-nav_exports: std.AutoArrayHashMapUnmanaged(NavExport, Zcu.Export.Index) = .empty,
-uav_exports: std.AutoArrayHashMapUnmanaged(UavExport, Zcu.Export.Index) = .empty,
-imports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
+zcu_funcs: std.array_hash_map.Auto(InternPool.Index, ZcuFunc) = .empty,
+nav_exports: std.array_hash_map.Auto(NavExport, Zcu.Export.Index) = .empty,
+uav_exports: std.array_hash_map.Auto(UavExport, Zcu.Export.Index) = .empty,
+imports: std.array_hash_map.Auto(InternPool.Nav.Index, void) = .empty,
 
 dwarf: ?Dwarf = null,
 
@@ -200,19 +200,19 @@ flush_buffer: Flush = .{},
 /// Empty until `prelink`. There it is populated based on object files.
 /// Next, it is copied into `Flush.missing_exports` just before `flush`
 /// and that data is used during `flush`.
-missing_exports: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
+missing_exports: std.array_hash_map.Auto(String, void) = .empty,
 entry_resolution: FunctionImport.Resolution = .unresolved,
 
 /// Empty when outputting an object.
-function_exports: std.AutoArrayHashMapUnmanaged(String, FunctionIndex) = .empty,
-hidden_function_exports: std.AutoArrayHashMapUnmanaged(String, FunctionIndex) = .empty,
+function_exports: std.array_hash_map.Auto(String, FunctionIndex) = .empty,
+hidden_function_exports: std.array_hash_map.Auto(String, FunctionIndex) = .empty,
 global_exports: std.ArrayList(GlobalExport) = .empty,
 /// Tracks the value at the end of prelink.
 global_exports_len: u32 = 0,
 
 /// Ordered list of non-import functions that will appear in the final binary.
 /// Empty until prelink.
-functions: std.AutoArrayHashMapUnmanaged(FunctionImport.Resolution, void) = .empty,
+functions: std.array_hash_map.Auto(FunctionImport.Resolution, void) = .empty,
 /// Tracks the value at the end of prelink, at which point `functions`
 /// contains only object file functions, and nothing from the Zcu yet.
 functions_end_prelink: u32 = 0,
@@ -230,7 +230,7 @@ data_imports_len_prelink: u32 = 0,
 /// `flush` gets a copy of this table, and then Zcu exports are applied to
 /// remove elements from the table, and the remainder are either undefined
 /// symbol errors, or import section entries depending on the output mode.
-function_imports: std.AutoArrayHashMapUnmanaged(String, FunctionImportId) = .empty,
+function_imports: std.array_hash_map.Auto(String, FunctionImportId) = .empty,
 
 /// At the end of prelink, this is populated with data symbols needed by
 /// objects.
@@ -243,29 +243,29 @@ function_imports: std.AutoArrayHashMapUnmanaged(String, FunctionImportId) = .emp
 /// `flush` gets a copy of this table, and then Zcu exports are applied to
 /// remove elements from the table, and the remainder are either undefined
 /// symbol errors, or symbol table entries depending on the output mode.
-data_imports: std.AutoArrayHashMapUnmanaged(String, DataImportId) = .empty,
+data_imports: std.array_hash_map.Auto(String, DataImportId) = .empty,
 /// Set of data symbols that will appear in the final binary. Used to populate
 /// `Flush.data_segments` before sorting.
-data_segments: std.AutoArrayHashMapUnmanaged(DataSegmentId, void) = .empty,
+data_segments: std.array_hash_map.Auto(DataSegmentId, void) = .empty,
 
 /// Ordered list of non-import globals that will appear in the final binary.
 /// Empty until prelink.
-globals: std.AutoArrayHashMapUnmanaged(GlobalImport.Resolution, void) = .empty,
+globals: std.array_hash_map.Auto(GlobalImport.Resolution, void) = .empty,
 /// Tracks the value at the end of prelink, at which point `globals`
 /// contains only object file globals, and nothing from the Zcu yet.
 globals_end_prelink: u32 = 0,
-global_imports: std.AutoArrayHashMapUnmanaged(String, GlobalImportId) = .empty,
+global_imports: std.array_hash_map.Auto(String, GlobalImportId) = .empty,
 
 /// Ordered list of non-import tables that will appear in the final binary.
 /// Empty until prelink.
-tables: std.AutoArrayHashMapUnmanaged(TableImport.Resolution, void) = .empty,
-table_imports: std.AutoArrayHashMapUnmanaged(String, TableImport.Index) = .empty,
+tables: std.array_hash_map.Auto(TableImport.Resolution, void) = .empty,
+table_imports: std.array_hash_map.Auto(String, TableImport.Index) = .empty,
 
 /// All functions that have had their address taken and therefore might be
 /// called via a `call_indirect` function.
-zcu_indirect_function_set: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
-object_indirect_function_import_set: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
-object_indirect_function_set: std.AutoArrayHashMapUnmanaged(ObjectFunctionIndex, void) = .empty,
+zcu_indirect_function_set: std.array_hash_map.Auto(InternPool.Nav.Index, void) = .empty,
+object_indirect_function_import_set: std.array_hash_map.Auto(String, void) = .empty,
+object_indirect_function_set: std.array_hash_map.Auto(ObjectFunctionIndex, void) = .empty,
 
 error_name_table_ref_count: u32 = 0,
 tag_name_table_ref_count: u32 = 0,
@@ -568,7 +568,7 @@ pub const SourceLocation = enum(u32) {
         err_msg.notes[err.note_slot - 1].source_location = .{ .wasm = sl };
     }
 
-    pub fn fail(sl: SourceLocation, diags: *link.Diags, comptime format: []const u8, args: anytype) error{LinkFailure} {
+    pub fn fail(sl: SourceLocation, diags: *link.Diags, comptime format: []const u8, args: anytype) error{AlreadyReported} {
         return diags.failSourceLocation(.{ .wasm = sl }, format, args);
     }
 
@@ -2944,7 +2944,6 @@ pub fn createEmpty(
     const target = &comp.root_mod.resolved_target.result;
     assert(target.ofmt == .wasm);
 
-    const use_llvm = comp.config.use_llvm;
     const output_mode = comp.config.output_mode;
     const wasi_exec_model = comp.config.wasi_exec_model;
 
@@ -2954,10 +2953,6 @@ pub fn createEmpty(
             .tag = .wasm,
             .comp = comp,
             .emit = emit,
-            .zcu_object_basename = if (use_llvm)
-                try std.fmt.allocPrint(arena, "{s}_zcu.o", .{fs.path.stem(emit.sub_path)})
-            else
-                null,
             // Garbage collection is so crucial to WebAssembly that we design
             // the linker around the assumption that it will be on in the vast
             // majority of cases, and therefore express "no garbage collection"
@@ -3019,22 +3014,6 @@ pub fn createEmpty(
     wasm.name = emit.sub_path;
 
     return wasm;
-}
-
-fn openParseObjectReportingFailure(wasm: *Wasm, path: Path) void {
-    const comp = wasm.base.comp;
-    const io = comp.io;
-    const diags = &comp.link_diags;
-    const obj = link.openObject(io, path, false, false) catch |err| {
-        switch (diags.failParse(path, "failed to open object: {t}", .{err})) {
-            error.LinkFailure => return,
-        }
-    };
-    wasm.parseObject(obj) catch |err| {
-        switch (diags.failParse(path, "failed to parse object: {t}", .{err})) {
-            error.LinkFailure => return,
-        }
-    };
 }
 
 fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
@@ -3336,12 +3315,12 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     }
 }
 
-pub fn updateLineNumber(wasm: *Wasm, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
+pub fn updateLineNumber(wasm: *Wasm, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) link.Error!void {
     const comp = wasm.base.comp;
     const diags = &comp.link_diags;
     if (wasm.dwarf) |*dw| {
         dw.updateLineNumber(pt.zcu, ti_id) catch |err| switch (err) {
-            error.Overflow, error.OutOfMemory => |e| return e,
+            error.OutOfMemory, error.Canceled, error.AlreadyReported => |e| return e,
             else => |e| return diags.fail("failed to update dwarf line numbers: {s}", .{@errorName(e)}),
         };
     }
@@ -3417,7 +3396,7 @@ pub fn loadInput(wasm: *Wasm, input: link.Input) !void {
     }
 }
 
-pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.Error!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3526,7 +3505,7 @@ pub fn markFunctionImport(
     name: String,
     import: *FunctionImport,
     func_index: FunctionImport.Index,
-) link.File.FlushError!void {
+) link.Error!void {
     // import.flags.alive might be already true from a previous update. In such
     // case, we must still run the logic in this function, in case the item
     // being marked was reverted by the `flush` logic that resets the hash
@@ -3557,7 +3536,7 @@ pub fn markFunctionImport(
 }
 
 /// Recursively mark alive everything referenced by the function.
-fn markFunction(wasm: *Wasm, i: ObjectFunctionIndex, override_export: bool) link.File.FlushError!void {
+fn markFunction(wasm: *Wasm, i: ObjectFunctionIndex, override_export: bool) link.Error!void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const gop = try wasm.functions.getOrPut(gpa, .fromObjectFunction(wasm, i));
@@ -3590,7 +3569,7 @@ fn markGlobalImport(
     name: String,
     import: *GlobalImport,
     global_index: GlobalImport.Index,
-) link.File.FlushError!void {
+) link.Error!void {
     // import.flags.alive might be already true from a previous update. In such
     // case, we must still run the logic in this function, in case the item
     // being marked was reverted by the `flush` logic that resets the hash
@@ -3630,7 +3609,7 @@ fn markGlobalImport(
     }
 }
 
-fn markGlobal(wasm: *Wasm, i: ObjectGlobalIndex, override_export: bool) link.File.FlushError!void {
+fn markGlobal(wasm: *Wasm, i: ObjectGlobalIndex, override_export: bool) link.Error!void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const gop = try wasm.globals.getOrPut(gpa, .fromObjectGlobal(wasm, i));
@@ -3653,7 +3632,7 @@ fn markTableImport(
     name: String,
     import: *TableImport,
     table_index: TableImport.Index,
-) link.File.FlushError!void {
+) link.Error!void {
     if (import.flags.alive) return;
     import.flags.alive = true;
 
@@ -3675,7 +3654,7 @@ fn markTableImport(
     }
 }
 
-fn markDataSegment(wasm: *Wasm, segment_index: ObjectDataSegment.Index) link.File.FlushError!void {
+fn markDataSegment(wasm: *Wasm, segment_index: ObjectDataSegment.Index) link.Error!void {
     const comp = wasm.base.comp;
     const segment = segment_index.ptr(wasm);
     if (segment.flags.alive) return;
@@ -3693,7 +3672,7 @@ pub fn markDataImport(
     name: String,
     import: *ObjectDataImport,
     data_index: ObjectDataImport.Index,
-) link.File.FlushError!void {
+) link.Error!void {
     if (import.flags.alive) return;
     import.flags.alive = true;
 
@@ -3715,7 +3694,7 @@ pub fn markDataImport(
     }
 }
 
-fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) link.File.FlushError!void {
+fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) link.Error!void {
     const gpa = wasm.base.comp.gpa;
     for (relocs.slice.tags(wasm), relocs.slice.pointees(wasm), relocs.slice.offsets(wasm)) |tag, pointee, offset| {
         if (offset >= relocs.end) break;
@@ -3812,7 +3791,7 @@ fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) link.Fil
     }
 }
 
-fn markTable(wasm: *Wasm, i: ObjectTableIndex) link.File.FlushError!void {
+fn markTable(wasm: *Wasm, i: ObjectTableIndex) link.Error!void {
     try wasm.tables.put(wasm.base.comp.gpa, .fromObjectTable(i), {});
 }
 
@@ -3821,7 +3800,8 @@ pub fn flush(
     arena: Allocator,
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
-) link.File.FlushError!void {
+) link.Error!void {
+    _ = arena;
     // The goal is to never use this because it's only needed if we need to
     // write to InternPool, but flush is too late to be writing to the
     // InternPool.
@@ -3832,12 +3812,6 @@ pub fn flush(
     const io = comp.io;
 
     if (comp.verbose_link) try Compilation.dumpArgv(io, wasm.dump_argv_list.items);
-
-    if (wasm.base.zcu_object_basename) |raw| {
-        const zcu_obj_path: Path = try comp.resolveEmitPathFlush(arena, .temp, raw);
-        openParseObjectReportingFailure(wasm, zcu_obj_path);
-        try prelink(wasm, prog_node);
-    }
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -3864,7 +3838,7 @@ pub fn flush(
     try wasm.flush_buffer.data_imports.reinit(gpa, wasm.data_imports.keys(), wasm.data_imports.values());
 
     return wasm.flush_buffer.finish(wasm) catch |err| switch (err) {
-        error.OutOfMemory, error.LinkFailure => |e| return e,
+        error.OutOfMemory, error.AlreadyReported => |e| return e,
         else => |e| return diags.fail("failed to flush wasm: {s}", .{@errorName(e)}),
     };
 }
@@ -4275,7 +4249,7 @@ fn lowerZcuData(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !Zcu
     {
         var aw: std.Io.Writer.Allocating = .fromArrayList(wasm.base.comp.gpa, &wasm.string_bytes);
         defer wasm.string_bytes = aw.toArrayList();
-        codegen.generateSymbol(&wasm.base, pt, .unneeded, .fromInterned(ip_index), &aw.writer, .none) catch |err| switch (err) {
+        codegen.generateSymbol(&wasm.base, pt, .fromInterned(ip_index), &aw.writer, .none) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
             else => |e| return e,
         };
@@ -4349,7 +4323,7 @@ fn resolveFunctionSynthetic(
     res: FunctionImport.Resolution,
     params: []const std.wasm.Valtype,
     returns: []const std.wasm.Valtype,
-) link.File.FlushError!void {
+) link.Error!void {
     import.resolution = res;
     wasm.functions.putAssumeCapacity(res, {});
     // This is not only used for type-checking but also ensures the function

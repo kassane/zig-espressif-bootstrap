@@ -65,6 +65,12 @@ pub fn make(
         }
     }
 
+    for (conf_run.preopen_names.slice, conf_run.preopen_paths.slice) |name, path| {
+        man.hash.addBytesZ(name.slice(conf));
+        const cwd_path = try maker.resolveLazyPathIndex(arena, path, run_index);
+        man.hash.addBytes(try cwd_path.toString(arena));
+    }
+
     man.hash.add(graph.fuzzing);
     man.hash.add(conf_run.flags.color);
     man.hash.add(conf_run.flags.disable_zig_progress);
@@ -87,8 +93,9 @@ pub fn make(
                 const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
                 const file_path = try maker.resolveLazyPathIndex(arena, arg.path.value.?, run_index);
                 argv_list.appendAssumeCapacity(try mem.concat(arena, u8, &.{
-                    prefix, try convertPathArg(arena, run_index, maker, file_path), suffix,
+                    prefix, try convertPathArg(arena, run_index, maker, file_path, arg.flags.make_absolute), suffix,
                 }));
+                man.hash.add(arg.flags.make_absolute);
                 man.hash.addBytesZ(prefix);
                 man.hash.addBytesZ(suffix);
                 _ = try man.addFilePath(file_path, null);
@@ -98,9 +105,10 @@ pub fn make(
                 const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
                 const file_path = try maker.resolveLazyPathIndex(arena, arg.path.value.?, run_index);
                 const resolved_arg = try mem.concat(arena, u8, &.{
-                    prefix, try convertPathArg(arena, run_index, maker, file_path), suffix,
+                    prefix, try convertPathArg(arena, run_index, maker, file_path, arg.flags.make_absolute), suffix,
                 });
                 argv_list.appendAssumeCapacity(resolved_arg);
+                man.hash.add(arg.flags.make_absolute);
                 man.hash.addBytes(resolved_arg);
             },
             .file_content => {
@@ -142,9 +150,12 @@ pub fn make(
                 const file_path = producer_make_comp.installed_path orelse maker.generatedPath(producer.generated_bin.value.?).*;
 
                 argv_list.appendAssumeCapacity(try mem.concat(arena, u8, &.{
-                    prefix, try convertPathArg(arena, run_index, maker, file_path), suffix,
+                    prefix, try convertPathArg(arena, run_index, maker, file_path, arg.flags.make_absolute), suffix,
                 }));
 
+                man.hash.add(arg.flags.make_absolute);
+                man.hash.addBytesZ(prefix);
+                man.hash.addBytesZ(suffix);
                 _ = try man.addFilePath(file_path, null);
             },
             .output_file, .output_directory => {
@@ -152,6 +163,7 @@ pub fn make(
                 const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
                 const basename = arg.basename.value.?.slice(conf);
 
+                man.hash.add(arg.flags.make_absolute);
                 man.hash.addBytesZ(prefix);
                 man.hash.addBytesZ(basename);
                 man.hash.addBytesZ(suffix);
@@ -181,7 +193,7 @@ pub fn make(
 
     man.hash.add(conf_run.flags.test_runner_mode);
     if (conf_run.flags.test_runner_mode) {
-        const cache_dir_string = try convertPathArg(arena, run_index, maker, .{ .root_dir = cache_root });
+        const cache_dir_string = try convertPathArg(arena, run_index, maker, .{ .root_dir = cache_root }, false);
 
         try argv_list.ensureUnusedCapacity(gpa, 3);
         argv_list.appendAssumeCapacity(try allocPrint(arena, "--cache-dir={s}", .{cache_dir_string}));
@@ -1552,7 +1564,7 @@ pub fn rerunInFuzzMode(
                 const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
                 const file_path = try maker.resolveLazyPathIndex(arena, arg.path.value.?, run_index);
                 argv_list.appendAssumeCapacity(try mem.concat(arena, u8, &.{
-                    prefix, try convertPathArg(arena, run_index, maker, file_path), suffix,
+                    prefix, try convertPathArg(arena, run_index, maker, file_path, arg.flags.make_absolute), suffix,
                 }));
             },
             .path_directory => {
@@ -1560,7 +1572,7 @@ pub fn rerunInFuzzMode(
                 const suffix = if (arg.suffix.value) |p| p.slice(conf) else "";
                 const file_path = try maker.resolveLazyPathIndex(arena, arg.path.value.?, run_index);
                 const resolved_arg = try mem.concat(arena, u8, &.{
-                    prefix, try convertPathArg(arena, run_index, maker, file_path), suffix,
+                    prefix, try convertPathArg(arena, run_index, maker, file_path, arg.flags.make_absolute), suffix,
                 });
                 argv_list.appendAssumeCapacity(resolved_arg);
             },
@@ -1602,7 +1614,7 @@ pub fn rerunInFuzzMode(
                     producer_make_comp.installed_path orelse
                         maker.generatedPath(producer.generated_bin.value.?).*;
                 argv_list.appendAssumeCapacity(try mem.concat(arena, u8, &.{
-                    prefix, try convertPathArg(arena, run_index, maker, file_path), suffix,
+                    prefix, try convertPathArg(arena, run_index, maker, file_path, arg.flags.make_absolute), suffix,
                 }));
             },
             .output_file => unreachable,
@@ -1612,7 +1624,7 @@ pub fn rerunInFuzzMode(
     }
 
     if (conf_run.flags.test_runner_mode) {
-        const cache_dir_string = try convertPathArg(arena, run_index, maker, .{ .root_dir = cache_root });
+        const cache_dir_string = try convertPathArg(arena, run_index, maker, .{ .root_dir = cache_root }, false);
 
         try argv_list.ensureUnusedCapacity(gpa, 3);
         argv_list.appendAssumeCapacity(try allocPrint(arena, "--cache-dir={s}", .{cache_dir_string}));
@@ -1688,7 +1700,7 @@ fn populateGeneratedPathsCreateDirs(
 
         maker.generatedPath(arg.generated.value.?).* = generated_path;
 
-        const arg_output_path = try convertPathArg(arena, run_index, maker, generated_path);
+        const arg_output_path = try convertPathArg(arena, run_index, maker, generated_path, arg.flags.make_absolute);
         argv[placeholder.index] = try mem.concat(arena, u8, &.{ prefix, arg_output_path, suffix });
     }
 }
@@ -1906,9 +1918,15 @@ fn runCommand(
                     },
                     .wasmtime => |bin_name| {
                         if (graph.enable_wasmtime) {
-                            try interp_argv.ensureUnusedCapacity(arena, 3 + argv.len);
+                            try interp_argv.ensureUnusedCapacity(arena, 3 + argv.len + conf_run.preopen_names.slice.len);
                             interp_argv.appendAssumeCapacity(bin_name);
                             interp_argv.appendAssumeCapacity("--dir=.");
+                            for (conf_run.preopen_names.slice, conf_run.preopen_paths.slice) |name, lazy_path| {
+                                const path = try maker.resolveLazyPath(arena, lazy_path.get(conf), run_index);
+                                path.root_dir.handle.createDirPath(io, path.subPathOrDot()) catch |e|
+                                    return step.fail(maker, "failed creating directory {f}: {t}", .{ path, e });
+                                interp_argv.appendAssumeCapacity(try allocPrint(arena, "--dir={f}::{s}", .{ path, name.slice(conf) }));
+                            }
                             // Wasmtime doeesn't inherit environment variables from the parent process
                             // by default. '-S inherit-env' was added in Wasmtime version 20.
                             interp_argv.appendAssumeCapacity("-Sinherit-env");
@@ -2100,6 +2118,67 @@ fn runCommand(
                     });
                 }
             }
+            const snapshots: []const ?struct {
+                path: Cache.Path,
+                result: enum { stderr, stdout },
+            } = &.{
+                if (conf_run.expect_stderr_snapshot.value) |path| .{
+                    .path = try maker.resolveLazyPathIndex(arena, path, run_index),
+                    .result = .stderr,
+                } else null,
+                if (conf_run.expect_stdout_snapshot.value) |path| .{
+                    .path = try maker.resolveLazyPathIndex(arena, path, run_index),
+                    .result = .stdout,
+                } else null,
+            };
+            for (snapshots) |opt_snapshot| {
+                const snapshot = opt_snapshot orelse continue;
+
+                const file = snapshot.path.root_dir.handle.openFile(io, snapshot.path.sub_path, .{}) catch |err|
+                    return step.fail(maker, "unable to open snapshot file {f}: {t}", .{ snapshot.path, err });
+                defer file.close(io);
+
+                var file_reader = file.reader(io, &.{});
+                const snapshot_contents = file_reader.interface.allocRemaining(gpa, .unlimited) catch |err|
+                    return step.fail(maker, "unable to read snapshot file {f}: {t}", .{ snapshot.path, err });
+                defer gpa.free(snapshot_contents);
+
+                const result = switch (snapshot.result) {
+                    .stderr => generic_result.stderr.?,
+                    .stdout => generic_result.stdout.?,
+                };
+                if (std.mem.findDiff(u8, snapshot_contents, result)) |diff_index| {
+                    var diff_line_number: usize = 1;
+
+                    for (snapshot_contents[0..diff_index]) |value| {
+                        if (value == '\n') diff_line_number += 1;
+                    }
+
+                    return step.fail(maker,
+                        \\
+                        \\========= snapshot file: =========
+                        \\{f}
+                        \\========= contained: =============
+                        \\{s}
+                        \\========= {t} output was: ========
+                        \\{s}
+                        \\==================================
+                        \\first difference on line {d}:
+                        \\expected:
+                        \\{f}
+                        \\found:
+                        \\{f}
+                    , .{
+                        snapshot.path,
+                        snapshot_contents,
+                        snapshot.result,
+                        result,
+                        diff_line_number,
+                        fmtSnapshotIndicatorLine(snapshot_contents, diff_index),
+                        fmtSnapshotIndicatorLine(result, diff_index),
+                    });
+                }
+            }
         },
         else => {
             // On failure, report captured stderr like normal standard error output.
@@ -2111,6 +2190,38 @@ fn runCommand(
             try step.handleChildProcessTerm(maker, generic_result.term);
         },
     }
+}
+
+const FmtIndicatorLine = struct {
+    buf: []const u8,
+    index: usize,
+};
+
+fn fmtSnapshotIndicatorLine(buf: []const u8, index: usize) std.fmt.Alt(
+    FmtIndicatorLine,
+    snapshotIndicatorLine,
+) {
+    return .{ .data = .{ .buf = buf, .index = index } };
+}
+
+fn snapshotIndicatorLine(line: FmtIndicatorLine, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    const line_begin_index = if (std.mem.lastIndexOfScalar(u8, line.buf[0..line.index], '\n')) |line_begin|
+        line_begin + 1
+    else
+        0;
+    const line_end_index = if (std.mem.findScalar(u8, line.buf[line.index..], '\n')) |line_end|
+        (line.index + line_end)
+    else
+        line.buf.len;
+
+    try w.writeAll(line.buf[line_begin_index..line_end_index]);
+    try w.writeByte('\n');
+    try w.splatByteAll(' ', line_end_index - line_begin_index);
+    try w.writeByte('\n');
+    if (line.index >= line.buf.len)
+        try w.writeAll("^ (end of file)")
+    else
+        try w.print("^ ('\\x{x:0>2}')\n", .{line.buf[line.index]});
 }
 
 const EvalGenericResult = struct {
@@ -2283,18 +2394,29 @@ fn setColorEnvironmentVariables(
 }
 
 fn checksContainStdout(conf_run: *const Configuration.Step.Run) bool {
-    return conf_run.expect_stdout_exact.value != null or conf_run.expect_stdout_match.slice.len != 0;
+    return conf_run.expect_stdout_exact.value != null or
+        conf_run.expect_stdout_match.slice.len != 0 or
+        conf_run.expect_stdout_snapshot.value != null;
 }
 
 fn checksContainStderr(conf_run: *const Configuration.Step.Run) bool {
-    return conf_run.expect_stderr_exact.value != null or conf_run.expect_stderr_match.slice.len != 0;
+    return conf_run.expect_stderr_exact.value != null or
+        conf_run.expect_stderr_match.slice.len != 0 or
+        conf_run.expect_stderr_snapshot.value != null;
 }
 
-/// If `path` is cwd-relative, make it relative to the cwd of the child instead.
+/// If `path` is absolute, return it unchanged. If `make_absolute` is true, make it absolute.
+/// Otherwise, make it relative to the cwd of the child.
 ///
-/// Whenever a path is included in the argv of a child, it should be put through this function first
-/// to make sure the child doesn't see paths relative to a cwd other than its own.
-fn convertPathArg(arena: Allocator, run_index: Configuration.Step.Index, maker: *Maker, path: Path) ![]const u8 {
+/// Whenever a path is included in the argv of a child, it should be put through this function
+/// first.
+fn convertPathArg(
+    arena: Allocator,
+    run_index: Configuration.Step.Index,
+    maker: *Maker,
+    path: Path,
+    make_absolute: bool,
+) ![]const u8 {
     const conf = &maker.scanned_config.configuration;
     const conf_step = run_index.ptr(conf);
     const conf_run = conf_step.extended.get(conf.extra).run;
@@ -2305,6 +2427,11 @@ fn convertPathArg(arena: Allocator, run_index: Configuration.Step.Index, maker: 
         // Absolute paths don't need changing.
         return path_str;
     }
+
+    if (make_absolute) {
+        return Dir.path.join(arena, &.{ graph.cache.cwd, path_str });
+    }
+
     const child_cwd_rel: []const u8 = rel: {
         const child_lazy_cwd = conf_run.cwd.value orelse break :rel path_str;
         const child_cwd = try maker.resolveLazyPathIndexAbs(arena, child_lazy_cwd, run_index);

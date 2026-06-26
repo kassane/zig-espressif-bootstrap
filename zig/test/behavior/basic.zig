@@ -24,7 +24,6 @@ fn testTruncate(x: u32) u8 {
 }
 
 test "truncate to non-power-of-two integers" {
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testTrunc(u32, u1, 0b10101, 0b1);
@@ -41,7 +40,6 @@ test "truncate to non-power-of-two integers" {
 test "truncate to non-power-of-two integers from 128-bit" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try testTrunc(u128, u1, 0xffffffff_ffffffff_ffffffff_01010101, 0x01);
     try testTrunc(u128, u1, 0xffffffff_ffffffff_ffffffff_01010110, 0x00);
@@ -299,7 +297,6 @@ const global_b: *const i32 = &global_a;
 const global_c: *const f32 = @as(*const f32, @ptrCast(global_b));
 test "compile time global reinterpret" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
     const d = @as(*const i32, @ptrCast(global_c));
     try expect(d.* == 1234);
 }
@@ -376,7 +373,6 @@ fn fB() []const u8 {
 test "call function pointer in struct" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
     try expect(mem.eql(u8, f3(true), "a"));
     try expect(mem.eql(u8, f3(false), "b"));
 }
@@ -640,6 +636,7 @@ fn emptyFn() void {}
 
 const addr1 = @as(*const u8, @ptrCast(&emptyFn));
 test "comptime cast fn to ptr" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     const addr2 = @as(*const u8, @ptrCast(&emptyFn));
     comptime assert(addr1 == addr2);
 }
@@ -918,6 +915,7 @@ test "labeled block with runtime branch forwards its result location type to bre
 
 test "try in labeled block doesn't cast to wrong type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         a: u32,
@@ -1142,7 +1140,7 @@ test "arrays and vectors with big integers" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23805
+    if (builtin.zig_backend == .stage2_llvm and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32 or builtin.abi == .abin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23805
 
     inline for (.{ u65528, u65529, u65535 }) |Int| {
         var a: [1]Int = undefined;
@@ -1214,8 +1212,6 @@ fn testUnsignedCmp(comptime T: type) !void {
 }
 
 test "integer compare <= 64 bits" {
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
     inline for (.{ u8, u16, u32, u64, usize, u10, u20, u30, u60 }) |T| {
         try testUnsignedCmp(T);
         try comptime testUnsignedCmp(T);
@@ -1228,7 +1224,6 @@ test "integer compare <= 64 bits" {
 
 test "integer compare <= 128 bits" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     inline for (.{ u65, u96, u127, u128 }) |T| {
         try testUnsignedCmp(T);
@@ -1242,7 +1237,6 @@ test "integer compare <= 128 bits" {
 
 test "integer compare > 128 bits" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     inline for (.{ u129, u255, u512, u800 }) |T| {
         try testUnsignedCmp(T);
@@ -1278,6 +1272,7 @@ test "@Int returned from block" {
 }
 
 test "comptime variable initialized with addresses of literals" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     comptime var st = .{
         .foo = &1,
         .bar = &2,
@@ -1327,6 +1322,8 @@ test "proper value is returned from labeled block" {
 }
 
 test "const inferred array of slices" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const T = struct { v: bool };
 
     const decls = [_][]const T{
@@ -1339,6 +1336,7 @@ test "const inferred array of slices" {
 
 test "var inferred array of slices" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const T = struct { v: bool };
 
@@ -1436,4 +1434,15 @@ test "loading array from struct is not optimized away" {
     };
     var s = S{};
     try s.doTheTest();
+}
+
+test "local variable name begins with primitive integer type" {
+    const u032_ = 123;
+    comptime assert(u032_ == 123);
+
+    const u0_ = 456;
+    comptime assert(u0_ == 456);
+
+    const i0_ = 789;
+    comptime assert(i0_ == 789);
 }

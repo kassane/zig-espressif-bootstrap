@@ -5792,6 +5792,50 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>Returns an {#link|enum#} type with the properties specified by the arguments.</p>
       {#header_close#}
 
+      {#header_open|@SpirvType#}
+      <pre>{#syntax#}@SpirvType(comptime options: std.lang.Type.Spirv) type{#endsyntax#}</pre>
+      <p>
+      Returns a SPIR-V type with the properties specified by the arguments.
+      </p>
+      <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Tag</th>
+            <th scope="col">SPIR-V Equivalent</th>
+            <th scope="col">Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row"><code>.sampler</code></th>
+            <td><code>OpTypeSampler</code></td>
+            <td>An opaque sampler</td>
+          </tr>
+          <tr>
+            <th scope="row"><code>.image</code></th>
+            <td><code>OpTypeImage</code></td>
+            <td>An opaque image</td>
+          </tr>
+          <tr>
+            <th scope="row"><code>.sampled_image</code></th>
+            <td><code>OpTypeSampledImage</code></td>
+            <td>An opaque image combined with a sampler</td>
+          </tr>
+          <tr>
+            <th scope="row"><code>.runtime_array</code></th>
+            <td><code>OpTypeRuntimeArray</code></td>
+            <td>
+                An array whose length is determined at runtime.
+                The resulting type supports indexing and exposes a {#syntax#}.len{#endsyntax#} field.
+                It may only appear as the last field of an {#link|extern struct#}.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      {#header_close#}
+
       {#header_open|@typeInfo#}
       <pre>{#syntax#}@typeInfo(comptime T: type) std.lang.Type{#endsyntax#}</pre>
       <p>
@@ -7925,7 +7969,7 @@ AddrSpace <- KEYWORD_addrspace LPAREN Expr RPAREN
 # Fn specific
 CallConv <- KEYWORD_callconv LPAREN Expr RPAREN
 
-ParamDecl <- doc_comment? (KEYWORD_noalias / KEYWORD_comptime / !KEYWORD_comptime) (IDENTIFIER COLON / !(IDENTIFIER_COLON)) ParamType
+ParamDecl <- doc_comment? (KEYWORD_noalias / KEYWORD_comptime / !KEYWORD_comptime) (IDENTIFIER COLON / !(IDENTIFIER COLON)) ParamType
 
 ParamType
     <- KEYWORD_anytype
@@ -8035,7 +8079,7 @@ PrefixTypeOp
      / ArrayTypeStart
 
 SuffixOp
-    <- LBRACKET Expr (DOT2 (Expr? (COLON Expr)?)?)? RBRACKET
+    <- LBRACKET Expr (DOT2 Expr? (COLON Expr)?)? RBRACKET
      / DOT IDENTIFIER
      / DOTASTERISK
      / DOTQUESTIONMARK
@@ -8193,7 +8237,7 @@ BUILTINIDENTIFIER <- '@'[A-Za-z_][A-Za-z0-9_]* skip
 
 AMPERSAND            <- '&'      ![=]      skip
 AMPERSANDEQUAL       <- '&='               skip
-ASTERISK             <- '*'      ![*%=|]   skip
+ASTERISK             <- '*'      ![%=|]    skip
 ASTERISKEQUAL        <- '*='               skip
 ASTERISKPERCENT      <- '*%'     ![=]      skip
 ASTERISKPERCENTEQUAL <- '*%='              skip
@@ -8322,17 +8366,17 @@ keyword <- KEYWORD_addrspace / KEYWORD_align / KEYWORD_allowzero / KEYWORD_and
         <li>Communicate intent precisely.</li>
         <li>Edge cases matter.</li>
         <li>Favor reading code over writing code.</li>
-        <li>Only one obvious way to do things.</li>
+        <li>There is an idiomatic way to do it.</li>
         <li>Runtime crashes are better than bugs.</li>
         <li>Compile errors are better than runtime crashes.</li>
         <li>Incremental improvements.</li>
         <li>Avoid local maximums.</li>
         <li>Reduce the amount one must remember.</li>
-        <li>Focus on code rather than style.</li>
-        <li>Resource allocation may fail; resource deallocation must succeed.</li>
-        <li>Memory is a resource.</li>
-        <li>Together we serve the users.</li>
+        <li>Focus on logic, not style.</li>
+        <li>Resource allocation may fail.</li>
+        <li>Resource deallocation must succeed.</li>
       </ul>
+      <p>Together, we serve the users!</p>
       {#header_close#}
       {#header_close#}
       </main></div>

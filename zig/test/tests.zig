@@ -10,6 +10,7 @@ const error_traces = @import("error_traces.zig");
 const stack_traces = @import("stack_traces.zig");
 const llvm_ir = @import("llvm_ir.zig");
 const libc = @import("libc.zig");
+const link = @import("link.zig");
 
 // Implementations
 pub const ErrorTracesContext = @import("src/ErrorTrace.zig");
@@ -17,6 +18,7 @@ pub const StackTracesContext = @import("src/StackTrace.zig");
 pub const DebuggerContext = @import("src/Debugger.zig");
 pub const LlvmIrContext = @import("src/LlvmIr.zig");
 pub const LibcContext = @import("src/Libc.zig");
+pub const LinkContext = @import("src/Link.zig");
 
 const ModuleTestTarget = struct {
     linkage: ?std.builtin.LinkMode = null,
@@ -272,17 +274,16 @@ const module_test_targets = blk: {
             },
             .link_libc = true,
         },
-        // Crashes in weird ways when applying relocations.
-        // .{
-        //     .target = .{
-        //         .cpu_arch = .arm,
-        //         .os_tag = .linux,
-        //         .abi = .musleabi,
-        //     },
-        //     .linkage = .dynamic,
-        //     .link_libc = true,
-        //     .extra_target = true,
-        // },
+        .{
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .musleabi,
+            },
+            .linkage = .dynamic,
+            .link_libc = true,
+            .extra_target = true,
+        },
         .{
             .target = .{
                 .cpu_arch = .arm,
@@ -291,17 +292,16 @@ const module_test_targets = blk: {
             },
             .link_libc = true,
         },
-        // Crashes in weird ways when applying relocations.
-        // .{
-        //     .target = .{
-        //         .cpu_arch = .arm,
-        //         .os_tag = .linux,
-        //         .abi = .musleabihf,
-        //     },
-        //     .linkage = .dynamic,
-        //     .link_libc = true,
-        //     .extra_target = true,
-        // },
+        .{
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .linux,
+                .abi = .musleabihf,
+            },
+            .linkage = .dynamic,
+            .link_libc = true,
+            .extra_target = true,
+        },
         .{
             .target = .{
                 .cpu_arch = .arm,
@@ -627,6 +627,13 @@ const module_test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips64,
                 .os_tag = .linux,
+                .abi = .abin32,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mips64,
+                .os_tag = .linux,
                 .abi = .muslabi64,
             },
             .link_libc = true,
@@ -648,7 +655,6 @@ const module_test_targets = blk: {
                 .abi = .muslabin32,
             },
             .link_libc = true,
-            .extra_target = true,
         },
         .{
             .target = .{
@@ -675,7 +681,6 @@ const module_test_targets = blk: {
                 .abi = .gnuabin32,
             },
             .link_libc = true,
-            .extra_target = true,
         },
 
         .{
@@ -684,6 +689,14 @@ const module_test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .none,
             },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mips64el,
+                .os_tag = .linux,
+                .abi = .abin32,
+            },
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -1151,18 +1164,8 @@ const module_test_targets = blk: {
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .linux,
-                .abi = .gnu,
+                .abi = .x32,
             },
-            .link_libc = true,
-        },
-        .{
-            .target = .{
-                .cpu_arch = .x86_64,
-                .os_tag = .linux,
-                .abi = .gnux32,
-            },
-            .link_libc = true,
-            .extra_target = true,
         },
         .{
             .target = .{
@@ -1177,25 +1180,6 @@ const module_test_targets = blk: {
                 .cpu_arch = .x86_64,
                 .os_tag = .linux,
                 .abi = .musl,
-            },
-            .linkage = .dynamic,
-            .link_libc = true,
-            .extra_target = true,
-        },
-        .{
-            .target = .{
-                .cpu_arch = .x86_64,
-                .os_tag = .linux,
-                .abi = .muslx32,
-            },
-            .link_libc = true,
-            .extra_target = true,
-        },
-        .{
-            .target = .{
-                .cpu_arch = .x86_64,
-                .os_tag = .linux,
-                .abi = .muslx32,
             },
             .linkage = .dynamic,
             .link_libc = true,
@@ -1210,6 +1194,40 @@ const module_test_targets = blk: {
             .link_libc = true,
             .use_llvm = true,
             .use_lld = false,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
+                .abi = .muslx32,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
+                .abi = .muslx32,
+            },
+            .linkage = .dynamic,
+            .link_libc = true,
+            .extra_target = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
+                .abi = .gnux32,
+            },
+            .link_libc = true,
         },
 
         // Darwin Targets
@@ -1611,8 +1629,6 @@ const module_test_targets = blk: {
                 .abi = .msvc,
             },
             .link_libc = true,
-            // https://codeberg.org/ziglang/zig/issues/35517
-            .skip_modules = &.{"libc"},
         },
         .{
             .target = .{
@@ -1628,8 +1644,6 @@ const module_test_targets = blk: {
                 .abi = .gnu,
             },
             .link_libc = true,
-            // https://codeberg.org/ziglang/zig/issues/35517
-            .skip_modules = &.{"libc"},
         },
 
         .{
@@ -1657,8 +1671,6 @@ const module_test_targets = blk: {
                 .abi = .msvc,
             },
             .link_libc = true,
-            // https://codeberg.org/ziglang/zig/issues/35517
-            .skip_modules = &.{"libc"},
         },
         .{
             .target = .{
@@ -2001,20 +2013,140 @@ const c_abi_targets = blk: {
 
         // Windows Targets
 
-        // https://codeberg.org/ziglang/zig/issues/35521
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .x86,
-        //        .os_tag = .windows,
-        //        .abi = .gnu,
-        //    },
-        //},
+        .{
+            .target = .{
+                .cpu_arch = .x86,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+        },
+
         .{
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .windows,
                 .abi = .gnu,
             },
+            .use_llvm = false,
+            .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+            .use_llvm = false,
+            .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+            .use_llvm = false,
+            .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+            .use_llvm = true,
+        },
+    };
+};
+
+const LinkTarget = struct {
+    target: std.Target.Query = .{},
+    optimize_mode: std.builtin.OptimizeMode = .Debug,
+    link_libc: bool = false,
+    use_llvm: bool = false,
+    use_lld: bool = false,
+};
+
+const link_targets = blk: {
+    @setEvalBranchQuota(30000);
+    break :blk [_]LinkTarget{
+        // Native Targets
+
+        // .{
+        //     .use_llvm = true,
+        // },
+
+        // Windows Targets
+
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+            .use_llvm = true,
+            .use_lld = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+            .use_llvm = true,
+            .use_lld = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .msvc,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .msvc,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .msvc,
+            },
+            .use_llvm = true,
+            .use_lld = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .msvc,
+            },
+            .link_libc = true,
+            .use_llvm = true,
+            .use_lld = true,
         },
     };
 };
@@ -2650,13 +2782,13 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         const target = &resolved_target.result;
 
-        if (target.cpu.arch == .powerpc64le and target.ofmt == .c) {
-            // https://codeberg.org/ziglang/zig/issues/35522
+        if (target.cpu.arch == .s390x and target.ofmt == .c) {
+            // https://codeberg.org/ziglang/zig/issues/35523
             continue;
         }
 
-        if (target.cpu.arch == .s390x and target.ofmt == .c) {
-            // https://codeberg.org/ziglang/zig/issues/35523
+        if (target.cpu.arch == .riscv64 and target.ofmt == .c) {
+            // https://codeberg.org/ziglang/zig/issues/30930
             continue;
         }
 
@@ -2811,45 +2943,66 @@ fn addOneModuleTest(
 
         compile_c.addCSourceFile(.{
             .file = these_tests.getEmittedBin(),
-            .flags = &.{
-                // Tracking issue for making the C backend generate C89 compatible code:
-                // https://github.com/ziglang/zig/issues/19468
-                "-std=c99",
-                "-Werror",
+            .flags = blk: {
+                const invariant_cflags: []const []const u8 = &.{
+                    // Tracking issue for making the C backend generate C89 compatible code:
+                    // https://github.com/ziglang/zig/issues/19468
+                    "-std=c99",
+                    "-Werror",
 
-                "-Wall",
-                "-Wembedded-directive",
-                "-Wempty-translation-unit",
-                "-Wextra",
-                "-Wgnu",
-                "-Winvalid-utf8",
-                "-Wkeyword-macro",
-                "-Woverlength-strings",
+                    "-Wall",
+                    "-Wembedded-directive",
+                    "-Wempty-translation-unit",
+                    "-Wextra",
+                    "-Wgnu",
+                    "-Winvalid-utf8",
+                    "-Wkeyword-macro",
+                    "-Woverlength-strings",
 
-                // Tracking issue for making the C backend generate code
-                // that does not trigger warnings:
-                // https://github.com/ziglang/zig/issues/19467
+                    // Tracking issue for making the C backend generate code
+                    // that does not trigger warnings:
+                    // https://github.com/ziglang/zig/issues/19467
 
-                // spotted everywhere
-                "-Wno-builtin-requires-header",
+                    // spotted everywhere
+                    "-Wno-builtin-requires-header",
 
-                // spotted on linux
-                "-Wno-braced-scalar-init",
-                "-Wno-excess-initializers",
-                "-Wno-incompatible-pointer-types-discards-qualifiers",
-                "-Wno-unused",
-                "-Wno-unused-parameter",
+                    // spotted on linux
+                    "-Wno-braced-scalar-init",
+                    "-Wno-excess-initializers",
+                    "-Wno-incompatible-pointer-types-discards-qualifiers",
+                    "-Wno-unused",
+                    "-Wno-unused-parameter",
 
-                // spotted on darwin
-                "-Wno-incompatible-pointer-types",
+                    // spotted on darwin
+                    "-Wno-incompatible-pointer-types",
 
-                // https://github.com/llvm/llvm-project/issues/153314
-                "-Wno-unterminated-string-initialization",
+                    // https://github.com/llvm/llvm-project/issues/153314
+                    "-Wno-unterminated-string-initialization",
 
-                // In both Zig and C it is legal to return a pointer to a
-                // local. The C backend lowers such thing directly, so the
-                // corresponding warning in C must be disabled.
-                "-Wno-return-stack-address",
+                    // In both Zig and C it is legal to return a pointer to a
+                    // local. The C backend lowers such thing directly, so the
+                    // corresponding warning in C must be disabled.
+                    "-Wno-return-stack-address",
+                };
+
+                const function_data_sections = switch (target.cpu.arch) {
+                    .arm,
+                    .armeb,
+                    .thumb,
+                    .thumbeb,
+                    .hexagon,
+                    .powerpc,
+                    .powerpcle,
+                    .powerpc64,
+                    .powerpc64le,
+                    => true,
+                    else => false,
+                };
+
+                break :blk if (function_data_sections) invariant_cflags ++ &[_][]const u8{
+                    "-ffunction-sections",
+                    "-fdata-sections",
+                } else invariant_cflags;
             },
         });
         compile_c.addIncludePath(b.path("lib")); // for zig.h
@@ -3017,6 +3170,77 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
             const run = b.addRunArtifact(test_step);
             run.skip_foreign_checks = true;
             step.dependOn(&run.step);
+        }
+    }
+    return step;
+}
+
+const LinkTestOptions = struct {
+    test_target_filters: []const []const u8,
+    test_filters: []const []const u8,
+    optimize_modes: []const OptimizeMode,
+    skip_non_native: bool,
+    skip_windows: bool,
+    skip_llvm: bool,
+    max_rss: usize,
+};
+
+pub fn addLinkTests(b: *std.Build, options: LinkTestOptions) *Step {
+    const step = b.step("test-link", "Run the linker tests");
+    const update_snapshots = b.option(
+        bool,
+        "link-snapshot-update",
+        "Update linker test snapshots in-place instead of testing against them",
+    ) orelse false;
+
+    for (link_targets) |link_target| {
+        if (options.skip_non_native and !link_target.target.isNative()) continue;
+        if (options.skip_windows and link_target.target.os_tag == .windows) continue;
+
+        const resolved_target = b.resolveTargetQuery(link_target.target);
+        const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
+        const target = &resolved_target.result;
+
+        if (options.test_target_filters.len > 0) {
+            for (options.test_target_filters) |filter| {
+                if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+            } else continue;
+        }
+
+        for (options.optimize_modes) |optimize_mode| {
+            if (link_target.optimize_mode != optimize_mode) continue;
+            if (link_target.link_libc and target.abi == .msvc and b.graph.host.result.os.tag != .windows) continue;
+            const would_use_llvm = wouldUseLlvm(link_target.use_llvm, link_target.target, optimize_mode);
+            if (options.skip_llvm and would_use_llvm) continue;
+
+            const opt_update_step = if (update_snapshots) update: {
+                const update_step = Step.UpdateSourceFiles.create(b);
+                step.dependOn(&update_step.step);
+                break :update update_step;
+            } else null;
+
+            var context: LinkContext = .{
+                .b = b,
+                .step = step,
+                .optimize = optimize_mode,
+                .target = resolved_target,
+                .target_desc = std.fmt.allocPrint(b.allocator, "{s}-{t}{s}{s}{s}", .{
+                    target.zigTriple(b.allocator) catch @panic("OOM"),
+                    optimize_mode,
+                    if (link_target.use_llvm) "-llvm" else "",
+                    if (link_target.use_lld) "-lld" else "",
+                    if (link_target.link_libc) "-libc" else "",
+                }) catch @panic("OOM"),
+                .use_llvm = link_target.use_llvm,
+                .use_lld = link_target.use_lld,
+                .link_libc = link_target.link_libc,
+                .test_filters = options.test_filters,
+                .update_step = opt_update_step,
+                .updated_snapshots = .empty,
+                .max_rss = options.max_rss,
+            };
+
+            link.addCases(&context);
         }
     }
     return step;

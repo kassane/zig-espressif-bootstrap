@@ -60,6 +60,7 @@ pub fn print(
         .union_type,
         .opaque_type,
         .enum_type,
+        .spirv_type,
         .func_type,
         .error_set_type,
         .inferred_error_set_type,

@@ -76,6 +76,7 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
     switch (@typeInfo(Key)) {
         .noreturn,
         .@"opaque",
+        .spirv,
         .undefined,
         .null,
         .comptime_float,

@@ -12,7 +12,7 @@ root_source_file: ?LazyPath,
 /// The modules that are mapped into this module's import table.
 /// Use `addImport` rather than modifying this field directly in order to
 /// maintain step dependency edges.
-import_table: std.StringArrayHashMapUnmanaged(*Module),
+import_table: std.array_hash_map.String(*Module),
 
 resolved_target: ?std.Build.ResolvedTarget = null,
 optimize: ?std.builtin.OptimizeMode = null,
@@ -22,7 +22,7 @@ c_macros: ArrayList([]const u8),
 include_dirs: ArrayList(IncludeDir),
 lib_paths: ArrayList(LazyPath),
 rpaths: ArrayList(RPath),
-frameworks: std.StringArrayHashMapUnmanaged(LinkFrameworkOptions),
+frameworks: std.array_hash_map.String(LinkFrameworkOptions),
 link_objects: ArrayList(LinkObject),
 
 strip: ?bool,
@@ -146,13 +146,10 @@ pub const RcSourceFile = struct {
     include_paths: []const LazyPath = &.{},
 
     pub fn dupe(file: RcSourceFile, graph: *const std.Build.Graph) RcSourceFile {
-        const arena = graph.arena;
-        const include_paths = arena.alloc(LazyPath, file.include_paths.len) catch @panic("OOM");
-        for (include_paths, file.include_paths) |*dest, lazy_path| dest.* = lazy_path.dupe(graph);
         return .{
             .file = file.file.dupe(graph),
             .flags = graph.dupeStrings(file.flags),
-            .include_paths = include_paths,
+            .include_paths = LazyPath.dupeList(file.include_paths, graph),
         };
     }
 };
@@ -563,7 +560,7 @@ pub fn getGraph(root: *Module) Graph {
 
     const arena = root.owner.graph.arena;
 
-    var modules: std.AutoArrayHashMapUnmanaged(*std.Build.Module, []const u8) = .empty;
+    var modules: std.array_hash_map.Auto(*std.Build.Module, []const u8) = .empty;
     var next_idx: usize = 0;
 
     modules.putNoClobber(arena, root, "root") catch @panic("OOM");

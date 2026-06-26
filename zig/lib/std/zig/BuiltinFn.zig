@@ -114,6 +114,7 @@ pub const Tag = enum {
     Struct,
     Union,
     Enum,
+    SpirvType,
     type_info,
     type_name,
     TypeOf,
@@ -969,6 +970,13 @@ pub const list = list: {
             .{
                 .tag = .Enum,
                 .param_count = 4,
+            },
+        },
+        .{
+            "@SpirvType",
+            .{
+                .tag = .SpirvType,
+                .param_count = 1,
             },
         },
         .{

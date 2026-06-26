@@ -383,7 +383,7 @@ pub fn writeCoff(
 fn writeSymbol(writer: *std.Io.Writer, symbol: std.coff.Symbol) !void {
     try writer.writeAll(&symbol.name);
     try writer.writeInt(u32, symbol.value, .little);
-    try writer.writeInt(u16, @intFromEnum(symbol.section_number), .little);
+    try writer.writeInt(i16, @intFromEnum(symbol.section_number), .little);
     try writer.writeInt(u8, @intFromEnum(symbol.type.base_type), .little);
     try writer.writeInt(u8, @intFromEnum(symbol.type.complex_type), .little);
     try writer.writeInt(u8, @intFromEnum(symbol.storage_class), .little);
@@ -439,9 +439,9 @@ pub const ResourceDataEntry = extern struct {
 
 /// type -> name -> language
 const ResourceTree = struct {
-    type_to_name_map: std.ArrayHashMapUnmanaged(NameOrOrdinal, NameToLanguageMap, NameOrOrdinalHashContext, true),
-    rsrc_string_table: std.ArrayHashMapUnmanaged(NameOrOrdinal, void, NameOrOrdinalHashContext, true),
-    deduplicated_data: std.StringArrayHashMapUnmanaged(u32),
+    type_to_name_map: std.array_hash_map.Custom(NameOrOrdinal, NameToLanguageMap, NameOrOrdinalHashContext, true),
+    rsrc_string_table: std.array_hash_map.Custom(NameOrOrdinal, void, NameOrOrdinalHashContext, true),
+    deduplicated_data: std.array_hash_map.String(u32),
     data_offsets: std.ArrayList(u32),
     rsrc02_len: u32,
     coff_options: CoffOptions,
@@ -451,8 +451,8 @@ const ResourceTree = struct {
         resource: *const Resource,
         original_index: usize,
     };
-    const LanguageToResourceMap = std.AutoArrayHashMapUnmanaged(Language, RelocatableResource);
-    const NameToLanguageMap = std.ArrayHashMapUnmanaged(NameOrOrdinal, LanguageToResourceMap, NameOrOrdinalHashContext, true);
+    const LanguageToResourceMap = std.array_hash_map.Auto(Language, RelocatableResource);
+    const NameToLanguageMap = std.array_hash_map.Custom(NameOrOrdinal, LanguageToResourceMap, NameOrOrdinalHashContext, true);
 
     const NameOrOrdinalHashContext = struct {
         pub fn hash(self: @This(), v: NameOrOrdinal) u32 {

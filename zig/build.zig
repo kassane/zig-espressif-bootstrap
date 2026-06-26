@@ -70,6 +70,23 @@ pub fn build(b: *std.Build) !void {
         b.getInstallStep().dependOn(&install_std_docs.step);
     }
 
+    const update_cpu_features = b.addExecutable(.{
+        .name = "update-cpu-features",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/update_cpu_features.zig"),
+            .target = b.graph.host,
+            .imports = &.{.{
+                .name = "spirv_spec",
+                .module = b.createModule(.{
+                    .root_source_file = b.path("src/codegen/spirv/spec.zig"),
+                    .target = b.graph.host,
+                }),
+            }},
+        }),
+    });
+    const run_update_cpu_features = b.addRunArtifact(update_cpu_features);
+    run_update_cpu_features.addPassthruArgs();
+
     if (flat) {
         b.installFile("LICENSE", "LICENSE");
         b.installFile("README.md", "README.md");
@@ -84,6 +101,9 @@ pub fn build(b: *std.Build) !void {
     const docs_step = b.step("docs", "Build and install documentation");
     docs_step.dependOn(langref_step);
     docs_step.dependOn(std_docs_step);
+
+    const update_cpu_features_step = b.step("update-cpu-features", "Update CPU Features");
+    update_cpu_features_step.dependOn(&run_update_cpu_features.step);
 
     const no_matrix = b.option(bool, "no-matrix", "Limit test matrix to exactly one target configuration") orelse false;
     const fuzz_only = b.option(bool, "fuzz-only", "Limit test matrix to one target suitable for fuzzing") orelse false;
@@ -142,24 +162,9 @@ pub fn build(b: *std.Build) !void {
             .install_dir = if (flat) .prefix else .lib,
             .install_subdir = if (flat) "lib" else "zig",
             .exclude_extensions = &[_][]const u8{
-                // exclude files from lib/std/compress/testdata
-                ".gz",
-                ".z.0",
-                ".z.9",
-                ".zst.3",
-                ".zst.19",
-                "rfc1951.txt",
-                "rfc1952.txt",
-                "rfc8478.txt",
                 // exclude files from lib/std/compress/flate/testdata
                 ".expect",
-                ".expect-noinput",
-                ".golden",
                 ".input",
-                "compress-e.txt",
-                "compress-gettysburg.txt",
-                "compress-pi.txt",
-                "rfc1951.txt",
                 // exclude files from lib/std/compress/lzma/testdata
                 ".lzma",
                 // exclude files from lib/std/compress/xz/testdata
@@ -168,6 +173,8 @@ pub fn build(b: *std.Build) !void {
                 ".tzif",
                 // exclude files from lib/std/tar/testdata
                 ".tar",
+                // exclude files from lib/std/zip/testdata
+                ".zip",
                 // others
                 "README.md",
             },
@@ -216,7 +223,6 @@ pub fn build(b: *std.Build) !void {
 
     const use_llvm = b.option(bool, "use-llvm", "Use the llvm backend");
     exe.use_llvm = use_llvm;
-    exe.use_lld = use_llvm;
 
     if (no_bin) {
         b.getInstallStep().dependOn(&exe.step);
@@ -250,7 +256,6 @@ pub fn build(b: *std.Build) !void {
     const is_debug = optimize == .Debug;
     const enable_debug_extensions = b.option(bool, "debug-extensions", "Enable commands and options useful for debugging the compiler") orelse is_debug;
     const enable_logging = b.option(bool, "log", "Enable debug logging with --debug-log") orelse is_debug;
-    const enable_link_snapshots = b.option(bool, "link-snapshot", "Whether to enable linker state snapshots") orelse false;
 
     const opt_version_string = b.option([]const u8, "version-string", "Override Zig version string. Default is to find out with git.");
     const version_slice = if (opt_version_string) |version| version else v: {
@@ -366,7 +371,6 @@ pub fn build(b: *std.Build) !void {
 
     exe_options.addOption(bool, "enable_debug_extensions", enable_debug_extensions);
     exe_options.addOption(bool, "enable_logging", enable_logging);
-    exe_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     exe_options.addOption(bool, "enable_tracy", tracy != null);
     exe_options.addOption(bool, "enable_tracy_callstack", tracy_callstack);
     exe_options.addOption(bool, "enable_tracy_allocation", tracy_allocation);
@@ -623,6 +627,15 @@ pub fn build(b: *std.Build) !void {
         .skip_llvm = skip_llvm,
         .max_rss = 3_300_000_000,
     }));
+    test_step.dependOn(tests.addLinkTests(b, .{
+        .test_target_filters = test_target_filters,
+        .test_filters = test_filters,
+        .optimize_modes = optimize_modes,
+        .skip_non_native = skip_non_native,
+        .skip_windows = skip_windows,
+        .skip_llvm = skip_llvm,
+        .max_rss = 100_000_000,
+    }));
     test_step.dependOn(tests.addStackTraceTests(b, test_filters, skip_non_native));
     test_step.dependOn(tests.addErrorTraceTests(b, test_filters, optimize_modes, skip_non_native));
     test_step.dependOn(tests.addCliTests(b));
@@ -662,6 +675,26 @@ pub fn build(b: *std.Build) !void {
         update_mingw_step.dependOn(&b.addFail("The -Dmingw-src=... option is required for this step").step);
     }
 
+    const check_mingw_step = b.step("check-mingw", "Checks for mingw preprocessor regressions");
+    const mingw_preprocessor_mod = b.createModule(.{
+        .root_source_file = b.path("src/libs/mingw/Preprocessor.zig"),
+        .target = target,
+    });
+
+    const check_mingw_exe = b.addExecutable(.{
+        .name = "check_mingw",
+        .root_module = b.createModule(.{
+            .target = b.graph.host,
+            .root_source_file = b.path("tools/check_mingw.zig"),
+            .imports = &.{
+                .{ .name = "preprocessor", .module = mingw_preprocessor_mod },
+            },
+        }),
+    });
+    const check_mingw_run = b.addRunArtifact(check_mingw_exe);
+    check_mingw_run.addDirectoryArg(b.path("lib/libc/mingw"));
+    check_mingw_step.dependOn(&check_mingw_run.step);
+
     const test_incremental_step = b.step("test-incremental", "Run the incremental compilation test cases");
     try tests.addIncrementalTests(b, test_incremental_step, test_filters);
     if (!skip_test_incremental) test_step.dependOn(test_incremental_step);
@@ -698,7 +731,6 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(std.SemanticVersion, "semver", semver);
     exe_options.addOption(bool, "enable_debug_extensions", false);
     exe_options.addOption(bool, "enable_logging", false);
-    exe_options.addOption(bool, "enable_link_snapshots", false);
     exe_options.addOption(bool, "enable_tracy", false);
     exe_options.addOption(bool, "enable_tracy_callstack", false);
     exe_options.addOption(bool, "enable_tracy_allocation", false);
@@ -763,12 +795,6 @@ fn addCompilerMod(b: *std.Build, options: AddCompilerModOptions) *std.Build.Modu
         .single_threaded = options.single_threaded,
         .valgrind = options.valgrind,
     });
-
-    const aro_mod = b.createModule(.{
-        .root_source_file = b.path("lib/compiler/aro/aro.zig"),
-    });
-
-    compiler_mod.addImport("aro", aro_mod);
 
     return compiler_mod;
 }

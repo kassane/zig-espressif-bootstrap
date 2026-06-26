@@ -26,11 +26,11 @@ prologue: Prologue,
 
 /// Not directly used by `Emit`, but the linker needs this to merge it with a global set.
 /// Value is the explicit alignment if greater than natural alignment, `.none` otherwise.
-uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
+uavs: std.array_hash_map.Auto(InternPool.Index, Alignment),
 /// Not directly used by `Emit`, but the linker needs this to merge it with a global set.
-indirect_function_set: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void),
+indirect_function_set: std.array_hash_map.Auto(InternPool.Nav.Index, void),
 /// Not directly used by `Emit`, but the linker needs this to ensure these types are interned.
-func_tys: std.AutoArrayHashMapUnmanaged(InternPool.Index, void),
+func_tys: std.array_hash_map.Auto(InternPool.Index, void),
 /// Not directly used by `Emit`, but the linker needs this to add it to its own refcount.
 error_name_table_ref_count: u32,
 

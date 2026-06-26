@@ -20,11 +20,6 @@ const stdlib_renames = std.StaticStringMap([]const u8).initComptime(.{
     .{ "_llseek", "llseek" },
     .{ "_newselect", "newselect" },
     .{ "_sysctl", "sysctl" },
-    // Most 64-bit archs.
-    .{ "newfstat", "fstat64" },
-    .{ "newfstatat", "fstatat64" },
-    // POWER.
-    .{ "sync_file_range2", "sync_file_range" },
     // ARM EABI/Thumb.
     .{ "arm_sync_file_range", "sync_file_range" },
     .{ "arm_fadvise64_64", "fadvise64_64" },
@@ -171,11 +166,10 @@ const architectures: []const Arch = &.{
     .{ .@"var" = "CSky", .table = .generic, .abi = &.{ .common, .@"32", .csky, .time32, .stat64, .rlimit } },
     .{ .@"var" = "Hexagon", .table = .generic, .abi = &.{ .common, .@"32", .hexagon, .time32, .stat64, .rlimit, .renameat } },
     .{ .@"var" = "OpenRisc", .table = .generic, .abi = &.{ .common, .@"32", .or1k, .time32, .stat64, .rlimit, .renameat } },
-    // .{ .@"var" = "Nios2", .table = .generic, .abi = &.{ .common, .@"32", .nios2, .time32, .stat64, .rlimit, .renameat } },
-    // .{ .@"var" = "Parisc", .table = .{ .specific = "arch/parisc/kernel/syscalls/syscall.tbl" }, .abi = &.{ .common, .@"32" } },
-    // .{ .@"var" = "Parisc64", .table = .{ .specific = "arch/parisc/kernel/syscalls/syscall.tbl" }, .abi = &.{ .common, .@"64" } },
-    // .{ .@"var" = "Sh", .table = .{ .specific = "arch/sh/kernel/syscalls/syscall.tbl" } },
-    // .{ .@"var" = "Microblaze", .table = .{ .specific = "arch/microblaze/kernel/syscalls/syscall.tbl" } },
+    .{ .@"var" = "Hppa", .table = .{ .specific = "arch/parisc/kernel/syscalls/syscall.tbl" }, .abi = &.{ .common, .@"32" } },
+    .{ .@"var" = "Hppa64", .table = .{ .specific = "arch/parisc/kernel/syscalls/syscall.tbl" }, .abi = &.{ .common, .@"64" } },
+    .{ .@"var" = "Sh", .table = .{ .specific = "arch/sh/kernel/syscalls/syscall.tbl" } },
+    .{ .@"var" = "Microblaze", .table = .{ .specific = "arch/microblaze/kernel/syscalls/syscall.tbl" } },
 };
 
 pub fn main(init: std.process.Init) !void {

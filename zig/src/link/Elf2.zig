@@ -112,7 +112,7 @@ plt_first_symbol_reloc: SymbolReloc.Index,
 /// The `.dynamic` section contains zero or more symbol relocations starting at this index.
 dynamic_first_symbol_reloc: SymbolReloc.Index,
 
-needed: std.AutoArrayHashMapUnmanaged(String(.dynstr), void),
+needed: std.array_hash_map.Auto(String(.dynstr), void),
 inputs: std.ArrayList(struct {
     path: std.Build.Cache.Path,
     member: ?[]const u8,
@@ -120,21 +120,21 @@ inputs: std.ArrayList(struct {
 }),
 input_sections: std.ArrayList(InputSection),
 input_section_pending_index: u32,
-navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, struct {
+navs: std.array_hash_map.Auto(InternPool.Nav.Index, struct {
     lsi: Symbol.LocalIndex,
     /// The start index of the contiguous sequence of symbol relocations in this NAV.
     first_symbol_reloc: SymbolReloc.Index,
     /// The start index of the contiguous sequence of GOT relocations in this NAV.
     first_got_reloc: GotReloc.Index,
 }),
-uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, struct {
+uavs: std.array_hash_map.Auto(InternPool.Index, struct {
     lsi: Symbol.LocalIndex,
     /// The start index of the contiguous sequence of symbol relocations in this UAV.
     first_symbol_reloc: SymbolReloc.Index,
     // No `first_got_reloc` field because a UAV never contains GOT relocations.
 }),
 lazy: std.EnumArray(link.File.LazySymbol.Kind, struct {
-    map: std.AutoArrayHashMapUnmanaged(InternPool.Index, struct {
+    map: std.array_hash_map.Auto(InternPool.Index, struct {
         lsi: Symbol.LocalIndex,
         /// The start index of the contiguous sequence of symbol relocations in this lazy code/data.
         first_symbol_reloc: SymbolReloc.Index,
@@ -161,6 +161,8 @@ textrel_count: u32,
 const_prog_node: std.Progress.Node,
 synth_prog_node: std.Progress.Node,
 input_prog_node: std.Progress.Node,
+
+const Error = link.Error || error{MappedFileIo};
 
 const Node = union(enum) {
     file,
@@ -478,7 +480,7 @@ const Section = struct {
             };
         }
 
-        fn rename(shndx: Index, elf: *Elf, new_name: []const u8) !void {
+        fn rename(shndx: Index, elf: *Elf, new_name: []const u8) Error!void {
             const shstrtab_entry = try elf.string(.shstrtab, new_name);
             switch (elf.shdrPtr(shndx)) {
                 inline else => |shdr| elf.targetStore(&shdr.name, @intFromEnum(shstrtab_entry)),
@@ -487,7 +489,7 @@ const Section = struct {
 
         /// Asserts that `shndx` is a `SHT_RELA` section and ensures that its node has enough unused
         /// space to hold `n` additional `ElfN.Rela` entries.
-        fn relaEnsureAdditionalCapacity(rela_shndx: Index, elf: *Elf, n: usize) !void {
+        fn relaEnsureAdditionalCapacity(rela_shndx: Index, elf: *Elf, n: usize) Error!void {
             const node = rela_shndx.get(elf).ni;
             const need_size: u64 = switch (elf.shdrPtr(rela_shndx)) {
                 inline else => |shdr, class| need_size: {
@@ -509,11 +511,7 @@ const Section = struct {
                     break :need_size cur_size + need_additional * ent_size;
                 },
             };
-            _, const cur_node_size = node.location(&elf.mf).resolve(&elf.mf);
-            if (need_size > cur_node_size) {
-                const gpa = elf.base.comp.gpa;
-                try node.resize(&elf.mf, gpa, need_size +| need_size / MappedFile.growth_factor);
-            }
+            try elf.ensureNodeSize(node, need_size);
         }
 
         /// Asserts that `shndx` is a `SHT_RELA` section and deletes the `ElfN.Rela` entry at the
@@ -1192,7 +1190,7 @@ const SymbolReloc = struct {
     }
 };
 
-fn ensureUnusedSymbolCapacity(elf: *Elf, len: u32, kind: enum { all_local, maybe_global }) !void {
+fn ensureUnusedSymbolCapacity(elf: *Elf, len: u32, kind: enum { all_local, maybe_global }) Error!void {
     const gpa = elf.base.comp.gpa;
 
     try elf.symtab.ensureUnusedCapacity(gpa, len);
@@ -1210,11 +1208,7 @@ fn ensureUnusedSymbolCapacity(elf: *Elf, len: u32, kind: enum { all_local, maybe
         const need_node_size: u64 = switch (elf.shdrPtr(.symtab)) {
             inline else => |shdr, class| elf.targetLoad(&shdr.size) + len * @sizeOf(class.ElfN().Sym),
         };
-        _, const cur_node_size = Section.Index.symtab.get(elf).ni.location(&elf.mf).resolve(&elf.mf);
-        if (cur_node_size < need_node_size) {
-            const new_node_size = need_node_size +| need_node_size / MappedFile.growth_factor;
-            try Section.Index.symtab.get(elf).ni.resize(&elf.mf, gpa, new_node_size);
-        }
+        try elf.ensureNodeSize(Section.Index.symtab.get(elf).ni, need_node_size);
     }
 
     switch (kind) {
@@ -1232,18 +1226,14 @@ fn ensureUnusedSymbolCapacity(elf: *Elf, len: u32, kind: enum { all_local, maybe
                 const dynsym_need_size: u64 = switch (elf.shdrPtr(elf.shndx.dynsym)) {
                     inline else => |shdr, class| elf.targetLoad(&shdr.size) + len * @sizeOf(class.ElfN().Sym),
                 };
-                _, const dynsym_cur_size = elf.shndx.dynsym.get(elf).ni.location(&elf.mf).resolve(&elf.mf);
-                if (dynsym_cur_size < dynsym_need_size) {
-                    const new_size = dynsym_need_size +| dynsym_need_size / MappedFile.growth_factor;
-                    try elf.shndx.dynsym.get(elf).ni.resize(&elf.mf, gpa, new_size);
-                }
+                try elf.ensureNodeSize(elf.shndx.dynsym.get(elf).ni, dynsym_need_size);
 
                 try elf.ensureUnusedPltCapacity(len);
             }
         },
     }
 }
-fn ensureUnusedPltCapacity(elf: *Elf, len: u32) !void {
+fn ensureUnusedPltCapacity(elf: *Elf, len: u32) Error!void {
     const gpa = elf.base.comp.gpa;
 
     try elf.shndx.rela_plt.relaEnsureAdditionalCapacity(elf, len);
@@ -1256,30 +1246,18 @@ fn ensureUnusedPltCapacity(elf: *Elf, len: u32) !void {
         .X86_64 => {
             // Ensure the `.plt` section's node is big enough
             const plt_need_size: usize = 16 * (1 + need_plt_capacity);
-            _, const plt_cur_size = elf.shndx.plt.get(elf).ni.location(&elf.mf).resolve(&elf.mf);
-            if (plt_cur_size < plt_need_size) {
-                const new_size = plt_need_size +| plt_need_size / MappedFile.growth_factor;
-                try elf.shndx.plt.get(elf).ni.resize(&elf.mf, gpa, new_size);
-            }
+            try elf.ensureNodeSize(elf.shndx.plt.get(elf).ni, plt_need_size);
 
             // Ensure the `.got.plt` section's node is big enough
             const got_plt_need_size: usize = switch (elf.identClass()) {
                 .NONE, _ => unreachable,
                 inline else => |class| @sizeOf(class.ElfN().Addr) * (3 + need_plt_capacity),
             };
-            _, const got_plt_cur_size = elf.shndx.got_plt.get(elf).ni.location(&elf.mf).resolve(&elf.mf);
-            if (got_plt_cur_size < got_plt_need_size) {
-                const new_size = got_plt_need_size +| got_plt_need_size / MappedFile.growth_factor;
-                try elf.shndx.got_plt.get(elf).ni.resize(&elf.mf, gpa, new_size);
-            }
+            try elf.ensureNodeSize(elf.shndx.got_plt.get(elf).ni, got_plt_need_size);
 
             // Ensure the `.plt.sec` section's node is big enough
             const plt_sec_need_size: usize = 16 * need_plt_capacity;
-            _, const plt_sec_cur_size = elf.shndx.plt_sec.get(elf).ni.location(&elf.mf).resolve(&elf.mf);
-            if (plt_sec_cur_size < plt_sec_need_size) {
-                const new_size = plt_sec_need_size +| plt_sec_need_size / MappedFile.growth_factor;
-                try elf.shndx.plt_sec.get(elf).ni.resize(&elf.mf, gpa, new_size);
-            }
+            try elf.ensureNodeSize(elf.shndx.plt_sec.get(elf).ni, plt_sec_need_size);
         },
     }
 }
@@ -1375,7 +1353,7 @@ const AddGlobalSymbolOptions = struct {
     const Name = struct {
         strtab: String(.strtab),
         dynstr: String(.dynstr),
-        fn string(elf: *Elf, slice: []const u8) !Name {
+        fn string(elf: *Elf, slice: []const u8) Error!Name {
             return .{
                 .strtab = try elf.string(.strtab, slice),
                 .dynstr = switch (elf.shndx.dynsym) {
@@ -2205,7 +2183,14 @@ pub fn symbolForAtom(elf: *Elf, atom: link.File.AtomId) link.File.SymbolId {
     const s: Symbol.Id = .local(lsi);
     return s.toTypeErased();
 }
-pub fn lazySymbol(elf: *Elf, lazy: link.File.LazySymbol) !link.File.SymbolId {
+pub fn lazySymbol(elf: *Elf, lazy: link.File.LazySymbol) link.Error!link.File.SymbolId {
+    const diags = &elf.base.comp.link_diags;
+    return elf.lazySymbolInner(lazy) catch |err| switch (err) {
+        error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+        else => |e| return e,
+    };
+}
+fn lazySymbolInner(elf: *Elf, lazy: link.File.LazySymbol) Error!link.File.SymbolId {
     const gpa = elf.base.comp.gpa;
 
     try elf.ensureUnusedSymbolCapacity(1, .all_local);
@@ -2246,13 +2231,21 @@ pub fn lazySymbol(elf: *Elf, lazy: link.File.LazySymbol) !link.File.SymbolId {
     const s: Symbol.Id = .local(gop.value_ptr.lsi);
     return s.toTypeErased();
 }
-pub fn externSymbol(elf: *Elf, opts: struct {
+pub const ExternSymbolOpts = struct {
     name: []const u8,
     lib_name: ?[]const u8,
     type: std.elf.STT,
     linkage: std.lang.GlobalLinkage = .strong,
     visibility: std.lang.SymbolVisibility = .default,
-}) !link.File.SymbolId {
+};
+pub fn externSymbol(elf: *Elf, opts: ExternSymbolOpts) link.Error!link.File.SymbolId {
+    const diags = &elf.base.comp.link_diags;
+    return elf.externSymbolInner(opts) catch |err| switch (err) {
+        error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+        else => |e| return e,
+    };
+}
+fn externSymbolInner(elf: *Elf, opts: ExternSymbolOpts) Error!link.File.SymbolId {
     try elf.ensureUnusedSymbolCapacity(1, .maybe_global);
     const symbol = elf.addGlobalSymbolAssumeCapacity(.{
         .node = .none,
@@ -2265,7 +2258,7 @@ pub fn externSymbol(elf: *Elf, opts: struct {
             .internal => @panic("TODO internal extern symbol"),
             .strong => .strong,
             .weak => .weak,
-            .link_once => return error.LinkOnceUnsupported,
+            .link_once => return elf.base.comp.link_diags.fail("TODO(Elf2): link_once is not supported", .{}),
         },
         .visibility = switch (opts.visibility) {
             .default => .DEFAULT,
@@ -2285,12 +2278,20 @@ pub fn addReloc(
     target: link.File.SymbolId,
     addend: i64,
     @"type": MachineRelocType,
-) !void {
+) link.Error!void {
     const node: MappedFile.Node.Index = Node.fromAtom(atom);
-    try elf.ensureUnusedRelocCapacity(node, 1);
-    try elf.addRelocAssumeCapacity(node, offset, .fromTypeErased(target), addend, @"type");
+    const diags = &elf.base.comp.link_diags;
+    elf.ensureUnusedRelocCapacity(node, 1) catch |err| switch (err) {
+        error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+        else => |e| return e,
+    };
+    elf.addRelocAssumeCapacity(node, offset, .fromTypeErased(target), addend, @"type") catch |err| switch (err) {
+        error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+        else => |e| return e,
+    };
 }
-pub fn navSymbol(elf: *Elf, nav_index: InternPool.Nav.Index) !link.File.SymbolId {
+pub fn navSymbol(elf: *Elf, nav_index: InternPool.Nav.Index) link.Error!link.File.SymbolId {
+    const diags = &elf.base.comp.link_diags;
     const zcu = elf.base.comp.zcu.?;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
@@ -2303,7 +2304,10 @@ pub fn navSymbol(elf: *Elf, nav_index: InternPool.Nav.Index) !link.File.SymbolId
             .visibility = @"extern".visibility,
         });
     }
-    const nmi = try elf.navMapIndex(zcu, nav_index);
+    const nmi = elf.navMapIndex(zcu, nav_index) catch |err| switch (err) {
+        error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+        else => |e| return e,
+    };
     const s: Symbol.Id = .local(nmi.symbol(elf));
     return s.toTypeErased();
 }
@@ -2311,8 +2315,12 @@ pub fn uavSymbol(
     elf: *Elf,
     uav_val: InternPool.Index,
     uav_align: InternPool.Alignment,
-) !link.File.SymbolId {
-    const umi = try elf.uavMapIndex(uav_val, uav_align);
+) link.Error!link.File.SymbolId {
+    const diags = &elf.base.comp.link_diags;
+    const umi = elf.uavMapIndex(uav_val, uav_align) catch |err| switch (err) {
+        error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+        else => |e| return e,
+    };
     const s: Symbol.Id = .local(umi.symbol(elf));
     return s.toTypeErased();
 }
@@ -2321,7 +2329,7 @@ pub fn getNavVAddr(
     pt: Zcu.PerThread,
     nav: InternPool.Nav.Index,
     reloc_info: link.File.RelocInfo,
-) !u64 {
+) link.Error!u64 {
     _ = pt;
     return elf.getVAddr(reloc_info, try elf.navSymbol(nav));
 }
@@ -2329,41 +2337,33 @@ pub fn getUavVAddr(
     elf: *Elf,
     uav_val: InternPool.Index,
     reloc_info: link.File.RelocInfo,
-) !u64 {
+) link.Error!u64 {
     return elf.getVAddr(reloc_info, try elf.uavSymbol(uav_val, .none));
 }
-pub fn getVAddr(elf: *Elf, reloc_info: link.File.RelocInfo, target: link.File.SymbolId) !u64 {
-    const node: MappedFile.Node.Index = Node.fromAtom(reloc_info.parent.atom_index);
-    const target_sym: Symbol.Id = .fromTypeErased(target);
-    try elf.ensureUnusedRelocCapacity(node, 1);
-    try elf.addRelocAssumeCapacity(
-        node,
+pub fn getVAddr(elf: *Elf, reloc_info: link.File.RelocInfo, target: link.File.SymbolId) link.Error!u64 {
+    try elf.addReloc(
+        reloc_info.parent.atom_index,
         reloc_info.offset,
-        target_sym,
+        target,
         reloc_info.addend,
         .absAddr(elf),
     );
-    return target_sym.value(elf);
+    return Symbol.Id.fromTypeErased(target).value(elf);
 }
 pub fn lowerUav(
     elf: *Elf,
     pt: Zcu.PerThread,
     uav_val: InternPool.Index,
     uav_align: InternPool.Alignment,
-    src_loc: Zcu.LazySrcLoc,
-) !codegen.SymbolResult {
+) link.Error!link.File.SymbolId {
     _ = pt;
+    const diags = &elf.base.comp.link_diags;
     const umi = elf.uavMapIndex(uav_val, uav_align) catch |err| switch (err) {
-        error.OutOfMemory => |e| return e,
-        else => |e| return .{ .fail = try Zcu.ErrorMsg.create(
-            elf.base.comp.gpa,
-            src_loc,
-            "linker failed to update constant: {s}",
-            .{@errorName(e)},
-        ) },
+        error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+        else => |e| return e,
     };
     const s: Symbol.Id = .local(umi.symbol(elf));
-    return .{ .sym_index = s.toTypeErased() };
+    return s.toTypeErased();
 }
 
 const StringSection = enum {
@@ -2390,7 +2390,7 @@ fn String(section: StringSection) type {
         }
     };
 }
-fn string(elf: *Elf, comptime section: StringSection, key: []const u8) !String(section) {
+fn string(elf: *Elf, comptime section: StringSection, key: []const u8) Error!String(section) {
     const st: *StringTable = &@field(elf, @tagName(section));
     return @enumFromInt(try st.get(elf, section.shndx(elf), key));
 }
@@ -2424,7 +2424,7 @@ const StringTable = struct {
         }
     };
 
-    pub fn get(st: *StringTable, elf: *Elf, shndx: Section.Index, key: []const u8) !u32 {
+    pub fn get(st: *StringTable, elf: *Elf, shndx: Section.Index, key: []const u8) Error!u32 {
         // If we are in `initHeaders` the strtab might not be initalized yet, so we need to special
         // case the empty string.
         if (key.len == 0) return 0;
@@ -2450,9 +2450,7 @@ const StringTable = struct {
         if (shndx == elf.shndx.dynstr) {
             elf.updateDynamicEntry(std.elf.DT_STRSZ, new_size);
         }
-        _, const node_size = ni.location(&elf.mf).resolve(&elf.mf);
-        if (new_size > node_size)
-            try ni.resize(&elf.mf, gpa, new_size +| new_size / MappedFile.growth_factor);
+        try elf.ensureNodeSize(ni, new_size);
         const slice = ni.slice(&elf.mf)[old_size..];
         @memcpy(slice[0..key.len], key);
         slice[key.len] = 0;
@@ -3256,7 +3254,7 @@ fn initHeaders(
         // `FINI_ARRAY`/`PREINIT_ARRAY` sections are instead created by `createInitFiniArraySection`
         // when needed (it seems to be legal to leave those undefined if the section doesn't exist).
 
-        try elf.ensureUnusedSymbolCapacity(4, .maybe_global);
+        try elf.ensureUnusedSymbolCapacity(10, .maybe_global);
         // Despite the name, `__dso_handle` is necessary even in static binaries.
         _ = elf.addGlobalSymbolAssumeCapacity(.{
             .node = Section.Index.text.get(elf).ni,
@@ -3264,7 +3262,7 @@ fn initHeaders(
             .value = Section.Index.text.vaddr(elf),
             .size = 0,
             .type = .NOTYPE,
-            .bind = .strong,
+            .bind = .weak,
             .visibility = .HIDDEN,
             .shndx = .text,
         }) catch |err| switch (err) {
@@ -3291,6 +3289,78 @@ fn initHeaders(
             .bind = .strong,
             .visibility = .HIDDEN,
             .shndx = elf.shndx.got,
+        }) catch |err| switch (err) {
+            error.MultipleDefinitions => unreachable, // no inputs are processed yet
+        };
+        _ = elf.addGlobalSymbolAssumeCapacity(.{
+            .node = .none,
+            .name = try .string(elf, "__init_array_start"),
+            .value = 0,
+            .size = 0,
+            .type = .NOTYPE,
+            .bind = .strong,
+            .visibility = .HIDDEN,
+            .shndx = .ABS,
+        }) catch |err| switch (err) {
+            error.MultipleDefinitions => unreachable, // no inputs are processed yet
+        };
+        _ = elf.addGlobalSymbolAssumeCapacity(.{
+            .node = .none,
+            .name = try .string(elf, "__init_array_end"),
+            .value = 0,
+            .size = 0,
+            .type = .NOTYPE,
+            .bind = .strong,
+            .visibility = .HIDDEN,
+            .shndx = .ABS,
+        }) catch |err| switch (err) {
+            error.MultipleDefinitions => unreachable, // no inputs are processed yet
+        };
+        _ = elf.addGlobalSymbolAssumeCapacity(.{
+            .node = .none,
+            .name = try .string(elf, "__fini_array_start"),
+            .value = 0,
+            .size = 0,
+            .type = .NOTYPE,
+            .bind = .strong,
+            .visibility = .HIDDEN,
+            .shndx = .ABS,
+        }) catch |err| switch (err) {
+            error.MultipleDefinitions => unreachable, // no inputs are processed yet
+        };
+        _ = elf.addGlobalSymbolAssumeCapacity(.{
+            .node = .none,
+            .name = try .string(elf, "__fini_array_end"),
+            .value = 0,
+            .size = 0,
+            .type = .NOTYPE,
+            .bind = .strong,
+            .visibility = .HIDDEN,
+            .shndx = .ABS,
+        }) catch |err| switch (err) {
+            error.MultipleDefinitions => unreachable, // no inputs are processed yet
+        };
+        _ = elf.addGlobalSymbolAssumeCapacity(.{
+            .node = .none,
+            .name = try .string(elf, "__preinit_array_start"),
+            .value = 0,
+            .size = 0,
+            .type = .NOTYPE,
+            .bind = .strong,
+            .visibility = .HIDDEN,
+            .shndx = .ABS,
+        }) catch |err| switch (err) {
+            error.MultipleDefinitions => unreachable, // no inputs are processed yet
+        };
+        _ = elf.addGlobalSymbolAssumeCapacity(.{
+            .node = .none,
+            .name = try .string(elf, "__preinit_array_end"),
+            .value = 0,
+            .size = 0,
+            .type = .NOTYPE,
+            .bind = .strong,
+            .visibility = .HIDDEN,
+            .shndx = .ABS,
         }) catch |err| switch (err) {
             error.MultipleDefinitions => unreachable, // no inputs are processed yet
         };
@@ -3615,7 +3685,13 @@ fn mapInputSection(elf: *Elf, opts: struct {
     flags: std.elf.SHF,
     addralign: std.elf.Xword,
     entsize: std.elf.Xword,
-}) !Section.Index {
+}) (Error || error{
+    UnsupportedSectionFlags,
+    TlsSectionUnavailable,
+    StripSection,
+    SectionFlagsConflict,
+    SectionTypeConflict,
+})!Section.Index {
     const gpa = elf.base.comp.gpa;
     if (opts.flags.INFO_LINK or
         opts.flags.LINK_ORDER or
@@ -3709,7 +3785,7 @@ fn mapInputSection(elf: *Elf, opts: struct {
         const new_alignment: std.mem.Alignment = .fromByteUnits(
             std.math.ceilPowerOfTwoAssert(usize, @intCast(opts.addralign)),
         );
-        try existing_shndx.get(elf).ni.realign(&elf.mf, gpa, new_alignment);
+        try existing_shndx.get(elf).ni.realign(&elf.mf, gpa, new_alignment, .{ .set_alignment = true });
     }
     // ...and update the shdr as needed.
     switch (elf.shdrPtr(existing_shndx)) {
@@ -3733,7 +3809,7 @@ fn mapInputSection(elf: *Elf, opts: struct {
     }
     return existing_shndx;
 }
-fn navMapIndex(elf: *Elf, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Node.NavMapIndex {
+fn navMapIndex(elf: *Elf, zcu: *Zcu, nav_index: InternPool.Nav.Index) Error!Node.NavMapIndex {
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
@@ -3826,7 +3902,7 @@ fn uavMapIndex(
     elf: *Elf,
     uav_val: InternPool.Index,
     uav_align: InternPool.Alignment,
-) !Node.UavMapIndex {
+) Error!Node.UavMapIndex {
     const gpa = elf.base.comp.gpa;
     const zcu = elf.base.comp.zcu.?;
 
@@ -3872,32 +3948,84 @@ fn uavMapIndex(
     } else {
         const node = uav_gop.value_ptr.lsi.index().ptr(elf).node;
         if (resolved_align.toStdMem().order(node.alignment(&elf.mf)).compare(.gt)) {
-            try node.realign(&elf.mf, gpa, resolved_align.toStdMem());
+            try node.realign(&elf.mf, gpa, resolved_align.toStdMem(), .{ .set_alignment = true });
         }
     }
     return umi;
 }
 
-pub fn loadInput(elf: *Elf, input: link.Input) (Io.File.Reader.SizeError ||
-    Io.File.Reader.Error || MappedFile.Error || error{ EndOfStream, BadMagic, LinkFailure })!void {
-    const io = elf.base.comp.io;
+/// Internal error set used by input parsing functions `loadObject`, `loadArchive`, `loadDso`.
+const LoadParseInputError = Error || Io.File.SeekError || Io.Reader.Error;
+
+/// Returns `error.BadMagic` if a DSO or static archive has an incorrect magic number, which
+/// indicates to the frontend that the input could be a GNU ld script instead.
+pub fn loadInput(elf: *Elf, input: link.Input) (link.Error || error{BadMagic})!void {
+    const diags = &elf.base.comp.link_diags;
+    return elf.loadInputInner(input) catch |err| switch (err) {
+        else => |e| return e,
+        error.MappedFileIo => return diags.fail(
+            "failed to write output file: {t}",
+            .{elf.mf.io_err.?},
+        ),
+    };
+}
+fn loadInputInner(elf: *Elf, input: link.Input) (Error || error{BadMagic})!void {
+    const comp = elf.base.comp;
+    const diags = &comp.link_diags;
+    const io = comp.io;
     var buf: [4096]u8 = undefined;
     switch (input) {
         .object => |object| {
             var fr = object.file.reader(io, &buf);
             elf.loadObject(object.path, null, &fr, .{
                 .offset = fr.logicalPos(),
-                .size = try fr.getSize(),
+                .size = fr.getSize() catch |err| switch (err) {
+                    error.Canceled => |e| return e,
+                    else => |e| return diags.fail(
+                        "failed to stat \"{f}\": {t}",
+                        .{ object.path.fmtEscapeString(), e },
+                    ),
+                },
             }) catch |err| switch (err) {
-                error.ReadFailed => return fr.err.?,
                 else => |e| return e,
+                error.EndOfStream => return diags.failParse(
+                    object.path,
+                    "unexpected eof",
+                    .{},
+                ),
+                error.AccessDenied, error.Unexpected, error.Unseekable => |e| return diags.fail(
+                    "failed to read \"{f}\": {t}",
+                    .{ object.path.fmtEscapeString(), e },
+                ),
+                error.ReadFailed => switch (fr.err.?) {
+                    error.Canceled => |e| return e,
+                    else => |e| return diags.fail(
+                        "failed to read \"{f}\": {t}",
+                        .{ object.path.fmtEscapeString(), e },
+                    ),
+                },
             };
         },
         .archive => |archive| {
             var fr = archive.file.reader(io, &buf);
             elf.loadArchive(archive.path, &fr) catch |err| switch (err) {
-                error.ReadFailed => return fr.err.?,
                 else => |e| return e,
+                error.EndOfStream => return diags.failParse(
+                    archive.path,
+                    "unexpected eof",
+                    .{},
+                ),
+                error.AccessDenied, error.Unexpected, error.Unseekable => |e| return diags.fail(
+                    "failed to read \"{f}\": {t}",
+                    .{ archive.path.fmtEscapeString(), e },
+                ),
+                error.ReadFailed => switch (fr.err.?) {
+                    error.Canceled => |e| return e,
+                    else => |e| return diags.fail(
+                        "failed to read \"{f}\": {t}",
+                        .{ archive.path.fmtEscapeString(), e },
+                    ),
+                },
             };
         },
         .res => unreachable,
@@ -3905,8 +4033,23 @@ pub fn loadInput(elf: *Elf, input: link.Input) (Io.File.Reader.SizeError ||
             try elf.needed.ensureUnusedCapacity(elf.base.comp.gpa, 1);
             var fr = dso.file.reader(io, &buf);
             elf.loadDso(dso.path, &fr) catch |err| switch (err) {
-                error.ReadFailed => return fr.err.?,
                 else => |e| return e,
+                error.EndOfStream => return diags.failParse(
+                    dso.path,
+                    "unexpected eof",
+                    .{},
+                ),
+                error.AccessDenied, error.Unexpected, error.Unseekable => |e| return diags.fail(
+                    "failed to read \"{f}\": {t}",
+                    .{ dso.path.fmtEscapeString(), e },
+                ),
+                error.ReadFailed => switch (fr.err.?) {
+                    error.Canceled => |e| return e,
+                    else => |e| return diags.fail(
+                        "failed to read \"{f}\": {t}",
+                        .{ dso.path.fmtEscapeString(), e },
+                    ),
+                },
             };
         },
         .dso_exact => |dso_exact| {
@@ -3919,14 +4062,22 @@ pub fn loadInput(elf: *Elf, input: link.Input) (Io.File.Reader.SizeError ||
         },
     }
 }
-fn loadArchive(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
+fn loadArchive(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) (LoadParseInputError || error{BadMagic})!void {
     const comp = elf.base.comp;
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
     const r = &fr.interface;
 
     log.debug("loadArchive({f})", .{path.fmtEscapeString()});
-    if (!std.mem.eql(u8, try r.take(std.elf.ARMAG.len), std.elf.ARMAG)) return error.BadMagic;
+    {
+        const magic = r.take(std.elf.ARMAG.len) catch |err| switch (err) {
+            error.ReadFailed => |e| return e,
+            error.EndOfStream => return error.BadMagic,
+        };
+        if (!std.mem.eql(u8, magic, std.elf.ARMAG)) {
+            return error.BadMagic;
+        }
+    }
     var strtab: std.Io.Writer.Allocating = .init(gpa);
     defer strtab.deinit();
     while (r.takeStruct(std.elf.ar_hdr, native_endian)) |header| {
@@ -3987,7 +4138,7 @@ fn loadObject(
     member: ?[]const u8,
     fr: *Io.File.Reader,
     fl: MappedFile.Node.FileLocation,
-) !void {
+) LoadParseInputError!void {
     const comp = elf.base.comp;
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
@@ -3995,7 +4146,14 @@ fn loadObject(
 
     const input_index: Node.InputIndex = @enumFromInt(elf.inputs.items.len);
     log.debug("loadObject({f}{f})", .{ path.fmtEscapeString(), fmtMemberString(member) });
-    try elf.checkInputIdent(path, r);
+    elf.checkInputIdent(path, r) catch |err| switch (err) {
+        else => |e| return e,
+        error.BadMagic => return diags.failParse(
+            path,
+            "bad ELF magic",
+            .{},
+        ),
+    };
     try elf.ensureUnusedSymbolCapacity(1, .all_local);
     try elf.inputs.ensureUnusedCapacity(gpa, 1);
     const file_symbol = elf.addLocalSymbolAssumeCapacity(.{
@@ -4376,7 +4534,7 @@ fn loadObject(
         },
     }
 }
-fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
+fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) (LoadParseInputError || error{BadMagic})!void {
     const comp = elf.base.comp;
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
@@ -4519,7 +4677,7 @@ fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
                             // We have a copy relocation for this global, but the amount of space we
                             // reserved for it could be too small or underaligned!
                             try copied_global.node.resize(&elf.mf, gpa, gop.value_ptr.size);
-                            try copied_global.node.realign(&elf.mf, gpa, gop.value_ptr.alignment);
+                            try copied_global.node.realign(&elf.mf, gpa, gop.value_ptr.alignment, .{ .set_alignment = true });
                             const global_ptr = elf.globalByName(name).?;
                             switch (elf.symPtr(global_ptr.symtab_index)) {
                                 inline else => |sym_ptr| elf.targetStore(&sym_ptr.size, @intCast(gop.value_ptr.size)),
@@ -4593,22 +4751,28 @@ fn loadDso(elf: *Elf, path: std.Build.Cache.Path, fr: *Io.File.Reader) !void {
 
 /// Validates that the `std.elf.Ident` present at the start of `r` is a compatible link input.
 ///
-/// Returns an error if it is incompatible, or if the ident is broken or missing.
+/// Returns an error if it is incompatible, or if the ident is broken or missing---usually
+/// `error.AlreadyReported`, but if the magic number is missing or incorrect, returns
+/// `error.BadMagic` instead.
 ///
 /// Does not advance the position of `r`. Requires `r` to have a 16-byte buffer.
 fn checkInputIdent(
     elf: *const Elf,
     path: std.Build.Cache.Path,
     r: *Io.Reader,
-) !void {
+) error{ BadMagic, EndOfStream, AlreadyReported, ReadFailed }!void {
     const diags = &elf.base.comp.link_diags;
+
+    const magic = r.peek(std.elf.MAGIC.len) catch |err| switch (err) {
+        error.ReadFailed => |e| return e,
+        error.EndOfStream => return error.BadMagic,
+    };
+    if (!std.mem.eql(u8, magic, std.elf.MAGIC)) {
+        return error.BadMagic;
+    }
 
     const ident = try r.peekStructPointer(std.elf.Ident);
     const target: *const std.elf.Ident = @ptrCast(elf.mf.memory_map.memory[0..@sizeOf(std.elf.Ident)]);
-
-    if (!std.mem.eql(u8, &ident.magic, std.elf.MAGIC)) {
-        return error.BadMagic;
-    }
 
     if (ident.class != target.class) return diags.failParse(
         path,
@@ -4649,7 +4813,7 @@ fn createInitFiniArraySection(
     shndx: *Section.Index,
     comptime name: []const u8,
     @"type": std.elf.SHT,
-) !void {
+) Error!void {
     assert(shndx.* == .UNDEF);
     const gpa = elf.base.comp.gpa;
     const addr_align: std.mem.Alignment = switch (elf.identClass()) {
@@ -4667,36 +4831,24 @@ fn createInitFiniArraySection(
     });
     elf.section_by_name.putAssumeCapacityNoClobber(shndx.name(elf), {});
     try elf.ensureUnusedSymbolCapacity(2, .maybe_global);
-    _ = elf.addGlobalSymbolAssumeCapacity(.{
+    // These symbols definitely already have strong definitions, because we added them alongside the
+    // other linker-defined symbols, all the way back in `initHeaders`.
+    const start_sym_name = try elf.string(.strtab, "__" ++ name ++ "_start");
+    const end_sym_name = try elf.string(.strtab, "__" ++ name ++ "_end");
+    elf.setGlobalSymbolValue(start_sym_name, elf.globals.strong_def.getPtr(start_sym_name).?, .{
         .node = shndx.get(elf).ni,
-        .name = try .string(elf, "__" ++ name ++ "_start"),
         .value = shndx.vaddr(elf),
         .size = 0,
         .type = .NOTYPE,
-        .bind = .strong,
-        .visibility = .HIDDEN,
         .shndx = shndx.*,
-    }) catch |err| switch (err) {
-        error.MultipleDefinitions => return elf.base.comp.link_diags.fail(
-            "multiple definitions of '{s}'",
-            .{"__" ++ name ++ "_start"},
-        ),
-    };
-    _ = elf.addGlobalSymbolAssumeCapacity(.{
+    });
+    elf.setGlobalSymbolValue(end_sym_name, elf.globals.strong_def.getPtr(end_sym_name).?, .{
         .node = shndx.get(elf).ni,
-        .name = try .string(elf, "__" ++ name ++ "_end"),
         .value = shndx.vaddr(elf),
         .size = 0,
         .type = .NOTYPE,
-        .bind = .strong,
-        .visibility = .HIDDEN,
         .shndx = shndx.*,
-    }) catch |err| switch (err) {
-        error.MultipleDefinitions => return elf.base.comp.link_diags.fail(
-            "multiple definitions of '{s}'",
-            .{"__" ++ name ++ "_end"},
-        ),
-    };
+    });
 }
 fn updateInitFiniArraySectionSize(
     elf: *Elf,
@@ -4722,35 +4874,40 @@ fn updateInitFiniArraySectionSize(
     Symbol.Id.global(end_sym_name).flushMoved(elf, end_vaddr);
 }
 
-pub fn prelink(elf: *Elf, prog_node: std.Progress.Node) !void {
+pub fn prelink(elf: *Elf, prog_node: std.Progress.Node) link.Error!void {
     _ = prog_node;
+    const diags = &elf.base.comp.link_diags;
     elf.prelinkInner() catch |err| switch (err) {
-        error.OutOfMemory => |e| return e,
-        else => |e| return elf.base.comp.link_diags.fail("prelink failed: {t}", .{e}),
+        error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+        else => |e| return e,
     };
 }
-fn prelinkInner(elf: *Elf) !void {
+fn prelinkInner(elf: *Elf) Error!void {
     const comp = elf.base.comp;
     const gpa = comp.gpa;
-    try elf.ensureUnusedSymbolCapacity(1, .all_local);
-    try elf.inputs.ensureUnusedCapacity(gpa, 1);
-    const zcu_name = try std.fmt.allocPrint(gpa, "{s}_zcu", .{
-        std.fs.path.stem(elf.base.emit.sub_path),
-    });
-    defer gpa.free(zcu_name);
-    const zcu_file_symbol = elf.addLocalSymbolAssumeCapacity(.{
-        .node = .none,
-        .name = try elf.string(.strtab, zcu_name),
-        .value = 0,
-        .size = 0,
-        .type = .FILE,
-        .shndx = .ABS,
-    });
-    elf.inputs.addOneAssumeCapacity().* = .{
-        .path = elf.base.emit,
-        .member = null,
-        .file_symbol = zcu_file_symbol,
-    };
+
+    if (comp.zcu != null and !comp.config.use_llvm) {
+        // We're use self-hosted codegen---add an input representing the Zig "object".
+        try elf.ensureUnusedSymbolCapacity(1, .all_local);
+        try elf.inputs.ensureUnusedCapacity(gpa, 1);
+        const zcu_name = try std.fmt.allocPrint(gpa, "{s}_zcu", .{
+            std.fs.path.stem(elf.base.emit.sub_path),
+        });
+        defer gpa.free(zcu_name);
+        const zcu_file_symbol = elf.addLocalSymbolAssumeCapacity(.{
+            .node = .none,
+            .name = try elf.string(.strtab, zcu_name),
+            .value = 0,
+            .size = 0,
+            .type = .FILE,
+            .shndx = .ABS,
+        });
+        elf.inputs.addOneAssumeCapacity().* = .{
+            .path = elf.base.emit,
+            .member = null,
+            .file_symbol = zcu_file_symbol,
+        };
+    }
 
     if (elf.shndx.dynamic != .UNDEF) switch (elf.identClass()) {
         .NONE, _ => unreachable,
@@ -4954,7 +5111,7 @@ fn addSection(elf: *Elf, segment_ni: MappedFile.Node.Index, opts: struct {
     entsize: std.elf.Word = 0,
     node_align: std.mem.Alignment = .@"1",
     fixed: bool = false,
-}) !Section.Index {
+}) Error!Section.Index {
     switch (opts.type) {
         .NULL => assert(opts.size == 0),
         .PROGBITS => assert(opts.size > 0),
@@ -4996,9 +5153,7 @@ fn addSection(elf: *Elf, segment_ni: MappedFile.Node.Index, opts: struct {
             break :shndx .{ @enumFromInt(shndx), @as(u64, elf.targetLoad(&ehdr.shentsize)) * @as(u64, shnum) };
         },
     };
-    _, const shdr_node_size = elf.ni.shdr.location(&elf.mf).resolve(&elf.mf);
-    if (new_shdr_size > shdr_node_size)
-        try elf.ni.shdr.resize(&elf.mf, gpa, new_shdr_size +| new_shdr_size / MappedFile.growth_factor);
+    try elf.ensureNodeSize(elf.ni.shdr, new_shdr_size);
     const ni = try elf.mf.addLastChildNode(gpa, switch (elf.ehdrField(.type)) {
         .NONE, .CORE, _ => unreachable,
         .REL => elf.ni.file,
@@ -5045,7 +5200,7 @@ fn addSection(elf: *Elf, segment_ni: MappedFile.Node.Index, opts: struct {
     return shndx;
 }
 
-fn ensureUnusedRelocCapacity(elf: *Elf, node: MappedFile.Node.Index, len: usize) !void {
+fn ensureUnusedRelocCapacity(elf: *Elf, node: MappedFile.Node.Index, len: usize) Error!void {
     if (len == 0) return;
     const gpa = elf.base.comp.gpa;
     try elf.symbol_relocs.ensureUnusedCapacity(gpa, len);
@@ -5090,14 +5245,11 @@ fn ensureUnusedRelocCapacity(elf: *Elf, node: MappedFile.Node.Index, len: usize)
             try elf.tls_size_symbol_relocs.ensureUnusedCapacity(gpa, len);
             const new_got_entries = len * 2; // at worst, every reloc is a new TLSGD
             try elf.got.ensureUnusedCapacity(gpa, new_got_entries);
-            const got_ni = elf.shndx.got.get(elf).ni;
-            _, const got_node_size = got_ni.location(&elf.mf).resolve(&elf.mf);
             const need_got_size = switch (class) {
                 .NONE, _ => unreachable,
                 inline else => |ct_class| (elf.got.count() + new_got_entries) * @sizeOf(ct_class.ElfN().Addr),
             };
-            if (need_got_size > got_node_size)
-                try got_ni.resize(&elf.mf, gpa, need_got_size +| need_got_size / MappedFile.growth_factor);
+            try elf.ensureNodeSize(elf.shndx.got.get(elf).ni, need_got_size);
 
             if (elf.shndx.dynamic != .UNDEF) {
                 try elf.shndx.rela_dyn.relaEnsureAdditionalCapacity(elf, new_got_entries);
@@ -5114,7 +5266,7 @@ fn addRelocAssumeCapacity(
     target: Symbol.Id,
     addend: i64,
     @"type": MachineRelocType,
-) !void {
+) Error!void {
     assert(node != .none);
     switch (elf.ehdrField(.type)) {
         .NONE, .CORE, _ => unreachable,
@@ -5233,7 +5385,7 @@ fn addSymbolRelocAssumeCapacity(
     target: Symbol.Id,
     addend: i64,
     @"type": SymbolReloc.Type,
-) !void {
+) Error!void {
     assert(elf.ehdrField(.type) != .REL);
 
     const rela_index: Section.RelaIndex.Optional = r: {
@@ -5594,7 +5746,7 @@ fn nodeWantsDsoRelocation(elf: *Elf, node: MappedFile.Node.Index) enum { yes, ye
 /// global where needed---the caller does not need to do this.
 ///
 /// Asserts that `elf.shndx.dynamic != .UNDEF` and that `global_name` refers to an *undefined* global.
-fn maybeAddCopyRelocation(elf: *Elf, global_name: String(.strtab)) !bool {
+fn maybeAddCopyRelocation(elf: *Elf, global_name: String(.strtab)) Error!bool {
     assert(elf.shndx.dynamic != .UNDEF);
 
     const gpa = elf.base.comp.gpa;
@@ -5657,16 +5809,14 @@ fn maybeAddCopyRelocation(elf: *Elf, global_name: String(.strtab)) !bool {
     return true;
 }
 
-pub fn updateNav(elf: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
+pub fn updateNav(elf: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) link.Error!void {
+    const diags = &elf.base.comp.link_diags;
     elf.updateNavInner(pt, nav_index) catch |err| switch (err) {
-        error.OutOfMemory,
-        error.Overflow,
-        error.RelocationNotByteAligned,
-        => |e| return e,
-        else => |e| return elf.base.cgFail(nav_index, "linker failed to update variable: {t}", .{e}),
+        error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+        else => |e| return e,
     };
 }
-fn updateNavInner(elf: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
+fn updateNavInner(elf: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) Error!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -5689,12 +5839,11 @@ fn updateNavInner(elf: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index)
     codegen.generateSymbol(
         &elf.base,
         pt,
-        zcu.navSrcLoc(nav_index),
         .fromInterned(nav.resolved.?.value),
         &nw.interface,
         .{ .atom_index = Node.toAtom(ni) },
     ) catch |err| switch (err) {
-        error.WriteFailed => return error.OutOfMemory,
+        error.WriteFailed => return nw.err.?,
         else => |e| return e,
     };
     switch (elf.symPtr(nmi.symbol(elf).index())) {
@@ -5707,18 +5856,11 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     mir: *const codegen.AnyMir,
-) !void {
+) link.Error!void {
+    const diags = &elf.base.comp.link_diags;
     elf.updateFuncInner(pt, func_index, mir) catch |err| switch (err) {
-        error.OutOfMemory,
-        error.Overflow,
-        error.RelocationNotByteAligned,
-        error.CodegenFail,
-        => |e| return e,
-        else => |e| return elf.base.cgFail(
-            pt.zcu.funcInfo(func_index).owner_nav,
-            "linker failed to update function: {s}",
-            .{@errorName(e)},
-        ),
+        error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+        else => |e| return e,
     };
 }
 fn updateFuncInner(
@@ -5726,7 +5868,7 @@ fn updateFuncInner(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     mir: *const codegen.AnyMir,
-) !void {
+) Error!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -5748,7 +5890,6 @@ fn updateFuncInner(
     codegen.emitFunction(
         &elf.base,
         pt,
-        zcu.navSrcLoc(func.owner_nav),
         func_index,
         Node.toAtom(ni),
         mir,
@@ -5763,14 +5904,14 @@ fn updateFuncInner(
     }
 }
 
-pub fn updateErrorData(elf: *Elf, pt: Zcu.PerThread) !void {
+pub fn updateErrorData(elf: *Elf, pt: Zcu.PerThread) link.Error!void {
+    const diags = &elf.base.comp.link_diags;
     elf.flushLazy(pt, .{
         .kind = .const_data,
         .index = @intCast(elf.lazy.getPtr(.const_data).map.getIndex(.anyerror_type) orelse return),
     }) catch |err| switch (err) {
-        error.OutOfMemory => |e| return e,
-        error.CodegenFail => return error.LinkFailure,
-        else => |e| return elf.base.comp.link_diags.fail("updateErrorData failed: {t}", .{e}),
+        error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+        else => |e| return e,
     };
 }
 
@@ -5779,10 +5920,11 @@ pub fn flush(
     arena: std.mem.Allocator,
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
-) !void {
+) link.Error!void {
     const comp = elf.base.comp;
-    _ = arena;
+    const diags = &comp.link_diags;
     _ = prog_node;
+    _ = arena;
 
     if (comp.config.output_mode == .Exe) {
         var any_undef = false;
@@ -5791,12 +5933,12 @@ pub fn flush(
             any_undef = true;
             comp.link_diags.addError("undefined global symbol '{s}'", .{name.slice(elf)});
         }
-        if (any_undef) return error.LinkFailure;
+        if (any_undef) return error.AlreadyReported;
     }
 
     elf.updateDynamicTextrel() catch |err| switch (err) {
-        error.OutOfMemory => |e| return e,
-        else => |e| return elf.base.comp.link_diags.fail("updateDynamicTextrel failed: {t}", .{e}),
+        error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+        else => |e| return e,
     };
 
     while (try elf.idle(tid)) {}
@@ -5812,8 +5954,8 @@ pub fn flush(
             .named => |named| named,
         };
         const sym_name_strtab = elf.string(.strtab, sym_name_slice) catch |err| switch (err) {
-            error.Canceled => |e| return e,
-            else => |e| return comp.link_diags.fail("flush write failed: {t}", .{e}),
+            error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+            else => |e| return e,
         };
         if (elf.globalByName(sym_name_strtab) == null) break :entry 0;
         break :entry Symbol.Id.global(sym_name_strtab).value(elf);
@@ -5823,11 +5965,11 @@ pub fn flush(
     }
 
     elf.mf.flush() catch |err| switch (err) {
-        error.Canceled => |e| return e,
-        else => |e| return comp.link_diags.fail("flush write failed: {t}", .{e}),
+        error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+        else => |e| return e,
     };
 }
-fn updateDynamicTextrel(elf: *Elf) !void {
+fn updateDynamicTextrel(elf: *Elf) Error!void {
     if (elf.shndx.dynamic == .UNDEF) return;
     const dynamic_ni = elf.shndx.dynamic.get(elf).ni;
     switch (elf.shdrPtr(elf.shndx.dynamic)) {
@@ -5844,10 +5986,7 @@ fn updateDynamicTextrel(elf: *Elf) !void {
             if (!has_textrel) {
                 // Add a DT_TEXTREL entry before the final DT_NULL entry.
                 const new_size = cur_size + @sizeOf([2]class.ElfN().Addr);
-                _, const node_size = dynamic_ni.location(&elf.mf).resolve(&elf.mf);
-                if (node_size < new_size) {
-                    try dynamic_ni.resize(&elf.mf, elf.base.comp.gpa, new_size);
-                }
+                try elf.ensureNodeSize(dynamic_ni, new_size);
                 elf.targetStore(&shdr.size, new_size);
                 const new_entries: [][2]class.ElfN().Addr = @ptrCast(@alignCast(
                     dynamic_ni.slice(&elf.mf)[0..@intCast(new_size)],
@@ -5869,18 +6008,16 @@ fn updateDynamicTextrel(elf: *Elf) !void {
     }
 }
 
-pub fn idle(elf: *Elf, tid: Zcu.PerThread.Id) !bool {
+pub fn idle(elf: *Elf, tid: Zcu.PerThread.Id) link.Error!bool {
     const comp = elf.base.comp;
+    const diags = &comp.link_diags;
     task: {
         while (elf.pending_uavs.pop()) |umi| {
             const sub_prog_node = elf.idleProgNode(tid, elf.const_prog_node, .{ .uav = umi });
             defer sub_prog_node.end();
             elf.flushUav(.{ .zcu = comp.zcu.?, .tid = tid }, umi) catch |err| switch (err) {
-                error.OutOfMemory => |e| return e,
-                else => |e| return comp.link_diags.fail(
-                    "linker failed to lower constant: {t}",
-                    .{e},
-                ),
+                error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+                else => |e| return e,
             };
             break :task;
         }
@@ -5903,11 +6040,8 @@ pub fn idle(elf: *Elf, tid: Zcu.PerThread.Id) !bool {
             );
             defer sub_prog_node.end();
             elf.flushLazy(pt, lmr) catch |err| switch (err) {
-                error.OutOfMemory => |e| return e,
-                else => |e| return comp.link_diags.fail(
-                    "linker failed to lower lazy {s}: {t}",
-                    .{ kind, e },
-                ),
+                error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+                else => |e| return e,
             };
             break :task;
         };
@@ -5917,18 +6051,8 @@ pub fn idle(elf: *Elf, tid: Zcu.PerThread.Id) !bool {
             const sub_prog_node = elf.idleProgNode(tid, elf.input_prog_node, elf.getNode(isi.node(elf)));
             defer sub_prog_node.end();
             elf.flushInputSection(isi) catch |err| switch (err) {
-                else => |e| {
-                    const ii = isi.input(elf);
-                    return comp.link_diags.fail(
-                        "linker failed to read input section '{s}' from \"{f}{f}\": {t}",
-                        .{
-                            elf.getNode(isi.node(elf).parent(&elf.mf)).section.name(elf).slice(elf),
-                            ii.path(elf).fmtEscapeString(),
-                            fmtMemberString(ii.member(elf)),
-                            e,
-                        },
-                    );
-                },
+                error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
+                else => |e| return e,
             };
             break :task;
         }
@@ -6005,10 +6129,9 @@ fn flushUav(
     elf: *Elf,
     pt: Zcu.PerThread,
     umi: Node.UavMapIndex,
-) !void {
+) Error!void {
     const comp = elf.base.comp;
     const gpa = comp.gpa;
-    const zcu = pt.zcu;
 
     const uav_val = umi.uavValue(elf);
     const ni = umi.symbol(elf).index().ptr(elf).node;
@@ -6017,23 +6140,14 @@ fn flushUav(
     var nw: MappedFile.Node.Writer = undefined;
     ni.writer(&elf.mf, gpa, &nw);
     defer nw.deinit();
-    // TODO: UAV lowering should never require source locations.
-    const dummy_src_loc: Zcu.LazySrcLoc = .{
-        .base_node_inst = try zcu.intern_pool.trackZir(gpa, comp.io, pt.tid, .{
-            .file = zcu.module_roots.get(zcu.std_mod).?.unwrap().?,
-            .inst = .main_struct_inst,
-        }),
-        .offset = .{ .byte_abs = 0 },
-    };
     codegen.generateSymbol(
         &elf.base,
         pt,
-        dummy_src_loc,
         .fromInterned(uav_val),
         &nw.interface,
         .{ .atom_index = Node.toAtom(ni) },
     ) catch |err| switch (err) {
-        error.WriteFailed => return error.OutOfMemory,
+        error.WriteFailed => return nw.err.?,
         else => |e| return e,
     };
     switch (elf.symPtr(umi.symbol(elf).index())) {
@@ -6044,7 +6158,7 @@ fn flushUav(
     assert(ni.hasMoved(&elf.mf));
 }
 
-fn flushLazy(elf: *Elf, pt: Zcu.PerThread, lmr: Node.LazyMapRef) !void {
+fn flushLazy(elf: *Elf, pt: Zcu.PerThread, lmr: Node.LazyMapRef) Error!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
 
@@ -6060,44 +6174,70 @@ fn flushLazy(elf: *Elf, pt: Zcu.PerThread, lmr: Node.LazyMapRef) !void {
     var nw: MappedFile.Node.Writer = undefined;
     ni.writer(&elf.mf, gpa, &nw);
     defer nw.deinit();
-    try codegen.generateLazySymbol(
+    codegen.generateLazySymbol(
         &elf.base,
         pt,
-        Type.fromInterned(lazy.ty).srcLocOrNull(pt.zcu) orelse .unneeded,
         lazy,
         &required_alignment,
         &nw.interface,
         .none,
         .{ .atom_index = Node.toAtom(ni) },
-    );
+    ) catch |err| switch (err) {
+        error.WriteFailed => return nw.err.?,
+        else => |e| return e,
+    };
     switch (elf.symPtr(lmr.symbol(elf).index())) {
         inline else => |sym| elf.targetStore(&sym.size, @intCast(nw.interface.end)),
     }
 }
 
-fn flushInputSection(elf: *Elf, isi: InputSection.Index) !void {
+fn flushInputSection(elf: *Elf, isi: InputSection.Index) Error!void {
     const file_loc = isi.fileLocation(elf);
     if (file_loc.size == 0) return;
     const comp = elf.base.comp;
     const io = comp.io;
     const gpa = comp.gpa;
+    const diags = &comp.link_diags;
     const ii = isi.input(elf);
     const path = ii.path(elf);
-    const file = try path.root_dir.handle.openFile(io, path.sub_path, .{});
+    const file = path.root_dir.handle.openFile(io, path.sub_path, .{}) catch |err| switch (err) {
+        error.Canceled => |e| return e,
+        else => |e| return diags.fail("failed to open input file \"{f}\": {t}", .{ path.fmtEscapeString(), e }),
+    };
     defer file.close(io);
     var fr = file.reader(io, &.{});
-    try fr.seekTo(file_loc.offset);
+    fr.seekTo(file_loc.offset) catch |err| switch (err) {
+        error.Canceled => |e| return e,
+        else => |e| return diags.fail("failed to read input section '{s}' from \"{f}{f}\": {t}", .{
+            elf.getNode(isi.node(elf).parent(&elf.mf)).section.name(elf).slice(elf),
+            path.fmtEscapeString(),
+            fmtMemberString(ii.member(elf)),
+            e,
+        }),
+    };
     var nw: MappedFile.Node.Writer = undefined;
     isi.node(elf).writer(&elf.mf, gpa, &nw);
     defer nw.deinit();
-    if (try nw.interface.sendFileAll(&fr, .limited(@intCast(file_loc.size))) != file_loc.size)
-        return error.EndOfStream;
+    const n_bytes = nw.interface.sendFileAll(&fr, .limited(@intCast(file_loc.size))) catch |err| switch (err) {
+        error.ReadFailed => return diags.fail("failed to read input section '{s}' from \"{f}{f}\": {t}", .{
+            elf.getNode(isi.node(elf).parent(&elf.mf)).section.name(elf).slice(elf),
+            path.fmtEscapeString(),
+            fmtMemberString(ii.member(elf)),
+            fr.err orelse (fr.seek_err orelse fr.size_err.?),
+        }),
+        error.WriteFailed => return nw.err.?,
+    };
+    if (n_bytes != file_loc.size) return diags.fail("failed to read input section '{s}' from \"{f}{f}\": unexpected eof", .{
+        elf.getNode(isi.node(elf).parent(&elf.mf)).section.name(elf).slice(elf),
+        path.fmtEscapeString(),
+        fmtMemberString(ii.member(elf)),
+    });
     // The input section should already be considered to have moved, because it is created as moved
     // and pending calls to `flushInputSection` always happen before pending calls to `flushMoved`.
     assert(isi.node(elf).hasMoved(&elf.mf));
 }
 
-fn flushFileOffset(elf: *Elf, ni: MappedFile.Node.Index) !void {
+fn flushFileOffset(elf: *Elf, ni: MappedFile.Node.Index) void {
     switch (elf.getNode(ni)) {
         else => unreachable,
         .ehdr => assert(ni.fileLocation(&elf.mf, false).offset == 0),
@@ -6118,7 +6258,7 @@ fn flushFileOffset(elf: *Elf, ni: MappedFile.Node.Index) !void {
                 },
             }
             var child_it = ni.children(&elf.mf);
-            while (child_it.next()) |child_ni| try elf.flushFileOffset(child_ni);
+            while (child_it.next()) |child_ni| elf.flushFileOffset(child_ni);
         },
         .section => |shndx| switch (elf.shdrPtr(shndx)) {
             inline else => |shdr| elf.targetStore(&shdr.offset, @intCast(
@@ -6128,14 +6268,14 @@ fn flushFileOffset(elf: *Elf, ni: MappedFile.Node.Index) !void {
     }
 }
 
-fn flushMoved(elf: *Elf, ni: MappedFile.Node.Index) !void {
+fn flushMoved(elf: *Elf, ni: MappedFile.Node.Index) std.mem.Allocator.Error!void {
     const trace = tracy.trace(@src());
     defer trace.end();
     switch (elf.getNode(ni)) {
         .file => unreachable,
-        .ehdr, .shdr => try elf.flushFileOffset(ni),
+        .ehdr, .shdr => elf.flushFileOffset(ni),
         .segment => |phndx| {
-            try elf.flushFileOffset(ni);
+            elf.flushFileOffset(ni);
             switch (elf.phdrSlice()) {
                 inline else => |phdr| {
                     const ph = &phdr[phndx];
@@ -6156,7 +6296,7 @@ fn flushMoved(elf: *Elf, ni: MappedFile.Node.Index) !void {
             }
         },
         .section => |shndx| {
-            try elf.flushFileOffset(ni);
+            elf.flushFileOffset(ni);
             const addr = elf.computeNodeVAddr(ni);
             const old_addr: u64, const flags: std.elf.SHF = switch (elf.shdrPtr(shndx)) {
                 inline else => |shdr| .{
@@ -6293,7 +6433,7 @@ fn flushMoved(elf: *Elf, ni: MappedFile.Node.Index) !void {
     try ni.childrenMoved(elf.base.comp.gpa, &elf.mf);
 }
 
-fn flushResized(elf: *Elf, ni: MappedFile.Node.Index) !void {
+fn flushResized(elf: *Elf, ni: MappedFile.Node.Index) std.mem.Allocator.Error!void {
     const trace = tracy.trace(@src());
     defer trace.end();
     _, const size = ni.location(&elf.mf).resolve(&elf.mf);
@@ -6486,16 +6626,11 @@ pub fn updateExports(
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
-) !void {
+) link.Error!void {
+    const diags = &elf.base.comp.link_diags;
     return elf.updateExportsInner(pt, exported, export_indices) catch |err| switch (err) {
-        error.OutOfMemory => error.OutOfMemory,
-        error.LinkFailure => error.AnalysisFail,
-        else => |e| switch (elf.base.comp.link_diags.fail(
-            "linker failed to update exports: {t}",
-            .{e},
-        )) {
-            error.LinkFailure => return error.AnalysisFail,
-        },
+        else => |e| return e,
+        error.MappedFileIo => return diags.fail("failed to write output file: {t}", .{elf.mf.io_err.?}),
     };
 }
 fn updateExportsInner(
@@ -6503,7 +6638,7 @@ fn updateExportsInner(
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
-) !void {
+) Error!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
@@ -6543,7 +6678,7 @@ fn updateExportsInner(
                 .internal => @panic("TODO internal linkage"),
                 .strong => .strong,
                 .weak => .weak,
-                .link_once => return error.LinkOnceUnsupported,
+                .link_once => return elf.base.comp.link_diags.fail("TODO(Elf2): link_once is not supported", .{}),
             },
             .visibility = switch (@"export".opts.visibility) {
                 .default => .DEFAULT,
@@ -6576,25 +6711,21 @@ pub fn deleteExport(elf: *Elf, exported: Zcu.Exported, name: InternPool.NullTerm
     _ = name;
 }
 
-pub fn dump(elf: *Elf, tid: Zcu.PerThread.Id) Io.Cancelable!void {
-    const comp = elf.base.comp;
-    const io = comp.io;
-    var buffer: [512]u8 = undefined;
-    const stderr = try io.lockStderr(&buffer, null);
-    defer io.lockStderr();
-    const w = &stderr.file_writer.interface;
-    elf.printNode(tid, w, .root, 0) catch |err| switch (err) {
-        error.WriteFailed => return stderr.err.?,
-    };
+pub fn dump(elf: *Elf, w: *Io.Writer, tid: Zcu.PerThread.Id) !link.File.DumpResult {
+    if (elf.options.enable_link_snapshots) {
+        try elf.printNode(tid, w, .root, 0);
+        return .enabled;
+    }
+    return .disabled;
 }
 
 pub fn printNode(
     elf: *Elf,
     tid: Zcu.PerThread.Id,
-    w: *std.Io.Writer,
+    w: *Io.Writer,
     ni: MappedFile.Node.Index,
     indent: usize,
-) !void {
+) Io.Writer.Error!void {
     const node = elf.getNode(ni);
     try w.splatByteAll(' ', indent);
     try w.writeAll(@tagName(node));
@@ -6629,13 +6760,13 @@ pub fn printNode(
                 elf.getNode(isi.node(elf).parent(&elf.mf)).section.name(elf).slice(elf),
             });
         },
-        .copied_global => |name| try w.print("(copy:{s})", .{name}),
+        .copied_global => |name| try w.print("(copy:{s})", .{name.slice(elf)}),
         .nav => |nmi| {
             const zcu = elf.base.comp.zcu.?;
             const ip = &zcu.intern_pool;
             const nav = ip.getNav(nmi.navIndex(elf));
             try w.print("({f}, {f})", .{
-                Type.fromInterned(nav.typeOf(ip)).fmt(.{ .zcu = zcu, .tid = tid }),
+                Type.fromInterned(ip.typeOf(nav.resolved.?.value)).fmt(.{ .zcu = zcu, .tid = tid }),
                 nav.fqn.fmt(ip),
             });
         },
@@ -6697,4 +6828,16 @@ pub fn printNode(
         for (line_bytes) |byte| try w.writeByte(if (std.ascii.isPrint(byte)) byte else '.');
         try w.writeByte('\n');
     }
+}
+
+fn ensureNodeSize(
+    elf: *Elf,
+    node: MappedFile.Node.Index,
+    need_size: u64,
+) Error!void {
+    _, const node_size = node.location(&elf.mf).resolve(&elf.mf);
+    if (need_size <= node_size) return;
+    const gpa = elf.base.comp.gpa;
+    const new_size = need_size + need_size / MappedFile.growth_factor;
+    try node.resize(&elf.mf, gpa, new_size);
 }

@@ -1173,7 +1173,9 @@ const Parser = struct {
 };
 
 fn intFromFloatExact(T: type, value: anytype) ?T {
-    if (value > std.math.maxInt(T) or value < std.math.minInt(T)) {
+    const max: @TypeOf(value) = @floatFromInt(std.math.maxInt(T));
+    const min: @TypeOf(value) = @floatFromInt(std.math.minInt(T));
+    if (value > max or value < min) {
         return null;
     }
 
@@ -1213,6 +1215,7 @@ fn canParseTypeInner(
         .frame,
         .@"anyframe",
         .@"opaque",
+        .spirv,
         .comptime_int,
         .comptime_float,
         .enum_literal,
@@ -2447,6 +2450,7 @@ test "std.zon intFromFloatExact" {
     try std.testing.expectEqual(@as(u8, 10), intFromFloatExact(u8, @as(f32, 10.0)).?);
     try std.testing.expectEqual(@as(i8, -123), intFromFloatExact(i8, @as(f64, @as(f64, -123.0))).?);
     try std.testing.expectEqual(@as(i16, 45), intFromFloatExact(i16, @as(f128, @as(f128, 45.0))).?);
+    try std.testing.expectEqual(@as(u128, 67), intFromFloatExact(u128, @as(f128, @as(f128, 67.0))).?);
 
     // Out of range
     try std.testing.expectEqual(@as(?u4, null), intFromFloatExact(u4, @as(f32, 16.0)));
@@ -2488,6 +2492,10 @@ test "std.zon parse int" {
     try std.testing.expectEqual(
         @as(u65, 36893488147419103231),
         try fromSlice(u65, gpa, "368934_881_474191032_31", null, .{}),
+    );
+    try std.testing.expectEqual(
+        @as(u128, 340282366920938463463374607431768211455),
+        try fromSlice(u128, gpa, "340282366920938463463374607431768211455", null, .{}),
     );
 
     // Test big integer limits

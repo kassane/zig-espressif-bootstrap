@@ -45,7 +45,7 @@ const size_class_count = math.log2(bigpage_size) - min_class;
 /// 1 - 2 bigpages
 /// 2 - 4 bigpages
 /// etc.
-const big_size_class_count = math.log2(bigpage_count);
+const big_size_class_count = math.log2(bigpage_count) + 1;
 
 fn alloc(ctx: *anyopaque, len: usize, alignment: Alignment, return_address: usize) ?[*]u8 {
     _ = ctx;

@@ -201,6 +201,8 @@ test "packed union with explicit backing integer" {
 }
 
 test "packed union equality" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const Foo = packed union {
         a: u4,
         b: i4,

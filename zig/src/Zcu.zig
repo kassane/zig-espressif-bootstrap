@@ -97,20 +97,20 @@ free_exports: std.ArrayList(Export.Index) = .empty,
 /// Maps from an `AnalUnit` which performs a single export, to the index into `all_exports` of
 /// the export it performs. Note that the key is not the `Decl` being exported, but the `AnalUnit`
 /// whose analysis triggered the export.
-single_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, Export.Index) = .empty,
+single_exports: std.array_hash_map.Auto(AnalUnit, Export.Index) = .empty,
 /// Like `single_exports`, but for `AnalUnit`s which perform multiple exports.
 /// The exports are `all_exports.items[index..][0..len]`.
-multi_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
+multi_exports: std.array_hash_map.Auto(AnalUnit, extern struct {
     index: u32,
     len: u32,
 }) = .{},
 
 /// Key is the digest returned by `Builtin.hash`; value is the corresponding module.
-builtin_modules: std.AutoArrayHashMapUnmanaged(Cache.BinDigest, *Package.Module) = .empty,
+builtin_modules: std.array_hash_map.Auto(Cache.BinDigest, *Package.Module) = .empty,
 
 /// Populated as soon as the `Compilation` is created. Guaranteed to contain all modules, even builtin ones.
 /// Modules whose root file is not a Zig or ZON file have the value `.none`.
-module_roots: std.AutoArrayHashMapUnmanaged(*Package.Module, File.Index.Optional) = .empty,
+module_roots: std.array_hash_map.Auto(*Package.Module, File.Index.Optional) = .empty,
 
 /// The set of all the Zig source files in the Zig Compilation Unit. Tracked in
 /// order to iterate over it and check which source files have been modified on
@@ -125,7 +125,7 @@ module_roots: std.AutoArrayHashMapUnmanaged(*Package.Module, File.Index.Optional
 ///
 /// Not serialized. This state is reconstructed during the first call to
 /// `Compilation.update` of the process for a given `Compilation`.
-import_table: std.ArrayHashMapUnmanaged(
+import_table: std.array_hash_map.Custom(
     File.Index,
     void,
     struct {
@@ -141,7 +141,7 @@ import_table: std.ArrayHashMapUnmanaged(
 /// update removes an import, or if a module specified on the CLI is never imported.
 /// Reconstructed on every update, after AstGen and before Sema.
 /// Value is why the file is alive.
-alive_files: std.AutoArrayHashMapUnmanaged(File.Index, File.Reference) = .empty,
+alive_files: std.array_hash_map.Auto(File.Index, File.Reference) = .empty,
 
 /// If this is populated, a "file exists in multiple modules" error should be emitted.
 /// This causes file errors to not be shown, because we don't really know which files
@@ -162,7 +162,7 @@ multi_module_err: ?struct {
 /// on the `Compilation.Path` of the `EmbedFile`.
 ///
 /// This table owns all of the `*EmbedFile` memory, which is allocated into gpa.
-embed_table: std.ArrayHashMapUnmanaged(
+embed_table: std.array_hash_map.Custom(
     *EmbedFile,
     void,
     struct {
@@ -179,27 +179,27 @@ intern_pool: InternPool = .empty,
 
 /// Value explains why this `AnalUnit` is being analyzed. It is `null` for the topmost analysis
 /// (index 0), and non-`null` for all others.
-analysis_in_progress: std.AutoArrayHashMapUnmanaged(AnalUnit, ?*const DependencyReason) = .empty,
+analysis_in_progress: std.array_hash_map.Auto(AnalUnit, ?*const DependencyReason) = .empty,
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
-failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, *ErrorMsg) = .empty,
+failed_analysis: std.array_hash_map.Auto(AnalUnit, *ErrorMsg) = .empty,
 /// This `AnalUnit` failed semantic analysis because it required analysis of another `AnalUnit` which itself failed.
-transitive_failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
+transitive_failed_analysis: std.array_hash_map.Auto(AnalUnit, void) = .empty,
 /// This `Nav` succeeded analysis, but failed codegen.
 /// This may be a simple "value" `Nav`, or it may be a function.
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
 /// While multiple threads are active (most of the time!), this is guarded by `zcu.comp.mutex`, as
 /// codegen and linking run on a separate thread.
-failed_codegen: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, *ErrorMsg) = .empty,
-failed_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, *ErrorMsg) = .empty,
+failed_codegen: std.array_hash_map.Auto(InternPool.Nav.Index, *ErrorMsg) = .empty,
+failed_types: std.array_hash_map.Auto(InternPool.Index, *ErrorMsg) = .empty,
 
 /// Key is an `AnalUnit` which is in `dependency_loop_nodes`. For each dependency loop, exactly one
 /// unit in the loop is in this map, though the choice is arbitrary and not necessarily reproducible
 /// between compilations. So, instead of (for instance) defining where the dependency loop "starts",
 /// this map simply exists to allow easily iterating all dependency loops exactly once.
-dependency_loops: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
+dependency_loops: std.array_hash_map.Auto(AnalUnit, void) = .empty,
 /// Key is an `AnalUnit`, value is the `AnalUnit` which the key references and why it does so.
 /// All units in here form loops. To iterate loops, see `dependency_loops`.
-dependency_loop_nodes: std.AutoArrayHashMapUnmanaged(AnalUnit, struct {
+dependency_loop_nodes: std.array_hash_map.Auto(AnalUnit, struct {
     unit: AnalUnit,
     reason: DependencyReason,
 }) = .empty,
@@ -207,7 +207,7 @@ dependency_loop_nodes: std.AutoArrayHashMapUnmanaged(AnalUnit, struct {
 /// Keep track of `@compileLog`s per `AnalUnit`.
 /// We track the source location of the first `@compileLog` call, and all logged lines as a linked list.
 /// The list is singly linked, but we do track its tail for fast appends (optimizing many logs in one unit).
-compile_logs: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
+compile_logs: std.array_hash_map.Auto(AnalUnit, extern struct {
     base_node_inst: InternPool.TrackedInst.Index,
     node_offset: Ast.Node.Offset,
     first_line: CompileLogLine.Index,
@@ -228,7 +228,7 @@ free_compile_log_lines: std.ArrayList(CompileLogLine.Index) = .empty,
 /// We just store a `[]u8` instead of a full `*ErrorMsg`, because the source
 /// location is always the entire file. The `[]u8` memory is owned by the map
 /// and allocated into `gpa`.
-failed_files: std.AutoArrayHashMapUnmanaged(File.Index, ?[]u8) = .empty,
+failed_files: std.array_hash_map.Auto(File.Index, ?[]u8) = .empty,
 /// AstGen is not aware of modules, and so cannot determine whether an import
 /// string makes sense. That is the job of a traversal after AstGen.
 ///
@@ -256,10 +256,10 @@ failed_imports: std.ArrayList(struct {
     import_token: Ast.TokenIndex,
     kind: enum { file_outside_module_root, illegal_zig_import },
 }) = .empty,
-failed_exports: std.AutoArrayHashMapUnmanaged(Export.Index, *ErrorMsg) = .empty,
+failed_exports: std.array_hash_map.Auto(Export.Index, *ErrorMsg) = .empty,
 /// If analysis failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
-cimport_errors: std.AutoArrayHashMapUnmanaged(AnalUnit, std.zig.ErrorBundle) = .empty,
+cimport_errors: std.array_hash_map.Auto(AnalUnit, std.zig.ErrorBundle) = .empty,
 
 /// Maximum amount of distinct error values, set by --error-limit
 error_limit: ErrorInt,
@@ -271,19 +271,19 @@ outdated_lock: if (std.debug.runtime_safety) std.Io.RwLock else void = if (std.d
 /// Value is the number of PO dependencies of this AnalUnit.
 /// This value will decrease as we perform semantic analysis to learn what is outdated.
 /// If any of these PO deps is outdated, this value will be moved to `outdated`.
-potentially_outdated: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
+potentially_outdated: std.array_hash_map.Auto(AnalUnit, u32) = .empty,
 /// Value is the number of PO dependencies of this AnalUnit.
 /// Once this value drops to 0, the AnalUnit is a candidate for re-analysis.
-outdated: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
+outdated: std.array_hash_map.Auto(AnalUnit, u32) = .empty,
 /// This is the set of all `AnalUnit`s in `outdated` whose PO dependency count is 0.
 /// Such `AnalUnit`s are ready for immediate re-analysis.
 /// See `findOutdatedToAnalyze` for details.
 outdated_ready: struct {
     /// These are separate from other units because it allows `findOutdatedToAnalyze` to prioritize
     /// functions, which is useful because it means they will be sent to codegen more quickly.
-    funcs: std.AutoArrayHashMapUnmanaged(InternPool.Index, void),
+    funcs: std.array_hash_map.Auto(InternPool.Index, void),
     /// Does not contain `.func` units.
-    other: std.AutoArrayHashMapUnmanaged(AnalUnit, void),
+    other: std.array_hash_map.Auto(AnalUnit, void),
 } = .{ .funcs = .empty, .other = .empty },
 /// This contains a list of AnalUnit whose analysis or codegen failed, but the
 /// failure was something like running out of disk space, and trying again may
@@ -298,23 +298,23 @@ analysis_roots_len: usize = 0,
 /// This is the cached result of `Zcu.resolveReferences`. It is computed on-demand, and
 /// reset to `null` when any semantic analysis occurs (since this invalidates the data).
 /// Allocated into `gpa`.
-resolved_references: ?std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = null,
+resolved_references: ?std.array_hash_map.Auto(AnalUnit, ?ResolvedReference) = null,
 
 /// If `true`, then semantic analysis must not occur on this update due to AstGen errors.
 /// Essentially the entire pipeline after AstGen, including Sema, codegen, and link, is skipped.
 /// Reset to `false` at the start of each update in `Compilation.update`.
 skip_analysis_this_update: bool = false,
 
-test_functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
+test_functions: std.array_hash_map.Auto(InternPool.Nav.Index, void) = .empty,
 
-global_assembly: std.AutoArrayHashMapUnmanaged(AnalUnit, []u8) = .empty,
+global_assembly: std.array_hash_map.Auto(AnalUnit, []u8) = .empty,
 
 /// Key is the `AnalUnit` *performing* the reference. This representation allows
 /// incremental updates to quickly delete references caused by a specific `AnalUnit`.
 /// Value is index into `all_references` of the first reference triggered by the unit.
 /// The `next` field on the `Reference` forms a linked list of all references
 /// triggered by the key `AnalUnit`.
-reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
+reference_table: std.array_hash_map.Auto(AnalUnit, u32) = .empty,
 all_references: std.ArrayList(Reference) = .empty,
 /// Freelist of indices in `all_references`.
 free_references: std.ArrayList(u32) = .empty,
@@ -327,7 +327,7 @@ free_inline_reference_frames: std.ArrayList(InlineReferenceFrame.Index) = .empty
 /// Value is index into `all_type_reference` of the first reference triggered by the unit.
 /// The `next` field on the `TypeReference` forms a linked list of all type references
 /// triggered by the key `AnalUnit`.
-type_reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
+type_reference_table: std.array_hash_map.Auto(AnalUnit, u32) = .empty,
 all_type_references: std.ArrayList(TypeReference) = .empty,
 /// Freelist of indices in `all_type_references`.
 free_type_references: std.ArrayList(u32) = .empty,
@@ -355,12 +355,12 @@ pub const DependencyReason = struct {
 pub const IncrementalDebugState = struct {
     /// All container types in the ZCU, even dead ones.
     /// Value is the generation the type was created on.
-    types: std.AutoArrayHashMapUnmanaged(InternPool.Index, u32),
+    types: std.array_hash_map.Auto(InternPool.Index, u32),
     /// All `Nav`s in the ZCU, even dead ones.
     /// Value is the generation the `Nav` was created on.
-    navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, u32),
+    navs: std.array_hash_map.Auto(InternPool.Nav.Index, u32),
     /// All `AnalUnit`s in the ZCU, even dead ones.
-    units: std.AutoArrayHashMapUnmanaged(AnalUnit, UnitInfo),
+    units: std.array_hash_map.Auto(AnalUnit, UnitInfo),
 
     pub const init: IncrementalDebugState = .{
         .types = .empty,
@@ -468,6 +468,13 @@ pub const StdLangDecl = enum {
     @"Type.Struct.FieldAttributes",
     @"Type.ContainerLayout",
     @"Type.Opaque",
+    @"Type.Spirv",
+    @"Type.Spirv.Image",
+    @"Type.Spirv.Image.Usage",
+    @"Type.Spirv.Image.Format",
+    @"Type.Spirv.Image.Dimensionality",
+    @"Type.Spirv.Image.Depth",
+    @"Type.Spirv.Image.Access",
 
     panic,
     @"panic.call",
@@ -548,6 +555,13 @@ pub const StdLangDecl = enum {
             .@"Type.Struct.FieldAttributes",
             .@"Type.ContainerLayout",
             .@"Type.Opaque",
+            .@"Type.Spirv",
+            .@"Type.Spirv.Image",
+            .@"Type.Spirv.Image.Usage",
+            .@"Type.Spirv.Image.Format",
+            .@"Type.Spirv.Image.Dimensionality",
+            .@"Type.Spirv.Image.Depth",
+            .@"Type.Spirv.Image.Access",
             => .type,
 
             .panic => .type,
@@ -601,7 +615,7 @@ pub const StdLangDecl = enum {
             .VaList => .va_list,
             .assembly, .@"assembly.Clobbers" => .assembly,
             else => {
-                if (@intFromEnum(decl) <= @intFromEnum(StdLangDecl.@"Type.Opaque")) {
+                if (@intFromEnum(decl) <= @intFromEnum(StdLangDecl.@"Type.Spirv.Image.Access")) {
                     return .main;
                 } else {
                     return .panic;
@@ -679,7 +693,7 @@ pub const SimplePanicId = enum {
     }
 };
 
-pub const GlobalErrorSet = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void);
+pub const GlobalErrorSet = std.array_hash_map.Auto(InternPool.NullTerminatedString, void);
 
 pub const CImportError = struct {
     offset: u32,
@@ -838,9 +852,9 @@ pub const Namespace = struct {
     /// Will be a struct, enum, union, or opaque.
     owner_type: InternPool.Index,
     /// Members of the namespace which are marked `pub`.
-    pub_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .empty,
+    pub_decls: std.array_hash_map.Custom(InternPool.Nav.Index, void, NavNameContext, true) = .empty,
     /// Members of the namespace which are *not* marked `pub`.
-    priv_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .empty,
+    priv_decls: std.array_hash_map.Custom(InternPool.Nav.Index, void, NavNameContext, true) = .empty,
     /// All `comptime` declarations in this namespace. We store these purely so that incremental
     /// compilation can re-use the existing `ComptimeUnit`s when a namespace changes.
     comptime_decls: std.ArrayList(InternPool.ComptimeUnit.Id) = .empty,
@@ -1529,7 +1543,7 @@ pub const SrcLoc = struct {
             .node_offset_deref_ptr => |node_off| {
                 const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
-                return tree.nodeToSpan(node);
+                return tree.nodeToSpan(tree.nodeData(node).node);
             },
             .node_offset_asm_source => |node_off| {
                 const tree = try src_loc.file_scope.getTree(zcu);
@@ -2740,6 +2754,7 @@ pub const LazySrcLoc = struct {
                 .reify_enum => zir.extraData(Zir.Inst.ReifyEnum, inst.data.extended.operand).data.node,
                 .reify_struct => zir.extraData(Zir.Inst.ReifyStruct, inst.data.extended.operand).data.node,
                 .reify_union => zir.extraData(Zir.Inst.ReifyUnion, inst.data.extended.operand).data.node,
+                .reify_spirv_type => zir.extraData(Zir.Inst.ReifySpirvType, inst.data.extended.operand).data.node,
                 else => unreachable,
             },
             else => unreachable,
@@ -2819,15 +2834,12 @@ pub fn deinit(zcu: *Zcu) void {
     const io = comp.io;
     const gpa = zcu.gpa;
     {
-        const pt: Zcu.PerThread = .activate(zcu, .main);
-        defer pt.deactivate();
-
         if (zcu.llvm_object) |llvm_object| llvm_object.deinit();
 
         zcu.builtin_modules.deinit(gpa);
         zcu.module_roots.deinit(gpa);
         for (zcu.import_table.keys()) |file_index| {
-            pt.destroyFile(file_index);
+            zcu.destroyFile(file_index);
         }
         zcu.import_table.deinit(gpa);
         zcu.alive_files.deinit(gpa);
@@ -2908,6 +2920,26 @@ pub fn deinit(zcu: *Zcu) void {
         }
     }
     zcu.intern_pool.deinit(gpa, io);
+}
+
+fn deinitFile(zcu: *Zcu, file_index: Zcu.File.Index) void {
+    const gpa = zcu.gpa;
+    const file = zcu.fileByIndex(file_index);
+    log.debug("deinit File {f}", .{file.path.fmt(zcu.comp)});
+    file.path.deinit(gpa);
+    file.unload(gpa);
+    if (file.prev_zir) |prev_zir| {
+        prev_zir.deinit(gpa);
+        gpa.destroy(prev_zir);
+    }
+    file.* = undefined;
+}
+
+fn destroyFile(zcu: *Zcu, file_index: Zcu.File.Index) void {
+    const gpa = zcu.gpa;
+    const file = zcu.fileByIndex(file_index);
+    deinitFile(zcu, file_index);
+    gpa.destroy(file);
 }
 
 pub fn namespacePtr(zcu: *Zcu, index: Namespace.Index) *Namespace {
@@ -3912,12 +3944,12 @@ pub fn getTarget(zcu: *const Zcu) *const Target {
 pub fn handleUpdateExports(
     zcu: *Zcu,
     export_indices: []const Export.Index,
-    result: link.File.UpdateExportsError!void,
-) Allocator.Error!void {
+    result: link.Error!void,
+) (Allocator.Error || Io.Cancelable)!void {
     const gpa = zcu.gpa;
     result catch |err| switch (err) {
-        error.OutOfMemory => |e| return e,
-        error.AnalysisFail => {
+        else => |e| return e,
+        error.AlreadyReported => {
             const export_idx = export_indices[0];
             const new_export = export_idx.ptr(zcu);
             new_export.status = .failed_retryable;
@@ -4168,13 +4200,13 @@ pub const ResolvedReference = struct {
 /// If an `AnalUnit` is not in the returned map, it is unreferenced.
 /// The returned hashmap is owned by the `Zcu`, so should not be freed by the caller.
 /// This hashmap is cached, so repeated calls to this function are cheap.
-pub fn resolveReferences(zcu: *Zcu) Allocator.Error!*const std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+pub fn resolveReferences(zcu: *Zcu) Allocator.Error!*const std.array_hash_map.Auto(AnalUnit, ?ResolvedReference) {
     if (zcu.resolved_references == null) {
         zcu.resolved_references = try zcu.resolveReferencesInner();
     }
     return &zcu.resolved_references.?;
 }
-fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
+fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.array_hash_map.Auto(AnalUnit, ?ResolvedReference) {
     const trace = tracy.trace(@src());
     defer trace.end();
 
@@ -4182,8 +4214,8 @@ fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.AutoArrayHashMapUnmanag
     const comp = zcu.comp;
     const ip = &zcu.intern_pool;
 
-    var units: std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .empty;
-    var types: std.AutoArrayHashMapUnmanaged(InternPool.Index, ?ResolvedReference) = .empty;
+    var units: std.array_hash_map.Auto(AnalUnit, ?ResolvedReference) = .empty;
+    var types: std.array_hash_map.Auto(InternPool.Index, ?ResolvedReference) = .empty;
     defer {
         units.deinit(gpa);
         types.deinit(gpa);
@@ -4679,6 +4711,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) 
         .stage2_spirv => switch (cc) {
             .spirv_device, .spirv_kernel => true,
             .spirv_fragment, .spirv_vertex => target.os.tag == .vulkan or target.os.tag == .opengl,
+            .spirv_task, .spirv_mesh => target.os.tag == .vulkan,
             else => false,
         },
     };
@@ -4688,7 +4721,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) 
 
 pub const CodegenFailError = error{
     /// Indicates the error message has been already stored at `Zcu.failed_codegen`.
-    CodegenFail,
+    AlreadyReported,
     OutOfMemory,
 };
 
@@ -4713,16 +4746,7 @@ pub fn codegenFailMsg(zcu: *Zcu, nav_index: InternPool.Nav.Index, msg: *ErrorMsg
         errdefer msg.deinit(gpa);
         try zcu.failed_codegen.putNoClobber(gpa, nav_index, msg);
     }
-    return error.CodegenFail;
-}
-
-/// Asserts that `zcu.failed_codegen` contains the key `nav`, with the necessary lock held.
-pub fn assertCodegenFailed(zcu: *Zcu, nav: InternPool.Nav.Index) void {
-    const comp = zcu.comp;
-    const io = comp.io;
-    comp.mutex.lockUncancelable(io);
-    defer comp.mutex.unlock(io);
-    assert(zcu.failed_codegen.contains(nav));
+    return error.AlreadyReported;
 }
 
 pub fn codegenFailType(
@@ -4735,7 +4759,7 @@ pub fn codegenFailType(
     try zcu.failed_types.ensureUnusedCapacity(gpa, 1);
     const msg = try Zcu.ErrorMsg.create(gpa, zcu.typeSrcLoc(ty_index), format, args);
     zcu.failed_types.putAssumeCapacityNoClobber(ty_index, msg);
-    return error.CodegenFail;
+    return error.AlreadyReported;
 }
 
 pub fn codegenFailTypeMsg(zcu: *Zcu, ty_index: InternPool.Index, msg: *ErrorMsg) CodegenFailError {
@@ -4745,7 +4769,7 @@ pub fn codegenFailTypeMsg(zcu: *Zcu, ty_index: InternPool.Index, msg: *ErrorMsg)
         try zcu.failed_types.ensureUnusedCapacity(gpa, 1);
     }
     zcu.failed_types.putAssumeCapacityNoClobber(ty_index, msg);
-    return error.CodegenFail;
+    return error.AlreadyReported;
 }
 
 /// Asserts that `zcu.multi_module_err != null`.
@@ -5382,9 +5406,9 @@ pub const CodegenTaskPool = struct {
         const io = zcu.comp.io;
         const tid: Zcu.PerThread.Id = .acquire(io);
         defer tid.release(io);
-        const pt: Zcu.PerThread = .activate(zcu, tid);
-        defer pt.deactivate();
-        return pt.runCodegen(func_index, &air);
+        const active = zcu.activate(tid);
+        defer active.deactivate();
+        return active.pt.runCodegen(func_index, &air);
     }
     fn workerCodegenExternalAir(
         zcu: *Zcu,
@@ -5394,9 +5418,9 @@ pub const CodegenTaskPool = struct {
         const io = zcu.comp.io;
         const tid: Zcu.PerThread.Id = .acquire(io);
         defer tid.release(io);
-        const pt: Zcu.PerThread = .activate(zcu, tid);
-        defer pt.deactivate();
-        return pt.runCodegen(func_index, air);
+        const active = zcu.activate(tid);
+        defer active.deactivate();
+        return active.pt.runCodegen(func_index, air);
     }
 };
 
@@ -5424,4 +5448,25 @@ fn updateTracyOutdatedPlots(zcu: *const Zcu) void {
     zcu.updateTracyPlot("outdated", zcu.outdated.count());
     zcu.updateTracyPlot("potentially_outdated", zcu.potentially_outdated.count());
     zcu.updateTracyPlot("outdated_ready", zcu.outdated_ready.funcs.count() + zcu.outdated_ready.other.count());
+}
+
+pub const Active = struct {
+    pt: Zcu.PerThread,
+    ip: InternPool.Active,
+    pub fn deactivate(active: Active) void {
+        active.ip.deactivate();
+    }
+    pub fn release(active: Active) void {
+        active.deactivate();
+        active.pt.tid.release(active.pt.zcu.comp.io);
+    }
+};
+pub fn activate(zcu: *Zcu, tid: PerThread.Id) Active {
+    return .{
+        .pt = .{ .zcu = zcu, .tid = tid },
+        .ip = zcu.intern_pool.activate(),
+    };
+}
+pub fn acquire(zcu: *Zcu) Active {
+    return zcu.activate(.acquire(zcu.comp.io));
 }

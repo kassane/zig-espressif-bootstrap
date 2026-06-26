@@ -1431,7 +1431,7 @@ fn parseFeatures(
     bytes: []const u8,
     start_pos: usize,
     path: Path,
-) error{ OutOfMemory, LinkFailure }!struct { Wasm.Feature.Set, usize } {
+) error{ OutOfMemory, AlreadyReported }!struct { Wasm.Feature.Set, usize } {
     const gpa = wasm.base.comp.gpa;
     const diags = &wasm.base.comp.link_diags;
     const features_len, var pos = readLeb(u32, bytes, start_pos);

@@ -315,7 +315,15 @@ pub fn replacePath(io: Io, dir: Io.Dir, options: ReplaceOptions) ReplaceError {
 pub const ArgExpansion = enum { expand, no_expand };
 
 /// File name extensions supported natively by `CreateProcess()` on Windows.
-pub const WindowsExtension = enum { bat, cmd, com, exe };
+pub const WindowsExtension = enum {
+    bat,
+    cmd,
+    com,
+    exe,
+
+    /// Length of the longest supported extension (in ASCII characters)
+    pub const max_len = 3;
+};
 
 pub const SpawnError = error{
     /// The operating system does not support creating child processes.

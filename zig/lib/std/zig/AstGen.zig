@@ -52,7 +52,7 @@ within_fn: bool = false,
 fn_ret_ty: Zir.Inst.Ref = .none,
 /// Maps string table indexes to the first `@import` ZIR instruction
 /// that uses this string as the operand.
-imports: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, Ast.TokenIndex) = .empty,
+imports: std.array_hash_map.Auto(Zir.NullTerminatedString, Ast.TokenIndex) = .empty,
 /// Used for temporary storage when building payloads.
 scratch: std.ArrayList(u32) = .empty,
 /// Whenever a `ref` instruction is needed, it is created and saved in this
@@ -927,15 +927,14 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .deref => {
             const lhs = try expr(gz, scope, .{ .rl = .none }, tree.nodeData(node).node);
-            _ = try gz.addUnNode(.validate_deref, lhs, node);
             switch (ri.rl) {
                 .ref,
                 .ref_coerced_ty,
                 .ref_const,
-                => return lhs,
+                => return gz.addUnNode(.ref_deref, lhs, node),
 
                 else => {
-                    const result = try gz.addUnNode(.load, lhs, node);
+                    const result = try gz.addUnNode(.deref, lhs, node);
                     return rvalue(gz, ri, result, node);
                 },
             }
@@ -2759,6 +2758,8 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .mulwrap,
             .mul_sat,
             .ref,
+            .deref,
+            .ref_deref,
             .shl,
             .shl_sat,
             .shr,
@@ -2932,7 +2933,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .memcpy,
             .memset,
             .memmove,
-            .validate_deref,
             .validate_destructure,
             .save_err_ret_index,
             .restore_err_ret_index_unconditional,
@@ -3130,7 +3130,7 @@ fn varDecl(
     }
 
     const align_inst: Zir.Inst.Ref = if (var_decl.ast.align_node.unwrap()) |align_node|
-        try expr(gz, scope, coerced_align_ri, align_node)
+        try comptimeExpr(gz, scope, coerced_align_ri, align_node, .@"align")
     else
         .none;
 
@@ -3477,7 +3477,7 @@ fn assignDestructureMaybeDecls(
                 const this_variable_comptime = is_comptime or (is_const and value_is_comptime);
 
                 const align_inst: Zir.Inst.Ref = if (full_var_decl.ast.align_node.unwrap()) |align_node|
-                    try expr(gz, scope, coerced_align_ri, align_node)
+                    try comptimeExpr(gz, scope, coerced_align_ri, align_node, .@"align")
                 else
                     .none;
 
@@ -8069,14 +8069,6 @@ fn identifier(
             if (std.mem.eql(u8, ident_name_raw, "i0")) {
                 return astgen.failNode(ident, "signed integer cannot have bit width 0", .{});
             }
-            if (ident_name_raw[1] == '0') {
-                assert(ident_name_raw.len >= 3); // `u0` and `i0` handled
-                return astgen.failNode(
-                    ident,
-                    "primitive integer type '{s}' has leading zero",
-                    .{ident_name_raw},
-                );
-            }
             const bit_count = parseBitCount(ident_name_raw[1..]) catch |err| switch (err) {
                 error.Overflow => return astgen.failNode(
                     ident,
@@ -8085,6 +8077,14 @@ fn identifier(
                 ),
                 error.InvalidCharacter => break :int_type,
             };
+            if (ident_name_raw[1] == '0') {
+                assert(ident_name_raw.len >= 3); // `u0` and `i0` handled
+                return astgen.failNode(
+                    ident,
+                    "primitive integer type '{s}' has leading zero",
+                    .{ident_name_raw},
+                );
+            }
             const result = try gz.add(.{
                 .tag = .int_type,
                 .data = .{ .int_type = .{
@@ -9324,6 +9324,16 @@ fn builtinCall(
                 .mode = mode,
                 .field_names = field_names,
                 .field_values = field_values,
+            });
+            return rvalue(gz, ri, result, node);
+        },
+        .SpirvType => {
+            const spirv_type_options_ty = try gz.addStdLangValue(node, .spirv_type_options);
+            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = spirv_type_options_ty } }, params[0], .type);
+            const result = try gz.addExtendedPayload(.reify_spirv_type, Zir.Inst.ReifySpirvType{
+                .src_line = gz.astgen.source_line,
+                .node = node,
+                .operand = operand,
             });
             return rvalue(gz, ri, result, node);
         },
@@ -11153,7 +11163,7 @@ const Scope = struct {
         declaring_gz: ?*GenZir,
 
         /// Set of captures used by this namespace.
-        captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Capture, Zir.NullTerminatedString) = .empty,
+        captures: std.array_hash_map.Auto(Zir.Inst.Capture, Zir.NullTerminatedString) = .empty,
 
         fn deinit(self: *Namespace, gpa: Allocator) void {
             self.decls.deinit(gpa);
@@ -12846,9 +12856,9 @@ fn scanContainer(
     var bfa_state: std.heap.BufferFirstAllocator = .init(&bfa_buf, astgen.gpa);
     const bfa = bfa_state.allocator();
 
-    var names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .empty;
-    var test_names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .empty;
-    var decltest_names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .empty;
+    var names: std.array_hash_map.Auto(Zir.NullTerminatedString, NameEntry) = .empty;
+    var test_names: std.array_hash_map.Auto(Zir.NullTerminatedString, NameEntry) = .empty;
+    var decltest_names: std.array_hash_map.Auto(Zir.NullTerminatedString, NameEntry) = .empty;
     defer {
         names.deinit(bfa);
         test_names.deinit(bfa);

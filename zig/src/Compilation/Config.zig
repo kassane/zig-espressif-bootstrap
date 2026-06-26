@@ -130,7 +130,7 @@ pub const ResolveError = error{
     ZigLacksTargetSupport,
     EmittingBinaryRequiresLlvmLibrary,
     LldIncompatibleObjectFormat,
-    LldCannotIncrementallyLink,
+    LldIncompatibleWithSelfHostedBackend,
     LtoRequiresLld,
     SanitizeThreadRequiresLibCpp,
     LibCRequiresLibUnwind,
@@ -400,14 +400,18 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b true;
         }
 
-        // If there's no ZCU we aren't using the LLVM backend but
-        // it shouldn't influence which linker we pick
-        if (!use_llvm and options.have_zcu) {
-            if (options.use_lld == true) return error.LldCannotIncrementallyLink;
+        // If we have Zig code (i.e. a ZCU) and are compiling with a self-hosted backend, then we
+        // also need to use a self-hosted linker.
+        if (options.have_zcu and !use_llvm) {
+            if (options.use_lld == true) return error.LldIncompatibleWithSelfHostedBackend;
             break :b false;
         }
 
         if (options.use_lld) |x| break :b x;
+
+        // If the user didn't specify whether to use LLD but did specify to use the new linker,
+        // assume no LLD.
+        if (options.use_new_linker == true) break :b false;
 
         // If we have no zig code to compile, no need for the self-hosted linker.
         if (!options.have_zcu) break :b true;
@@ -437,7 +441,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b false;
         }
 
-        if (!target_util.hasNewLinkerSupport(target.ofmt, backend)) {
+        if (!target_util.hasNewLinker(target.ofmt)) {
             if (options.use_new_linker == true) return error.NewLinkerIncompatibleObjectFormat;
             break :b false;
         }

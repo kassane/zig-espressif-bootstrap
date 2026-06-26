@@ -284,8 +284,9 @@ pub fn defineComplete(
             },
         },
         .array => if (ty.hasRuntimeBits(zcu)) {
+            const elem_ty = ty.childType(zcu);
             const name_cty: CType = .{ .arr = ty };
-            const elem_cty: CType = try .lower(ty.childType(zcu), deps, arena, zcu);
+            const elem_cty: CType = try .lower(elem_ty, deps, arena, zcu);
             const array_cty: CType = .{ .array = .{
                 .len = ty.arrayLenIncludingSentinel(zcu),
                 .elem_ty = &elem_cty,
@@ -295,17 +296,28 @@ pub fn defineComplete(
                     break :nonstring Value.compareHetero(s, .neq, .zero_comptime_int, zcu);
                 },
             } };
-            try w.print("{f} {{ {f}array{f}; }}; /* {f} */\n", .{
-                name_cty.fmtTypeName(zcu),
-                array_cty.fmtDeclaratorPrefix(zcu),
-                array_cty.fmtDeclaratorSuffix(zcu),
-                ty.fmt(pt),
-            });
+            if (elem_ty.defaultStructFieldAlignment(.auto, zcu) == elem_ty.abiAlignment(zcu)) {
+                try w.print("{f} {{ {f}array{f}; }}; /* {f} */\n", .{
+                    name_cty.fmtTypeName(zcu),
+                    array_cty.fmtDeclaratorPrefix(zcu),
+                    array_cty.fmtDeclaratorSuffix(zcu),
+                    ty.fmt(pt),
+                });
+            } else {
+                try w.print("zig_packed({f} {{ zig_under_align({d}) {f}array{f}; }}); /* {f} */\n", .{
+                    name_cty.fmtTypeName(zcu),
+                    elem_ty.abiAlignment(zcu).toByteUnits().?,
+                    array_cty.fmtDeclaratorPrefix(zcu),
+                    array_cty.fmtDeclaratorSuffix(zcu),
+                    ty.fmt(pt),
+                });
+            }
             try writeStaticAssertLayout(ty, name_cty, w, zcu);
         },
         .vector => if (ty.hasRuntimeBits(zcu)) {
+            const elem_ty = ty.childType(zcu);
             const name_cty: CType = .{ .vec = ty };
-            const elem_cty: CType = try .lower(ty.childType(zcu), deps, arena, zcu);
+            const elem_cty: CType = try .lower(elem_ty, deps, arena, zcu);
             const array_cty: CType = .{ .array = .{
                 .len = ty.arrayLenIncludingSentinel(zcu),
                 .elem_ty = &elem_cty,
@@ -351,21 +363,39 @@ fn defineTuple(
     const ip = &zcu.intern_pool;
     const tuple = ip.indexToKey(ty.toIntern()).tuple_type;
 
-    // Fields cannot be underaligned, because tuple fields cannot have specified alignments.
-    // However, overaligned fields are possible thanks to intermediate zero-bit fields.
-
     const tuple_align = ty.abiAlignment(zcu);
+
+    // If there are any underaligned fields, we need to byte-pack the tuple.
+    const pack: bool = pack: {
+        var offset: u64 = 0;
+        for (tuple.types.get(ip)) |field_ty_ip| {
+            const field_ty: Type = .fromInterned(field_ty_ip);
+            if (!field_ty.hasRuntimeBits(zcu)) continue;
+            const natural_align = field_ty.defaultStructFieldAlignment(.auto, zcu);
+            const natural_offset = natural_align.forward(offset);
+            offset = field_ty.abiAlignment(zcu).forward(offset);
+            if (offset < natural_offset) break :pack true;
+            // Also pack if any field is more aligned than the tuple should be.
+            if (natural_align.compareStrict(.gt, tuple_align)) break :pack true;
+            offset += field_ty.abiSize(zcu);
+        }
+        break :pack false;
+    };
 
     // If the alignment of other fields would not give the tuple sufficient alignment, we
     // need to align the first field (which does not affect its offset, because 0 is always
     // well-aligned) to indirectly specify the tuple alignment.
-    const overalign: bool = for (tuple.types.get(ip)) |field_ty_ip| {
-        const field_ty: Type = .fromInterned(field_ty_ip);
-        if (!field_ty.hasRuntimeBits(zcu)) continue;
-        const natural_align = field_ty.defaultStructFieldAlignment(.auto, zcu);
-        if (natural_align.compareStrict(.gte, tuple_align)) break false;
-    } else true;
+    const overalign: bool = switch (pack) {
+        true => tuple_align.compareStrict(.gt, .@"1"),
+        false => for (tuple.types.get(ip)) |field_ty_ip| {
+            const field_ty: Type = .fromInterned(field_ty_ip);
+            if (!field_ty.hasRuntimeBits(zcu)) continue;
+            const natural_align = field_ty.defaultStructFieldAlignment(.auto, zcu);
+            if (natural_align.compareStrict(.gte, tuple_align)) break false;
+        } else true,
+    };
 
+    if (pack) try w.writeAll("zig_packed(");
     const name_cty: CType = .{ .@"struct" = ty };
     try w.print("{f} {{ /* {f} */\n", .{
         name_cty.fmtTypeName(zcu),
@@ -376,18 +406,18 @@ fn defineTuple(
     for (tuple.types.get(ip), tuple.values.get(ip), 0..) |field_ty_ip, field_val_ip, field_index| {
         if (field_val_ip != .none) continue; // `comptime` field
         const field_ty: Type = .fromInterned(field_ty_ip);
-        const field_align = field_ty.abiAlignment(zcu);
-        zig_offset = field_align.forward(zig_offset);
+        zig_offset = field_ty.abiAlignment(zcu).forward(zig_offset);
         if (!field_ty.hasRuntimeBits(zcu)) continue;
-        c_offset = field_align.forward(c_offset);
+        if (!pack) c_offset = field_ty.defaultStructFieldAlignment(.auto, zcu).forward(c_offset);
         try w.writeByte(' ');
         if (zig_offset == 0 and overalign) {
             // This is the first field; specify its alignment to align the tuple.
             try writeFieldAlign(field_ty, tuple_align, w, zcu);
         } else if (zig_offset > c_offset) {
-            // This field needs to be overaligned compared to what its offset would otherwise be.
+            // This field needs to be underaligned or overaligned compared to what its
+            // offset would otherwise be.
             const need_align: Alignment = .minStrict(
-                tuple_align, // don't make the struct more aligned than it should be
+                tuple_align, // don't make the tuple more aligned than it should be
                 .fromLog2Units(@ctz(zig_offset)),
             );
             try writeFieldAlign(field_ty, need_align, w, zcu);
@@ -403,7 +433,9 @@ fn defineTuple(
         zig_offset += field_size;
         c_offset += field_size;
     }
-    try w.writeAll("};\n");
+    try w.writeByte('}');
+    if (pack) try w.writeByte(')');
+    try w.writeAll(";\n");
 
     try writeStaticAssertLayout(ty, name_cty, w, zcu);
 }
@@ -521,7 +553,7 @@ fn defineUnionAuto(
     const pack: bool = for (union_type.field_types.get(ip)) |field_ty_ip| {
         const field_ty: Type = .fromInterned(field_ty_ip);
         if (!field_ty.hasRuntimeBits(zcu)) continue;
-        const natural_align = field_ty.abiAlignment(zcu);
+        const natural_align = field_ty.defaultStructFieldAlignment(.auto, zcu);
         if (natural_align.compareStrict(.gt, union_type.alignment)) break true;
         // The tag will immediately follow the payload. This layout may put the tag in what would
         // otherwise be padding on the payload union, because if the most-aligned union field is not
@@ -539,7 +571,7 @@ fn defineUnionAuto(
         false => for (union_type.field_types.get(ip)) |field_ty_ip| {
             const field_ty: Type = .fromInterned(field_ty_ip);
             if (!field_ty.hasRuntimeBits(zcu)) continue;
-            const natural_align = field_ty.abiAlignment(zcu);
+            const natural_align = field_ty.defaultStructFieldAlignment(.auto, zcu);
             if (natural_align.compareStrict(.gte, union_type.alignment)) break false;
         } else overalign: {
             if (union_type.has_runtime_tag) {
@@ -610,7 +642,7 @@ fn defineUnionExtern(
     const pack: bool = for (union_type.field_types.get(ip)) |field_ty_ip| {
         const field_ty: Type = .fromInterned(field_ty_ip);
         if (!field_ty.hasRuntimeBits(zcu)) continue;
-        const natural_align = field_ty.abiAlignment(zcu);
+        const natural_align = field_ty.defaultStructFieldAlignment(.@"extern", zcu);
         if (natural_align.compareStrict(.gt, union_type.alignment)) break true;
     } else false;
 
@@ -622,7 +654,7 @@ fn defineUnionExtern(
         false => for (union_type.field_types.get(ip)) |field_ty_ip| {
             const field_ty: Type = .fromInterned(field_ty_ip);
             if (!field_ty.hasRuntimeBits(zcu)) continue;
-            const natural_align = field_ty.abiAlignment(zcu);
+            const natural_align = field_ty.defaultStructFieldAlignment(.@"extern", zcu);
             if (natural_align.compareStrict(.gte, union_type.alignment)) break false;
         } else overalign: {
             if (union_type.has_runtime_tag) {
@@ -672,7 +704,7 @@ fn writeFieldAlign(
     w: *Writer,
     zcu: *const Zcu,
 ) Writer.Error!void {
-    if (alignment.compareStrict(.lt, ty.abiAlignment(zcu))) {
+    if (alignment.compareStrict(.lt, ty.defaultStructFieldAlignment(.auto, zcu))) {
         try w.print("zig_under_align({d}) ", .{alignment.toByteUnits().?});
     } else {
         try w.print("zig_align({d}) ", .{alignment.toByteUnits().?});

@@ -160,10 +160,10 @@ pub fn main(init: process.Init.Minimal) !void {
 const Serialize = struct {
     arena: Allocator,
     wc: *Configuration.Wip,
-    module_map: std.AutoArrayHashMapUnmanaged(*std.Build.Module, Configuration.Module.Index) = .empty,
-    package_map: std.AutoArrayHashMapUnmanaged(*std.Build, Configuration.Package.Index) = .empty,
+    module_map: std.array_hash_map.Auto(*std.Build.Module, Configuration.Module.Index) = .empty,
+    package_map: std.array_hash_map.Auto(*std.Build, Configuration.Package.Index) = .empty,
     /// Index corresponds to `Configuration.steps` index.
-    step_map: std.AutoArrayHashMapUnmanaged(*Step, void) = .empty,
+    step_map: std.array_hash_map.Auto(*Step, void) = .empty,
 
     fn builderToPackage(s: *Serialize, b: *std.Build) !Configuration.Package.Index {
         if (b.pkg_hash.len == 0) return .root;
@@ -312,15 +312,16 @@ const Serialize = struct {
                     .flags = .{
                         .tag = .artifact,
                         .prefix = a.prefix.len != 0,
-                        .suffix = false,
+                        .suffix = a.suffix.len != 0,
                         .basename = false,
                         .path = false,
                         .producer = true,
                         .generated = false,
                         .dep_file = false,
+                        .make_absolute = a.make_absolute,
                     },
                     .prefix = .{ .value = if (a.prefix.len != 0) try wc.addString(a.prefix) else null },
-                    .suffix = .{ .value = null },
+                    .suffix = .{ .value = if (a.suffix.len != 0) try wc.addString(a.suffix) else null },
                     .basename = .{ .value = null },
                     .path = .{ .value = null },
                     .producer = .{ .value = stepIndex(s, &a.artifact.step) },
@@ -330,15 +331,16 @@ const Serialize = struct {
                     .flags = .{
                         .tag = .path_file,
                         .prefix = a.prefix.len != 0,
-                        .suffix = false,
+                        .suffix = a.suffix.len != 0,
                         .basename = false,
                         .path = true,
                         .producer = false,
                         .generated = false,
                         .dep_file = false,
+                        .make_absolute = a.make_absolute,
                     },
                     .prefix = .{ .value = if (a.prefix.len != 0) try wc.addString(a.prefix) else null },
-                    .suffix = .{ .value = null },
+                    .suffix = .{ .value = if (a.suffix.len != 0) try wc.addString(a.suffix) else null },
                     .basename = .{ .value = null },
                     .path = .{ .value = try addLazyPath(s, a.lazy_path) },
                     .producer = .{ .value = null },
@@ -354,6 +356,7 @@ const Serialize = struct {
                         .producer = false,
                         .generated = false,
                         .dep_file = false,
+                        .make_absolute = a.make_absolute,
                     },
                     .prefix = .{ .value = if (a.prefix.len != 0) try wc.addString(a.prefix) else null },
                     .suffix = .{ .value = if (a.suffix.len != 0) try wc.addString(a.suffix) else null },
@@ -366,15 +369,16 @@ const Serialize = struct {
                     .flags = .{
                         .tag = .file_content,
                         .prefix = a.prefix.len != 0,
-                        .suffix = false,
+                        .suffix = a.suffix.len != 0,
                         .basename = false,
                         .path = true,
                         .producer = false,
                         .generated = false,
                         .dep_file = false,
+                        .make_absolute = false,
                     },
                     .prefix = .{ .value = if (a.prefix.len != 0) try wc.addString(a.prefix) else null },
-                    .suffix = .{ .value = null },
+                    .suffix = .{ .value = if (a.suffix.len != 0) try wc.addString(a.suffix) else null },
                     .basename = .{ .value = null },
                     .path = .{ .value = try addLazyPath(s, a.lazy_path) },
                     .producer = .{ .value = null },
@@ -390,6 +394,7 @@ const Serialize = struct {
                         .producer = false,
                         .generated = false,
                         .dep_file = false,
+                        .make_absolute = false,
                     },
                     .prefix = .{ .value = try wc.addString(a) },
                     .suffix = .{ .value = null },
@@ -402,15 +407,16 @@ const Serialize = struct {
                     .flags = .{
                         .tag = .output_file,
                         .prefix = a.prefix.len != 0,
-                        .suffix = false,
+                        .suffix = a.suffix.len != 0,
                         .basename = a.basename.len != 0,
                         .path = false,
                         .producer = false,
                         .generated = true,
                         .dep_file = tag == .output_file_dep,
+                        .make_absolute = a.make_absolute,
                     },
                     .prefix = .{ .value = if (a.prefix.len != 0) try wc.addString(a.prefix) else null },
-                    .suffix = .{ .value = null },
+                    .suffix = .{ .value = if (a.suffix.len != 0) try wc.addString(a.suffix) else null },
                     .basename = .{ .value = if (a.basename.len != 0) try wc.addString(a.basename) else null },
                     .path = .{ .value = null },
                     .producer = .{ .value = null },
@@ -420,15 +426,16 @@ const Serialize = struct {
                     .flags = .{
                         .tag = .output_directory,
                         .prefix = a.prefix.len != 0,
-                        .suffix = false,
+                        .suffix = a.suffix.len != 0,
                         .basename = a.basename.len != 0,
                         .path = false,
                         .producer = false,
                         .generated = true,
                         .dep_file = false,
+                        .make_absolute = a.make_absolute,
                     },
                     .prefix = .{ .value = if (a.prefix.len != 0) try wc.addString(a.prefix) else null },
-                    .suffix = .{ .value = null },
+                    .suffix = .{ .value = if (a.suffix.len != 0) try wc.addString(a.suffix) else null },
                     .basename = .{ .value = if (a.basename.len != 0) try wc.addString(a.basename) else null },
                     .path = .{ .value = null },
                     .producer = .{ .value = null },
@@ -444,6 +451,7 @@ const Serialize = struct {
                         .producer = false,
                         .generated = false,
                         .dep_file = false,
+                        .make_absolute = false,
                     },
                     .prefix = .{ .value = null },
                     .suffix = .{ .value = null },
@@ -668,7 +676,6 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                     },
                     .compile => e: {
                         const c: *Step.Compile = @fieldParentPtr("step", step);
-                        const exec_cmd_args: []const ?[]const u8 = c.exec_cmd_args orelse &.{};
                         const installed_headers: []u32 = try arena.alloc(u32, c.installed_headers.items.len);
                         for (installed_headers, c.installed_headers.items) |*dst, src| switch (src) {
                             .file => |file| {
@@ -695,7 +702,6 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                         break :e try wc.addExtraErased(Configuration.Step.Compile, .{
                             .flags = .{
                                 .filters_len = c.filters.len != 0,
-                                .exec_cmd_args_len = exec_cmd_args.len != 0,
                                 .installed_headers_len = installed_headers.len != 0,
                                 .force_undefined_symbols_len = c.force_undefined_symbols.entries.len != 0,
 
@@ -797,6 +803,7 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .generated_llvm_bc = c.generated_llvm_bc != .none,
                                 .generated_llvm_ir = c.generated_llvm_ir != .none,
                                 .generated_h = c.generated_h != .none,
+                                .incremental = .init(c.incremental),
                             },
                             .root_module = try s.addModule(c.root_module),
                             .root_name = try wc.addString(c.name),
@@ -828,7 +835,6 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .none, .fast, .uuid, .sha1, .md5 => null,
                             } else null },
                             .filters = .{ .slice = try s.initStringList(c.filters) },
-                            .exec_cmd_args = .{ .slice = try s.initOptionalStringList(exec_cmd_args) },
                             .installed_headers = .initErased(installed_headers),
                             .force_undefined_symbols = .{ .slice = try s.initStringList(c.force_undefined_symbols.keys()) },
                             .expect_errors = .{ .u = if (c.expect_errors) |x| switch (x) {
@@ -1005,6 +1011,8 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             status: Configuration.Step.Run.ExpectTermStatus,
                             value: u32,
                         } = null;
+                        var expect_stderr_snapshot: ?Configuration.LazyPath.Index = null;
+                        var expect_stdout_snapshot: ?Configuration.LazyPath.Index = null;
                         switch (run.stdio) {
                             .check => |checks| for (checks.items) |check| switch (check) {
                                 .expect_stderr_exact => |bytes| expect_stderr_exact = try wc.addBytes(bytes),
@@ -1021,6 +1029,8 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                     .stopped => |x| .{ .status = .stopped, .value = @intFromEnum(x) },
                                     .unknown => |x| .{ .status = .unknown, .value = x },
                                 },
+                                .expect_stderr_snapshot => |path| expect_stderr_snapshot = try s.addLazyPath(path),
+                                .expect_stdout_snapshot => |path| expect_stdout_snapshot = try s.addLazyPath(path),
                             },
                             else => {},
                         }
@@ -1060,17 +1070,21 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                                 .expect_stdout_match = expect_stdout_match.items.len != 0,
                                 .expect_term = expect_term != null,
                                 .expect_term_status = if (expect_term) |t| t.status else .exited,
+                                .expect_stderr_snapshot = expect_stderr_snapshot != null,
+                                .expect_stdout_snapshot = expect_stdout_snapshot != null,
                             },
                             .file_inputs = .{ .slice = try s.initLazyPathList(run.file_inputs.items) },
                             .args = .{ .slice = try s.initArgsList(run.argv.items) },
                             .cwd = .{ .value = try s.addOptionalLazyPath(run.cwd) },
+                            .preopen_names = .{ .slice = try s.initStringList(run.preopens.keys()) },
+                            .preopen_paths = .{ .slice = try s.initLazyPathList(run.preopens.values()) },
                             .captured_stdout = .{ .value = if (run.captured_stdout) |cs| .{
-                                .basename = try wc.addString(cs.output.basename),
-                                .generated_file = cs.output.generated_file,
+                                .basename = try wc.addString(cs.basename),
+                                .generated_file = cs.generated_file,
                             } else null },
                             .captured_stderr = .{ .value = if (run.captured_stderr) |cs| .{
-                                .basename = try wc.addString(cs.output.basename),
-                                .generated_file = cs.output.generated_file,
+                                .basename = try wc.addString(cs.basename),
+                                .generated_file = cs.generated_file,
                             } else null },
                             .environ_map = .{ .value = try s.addEnvironMap(run.environ_map) },
                             .expect_term_value = .{ .value = if (expect_term) |t| t.value else null },
@@ -1080,6 +1094,8 @@ fn serialize(b: *std.Build, wc: *Configuration.Wip, writer: *Io.Writer) !void {
                             .expect_stdout_exact = .{ .value = if (expect_stdout_exact) |bytes| bytes else null },
                             .expect_stderr_match = .{ .slice = expect_stderr_match.items },
                             .expect_stdout_match = .{ .slice = expect_stdout_match.items },
+                            .expect_stderr_snapshot = .{ .value = expect_stderr_snapshot orelse null },
+                            .expect_stdout_snapshot = .{ .value = expect_stdout_snapshot orelse null },
                             .stdin = .{ .u = switch (run.stdin) {
                                 .none => .none,
                                 .bytes => |bytes| .{ .bytes = try wc.addBytes(bytes) },

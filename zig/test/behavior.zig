@@ -112,6 +112,10 @@ test {
         _ = @import("behavior/wasm.zig");
     }
 
+    if (builtin.zig_backend == .stage2_spirv) {
+        _ = @import("behavior/spirv.zig");
+    }
+
     if (builtin.zig_backend != .stage2_spirv and builtin.os.tag != .wasi) {
         _ = @import("behavior/asm.zig");
     }

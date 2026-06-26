@@ -1116,6 +1116,10 @@ pub const RenamePreserveError = error{
     ///
     /// On Windows, this error may be returned instead of PathAlreadyExists when
     /// renaming a directory over an existing directory.
+    ///
+    /// On Darwin, this error may be returned when a component of either pathname
+    /// refers to a "dataless" directory that requires materialization, and the I/O
+    /// policy of the current thread or process disallows dataless directory materialization.
     AccessDenied,
     PathAlreadyExists,
     /// Operating system or file system does not support atomic nonreplacing

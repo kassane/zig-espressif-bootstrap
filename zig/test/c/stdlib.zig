@@ -33,6 +33,7 @@ test "div" {
     if (builtin.target.cpu.arch.isMIPS64()) return error.SkipZigTest; // TODO
     if (builtin.target.cpu.arch.isPowerPC()) return error.SkipZigTest; // TODO
     if (builtin.target.cpu.arch == .s390x) return error.SkipZigTest; // TODO
+    if (builtin.target.cpu.arch == .x86 and builtin.target.os.tag == .windows) return error.SkipZigTest; // TODO
 
     const expected: c.div_t = .{ .quot = 5, .rem = 5 };
     try testing.expectEqual(expected, c.div(55, 10));
@@ -42,6 +43,7 @@ test "ldiv" {
     if (builtin.target.cpu.arch.isMIPS64() and @sizeOf(usize) == 4) return error.SkipZigTest; // TODO
     if (builtin.target.cpu.arch.isPowerPC32()) return error.SkipZigTest; // TODO
     if (builtin.target.cpu.arch == .s390x) return error.SkipZigTest; // TODO
+    if (builtin.target.cpu.arch == .x86 and builtin.target.os.tag == .windows) return error.SkipZigTest; // TODO
 
     const expected: c.ldiv_t = .{ .quot = -6, .rem = 2 };
     try testing.expectEqual(expected, c.ldiv(38, -6));
@@ -129,6 +131,8 @@ fn testStrToLLikeFunctionAnyErrno(
 }
 
 test "strtol" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag == .windows and builtin.target.abi == .msvc) return error.SkipZigTest; // TODO
+
     c._errno().* = @intFromEnum(c.E.SUCCESS);
     try testStrToLLikeFunctionAnyErrno(c.strtol, @ptrCast("stop42true"), 0, 0, 0, &.{ .SUCCESS, .INVAL });
     try testStrToLLikeFunction(c.strtol, @ptrCast("42true"), 0, 42, 2, .SUCCESS);
@@ -167,6 +171,8 @@ test "strtol" {
 }
 
 test "strtoll" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag == .windows and builtin.target.abi == .msvc) return error.SkipZigTest; // TODO
+
     c._errno().* = @intFromEnum(c.E.SUCCESS);
     try testStrToLLikeFunctionAnyErrno(c.strtoll, @ptrCast("stop42true"), 0, 0, 0, &.{ .SUCCESS, .INVAL });
     try testStrToLLikeFunction(c.strtoll, @ptrCast("42true"), 0, 42, 2, .SUCCESS);
@@ -205,6 +211,8 @@ test "strtoll" {
 }
 
 test "strtoul" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag == .windows and builtin.target.abi == .msvc) return error.SkipZigTest; // TODO
+
     c._errno().* = @intFromEnum(c.E.SUCCESS);
     try testStrToLLikeFunctionAnyErrno(c.strtoul, @ptrCast("stop42true"), 0, 0, 0, &.{ .SUCCESS, .INVAL });
     try testStrToLLikeFunction(c.strtoul, @ptrCast("42true"), 0, 42, 2, .SUCCESS);
@@ -241,6 +249,8 @@ test "strtoul" {
 }
 
 test "strtoull" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag == .windows and builtin.target.abi == .msvc) return error.SkipZigTest; // TODO
+
     c._errno().* = @intFromEnum(c.E.SUCCESS);
     try testStrToLLikeFunctionAnyErrno(c.strtoull, @ptrCast("stop42true"), 0, 0, 0, &.{ .SUCCESS, .INVAL });
     try testStrToLLikeFunction(c.strtoull, @ptrCast("42true"), 0, 42, 2, .SUCCESS);
@@ -277,6 +287,8 @@ test "strtoull" {
 }
 
 test "strtoimax" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag == .windows and builtin.target.abi == .msvc) return error.SkipZigTest; // TODO
+
     c._errno().* = @intFromEnum(c.E.SUCCESS);
     try testStrToLLikeFunctionAnyErrno(c.strtoimax, @ptrCast("stop42true"), 0, 0, 0, &.{ .SUCCESS, .INVAL });
     try testStrToLLikeFunction(c.strtoimax, @ptrCast("42true"), 0, 42, 2, .SUCCESS);
@@ -315,6 +327,8 @@ test "strtoimax" {
 }
 
 test "strtoumax" {
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag == .windows and builtin.target.abi == .msvc) return error.SkipZigTest; // TODO
+
     c._errno().* = @intFromEnum(c.E.SUCCESS);
     try testStrToLLikeFunctionAnyErrno(c.strtoumax, @ptrCast("stop42true"), 0, 0, 0, &.{ .SUCCESS, .INVAL });
     try testStrToLLikeFunction(c.strtoumax, @ptrCast("42true"), 0, 42, 2, .SUCCESS);

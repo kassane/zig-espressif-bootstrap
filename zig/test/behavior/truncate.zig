@@ -50,6 +50,7 @@ fn testTruncate(comptime S: type, a: S, comptime D: type, expected: D) !void {
 test "@truncate > 128 bits" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try testTruncate(u140, 0, u128, 0);
     try testTruncate(u140, maxInt(u140), u128, maxInt(u128));

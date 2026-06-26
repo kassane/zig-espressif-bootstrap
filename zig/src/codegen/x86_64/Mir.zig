@@ -1974,12 +1974,11 @@ pub fn emit(
     mir: Mir,
     lf: *link.File,
     pt: Zcu.PerThread,
-    src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     atom_id: link.File.AtomId,
     w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
-) codegen.CodeGenError!void {
+) codegen.Error!void {
     const zcu = pt.zcu;
     const comp = zcu.comp;
     const gpa = comp.gpa;
@@ -1993,7 +1992,7 @@ pub fn emit(
             .allocator = gpa,
             .mir = mir,
             .cc = fn_info.cc,
-            .src_loc = src_loc,
+            .src_loc = zcu.navSrcLoc(nav),
         },
         .bin_file = lf,
         .pt = pt,
@@ -2028,12 +2027,11 @@ pub fn emitLazy(
     mir: Mir,
     lf: *link.File,
     pt: Zcu.PerThread,
-    src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
     atom_id: link.File.AtomId,
     w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
-) codegen.CodeGenError!void {
+) codegen.Error!void {
     const zcu = pt.zcu;
     const comp = zcu.comp;
     const gpa = comp.gpa;
@@ -2044,7 +2042,7 @@ pub fn emitLazy(
             .allocator = gpa,
             .mir = mir,
             .cc = .auto,
-            .src_loc = src_loc,
+            .src_loc = Zcu.Type.fromInterned(lazy_sym.ty).srcLocOrNull(zcu) orelse .unneeded,
         },
         .bin_file = lf,
         .pt = pt,

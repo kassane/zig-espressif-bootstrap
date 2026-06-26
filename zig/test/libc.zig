@@ -151,9 +151,9 @@ pub fn addCases(cases: *tests.LibcContext) void {
     // cases.addLibcTestCase("math/asinhl.c", true, .{});
     cases.addLibcTestCase("math/asinl.c", true, .{});
     cases.addLibcTestCase("math/atan.c", true, .{});
-    // cases.addLibcTestCase("math/atan2.c", true, .{});
-    // cases.addLibcTestCase("math/atan2f.c", true, .{});
-    // cases.addLibcTestCase("math/atan2l.c", true, .{});
+    cases.addLibcTestCase("math/atan2.c", true, .{});
+    cases.addLibcTestCase("math/atan2f.c", true, .{});
+    cases.addLibcTestCase("math/atan2l.c", true, .{});
     cases.addLibcTestCase("math/atanf.c", true, .{});
     cases.addLibcTestCase("math/atanh.c", true, .{});
     cases.addLibcTestCase("math/atanhf.c", true, .{});

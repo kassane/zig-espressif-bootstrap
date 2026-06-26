@@ -22,7 +22,7 @@ pub fn sourceIndexMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     js.requestSources();
 
     const Header = abi.fuzz.SourceIndexHeader;
-    const header: Header = @bitCast(msg_bytes[0..@sizeOf(Header)].*);
+    const header: *align(1) const Header = @ptrCast(msg_bytes[0..@sizeOf(Header)]);
 
     const directories_start = @sizeOf(Header);
     const directories_end = directories_start + header.directories_len * @sizeOf(Coverage.String);
@@ -81,7 +81,7 @@ pub fn coverageUpdateMessage(msg_bytes: []u8) error{OutOfMemory}!void {
 var entry_points: std.ArrayList(SourceLocationIndex) = .empty;
 
 pub fn entryPointsMessage(msg_bytes: []u8) error{OutOfMemory}!void {
-    const header: abi.fuzz.EntryPointHeader = @bitCast(msg_bytes[0..@sizeOf(abi.fuzz.EntryPointHeader)].*);
+    const header: *align(1) const abi.fuzz.EntryPointHeader = @ptrCast(msg_bytes[0..@sizeOf(abi.fuzz.EntryPointHeader)]);
     const slis: []align(1) const SourceLocationIndex = @ptrCast(msg_bytes[@sizeOf(abi.fuzz.EntryPointHeader)..]);
     assert(slis.len == header.locsLen());
     try entry_points.resize(gpa, slis.len);
@@ -285,10 +285,10 @@ fn updateStats() error{OutOfMemory}!void {
     , .{
         hdr.n_runs,
         hdr.unique_runs,
-        @as(f64, @floatFromInt(hdr.unique_runs)) / @as(f64, @floatFromInt(hdr.n_runs)),
+        @as(f64, @floatFromInt(hdr.unique_runs)) / @as(f64, @floatFromInt(hdr.n_runs)) * 100,
         covered_src_locs,
         total_src_locs,
-        @as(f64, @floatFromInt(covered_src_locs)) / @as(f64, @floatFromInt(total_src_locs)),
+        @as(f64, @floatFromInt(covered_src_locs)) / @as(f64, @floatFromInt(total_src_locs)) * 100,
         avg_speed,
     });
     defer gpa.free(html);

@@ -109,6 +109,20 @@ pub fn syscall6(
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
+pub fn syscall_lseek(
+    fd: std.os.linux.fd_t,
+    offset: std.os.linux.off_t,
+    whence: u32,
+) u64 {
+    return asm volatile ("syscall"
+        : [ret] "={rax}" (-> u64),
+        : [number] "{rax}" (@intFromEnum(SYS.lseek)),
+          [fd] "{rdi}" (@as(u32, @bitCast(fd))),
+          [offset] "{rsi}" (@as(u64, @bitCast(offset))),
+          [whence] "{rdx}" (whence),
+        : .{ .rcx = true, .r11 = true, .memory = true });
+}
+
 pub fn clone() callconv(.naked) u32 {
     asm volatile (
         \\      movl $0x40000038,%%eax // SYS_clone
@@ -116,7 +130,7 @@ pub fn clone() callconv(.naked) u32 {
         \\      mov %%rdx,%%rdi
         \\      mov %%r8,%%rdx
         \\      mov %%r9,%%r8
-        \\      mov 8(%%rsp),%%r10
+        \\      mov 8(%%rsp),%%r10d
         \\      mov %%r11,%%r9
         \\      and $-16,%%rsi
         \\      sub $8,%%rsi
@@ -161,7 +175,7 @@ pub fn restore_rt() callconv(.naked) noreturn {
     }
 }
 
-pub const time_t = i32;
+pub const time_t = i64;
 
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";

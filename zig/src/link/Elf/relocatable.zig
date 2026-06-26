@@ -23,7 +23,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
     const io = comp.io;
     const diags = &comp.link_diags;
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 
     // First, we flush relocatable object file generated with our backends.
     if (elf_file.zigObjectPtr()) |zig_object| {
@@ -151,13 +151,13 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
     try elf_file.base.file.?.setLength(io, total_size);
     try elf_file.base.file.?.writePositionalAll(io, writer.buffered(), 0);
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 }
 
 pub fn flushObject(elf_file: *Elf, comp: *Compilation) !void {
     const diags = &comp.link_diags;
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 
     // Now, we are ready to resolve the symbols across all input files.
     // We will first resolve the files in the ZigObject, next in the parsed
@@ -203,7 +203,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation) !void {
     try elf_file.writeShdrTable();
     try elf_file.writeElfHeader();
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 }
 
 fn claimUnresolved(elf_file: *Elf) void {

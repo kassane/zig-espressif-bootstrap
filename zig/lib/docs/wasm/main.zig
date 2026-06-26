@@ -264,7 +264,7 @@ const ErrorIdentifier = packed struct(u64) {
 };
 
 var string_result: ArrayList(u8) = .empty;
-var error_set_result: std.StringArrayHashMapUnmanaged(ErrorIdentifier) = .empty;
+var error_set_result: std.array_hash_map.String(ErrorIdentifier) = .empty;
 
 export fn decl_error_set(decl_index: Decl.Index) Slice(ErrorIdentifier) {
     return Slice(ErrorIdentifier).init(decl_error_set_fallible(decl_index) catch @panic("OOM"));
@@ -305,7 +305,7 @@ fn sort_error_set_result() void {
 
 fn addErrorsFromDecl(
     decl_index: Decl.Index,
-    out: *std.StringArrayHashMapUnmanaged(ErrorIdentifier),
+    out: *std.array_hash_map.String(ErrorIdentifier),
 ) Oom!void {
     switch (decl_index.get().categorize()) {
         .error_set => |node| try addErrorsFromExpr(decl_index, out, node),
@@ -316,7 +316,7 @@ fn addErrorsFromDecl(
 
 fn addErrorsFromExpr(
     decl_index: Decl.Index,
-    out: *std.StringArrayHashMapUnmanaged(ErrorIdentifier),
+    out: *std.array_hash_map.String(ErrorIdentifier),
     node: Ast.Node.Index,
 ) Oom!void {
     const decl = decl_index.get();
@@ -343,7 +343,7 @@ fn addErrorsFromExpr(
 
 fn addErrorsFromNode(
     decl_index: Decl.Index,
-    out: *std.StringArrayHashMapUnmanaged(ErrorIdentifier),
+    out: *std.array_hash_map.String(ErrorIdentifier),
     node: Ast.Node.Index,
 ) Oom!void {
     const decl = decl_index.get();

@@ -5,7 +5,7 @@
 const std = @import("std");
 
 const compiler_rt = @import("../compiler_rt.zig");
-const symbol = @import("../compiler_rt.zig").symbol;
+const symbol = compiler_rt.symbol;
 const normalize = compiler_rt.normalize;
 
 comptime {
@@ -170,14 +170,14 @@ inline fn div(a: f32, b: f32) f32 {
 
     const writtenExponent = quotientExponent +% exponentBias;
 
+    const round = @intFromBool((residual << 1) >= bSignificand);
+
     if (writtenExponent >= maxExponent) {
         // If we have overflowed the exponent, return infinity.
         return @bitCast(infRep | quotientSign);
     } else if (writtenExponent < 1) {
         if (writtenExponent == 0) {
             // Check whether the rounded result is normal.
-            const round = @intFromBool((residual << 1) > bSignificand);
-            // Clear the implicit bit.
             var absResult = quotient & significandMask;
             // Round.
             absResult += round;
@@ -186,11 +186,16 @@ inline fn div(a: f32, b: f32) f32 {
                 return @bitCast(absResult | quotientSign);
             }
         }
-        // Flush denormals to zero.  In the future, it would be nice to add
-        // code to round them correctly.
-        return @bitCast(quotientSign);
+
+        const roundedQuotient = quotient +% round;
+        const shiftAmount: u32 = @intCast(1 - writtenExponent);
+        if (shiftAmount > significandBits + 1) {
+            return @bitCast(quotientSign);
+        }
+
+        const denormQuotient = roundedQuotient >> @as(std.math.Log2Int(Z), @intCast(shiftAmount));
+        return @bitCast((denormQuotient & significandMask) | quotientSign);
     } else {
-        const round = @intFromBool((residual << 1) > bSignificand);
         // Clear the implicit bit
         var absResult = quotient & significandMask;
         // Insert the exponent

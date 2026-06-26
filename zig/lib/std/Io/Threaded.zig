@@ -218,6 +218,7 @@ pub const Environ = struct {
             DEBUGINFOD_CACHE_PATH: ?[:0]const u8 = null,
             XDG_CACHE_HOME: ?[:0]const u8 = null,
             HOME: ?[:0]const u8 = null,
+            TERM: ?[:0]const u8 = null,
         },
     };
 
@@ -1562,7 +1563,7 @@ pub const splat_buffer_size = 64;
 /// NtWaitForMultipleObjects accepts. We use this value also for poll() on
 /// posix systems.
 const poll_buffer_len = 64;
-pub const default_PATH = "/usr/local/bin:/bin/:/usr/bin";
+pub const default_PATH = "/usr/local/bin:/bin:/usr/bin";
 /// There are multiple kernel bugs being worked around with retries.
 const max_windows_kernel_bug_retries = 13;
 
@@ -7505,6 +7506,7 @@ fn dirRenamePreserve(
 ) Dir.RenamePreserveError!void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     if (is_windows) return dirRenameWindowsInner(old_dir, old_sub_path, new_dir, new_sub_path, false);
+    if (is_darwin) return dirRenamePreserveDarwin(old_dir, old_sub_path, new_dir, new_sub_path);
     if (native_os == .linux) return dirRenamePreserveLinux(old_dir, old_sub_path, new_dir, new_sub_path);
     // Make a hard link then delete the original.
     try dirHardLink(t, old_dir, old_sub_path, new_dir, new_sub_path, .{ .follow_symlinks = false });
@@ -7696,6 +7698,58 @@ fn dirRenamePosix(
     return renameat(old_dir.handle, old_sub_path_posix, new_dir.handle, new_sub_path_posix);
 }
 
+fn dirRenamePreserveDarwin(
+    old_dir: Dir,
+    old_sub_path: []const u8,
+    new_dir: Dir,
+    new_sub_path: []const u8,
+) Dir.RenamePreserveError!void {
+    var old_path_buffer: [posix.PATH_MAX]u8 = undefined;
+    var new_path_buffer: [posix.PATH_MAX]u8 = undefined;
+    const old_sub_path_posix = try pathToPosix(old_sub_path, &old_path_buffer);
+    const new_sub_path_posix = try pathToPosix(new_sub_path, &new_path_buffer);
+
+    const syscall: Syscall = try .start();
+    while (true) {
+        switch (posix.errno(std.c.renameatx_np(
+            old_dir.handle,
+            old_sub_path_posix,
+            new_dir.handle,
+            new_sub_path_posix,
+            .{ .EXCL = true },
+        ))) {
+            .SUCCESS => {
+                syscall.finish();
+                break;
+            },
+            .INTR => {
+                try syscall.checkCancel();
+                continue;
+            },
+            .INVAL => |err| return syscall.errnoBug(err),
+            .FAULT => |err| return syscall.errnoBug(err),
+            .BADF => |err| return syscall.errnoBug(err),
+            .ISDIR => |err| return syscall.errnoBug(err),
+            .NOTEMPTY => |err| return syscall.errnoBug(err),
+            .OPNOTSUPP => return syscall.fail(error.OperationUnsupported),
+            .IO => return syscall.fail(error.HardwareFailure),
+            .DEADLK => return syscall.fail(error.AccessDenied),
+            .ACCES => return syscall.fail(error.AccessDenied),
+            .DQUOT => return syscall.fail(error.DiskQuota),
+            .EXIST => return syscall.fail(error.PathAlreadyExists),
+            .LOOP => return syscall.fail(error.LinkQuotaExceeded),
+            .NAMETOOLONG => return syscall.fail(error.NameTooLong),
+            .NOENT => return syscall.fail(error.FileNotFound),
+            .NOSPC => return syscall.fail(error.NoSpaceLeft),
+            .NOTDIR => return syscall.fail(error.NotDir),
+            .PERM => return syscall.fail(error.PermissionDenied),
+            .ROFS => return syscall.fail(error.ReadOnlyFileSystem),
+            .XDEV => return syscall.fail(error.CrossDevice),
+            else => |err| return syscall.unexpectedErrno(err),
+        }
+    }
+}
+
 fn dirRenamePreserveLinux(
     old_dir: Dir,
     old_sub_path: []const u8,
@@ -7781,49 +7835,6 @@ fn renameat(
         .INVAL => |err| return syscall.errnoBug(err),
         else => |err| return syscall.unexpectedErrno(err),
     };
-}
-
-fn renameatPreserve(
-    old_dir: posix.fd_t,
-    old_sub_path: [*:0]const u8,
-    new_dir: posix.fd_t,
-    new_sub_path: [*:0]const u8,
-) Dir.RenameError!void {
-    const syscall: Syscall = try .start();
-    while (true) {
-        switch (posix.errno(posix.system.renameat(old_dir, old_sub_path, new_dir, new_sub_path))) {
-            .SUCCESS => return syscall.finish(),
-            .INTR => {
-                try syscall.checkCancel();
-                continue;
-            },
-            else => |e| {
-                syscall.finish();
-                switch (e) {
-                    .ACCES => return error.AccessDenied,
-                    .PERM => return error.PermissionDenied,
-                    .BUSY => return error.FileBusy,
-                    .DQUOT => return error.DiskQuota,
-                    .FAULT => |err| return errnoBug(err),
-                    .INVAL => |err| return errnoBug(err),
-                    .ISDIR => return error.IsDir,
-                    .LOOP => return error.SymLinkLoop,
-                    .MLINK => return error.LinkQuotaExceeded,
-                    .NAMETOOLONG => return error.NameTooLong,
-                    .NOENT => return error.FileNotFound,
-                    .NOTDIR => return error.NotDir,
-                    .NOMEM => return error.SystemResources,
-                    .NOSPC => return error.NoSpaceLeft,
-                    .EXIST => return error.PathAlreadyExists,
-                    .NOTEMPTY => return error.PathAlreadyExists,
-                    .ROFS => return error.ReadOnlyFileSystem,
-                    .XDEV => return error.CrossDevice,
-                    .ILSEQ => return error.BadPathName,
-                    else => |err| return posix.unexpectedErrno(err),
-                }
-            },
-        }
-    }
 }
 
 const dirSymLink = switch (native_os) {
@@ -8165,31 +8176,16 @@ fn dirReadLinkWindows(dir: Dir, sub_path: []const u8, buffer: []u8) Dir.ReadLink
     defer windows.CloseHandle(result_handle);
 
     var reparse_buf: [windows.MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 align(@alignOf(windows.REPARSE_DATA_BUFFER)) = undefined;
-
-    syscall = try .start();
-    while (true) switch (windows.ntdll.NtFsControlFile(
-        result_handle,
-        null, // event
-        null, // APC routine
-        null, // APC context
-        &io_status_block,
-        .GET_REPARSE_POINT,
-        null, // input buffer
-        0, // input buffer length
-        &reparse_buf,
-        reparse_buf.len,
-    )) {
-        .SUCCESS => {
-            syscall.finish();
-            break;
-        },
-        .CANCELLED => {
-            try syscall.checkCancel();
-            continue;
-        },
-        .NOT_A_REPARSE_POINT => return syscall.fail(error.NotLink),
-        else => |status| return syscall.unexpectedNtstatus(status),
-    };
+    switch ((try deviceIoControl(&.{
+        .file = .{ .handle = result_handle, .flags = .{ .nonblocking = true } },
+        .code = .GET_REPARSE_POINT,
+        .out = &reparse_buf,
+    })).u.Status) {
+        .SUCCESS => {},
+        .CANCELLED => unreachable,
+        .NOT_A_REPARSE_POINT => return error.NotLink,
+        else => |status| return windows.unexpectedStatus(status),
+    }
 
     const reparse_struct: *const windows.REPARSE_DATA_BUFFER = @ptrCast(@alignCast(&reparse_buf));
     const IoReparseTagInt = @typeInfo(windows.IO_REPARSE_TAG).@"struct".backing_integer.?;
@@ -8790,9 +8786,8 @@ fn isTty(file: File) Io.Cancelable!bool {
 
 fn fileEnableAnsiEscapeCodes(userdata: ?*anyopaque, file: File) File.EnableAnsiEscapeCodesError!void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    _ = t;
 
-    if (!is_windows) return if (!try supportsAnsiEscapeCodes(file)) error.NotTerminalDevice;
+    if (!is_windows) return if (!try supportsAnsiEscapeCodes(t, file)) error.NotTerminalDevice;
 
     // For Windows Terminal, VT Sequences processing is enabled by default.
     const console: File = .{
@@ -8840,14 +8835,13 @@ fn fileEnableAnsiEscapeCodes(userdata: ?*anyopaque, file: File) File.EnableAnsiE
 
 fn fileSupportsAnsiEscapeCodes(userdata: ?*anyopaque, file: File) Io.Cancelable!bool {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    _ = t;
-    return supportsAnsiEscapeCodes(file);
+    return supportsAnsiEscapeCodes(t, file);
 }
 
-fn supportsAnsiEscapeCodes(file: File) Io.Cancelable!bool {
+fn supportsAnsiEscapeCodes(t: *Threaded, file: File) Io.Cancelable!bool {
     if (is_windows) {
         var get_console_mode = windows.CONSOLE.USER_IO.GET_MODE;
-        switch ((try deviceIoControl(&.{
+        return switch ((try deviceIoControl(&.{
             .file = .{
                 .handle = windows.peb().ProcessParameters.ConsoleHandle,
                 .flags = .{ .nonblocking = false },
@@ -8855,15 +8849,33 @@ fn supportsAnsiEscapeCodes(file: File) Io.Cancelable!bool {
             .code = windows.IOCTL.CONDRV.ISSUE_USER_IO,
             .in = @ptrCast(&get_console_mode.request(file, 0, .{}, 0, .{})),
         })).u.Status) {
-            .SUCCESS => if (get_console_mode.Data & windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0)
-                return true,
+            .SUCCESS => get_console_mode.Data & windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0,
             .CANCELLED => unreachable,
-            .INVALID_HANDLE => return isCygwinPty(file),
-            else => return false,
-        }
+            .INVALID_HANDLE => isCygwinPty(file),
+            else => false,
+        };
     }
 
-    if (try isTty(file)) return true;
+    if (native_os == .wasi) {
+        // WASI sanitizes stdout when fd is a tty so ANSI escape codes
+        // will not be interpreted as actual cursor commands, and
+        // stderr is always sanitized.
+
+        return false;
+    }
+
+    if (try isTty(file)) {
+        if (file.handle == posix.STDOUT_FILENO or file.handle == posix.STDERR_FILENO) {
+            t.scanEnviron();
+            if (t.environ.string.TERM) |term| {
+                if (std.mem.eql(u8, term, "dumb")) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
 
     return false;
 }
@@ -10168,7 +10180,7 @@ fn fileSeekBy(userdata: ?*anyopaque, file: File, offset: i64) File.SeekError!voi
 
     if (posix.SEEK == void) return error.Unseekable;
 
-    if (native_os == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
+    if (native_os == .linux and !builtin.link_libc and @sizeOf(posix.system.syscall_arg_t) == 4) {
         var result: i64 = undefined;
         const syscall: Syscall = try .start();
         while (true) {
@@ -10280,7 +10292,7 @@ fn fileSeekTo(userdata: ?*anyopaque, file: File, offset: u64) File.SeekError!voi
 }
 
 fn posixSeekTo(fd: posix.fd_t, offset: u64) File.SeekError!void {
-    if (native_os == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
+    if (native_os == .linux and !builtin.link_libc and @sizeOf(posix.system.syscall_arg_t) == 4) {
         const syscall: Syscall = try .start();
         while (true) {
             var result: i64 = undefined;
@@ -10892,6 +10904,7 @@ fn fileWriteStreaming(
                     .PIPE => return error.BrokenPipe,
                     .CONNRESET => |err| return errnoBug(err), // Not a socket handle.
                     .BUSY => return error.DeviceBusy,
+                    .ACCES => return error.AccessDenied,
                     else => |err| return posix.unexpectedErrno(err),
                 }
             },
@@ -13676,7 +13689,7 @@ fn netLookupFallible(
         // Check for equal to "localhost(.)" or ends in ".localhost(.)"
         const localhost = if (name[name.len - 1] == '.') "localhost." else "localhost";
         if (std.mem.endsWith(u8, name, localhost) and
-            (name.len == localhost.len or name[name.len - localhost.len] == '.'))
+            (name.len == localhost.len or name[name.len - localhost.len - 1] == '.'))
         {
             var results_buffer: [3]HostName.LookupResult = undefined;
             var results_index: usize = 0;
@@ -14160,9 +14173,11 @@ fn addressUnixToPosix(a: *const net.UnixAddress, storage: *UnixAddress) posix.so
 }
 
 fn address4FromPosix(in: *const posix.sockaddr.in) net.Ip4Address {
+    // The network byte order address in `in.addr` is already the byte order we want.
+    const addr_bytes: *const [4]u8 = @ptrCast(&in.addr);
     return .{
         .port = std.mem.bigToNative(u16, in.port),
-        .bytes = @bitCast(in.addr),
+        .bytes = addr_bytes.*,
     };
 }
 
@@ -14176,9 +14191,11 @@ fn address6FromPosix(in6: *const posix.sockaddr.in6) net.Ip6Address {
 }
 
 fn address4ToPosix(a: net.Ip4Address) posix.sockaddr.in {
+    // The byte order of `a.bytes` is already equivalent to a network byte order address.
+    const addr_raw: *align(1) const u32 = @ptrCast(&a.bytes);
     return .{
         .port = std.mem.nativeToBig(u16, a.port),
-        .addr = @bitCast(a.bytes),
+        .addr = addr_raw.*,
     };
 }
 

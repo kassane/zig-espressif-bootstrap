@@ -14,7 +14,7 @@ const link = @import("link.zig");
 
 const log = std.log.scoped(.register_manager);
 
-pub const AllocationError = @import("codegen.zig").CodeGenError || error{OutOfRegisters};
+pub const AllocationError = @import("codegen.zig").Error || error{OutOfRegisters};
 
 pub fn RegisterManager(
     comptime Function: type,

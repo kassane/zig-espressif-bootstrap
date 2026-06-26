@@ -1,5 +1,6 @@
 const AsSignedness = math.AsSignedness;
 const checkExpected = math.checkExpected;
+const ChangeScalar = math.ChangeScalar;
 const Compare = math.Compare;
 const fmax = math.fmax;
 const fmin = math.fmin;
@@ -4890,6 +4891,15 @@ test bitNot {
     try test_bit_not.testIntVectors();
 }
 
+inline fn intFromBool(comptime Type: type, rhs: Type) ChangeScalar(Type, u1) {
+    return @intFromBool(rhs);
+}
+test intFromBool {
+    const test_int_from_bool = unary(intFromBool, .{});
+    try test_int_from_bool.testBools();
+    try test_int_from_bool.testBoolVectors();
+}
+
 inline fn clz(comptime Type: type, rhs: Type) Log2IntCeil(Type) {
     return @clz(rhs);
 }
@@ -5252,6 +5262,7 @@ inline fn splat(comptime Type: type, rhs: Type) Type {
 }
 test splat {
     const test_splat = unary(splat, .{});
+    try test_splat.testBoolVectors();
     try test_splat.testIntVectors();
     try test_splat.testFloatVectors();
 }

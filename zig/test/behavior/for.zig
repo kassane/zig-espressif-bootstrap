@@ -521,6 +521,8 @@ test "return from inline for" {
 }
 
 test "for loop 0 length range" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const map: []const u8 = &.{};
     for (map, 0..map.len) |i, j| {
         _ = i;

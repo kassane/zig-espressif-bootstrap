@@ -4,12 +4,12 @@ air: Air,
 nav_index: InternPool.Nav.Index,
 
 // Blocks
-def_order: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, void),
-blocks: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, Block),
-loops: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, Loop),
+def_order: std.array_hash_map.Auto(Air.Inst.Index, void),
+blocks: std.array_hash_map.Auto(Air.Inst.Index, Block),
+loops: std.array_hash_map.Auto(Air.Inst.Index, Loop),
 active_loops: std.ArrayList(Loop.Index),
 loop_live: struct {
-    set: std.AutoArrayHashMapUnmanaged(struct { Loop.Index, Air.Inst.Index }, void),
+    set: std.array_hash_map.Auto(struct { Loop.Index, Air.Inst.Index }, void),
     list: std.ArrayList(Air.Inst.Index),
 },
 dom_start: u32,
@@ -255,6 +255,7 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
         .work_item_id,
         .work_group_size,
         .work_group_id,
+        .spirv_runtime_array_len,
         => unreachable,
         .ret_ptr => {
             const ty = air_data[@intFromEnum(air_inst_index)].ty;
@@ -291,8 +292,8 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
         .load,
         .fptrunc,
         .fpext,
-        .intcast,
-        .intcast_safe,
+        .int_cast,
+        .int_cast_safe,
         .trunc,
         .optional_payload,
         .optional_payload_ptr,
@@ -333,7 +334,15 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
             air_inst_index = air_body[air_body_index];
             continue :air_tag air_tags[@intFromEnum(air_inst_index)];
         },
-        .bitcast => {
+        .bit_cast,
+        .ptr_cast,
+        .ptr_from_int,
+        .int_from_ptr,
+        .error_cast,
+        .error_from_int,
+        .int_from_error,
+        .union_from_enum,
+        => {
             const ty_op = air_data[@intFromEnum(air_inst_index)].ty_op;
             maybe_noop: {
                 if (ty_op.ty.toInterned().? != isel.air.typeOf(ty_op.operand, ip).toIntern()) break :maybe_noop;
@@ -883,7 +892,7 @@ pub fn finishAnalysis(isel: *Select) !void {
     }
 }
 
-pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory, CodegenFail }!void {
+pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory, AlreadyReported }!void {
     const zcu = isel.pt.zcu;
     const ip = &zcu.intern_pool;
     const gpa = zcu.gpa;
@@ -3189,7 +3198,15 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
-        .bitcast => |air_tag| {
+        .bit_cast,
+        .ptr_cast,
+        .ptr_from_int,
+        .int_from_ptr,
+        .error_cast,
+        .error_from_int,
+        .int_from_error,
+        .union_from_enum,
+        => |air_tag| {
             if (isel.live_values.fetchRemove(air.inst_index)) |dst_vi| unused: {
                 defer dst_vi.value.deref(isel);
                 const ty_op = air.data(air.inst_index).ty_op;
@@ -5220,7 +5237,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
-        .intcast => |air_tag| {
+        .int_cast => |air_tag| {
             if (isel.live_values.fetchRemove(air.inst_index)) |dst_vi| unused: {
                 defer dst_vi.value.deref(isel);
 
@@ -5311,7 +5328,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
-        .intcast_safe => |air_tag| {
+        .int_cast_safe => |air_tag| {
             if (isel.live_values.fetchRemove(air.inst_index)) |dst_vi| unused: {
                 defer dst_vi.value.deref(isel);
 
@@ -7491,7 +7508,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
-        .work_item_id, .work_group_size, .work_group_id => unreachable,
+        .work_item_id, .work_group_size, .work_group_id, .spirv_runtime_array_len => unreachable,
     }
     assert(air.body_index == 0);
 }
@@ -8001,7 +8018,7 @@ fn emitLiteral(isel: *Select, bytes: []const u8) !void {
     }
 }
 
-fn fail(isel: *Select, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
+fn fail(isel: *Select, comptime format: []const u8, args: anytype) error{ OutOfMemory, AlreadyReported } {
     @branchHint(.cold);
     return isel.pt.zcu.codegenFail(isel.nav_index, format, args);
 }
@@ -10595,7 +10612,7 @@ pub const Value = struct {
         vi: Value.Index,
         ra: Register.Alias,
 
-        fn finish(mat: Value.Materialize, isel: *Select) error{ OutOfMemory, CodegenFail }!void {
+        fn finish(mat: Value.Materialize, isel: *Select) error{ OutOfMemory, AlreadyReported }!void {
             const live_vi = isel.live_registers.getPtr(mat.ra);
             assert(live_vi.* == .allocating);
             var vi = mat.vi;
@@ -11224,7 +11241,7 @@ fn dumpValuesInner(isel: *Select, which: WhichValues) !void {
     defer std.debug.unlockStderr();
     const stderr = &locked_stderr.file_writer.interface;
 
-    var reverse_live_values: std.AutoArrayHashMapUnmanaged(Value.Index, std.ArrayList(Air.Inst.Index)) = .empty;
+    var reverse_live_values: std.array_hash_map.Auto(Value.Index, std.ArrayList(Air.Inst.Index)) = .empty;
     defer {
         for (reverse_live_values.values()) |*list| list.deinit(gpa);
         reverse_live_values.deinit(gpa);
@@ -11253,7 +11270,7 @@ fn dumpValuesInner(isel: *Select, which: WhichValues) !void {
         };
     }
 
-    var roots: std.AutoArrayHashMapUnmanaged(Value.Index, u32) = .empty;
+    var roots: std.array_hash_map.Auto(Value.Index, u32) = .empty;
     defer roots.deinit(gpa);
     {
         try roots.ensureTotalCapacity(gpa, isel.values.items.len);
@@ -11354,7 +11371,7 @@ fn writeToMemory(isel: *Select, constant: Constant, buffer: []u8) error{OutOfMem
     if (try isel.writeKeyToMemory(ip.indexToKey(constant.toIntern()), buffer)) return true;
     constant.writeToMemory(zcu, buffer) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
-        error.ReinterpretDeclRef, error.Unimplemented, error.IllDefinedMemoryLayout => return false,
+        error.ReinterpretDeclRef, error.IllDefinedMemoryLayout => return false,
     };
     return true;
 }
@@ -11636,7 +11653,7 @@ fn use(isel: *Select, air_ref: Air.Inst.Ref) !Value.Index {
     return vi;
 }
 
-fn fill(isel: *Select, dst_ra: Register.Alias) error{ OutOfMemory, CodegenFail }!bool {
+fn fill(isel: *Select, dst_ra: Register.Alias) error{ OutOfMemory, AlreadyReported }!bool {
     switch (dst_ra) {
         else => {},
         Register.Alias.fp, .zr, .sp, .pc, .fpcr, .fpsr, .ffr => return false,
@@ -11669,7 +11686,7 @@ fn fill(isel: *Select, dst_ra: Register.Alias) error{ OutOfMemory, CodegenFail }
     return true;
 }
 
-fn fillMemory(isel: *Select, dst_ra: Register.Alias) error{ OutOfMemory, CodegenFail }!bool {
+fn fillMemory(isel: *Select, dst_ra: Register.Alias) error{ OutOfMemory, AlreadyReported }!bool {
     const dst_live_vi = isel.live_registers.getPtr(dst_ra);
     const dst_vi = switch (dst_live_vi.*) {
         _ => |dst_vi| dst_vi,

@@ -566,10 +566,8 @@ pub fn strHashWithSalt(
 }
 
 /// Options for hash verification.
-///
-/// Allocator is required for scrypt.
 pub const VerifyOptions = struct {
-    allocator: ?mem.Allocator,
+    allocator: mem.Allocator,
 };
 
 /// Verify that a previously computed hash is valid for a given password.
@@ -578,11 +576,10 @@ pub fn strVerify(
     password: []const u8,
     options: VerifyOptions,
 ) Error!void {
-    const allocator = options.allocator orelse return Error.AllocatorRequired;
     if (mem.startsWith(u8, str, crypt_format.prefix)) {
-        return CryptFormatHasher.verify(allocator, str, password);
+        return CryptFormatHasher.verify(options.allocator, str, password);
     } else {
-        return PhcFormatHasher.verify(allocator, str, password);
+        return PhcFormatHasher.verify(options.allocator, str, password);
     }
 }
 
@@ -693,7 +690,7 @@ test "strHash and strVerify" {
 
     const password = "testpass";
     const params = Params.interactive;
-    const verify_options = VerifyOptions{ .allocator = alloc };
+    const verify_options: VerifyOptions = .{ .allocator = alloc };
     var buf: [128]u8 = undefined;
 
     {

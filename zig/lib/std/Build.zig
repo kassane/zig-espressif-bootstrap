@@ -33,7 +33,7 @@ user_input_options: UserInputOptionsMap,
 available_options_map: std.array_hash_map.String(AvailableOption) = .empty,
 invalid_user_input: bool,
 default_step: *Step,
-top_level_steps: std.StringArrayHashMapUnmanaged(*Step.TopLevel),
+top_level_steps: std.array_hash_map.String(*Step.TopLevel),
 /// Path to the directory containing build.zig.
 root: Cache.Path,
 debug_log_scopes: []const []const u8 = &.{},
@@ -78,11 +78,11 @@ pub const Graph = struct {
     io: Io,
     /// Process lifetime.
     arena: Allocator,
-    system_integration_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
+    system_integration_options: std.array_hash_map.String(SystemLibraryMode) = .empty,
     system_package_mode: bool = false,
     zig_exe: []const u8,
     environ_map: process.Environ.Map,
-    needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .empty,
+    needed_lazy_dependencies: std.array_hash_map.String(void) = .empty,
     /// Information about the native target. Computed before build() is invoked.
     host: ResolvedTarget,
     dependency_cache: InitializedDepMap = .empty,
@@ -898,17 +898,7 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
     const run_step = Step.Run.create(b, step_name);
     run_step.producer = exe;
     if (exe.kind == .@"test") {
-        if (exe.exec_cmd_args) |exec_cmd_args| {
-            for (exec_cmd_args) |cmd_arg| {
-                if (cmd_arg) |arg| {
-                    run_step.addArg(arg);
-                } else {
-                    run_step.addArtifactArg(exe);
-                }
-            }
-        } else {
-            run_step.addArtifactArg(exe);
-        }
+        run_step.addArtifactArg(exe);
 
         const test_server_mode: bool = s: {
             if (exe.test_runner) |r| break :s r.mode == .server;
@@ -1836,10 +1826,14 @@ fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
         if (b.graph.environ_map.get("PATHEXT")) |PATHEXT| {
             var it = mem.tokenizeScalar(u8, PATHEXT, fs.path.delimiter);
 
+            const extended_path_buf = arena.alloc(u8, full_path.len + 1 + std.process.WindowsExtension.max_len) catch @panic("OOM");
+            @memcpy(extended_path_buf[0..full_path.len], full_path);
+
             while (it.next()) |ext| {
                 if (!supportedWindowsProgramExtension(ext)) continue;
 
-                const extended_path = try mem.concat(arena, &.{ full_path, ext });
+                @memcpy(extended_path_buf[full_path.len..][0..ext.len], ext);
+                const extended_path = extended_path_buf[0 .. full_path.len + ext.len];
 
                 if (Io.Dir.cwd().access(io, extended_path, .{ .execute = true })) |_| {
                     return extended_path;
@@ -2563,6 +2557,16 @@ pub const LazyPath = union(enum) {
         return dupeInner(lazy_path, graph.arena);
     }
 
+    /// Copies the slice of paths and all internal strings.
+    ///
+    /// The `graph` parameter is only used for the global arena allocator.
+    pub fn dupeList(lazy_paths: []const LazyPath, graph: *const Graph) []const LazyPath {
+        const arena = graph.arena;
+        const result = graph.alloc(LazyPath, lazy_paths.len);
+        for (result, lazy_paths) |*d, s| d.* = dupeInner(s, arena);
+        return result;
+    }
+
     fn dupeInner(lazy_path: LazyPath, arena: Allocator) LazyPath {
         return switch (lazy_path) {
             .src_path => |sp| .{ .src_path = .{ .owner = sp.owner, .sub_path = sp.owner.dupePath(sp.sub_path) } },
@@ -2707,4 +2711,6 @@ pub fn systemIntegrationOption(
 test {
     _ = Cache;
     _ = Step;
+    _ = Configuration;
+    _ = &findProgram;
 }

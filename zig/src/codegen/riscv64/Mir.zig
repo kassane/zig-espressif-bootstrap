@@ -107,12 +107,11 @@ pub fn emit(
     mir: Mir,
     lf: *link.File,
     pt: Zcu.PerThread,
-    src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     atom_index: link.File.AtomId,
     w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
-) (codegen.CodeGenError || std.Io.Writer.Error)!void {
+) (codegen.Error || std.Io.Writer.Error)!void {
     _ = atom_index;
     const zcu = pt.zcu;
     const comp = zcu.comp;
@@ -127,7 +126,7 @@ pub fn emit(
             .allocator = gpa,
             .mir = mir,
             .cc = fn_info.cc,
-            .src_loc = src_loc,
+            .src_loc = zcu.navSrcLoc(nav),
             .output_mode = comp.config.output_mode,
             .link_mode = comp.config.link_mode,
             .pic = mod.pic,

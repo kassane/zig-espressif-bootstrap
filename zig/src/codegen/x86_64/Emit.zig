@@ -17,6 +17,7 @@ relocs: std.ArrayList(Reloc),
 table_relocs: std.ArrayList(TableReloc),
 
 pub const Error = Lower.Error || error{
+    AlreadyReported,
     EmitFail,
     NotFile,
 } || std.posix.MMapError || std.posix.MRemapError || link.File.UpdateDebugInfoError;
@@ -101,26 +102,18 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .inst => |inst| .{ .inst = inst },
                     .table => .table,
                     .nav => |nav| {
-                        const symbol_id = switch (try codegen.genNavRef(
+                        const symbol_id = try codegen.genNavRef(
                             emit.bin_file,
                             emit.pt,
-                            emit.lower.src_loc,
                             nav,
-                            emit.lower.target,
-                        )) {
-                            .sym_index => |symbol_id| symbol_id,
-                            .fail => |em| {
-                                assert(emit.lower.err_msg == null);
-                                emit.lower.err_msg = em;
-                                return error.EmitFail;
-                            },
-                        };
+                        );
                         const target_symbol: RelocInfo.Target.Symbol = if (ip.getNav(nav).getExtern(ip)) |@"extern"| .{
                             .symbol = symbol_id,
                             .is_extern = switch (@"extern".visibility) {
                                 .default => true,
                                 .hidden, .protected => false,
                             },
+                            .is_dll_import = @"extern".is_dll_import,
                             .force_pcrel_direct = switch (@"extern".relocation) {
                                 .any => false,
                                 .pcrel => true,
@@ -133,19 +126,11 @@ pub fn emitMir(emit: *Emit) Error!void {
                         }
                     },
                     .uav => |uav| .{ .symbol = .{
-                        .symbol = switch (try emit.bin_file.lowerUav(
+                        .symbol = try emit.bin_file.lowerUav(
                             emit.pt,
                             uav.val,
                             Type.fromInterned(uav.orig_ty).ptrAlignment(emit.pt.zcu),
-                            emit.lower.src_loc,
-                        )) {
-                            .sym_index => |symbol_id| symbol_id,
-                            .fail => |em| {
-                                assert(emit.lower.err_msg == null);
-                                emit.lower.err_msg = em;
-                                return error.EmitFail;
-                            },
-                        },
+                        ),
                         .is_extern = false,
                     } },
                     .lazy_sym => |lazy_sym| .{ .symbol = .{
@@ -168,25 +153,15 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .extern_func => |extern_func| .{ .symbol = .{
                         .symbol = if (emit.bin_file.cast(.elf)) |elf_file|
                             @enumFromInt(try elf_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null))
-                        else if (emit.bin_file.cast(.elf2)) |elf| elf.externSymbol(.{
+                        else if (emit.bin_file.cast(.elf2)) |elf| try elf.externSymbol(.{
                             .name = extern_func.toSlice(&emit.lower.mir).?,
-                            .lib_name = switch (comp.compiler_rt_strat) {
-                                .none, .lib, .obj, .zcu => null,
-                                .dyn_lib => "compiler_rt",
-                            },
+                            .lib_name = null,
                             .type = .FUNC,
-                        }) catch |err| switch (err) {
-                            error.LinkOnceUnsupported => unreachable,
-                            else => |e| return e,
-                        } else if (emit.bin_file.cast(.macho)) |macho_file|
+                        }) else if (emit.bin_file.cast(.macho)) |macho_file|
                             @enumFromInt(try macho_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null))
-                        else if (emit.bin_file.cast(.coff2)) |coff| @enumFromInt(@intFromEnum(try coff.globalSymbol(
-                            extern_func.toSlice(&emit.lower.mir).?,
-                            switch (comp.compiler_rt_strat) {
-                                .none, .lib, .obj, .zcu => null,
-                                .dyn_lib => "compiler_rt",
-                            },
-                        ))) else return emit.fail("external symbol unimplemented for {s}", .{@tagName(emit.bin_file.tag)}),
+                        else if (emit.bin_file.cast(.coff2)) |coff| @enumFromInt(@intFromEnum(try coff.globalSymbol(.{
+                            .name = extern_func.toSlice(&emit.lower.mir).?,
+                        }))) else return emit.fail("external symbol unimplemented for {s}", .{@tagName(emit.bin_file.tag)}),
                         .is_extern = true,
                     } },
                 },
@@ -198,7 +173,13 @@ pub fn emitMir(emit: *Emit) Error!void {
                     switch (lowered_inst.encoding.mnemonic) {
                         .call => {
                             reloc.target = .{ .branch = target };
-                            try emit.encodeInst(lowered_inst, reloc_info);
+                            if (target.is_dll_import and emit.bin_file.cast(.coff2) != null) {
+                                try emit.encodeInst(try .new(.none, .call, &.{
+                                    .{ .mem = .initRip(.ptr, 0) },
+                                }, emit.lower.target), reloc_info);
+                            } else {
+                                try emit.encodeInst(lowered_inst, reloc_info);
+                            }
                             continue :lowered_inst;
                         },
                         else => {},
@@ -274,7 +255,25 @@ pub fn emitMir(emit: *Emit) Error!void {
                             else => unreachable,
                         }
                     } else if (emit.bin_file.cast(.coff2)) |_| {
-                        switch (lowered_inst.encoding.mnemonic) {
+                        if (target.is_dll_import) switch (lowered_inst.encoding.mnemonic) {
+                            .lea => try emit.encodeInst(try .new(.none, .mov, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initRip(.ptr, 0) },
+                            }, emit.lower.target), reloc_info),
+                            .mov => {
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    lowered_inst.ops[0],
+                                    .{ .mem = .initRip(.ptr, 0) },
+                                }, emit.lower.target), reloc_info);
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    lowered_inst.ops[0],
+                                    .{ .mem = .initSib(lowered_inst.ops[reloc.op_index].mem.sib.ptr_size, .{ .base = .{
+                                        .reg = lowered_inst.ops[0].reg.to64(),
+                                    } }) },
+                                }, emit.lower.target), &.{});
+                            },
+                            else => unreachable,
+                        } else switch (lowered_inst.encoding.mnemonic) {
                             .lea => try emit.encodeInst(try .new(.none, .lea, &.{
                                 lowered_inst.ops[0],
                                 .{ .mem = .initRip(.none, 0) },
@@ -313,14 +312,11 @@ pub fn emitMir(emit: *Emit) Error!void {
                                         .symbol = if (emit.bin_file.cast(.elf)) |elf_file| @enumFromInt(try elf_file.getGlobalSymbol(
                                             "__tls_get_addr",
                                             if (comp.config.link_libc) "c" else null,
-                                        )) else if (emit.bin_file.cast(.elf2)) |elf| elf.externSymbol(.{
+                                        )) else if (emit.bin_file.cast(.elf2)) |elf| try elf.externSymbol(.{
                                             .name = "__tls_get_addr",
                                             .lib_name = if (comp.config.link_libc) "c" else null,
                                             .type = .FUNC,
-                                        }) catch |err| switch (err) {
-                                            error.LinkOnceUnsupported => unreachable,
-                                            else => |e| return e,
-                                        } else unreachable,
+                                        }) else unreachable,
                                         .is_extern = true,
                                     } },
                                 }});
@@ -396,7 +392,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                     .op_index = 1,
                                     .target = .{ .symbol = .{
                                         .symbol = @enumFromInt(@intFromEnum(
-                                            try coff.globalSymbol("__tls_index", null),
+                                            try coff.globalSymbol(.{ .name = "__tls_index" }),
                                         )),
                                         .is_extern = false,
                                     } },
@@ -431,7 +427,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                     .op_index = 1,
                                     .target = .{ .symbol = .{
                                         .symbol = @enumFromInt(@intFromEnum(
-                                            try coff.globalSymbol("_tls_index", null),
+                                            try coff.globalSymbol(.{ .name = "_tls_index" }),
                                         )),
                                         .is_extern = false,
                                     } },
@@ -584,37 +580,16 @@ pub fn emitMir(emit: *Emit) Error!void {
                                                 .none => .{ .constu = 0 },
                                                 .reg => |reg| .{ .breg = reg.dwarfNum() },
                                                 .frame, .table, .rip_inst => unreachable,
-                                                .nav => |nav| .{ .addr_reloc = switch (codegen.genNavRef(
+                                                .nav => |nav| .{ .addr_reloc = try codegen.genNavRef(
                                                     emit.bin_file,
                                                     emit.pt,
-                                                    emit.lower.src_loc,
                                                     nav,
-                                                    emit.lower.target,
-                                                ) catch |err| switch (err) {
-                                                    error.CodegenFail,
-                                                    => return emit.fail("unable to codegen: {s}", .{@errorName(err)}),
-                                                    else => |e| return e,
-                                                }) {
-                                                    .sym_index => |sym_index| sym_index,
-                                                    .fail => |em| {
-                                                        assert(emit.lower.err_msg == null);
-                                                        emit.lower.err_msg = em;
-                                                        return error.EmitFail;
-                                                    },
-                                                } },
-                                                .uav => |uav| .{ .addr_reloc = switch (try emit.bin_file.lowerUav(
+                                                ) },
+                                                .uav => |uav| .{ .addr_reloc = try emit.bin_file.lowerUav(
                                                     emit.pt,
                                                     uav.val,
                                                     Type.fromInterned(uav.orig_ty).ptrAlignment(emit.pt.zcu),
-                                                    emit.lower.src_loc,
-                                                )) {
-                                                    .sym_index => |sym_index| sym_index,
-                                                    .fail => |em| {
-                                                        assert(emit.lower.err_msg == null);
-                                                        emit.lower.err_msg = em;
-                                                        return error.EmitFail;
-                                                    },
-                                                } },
+                                                ) },
                                                 .lazy_sym, .extern_func => unreachable,
                                             };
                                             break :base &loc_buf[0];
@@ -666,7 +641,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                             const local = &emit.lower.mir.locals[local_index];
                             local_index += 1;
                             try dwarf.genLocalConstDebugInfo(
-                                emit.lower.src_loc,
                                 switch (mir_inst.ops) {
                                     else => unreachable,
                                     .pseudo_dbg_arg_val => .comptime_arg,
@@ -769,6 +743,7 @@ const RelocInfo = struct {
         const Symbol = struct {
             symbol: link.File.SymbolId,
             is_extern: bool,
+            is_dll_import: bool = false,
             force_pcrel_direct: bool = false,
         };
     };
@@ -860,7 +835,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             @enumFromInt(@intFromEnum(emit.atom_id)),
             end_offset - 4,
             @enumFromInt(@intFromEnum(target.symbol)),
-            reloc.off,
+            .{ .known = reloc.off },
             .{ .AMD64 = .REL32 },
         ) else unreachable,
         .branch => |target| if (emit.bin_file.cast(.elf)) |elf_file| {
@@ -898,7 +873,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             @enumFromInt(@intFromEnum(emit.atom_id)),
             end_offset - 4,
             @enumFromInt(@intFromEnum(target.symbol)),
-            reloc.off,
+            .{ .known = reloc.off },
             .{ .AMD64 = .REL32 },
         ) else return emit.fail("TODO implement {s} reloc for {s}", .{
             @tagName(reloc.target), @tagName(emit.bin_file.tag),
@@ -956,7 +931,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             @enumFromInt(@intFromEnum(emit.atom_id)),
             end_offset - 4,
             @enumFromInt(@intFromEnum(target.symbol)),
-            reloc.off,
+            .{ .known = reloc.off },
             .{ .AMD64 = .SECREL },
         ) else return emit.fail("TODO implement {s} reloc for {s}", .{
             @tagName(reloc.target), @tagName(emit.bin_file.tag),

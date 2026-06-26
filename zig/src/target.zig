@@ -164,7 +164,10 @@ pub fn hasValgrindSupport(target: *const std.Target, backend: std.lang.CompilerB
             else => false,
         },
         .x86_64 => switch (target.os.tag) {
-            .linux => target.abi != .gnux32 and target.abi != .muslx32,
+            .linux => switch (target.abi) {
+                .gnux32, .muslx32, .x32 => false,
+                else => true,
+            },
             .freebsd, .illumos => true,
             .windows => !ofmt_c_msvc,
             else => false,
@@ -275,12 +278,10 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
     };
 }
 
-pub fn hasNewLinkerSupport(ofmt: std.Target.ObjectFormat, backend: std.lang.CompilerBackend) bool {
+/// Returns `true` if `ofmt` has two linker implementations, so `-fnew-linker` is meaningful.
+pub fn hasNewLinker(ofmt: std.Target.ObjectFormat) bool {
     return switch (ofmt) {
-        .elf, .coff => switch (backend) {
-            .stage2_x86_64 => true,
-            else => false,
-        },
+        .elf => true,
         else => false,
     };
 }
@@ -702,7 +703,7 @@ pub fn llvmMachineAbi(target: *const std.Target) ?[:0]const u8 {
         },
         .mips, .mipsel => "o32",
         .mips64, .mips64el => switch (target.abi) {
-            .gnuabin32, .muslabin32 => "n32",
+            .gnuabin32, .muslabin32, .abin32 => "n32",
             else => "n64",
         },
         .powerpc64 => if (target.os.tag == .ps3) "elfv1" else "elfv2",
@@ -952,9 +953,6 @@ pub inline fn backendSupportsFeature(backend: std.lang.CompilerBackend, comptime
             // threads because they would all just be locking the same mutex to
             // protect Builder.
             .stage2_llvm => false,
-            // Same problem. Frontend needs to allow this backend to run in the
-            // linker thread.
-            .stage2_spirv => false,
             // Please do not make any more exceptions. Backends must support
             // being run in a separate thread from now on.
             else => true,

@@ -24,22 +24,22 @@ const ArrayList = std.ArrayList;
 /// Ordered list of data segments that will appear in the final binary.
 /// When sorted, to-be-merged segments will be made adjacent.
 /// Values are virtual address.
-data_segments: std.AutoArrayHashMapUnmanaged(Wasm.DataSegmentId, u32) = .empty,
+data_segments: std.array_hash_map.Auto(Wasm.DataSegmentId, u32) = .empty,
 /// Each time a `data_segment` offset equals zero it indicates a new group, and
 /// the next element in this array will contain the total merged segment size.
 /// Value is the virtual memory address of the end of the segment.
 data_segment_groups: ArrayList(DataSegmentGroup) = .empty,
 
 binary_bytes: ArrayList(u8) = .empty,
-missing_exports: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
-function_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.FunctionImportId) = .empty,
-global_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.GlobalImportId) = .empty,
-data_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.DataImportId) = .empty,
+missing_exports: std.array_hash_map.Auto(String, void) = .empty,
+function_imports: std.array_hash_map.Auto(String, Wasm.FunctionImportId) = .empty,
+global_imports: std.array_hash_map.Auto(String, Wasm.GlobalImportId) = .empty,
+data_imports: std.array_hash_map.Auto(String, Wasm.DataImportId) = .empty,
 
-indirect_function_table: std.AutoArrayHashMapUnmanaged(Wasm.OutputFunctionIndex, void) = .empty,
+indirect_function_table: std.array_hash_map.Auto(Wasm.OutputFunctionIndex, void) = .empty,
 
 /// A subset of the full interned function type list created only during flush.
-func_types: std.AutoArrayHashMapUnmanaged(Wasm.FunctionType.Index, void) = .empty,
+func_types: std.array_hash_map.Auto(Wasm.FunctionType.Index, void) = .empty,
 
 /// For debug purposes only.
 memory_layout_finished: bool = false,
@@ -274,7 +274,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         }
     }
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 
     // Merge indirect function tables.
     try f.indirect_function_table.ensureUnusedCapacity(gpa, wasm.zcu_indirect_function_set.entries.len +
@@ -513,7 +513,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         if (initial_memory > std.math.maxInt(u32)) {
             diags.addError("initial memory value {d} exceeds 32-bit address space", .{initial_memory});
         }
-        if (diags.hasErrors()) return error.LinkFailure;
+        if (diags.hasErrors()) return error.AlreadyReported;
         memory_ptr = initial_memory;
     } else {
         memory_ptr = mem.alignForward(u64, memory_ptr, std.wasm.page_size);
@@ -535,7 +535,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         if (max_memory > std.math.maxInt(u32)) {
             diags.addError("maximum memory value {d} exceeds 32-bit address space", .{max_memory});
         }
-        if (diags.hasErrors()) return error.LinkFailure;
+        if (diags.hasErrors()) return error.AlreadyReported;
         wasm.memories.limits.max = @intCast(max_memory / page_size);
         wasm.memories.limits.flags.has_max = true;
         if (shared_memory) wasm.memories.limits.flags.is_shared = true;

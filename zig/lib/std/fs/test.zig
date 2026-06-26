@@ -1096,8 +1096,10 @@ test "Dir.renamePreserve onto existing" {
             // file -> dir
             try expectError(error.PathAlreadyExists, ctx.dir.renamePreserve(test_file_path, ctx.dir, target_dir_path, io));
 
-            // TODO: fix dir renaming on non-Linux, non-Windows systems, see https://codeberg.org/ziglang/zig/issues/35340
-            if (native_os != .windows and native_os != .linux) return;
+            // TODO: fix dir renaming on other systems, see https://codeberg.org/ziglang/zig/issues/35340
+            if (native_os != .windows and native_os != .linux and !native_os.isDarwin()) {
+                return;
+            }
 
             // dir -> file
             try expectError(error.PathAlreadyExists, ctx.dir.renamePreserve(test_dir_path, ctx.dir, target_file_path, io));

@@ -609,10 +609,8 @@ pub fn strHash(
 }
 
 /// Options for hash verification.
-///
-/// Allocator is required for argon2.
 pub const VerifyOptions = struct {
-    allocator: ?mem.Allocator,
+    allocator: mem.Allocator,
 };
 
 /// Verify that a previously computed hash is valid for a given password.
@@ -622,8 +620,7 @@ pub fn strVerify(
     options: VerifyOptions,
     io: Io,
 ) Error!void {
-    const allocator = options.allocator orelse return Error.AllocatorRequired;
-    return PhcFormatHasher.verify(allocator, str, password, io);
+    return PhcFormatHasher.verify(options.allocator, str, password, io);
 }
 
 test "argon2d" {

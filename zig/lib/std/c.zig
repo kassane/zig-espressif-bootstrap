@@ -11134,14 +11134,23 @@ pub const ioctl = switch (native_os) {
 
 pub extern "c" fn bzero(s: *anyopaque, n: usize) void;
 
-pub extern "c" fn swab(noalias from: *const anyopaque, noalias to: *anyopaque, n: isize) void;
+pub const swab = switch (builtin.abi) {
+    .msvc => private._swab,
+    else => private.swab,
+};
 
 pub extern "c" fn strncmp(a: [*:0]const c_char, b: [*:0]const c_char, max: usize) c_int;
 pub extern "c" fn strcasecmp(a: [*:0]const c_char, b: [*:0]const c_char) c_int;
 pub extern "c" fn strncasecmp(a: [*:0]const c_char, b: [*:0]const c_char, max: usize) c_int;
-pub extern "c" fn strdup(s: [*:0]const c_char) ?[*:0]c_char;
+pub const strdup = switch (builtin.abi) {
+    .msvc => private._strdup,
+    else => private.strdup,
+};
 pub extern "c" fn strndup(s: [*:0]const c_char, n: usize) ?[*:0]c_char;
-pub extern "c" fn wcsdup(s: [*:0]const wchar_t) ?[*:0]wchar_t;
+pub const wcsdup = switch (builtin.abi) {
+    .msvc => private._wcsdup,
+    else => private.wcsdup,
+};
 
 pub extern "c" fn ffs(i: c_int) c_int;
 pub extern "c" fn ffsl(i: c_long) c_long;
@@ -11380,6 +11389,7 @@ pub const clock_res_t = darwin.clock_res_t;
 pub const @"close$NOCANCEL" = darwin.@"close$NOCANCEL";
 pub const dispatch = darwin.dispatch;
 pub const fcopyfile = darwin.fcopyfile;
+pub const renameatx_np = darwin.renameatx_np;
 pub const host_t = darwin.host_t;
 pub const integer_t = darwin.integer_t;
 pub const ipc_space_t = darwin.ipc_space_t;
@@ -11555,6 +11565,14 @@ pub const setkeymap = serenity.setkeymap;
 
 /// External definitions shared by two or more operating systems.
 const private = struct {
+    pub extern "c" fn strdup(s: [*:0]const c_char) ?[*:0]c_char;
+    pub extern "c" fn _strdup(s: [*:0]const c_char) ?[*:0]c_char;
+    pub extern "c" fn wcsdup(s: [*:0]const wchar_t) ?[*:0]wchar_t;
+    pub extern "c" fn _wcsdup(s: [*:0]const wchar_t) ?[*:0]wchar_t;
+
+    pub extern "c" fn swab(noalias from: *const anyopaque, noalias to: *anyopaque, n: isize) void;
+    pub extern "c" fn _swab(noalias from: *const anyopaque, noalias to: *anyopaque, n: isize) void;
+
     extern "c" fn close(fd: fd_t) c_int;
     extern "c" fn clock_getres(clk_id: clockid_t, tp: *timespec) c_int;
     extern "c" fn clock_gettime(clk_id: clockid_t, tp: *timespec) c_int;

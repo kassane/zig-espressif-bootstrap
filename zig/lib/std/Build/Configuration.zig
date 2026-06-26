@@ -1,10 +1,12 @@
 const Configuration = @This();
 
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const max_u32 = std.math.maxInt(u32);
+const native_endian = builtin.target.cpu.arch.endian();
 
 string_bytes: []u8,
 steps: []Step,
@@ -569,6 +571,8 @@ pub const Step = extern struct {
         flags2: Flags2,
         args: Storage.LengthPrefixedList(Arg.Index),
         cwd: Storage.FlagOptional(.flags, .cwd, LazyPath.Index),
+        preopen_names: Storage.LengthPrefixedList(String),
+        preopen_paths: Storage.LengthPrefixedList(LazyPath.Index),
         captured_stdout: Storage.FlagOptional(.flags, .captured_stdout, CapturedStream),
         captured_stderr: Storage.FlagOptional(.flags, .captured_stderr, CapturedStream),
         file_inputs: Storage.LengthPrefixedList(LazyPath.Index),
@@ -583,6 +587,8 @@ pub const Step = extern struct {
         expect_stderr_match: Storage.FlagLengthPrefixedList(.flags2, .expect_stderr_match, Bytes),
         expect_stdout_match: Storage.FlagLengthPrefixedList(.flags2, .expect_stdout_match, Bytes),
         expect_term_value: Storage.FlagOptional(.flags2, .expect_term, u32),
+        expect_stdout_snapshot: Storage.FlagOptional(.flags2, .expect_stdout_snapshot, LazyPath.Index),
+        expect_stderr_snapshot: Storage.FlagOptional(.flags2, .expect_stderr_snapshot, LazyPath.Index),
 
         pub const CapturedStream = extern struct {
             generated_file: GeneratedFileIndex,
@@ -608,7 +614,8 @@ pub const Step = extern struct {
                 producer: bool,
                 generated: bool,
                 dep_file: bool,
-                _: u21 = 0,
+                make_absolute: bool,
+                _: u20 = 0,
             };
 
             pub const Tag = enum(u4) {
@@ -681,7 +688,9 @@ pub const Step = extern struct {
             expect_stdout_match: bool,
             expect_term: bool,
             expect_term_status: ExpectTermStatus,
-            _: u25 = 0,
+            expect_stdout_snapshot: bool,
+            expect_stderr_snapshot: bool,
+            _: u23 = 0,
         };
     };
 
@@ -695,7 +704,6 @@ pub const Step = extern struct {
         root_name: String,
 
         filters: Storage.FlagLengthPrefixedList(.flags, .filters_len, String),
-        exec_cmd_args: Storage.FlagLengthPrefixedList(.flags, .exec_cmd_args_len, OptionalString),
         installed_headers: Storage.FlagLengthPrefixedList(.flags, .installed_headers_len, Storage.Extended(InstalledHeader.Flags, InstalledHeader)),
         force_undefined_symbols: Storage.FlagLengthPrefixedList(.flags, .force_undefined_symbols_len, String),
         expect_errors: Storage.FlagUnion(.flags4, .expect_errors, ExpectErrors),
@@ -924,7 +932,6 @@ pub const Step = extern struct {
             tag: Tag = .compile,
 
             filters_len: bool,
-            exec_cmd_args_len: bool,
             installed_headers_len: bool,
             force_undefined_symbols_len: bool,
 
@@ -951,6 +958,7 @@ pub const Step = extern struct {
             force_load_objc: bool,
             discard_local_symbols: bool,
             mingw_unicode_entry_point: bool,
+            _: u1 = 0,
         };
 
         pub const Flags2 = packed struct(u32) {
@@ -1016,7 +1024,8 @@ pub const Step = extern struct {
             generated_llvm_bc: bool,
             generated_llvm_ir: bool,
             generated_h: bool,
-            _: u9 = 0,
+            incremental: DefaultingBool,
+            _: u7 = 0,
         };
 
         pub fn isDynamicLibrary(compile: *const Compile) bool {
@@ -2268,6 +2277,8 @@ pub const TargetQuery = struct {
         gnux32,
         eabi,
         eabihf,
+        abin32,
+        x32,
         ilp32,
         android,
         androideabi,
@@ -2301,6 +2312,8 @@ pub const TargetQuery = struct {
                 .gnux32 => .gnux32,
                 .eabi => .eabi,
                 .eabihf => .eabihf,
+                .abin32 => .abin32,
+                .x32 => .x32,
                 .ilp32 => .ilp32,
                 .android => .android,
                 .androideabi => .androideabi,
@@ -2334,6 +2347,8 @@ pub const TargetQuery = struct {
                 .gnux32 => .gnux32,
                 .eabi => .eabi,
                 .eabihf => .eabihf,
+                .abin32 => .abin32,
+                .x32 => .x32,
                 .ilp32 => .ilp32,
                 .android => .android,
                 .androideabi => .androideabi,
@@ -2595,6 +2610,8 @@ pub const TargetQuery = struct {
         windows,
         uefi,
         @"3ds",
+        wiiu,
+        psx,
         ps3,
         ps4,
         ps5,
@@ -2657,6 +2674,8 @@ pub const TargetQuery = struct {
                 .windows => .windows,
                 .uefi => .uefi,
                 .@"3ds" => .@"3ds",
+                .wiiu => .wiiu,
+                .psx => .psx,
                 .ps3 => .ps3,
                 .ps4 => .ps4,
                 .ps5 => .ps5,
@@ -2719,6 +2738,8 @@ pub const TargetQuery = struct {
                 .windows => .windows,
                 .uefi => .uefi,
                 .@"3ds" => .@"3ds",
+                .wiiu => .wiiu,
+                .psx => .psx,
                 .ps3 => .ps3,
                 .ps4 => .ps4,
                 .ps5 => .ps5,
@@ -3241,7 +3262,8 @@ pub const Storage = enum {
                 .@"extern" => {
                     const n = @divExact(@sizeOf(Field), @sizeOf(u32));
                     defer i.* += n;
-                    return @bitCast(buffer[i.*..][0..n].*);
+                    const ptr: *align(@alignOf(u32)) const Field = @ptrCast(buffer[i.*..][0..n]);
+                    return ptr.*;
                 },
             },
             else => comptime unreachable,
@@ -3407,7 +3429,8 @@ pub const Storage = enum {
                 },
                 .@"extern" => {
                     const n = @divExact(@sizeOf(Field), @sizeOf(u32));
-                    buffer[i..][0..n].* = @bitCast(value);
+                    const ptr: *align(@alignOf(Field)) const [n]u32 = @ptrCast(&value);
+                    buffer[i..][0..n].* = ptr.*;
                     return n;
                 },
             },
@@ -3475,18 +3498,46 @@ pub fn load(arena: Allocator, reader: *Io.Reader) LoadError!Configuration {
     return result;
 }
 
+/// Loads bits using native endianness when `value` spans multiple bytes.
+/// On big endian architectures, `bit_offset` uses MSb 0 bit numbering.
+/// On little endian architectures, `bit_offset` uses LSb 0 bit numbering.
+/// See `storeBits`.
 pub fn loadBits(comptime Int: type, buffer: []const Int, bit_offset: usize, comptime Result: type) Result {
     const index = bit_offset / @bitSizeOf(Int);
     const small_bit_offset = bit_offset % @bitSizeOf(Int);
     const ResultInt = @Int(.unsigned, @bitSizeOf(Result));
-    const result: ResultInt = @truncate(buffer[index] >> @intCast(small_bit_offset));
-    const available_bits = @bitSizeOf(Int) - small_bit_offset;
-    if (available_bits >= @bitSizeOf(ResultInt)) return @bitCast(result);
-    const missing_bits = @bitSizeOf(ResultInt) - available_bits;
-    const upper: ResultInt = @truncate(buffer[index + 1] & ((@as(usize, 1) << @intCast(missing_bits)) - 1));
-    return @bitCast(result | (upper << @intCast(available_bits)));
+    switch (native_endian) {
+        .little => {
+            const result: ResultInt = @truncate(buffer[index] >> @intCast(small_bit_offset));
+            const available_bits = @bitSizeOf(Int) - small_bit_offset;
+            if (available_bits >= @bitSizeOf(ResultInt)) return @bitCast(result);
+            const missing_bits = @bitSizeOf(ResultInt) - available_bits;
+            const upper: ResultInt = @truncate(buffer[index + 1] & ((@as(usize, 1) << @intCast(missing_bits)) - 1));
+            return @bitCast(result | (upper << @intCast(available_bits)));
+        },
+        .big => {
+            const available_bits = @bitSizeOf(Int) - small_bit_offset;
+            if (available_bits >= @bitSizeOf(ResultInt)) {
+                const shift = available_bits - @bitSizeOf(ResultInt);
+                const result: ResultInt = @truncate(buffer[index] >> @intCast(shift));
+                return @bitCast(result);
+            }
+            const mask = (@as(Int, 1) << @intCast(available_bits)) - 1;
+            const result: ResultInt = @intCast(buffer[index] & mask);
+            const missing_bits = @bitSizeOf(ResultInt) - available_bits;
+            const lower: ResultInt = @truncate(buffer[index + 1] >> @intCast(@bitSizeOf(Int) - missing_bits));
+            return @bitCast((result << @intCast(missing_bits)) | lower);
+        },
+    }
 }
 
+/// Store bits using native endianness when `value` spans multiple bytes.
+/// On big endian architectures:
+/// - For a given value, the bits of an earlier byte are more significant than the bits of subsequent bytes.
+/// - `bit_offset` uses MSb 0 bit numbering.
+/// On little endian architectures:
+/// - For a given value, the bits of an earlier byte are less significant than the bits of subsequent bytes.
+/// - `bit_offset` uses LSb 0 bit numbering.
 pub fn storeBits(comptime Int: type, buffer: []Int, bit_offset: usize, value: anytype) void {
     const Value = @TypeOf(value);
     const ValueInt = @Int(.unsigned, @bitSizeOf(Value));
@@ -3495,27 +3546,70 @@ pub fn storeBits(comptime Int: type, buffer: []Int, bit_offset: usize, value: an
     const small_bit_offset = bit_offset % @bitSizeOf(Int);
     const available_bits = @bitSizeOf(Int) - small_bit_offset;
     if (available_bits >= @bitSizeOf(ValueInt)) {
-        buffer[index] &= ~(((@as(Int, 1) << @intCast(@bitSizeOf(Value))) - 1) << @intCast(small_bit_offset));
-        buffer[index] |= @as(Int, value_int) << @intCast(small_bit_offset);
+        const shift = switch (native_endian) {
+            .little => small_bit_offset,
+            .big => available_bits - @bitSizeOf(ValueInt),
+        };
+        buffer[index] &= ~(((@as(Int, 1) << @intCast(@bitSizeOf(Value))) - 1) << @intCast(shift));
+        buffer[index] |= @as(Int, value_int) << @intCast(shift);
     } else {
         const DoubleInt = @Int(.unsigned, @bitSizeOf(Int) * 2);
+        const shift = switch (native_endian) {
+            .little => small_bit_offset,
+            .big => @bitSizeOf(DoubleInt) - small_bit_offset - @bitSizeOf(ValueInt),
+        };
         const ptr: *align(@alignOf(Int)) DoubleInt = @ptrCast(buffer[index..][0..2]);
-        ptr.* &= ~(((@as(DoubleInt, 1) << @intCast(@bitSizeOf(Value))) - 1) << @intCast(small_bit_offset));
-        ptr.* |= @as(DoubleInt, value_int) << @intCast(small_bit_offset);
+        ptr.* &= ~(((@as(DoubleInt, 1) << @intCast(@bitSizeOf(Value))) - 1) << @intCast(shift));
+        ptr.* |= @as(DoubleInt, value_int) << @intCast(shift);
     }
 }
 
 test "loadBits and storeBits" {
-    var buffer: [2]u32 = .{
-        0b01111111000000001111111100000000,
-        0b11111111000000001111111100000100,
+    var buffer: [2]u32 = switch (native_endian) {
+        .little => .{
+            //──┐ 0b100011 (end)     ┌─┐ 0b100
+            0b01111111000000001111111100000000,
+            //            n <── bit offset 0 ┘
+            //                             ┌── 0b100011 (start)
+            0b11111111000000001111111100000100,
+        },
+        .big => .{
+            //      ┌─┐ 0b100              ┌── 0b100011 (start)
+            0b11111110000000001111111100000100,
+            //└ bit offset 0 ──> n
+            //──┐ 0b100011 (end)
+            0b01111111000000001111111100000000,
+        },
     };
+
     try std.testing.expectEqual(0b100, loadBits(u32, &buffer, 6, u3));
     try std.testing.expectEqual(0b100011, loadBits(u32, &buffer, 29, u6));
 
+    storeBits(u32, &buffer, 0, @as(u1, 0b0));
     storeBits(u32, &buffer, 6, @as(u3, 0b010));
-    storeBits(u32, &buffer, 29, @as(u6, 0b010010));
+    storeBits(u32, &buffer, 29, @as(u6, 0b010110));
+    storeBits(u32, &buffer, 40, @as(u17, 0b01110110011111110));
 
+    try std.testing.expectEqual(0b0, loadBits(u32, &buffer, 0, u1));
     try std.testing.expectEqual(0b010, loadBits(u32, &buffer, 6, u3));
-    try std.testing.expectEqual(0b010010, loadBits(u32, &buffer, 29, u6));
+    try std.testing.expectEqual(0b010110, loadBits(u32, &buffer, 29, u6));
+    try std.testing.expectEqual(0b01110110011111110, loadBits(u32, &buffer, 40, u17));
+
+    // Test roundtripping of size/offset combinations
+    inline for (1..32) |value_size| {
+        for (0..64) |bit_offset| {
+            if (value_size + bit_offset > @bitSizeOf(@TypeOf(buffer))) continue;
+
+            buffer = .{ 0, 0 };
+
+            const Value = @Int(.unsigned, value_size);
+            const value: Value = @intCast((@as(u32, 1) << @intCast(@bitSizeOf(Value))) - 1);
+            storeBits(u32, &buffer, bit_offset, value);
+            std.testing.expectEqual(value, loadBits(u32, &buffer, bit_offset, Value)) catch |err| {
+                std.debug.print("value size: {} bit offset: {}\n", .{ value_size, bit_offset });
+                std.debug.print("buffer: {b:0>32} {b:0>32}\n", .{ buffer[0], buffer[1] });
+                return err;
+            };
+        }
+    }
 }

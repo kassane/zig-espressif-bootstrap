@@ -8,7 +8,7 @@ const Limb = std.math.big.Limb;
 
 const Interner = @This();
 
-map: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
+map: std.array_hash_map.Auto(void, void) = .empty,
 items: std.MultiArrayList(struct {
     tag: Tag,
     data: u32,

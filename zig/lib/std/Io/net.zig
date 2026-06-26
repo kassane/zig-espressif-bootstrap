@@ -576,7 +576,7 @@ pub const Ip6Address = struct {
                         const name = text[text_i..];
                         if (name.len == 0) return .incomplete;
                         interface_name_text = name;
-                        text_i = @intCast(text.len);
+                        text_i = std.math.cast(u8, text.len) orelse return .{ .overflow = text.len };
                         continue :state .end;
                     },
                     else => return .{ .invalid_byte = text_i },
@@ -592,11 +592,7 @@ pub const Ip6Address = struct {
                         if (remaining != 0) return .incomplete;
                     }
 
-                    // Workaround that can be removed when this proposal is
-                    // implemented https://github.com/ziglang/zig/issues/19755
-                    if ((comptime @import("builtin").cpu.arch.endian()) != .big) {
-                        for (&parts) |*part| part.* = @byteSwap(part.*);
-                    }
+                    for (&parts) |*part| part.* = @byteSwap(part.*);
 
                     return .{ .success = .{
                         .bytes = @bitCast(parts),

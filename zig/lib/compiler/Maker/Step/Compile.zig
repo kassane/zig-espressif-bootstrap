@@ -45,12 +45,14 @@ pub fn make(
 
     try lowerZigArgs(arena, compile, compile_index, maker, progress_node, &argv, false);
 
+    const incremental = conf_comp.flags4.incremental.toBool() orelse graph.incremental == true;
+
     const maybe_output_dir = Step.evalZigProcess(
         compile_index,
         maker,
         argv.items,
         progress_node,
-        (graph.incremental == true) and (maker.watch or maker.web_server != null),
+        incremental and (maker.watch or maker.web_server != null),
     ) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             try checkCompileErrors(arena, maker, compile_index);
@@ -119,9 +121,9 @@ fn updateGeneratedFile(
 
 /// List of importable modules in a compilation's module graph, including
 /// the root module. The root module is guaranteed to be first.
-const ModuleList = std.AutoArrayHashMapUnmanaged(Configuration.Module.Index, Configuration.String);
+const ModuleList = std.array_hash_map.Auto(Configuration.Module.Index, Configuration.String);
 /// Keyed on the first key in the module list.
-pub const ModuleGraph = std.ArrayHashMapUnmanaged(ModuleList, void, ModuleListContext, false);
+pub const ModuleGraph = std.array_hash_map.Custom(ModuleList, void, ModuleListContext, false);
 
 const ModuleListContext = struct {
     pub fn eql(ctx: @This(), a: ModuleList, b: ModuleList) bool {
@@ -221,8 +223,8 @@ fn lowerZigArgs(
         // module, along with any C compiler arguments that need to be passed
         // to the compiler for each module individually as reported by
         // pkg-config.
-        var seen_system_libs: std.AutoArrayHashMapUnmanaged(Configuration.String, []const []const u8) = .empty;
-        var frameworks: std.AutoArrayHashMapUnmanaged(Configuration.String, Configuration.Module.Framework.Flags) = .empty;
+        var seen_system_libs: std.array_hash_map.Auto(Configuration.String, []const []const u8) = .empty;
+        var frameworks: std.array_hash_map.Auto(Configuration.String, Configuration.Module.Framework.Flags) = .empty;
         var module_graph: ModuleGraph = .empty;
 
         var prev_has_cflags = false;
@@ -767,18 +769,6 @@ fn lowerZigArgs(
         try zig_args.append(gpa, if (enabled) "--enable-new-dtags" else "--disable-new-dtags");
     }
 
-    if (conf_comp.flags3.kind == .@"test" and conf_comp.exec_cmd_args.slice.len != 0) {
-        for (conf_comp.exec_cmd_args.slice) |cmd_arg| {
-            try zig_args.ensureUnusedCapacity(gpa, 2);
-            if (cmd_arg.slice(conf)) |arg| {
-                zig_args.appendAssumeCapacity("--test-cmd");
-                zig_args.appendAssumeCapacity(arg);
-            } else {
-                zig_args.appendAssumeCapacity("--test-cmd-bin");
-            }
-        }
-    }
-
     if (graph.sysroot) |sysroot| try zig_args.appendSlice(gpa, &.{ "--sysroot", sysroot });
 
     // -I and -L arguments that appear after the last --mod argument apply to all modules.
@@ -861,7 +851,7 @@ fn lowerZigArgs(
         "--error-limit", try allocPrint(arena, "{d}", .{err_limit}),
     };
 
-    try addFlag(gpa, zig_args, "incremental", graph.incremental);
+    try addFlag(gpa, zig_args, "incremental", conf_comp.flags4.incremental.toBool() orelse graph.incremental);
 
     try zig_args.append(gpa, "--listen=-");
 
@@ -982,6 +972,11 @@ fn addBool(gpa: Allocator, args: *std.ArrayList([]const u8), arg: []const u8, op
 fn addFlag(gpa: Allocator, args: *std.ArrayList([]const u8), comptime name: []const u8, opt: ?bool) !void {
     const cond = opt orelse return;
     try args.append(gpa, if (cond) "-f" ++ name else "-fno-" ++ name);
+}
+
+fn addArchFlag(gpa: Allocator, args: *std.ArrayList([]const u8), comptime name: []const u8, opt: ?bool) !void {
+    const cond = opt orelse return;
+    try args.append(gpa, if (cond) "-m" ++ name else "-mno-" ++ name);
 }
 
 fn checkCompileErrors(arena: Allocator, maker: *Maker, step_index: Configuration.Step.Index) Step.ExtendedMakeError!void {
@@ -1121,8 +1116,8 @@ fn moduleNeedsCliArg(mod: *const Configuration.Module, conf: *const Configuratio
 }
 
 const CliNamedModules = struct {
-    modules: std.AutoArrayHashMapUnmanaged(Configuration.Module.Index, void),
-    names: std.StringArrayHashMapUnmanaged(void),
+    modules: std.array_hash_map.Auto(Configuration.Module.Index, void),
+    names: std.array_hash_map.String(void),
 
     /// Traverse the whole dependency graph and give every module a unique
     /// name, ideally one named after what it's called somewhere in the graph.
@@ -1172,7 +1167,7 @@ pub fn getCompileDependencies(
     start: Configuration.Step.Index,
     chase_dynamic: bool,
 ) ![]const Configuration.Step.Index {
-    var compiles: std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void) = .empty;
+    var compiles: std.array_hash_map.Auto(Configuration.Step.Index, void) = .empty;
     var compiles_i: usize = 0;
 
     try compiles.putNoClobber(arena, start, {});
@@ -1249,9 +1244,9 @@ fn appendModuleFlags(
     try addFlag(gpa, zig_args, "fuzz", m.flags.fuzz.toBool());
     try addFlag(gpa, zig_args, "valgrind", m.flags2.valgrind.toBool());
     try addFlag(gpa, zig_args, "PIC", m.flags2.pic.toBool());
-    try addFlag(gpa, zig_args, "red-zone", m.flags2.red_zone.toBool());
     try addFlag(gpa, zig_args, "no-builtin", m.flags2.no_builtin.toBool());
 
+    try addArchFlag(gpa, zig_args, "red-zone", m.flags2.red_zone.toBool());
     {
         try zig_args.ensureUnusedCapacity(gpa, 6);
 

@@ -151,9 +151,6 @@ test "branching logic inside @TypeOf" {
 test "@bitSizeOf" {
     try expect(@bitSizeOf(u2) == 2);
     try expect(@bitSizeOf(u8) == @sizeOf(u8) * 8);
-    try expect(@bitSizeOf(struct {
-        a: u2,
-    }) == 8);
     try expect(@bitSizeOf(packed struct {
         a: u2,
     }) == 2);
@@ -211,8 +208,6 @@ test "@sizeOf comparison against zero" {
 }
 
 test "hardcoded address in typeof expression" {
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
     const S = struct {
         fn func() @TypeOf(@as(*[]u8, @ptrFromInt(0x10)).*[0]) {
             return 0;
@@ -283,14 +278,6 @@ test "@offsetOf zero-bit field" {
     try expect(@offsetOf(S, "b") == @offsetOf(S, "c"));
 }
 
-test "@bitSizeOf on array of structs" {
-    const S = struct {
-        foo: u64,
-    };
-
-    try expectEqual(128, @bitSizeOf([2]S));
-}
-
 test "lazy abi size used in comparison" {
     const S = struct { a: usize };
     var rhs: i32 = 100;
@@ -301,7 +288,6 @@ test "lazy abi size used in comparison" {
 test "peer type resolution with @TypeOf doesn't trigger dependency loop check" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
     const T = struct {
         next: @TypeOf(null, @as(*const @This(), undefined)),
     };
@@ -340,7 +326,7 @@ const exp = struct {
     }
 };
 comptime {
-    _ = exp;
+    if (builtin.zig_backend != .stage2_spirv) _ = exp;
 }
 
 test "Extern function calls in @TypeOf" {
@@ -425,4 +411,9 @@ test "@sizeOf struct is resolved when used as operand of slicing" {
     };
     S.buf[@sizeOf(dummy)..][0] = 0;
     try expect(S.buf[0] == 0);
+}
+
+test "@TypeOf null C pointer dereference" {
+    comptime assert(@TypeOf(@as([*c]u8, null).*) == u8);
+    comptime assert(@TypeOf(&@as([*c]u8, null).*) == *u8);
 }

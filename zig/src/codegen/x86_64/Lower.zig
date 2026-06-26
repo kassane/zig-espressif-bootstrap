@@ -49,8 +49,8 @@ pub const Error = error{
     LowerFail,
     InvalidInstruction,
     CannotEncode,
-    CodegenFail,
-} || codegen.GenerateSymbolError;
+    AlreadyReported,
+} || link.Error;
 
 pub const Reloc = struct {
     lowered_inst_index: ResultInstIndex,

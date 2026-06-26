@@ -63,16 +63,22 @@ pub const cpu_context = @import("debug/cpu_context.zig");
 /// ```
 pub const SelfInfo = if (@hasDecl(root, "debug") and @hasDecl(root.debug, "SelfInfo"))
     root.debug.SelfInfo
-else switch (std.Target.ObjectFormat.default(native_os, native_arch)) {
-    .coff => if (native_os == .windows) @import("debug/SelfInfo/Windows.zig") else void,
-    .elf => switch (native_os) {
-        .freestanding, .other => void,
-        else => @import("debug/SelfInfo/Elf.zig"),
-    },
-    .macho => @import("debug/SelfInfo/MachO.zig"),
-    .plan9, .spirv, .wasm => void,
-    .c, .hex, .raw => unreachable,
-};
+else
+    TargetInfo(native_os, native_arch);
+
+/// Returns the default `SelfInfo` for the given `os` and `arch`.
+pub fn TargetInfo(os: std.Target.Os.Tag, arch: std.Target.Cpu.Arch) type {
+    return switch (std.Target.ObjectFormat.default(os, arch)) {
+        .coff => if (os == .windows) @import("debug/SelfInfo/Windows.zig") else void,
+        .elf => switch (os) {
+            .freestanding, .other => void,
+            else => @import("debug/SelfInfo/Elf.zig"),
+        },
+        .macho => @import("debug/SelfInfo/MachO.zig"),
+        .plan9, .spirv, .wasm => void,
+        .c, .hex, .raw => unreachable,
+    };
+}
 
 pub const SelfInfoError = error{
     /// The required debug info is invalid or corrupted.
@@ -308,6 +314,9 @@ pub fn unlockStderr() void {
 /// Alternatively, use the higher-level `std.log` or `Io.lockStderr` to
 /// integrate with the application's chosen `Io` implementation.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
+    const io = std.Options.debug_io;
+    const prev = io.swapCancelProtection(.blocked);
+    defer _ = io.swapCancelProtection(prev);
     var buffer: [64]u8 = undefined;
     const stderr = lockStderr(&buffer);
     defer unlockStderr();
@@ -326,6 +335,9 @@ pub inline fn getSelfDebugInfo() !*SelfInfo {
 /// Tries to print a hexadecimal view of the bytes, unbuffered, and ignores any error returned.
 /// Obtains the stderr mutex while dumping.
 pub fn dumpHex(bytes: []const u8) void {
+    const io = std.Options.debug_io;
+    const prev = io.swapCancelProtection(.blocked);
+    defer _ = io.swapCancelProtection(prev);
     const stderr = lockStderr(&.{}).terminal();
     defer unlockStderr();
     dumpHexFallible(stderr, bytes) catch {};
@@ -495,7 +507,16 @@ pub fn defaultPanic(msg: []const u8, first_trace_addr: ?usize) noreturn {
     if (use_trap_panic) @trap();
 
     switch (builtin.os.tag) {
-        .freestanding, .other, .@"3ds", .psp, .vita => {
+        .freestanding,
+        .other,
+
+        .@"3ds",
+        .wiiu,
+
+        .psx,
+        .psp,
+        .vita,
+        => {
             @trap();
         },
         .uefi => {
@@ -789,6 +810,9 @@ pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, t: Io.Termin
 }
 /// A thin wrapper around `writeCurrentStackTrace` which writes to stderr and ignores write errors.
 pub fn dumpCurrentStackTrace(options: StackUnwindOptions) void {
+    const io = std.Options.debug_io;
+    const prev = io.swapCancelProtection(.blocked);
+    defer _ = io.swapCancelProtection(prev);
     const stderr = lockStderr(&.{}).terminal();
     defer unlockStderr();
     writeCurrentStackTrace(.{
@@ -879,6 +903,9 @@ fn writeTrace(
 }
 /// A thin wrapper around `writeStackTrace` which writes to stderr and ignores write errors.
 pub fn dumpStackTrace(st: *const StackTrace) void {
+    const io = std.Options.debug_io;
+    const prev = io.swapCancelProtection(.blocked);
+    defer _ = io.swapCancelProtection(prev);
     const stderr = lockStderr(&.{}).terminal();
     defer unlockStderr();
     writeStackTrace(st, stderr) catch |err| switch (err) {
@@ -888,6 +915,9 @@ pub fn dumpStackTrace(st: *const StackTrace) void {
 
 /// A thin wrapper around `writeErrorReturnTrace` which writes to stderr and ignores write errors.
 pub fn dumpErrorReturnTrace(et: *const std.builtin.StackTrace) void {
+    const io = std.Options.debug_io;
+    const prev = io.swapCancelProtection(.blocked);
+    defer _ = io.swapCancelProtection(prev);
     const stderr = lockStderr(&.{}).terminal();
     defer unlockStderr();
     writeErrorReturnTrace(et, stderr) catch |err| switch (err) {

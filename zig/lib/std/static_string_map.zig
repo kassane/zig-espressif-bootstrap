@@ -100,6 +100,52 @@ pub fn StaticStringMapWithEql(
             }
         }
 
+        /// Returns a map backed by static, comptime allocated memory.
+        ///
+        /// `V` must be an enum. The enum's tag names will be used as the keys.
+        pub inline fn initEnum() Self {
+            comptime {
+                var self: Self = .{};
+
+                const field_names = @typeInfo(V).@"enum".field_names;
+                if (field_names.len == 0) return self;
+
+                // Since the KVs are sorted, a linearly-growing bound will never
+                // be sufficient for extreme cases. So we grow proportional to
+                // N*log2(N).
+                @setEvalBranchQuota(10 * field_names.len * std.math.log2_int_ceil(usize, field_names.len));
+
+                var sorted_keys: [field_names.len][]const u8 = field_names[0..field_names.len].*;
+                var sorted_vals: [field_names.len]V = undefined;
+                for (&sorted_vals, @typeInfo(V).@"enum".field_values) |*x, i| x.* = @enumFromInt(i);
+
+                for (field_names) |field_name| {
+                    self.min_len = @min(self.min_len, field_name.len);
+                    self.max_len = @max(self.max_len, field_name.len);
+                }
+
+                mem.sortUnstableContext(0, sorted_keys.len, SortContext{
+                    .keys = &sorted_keys,
+                    .vals = &sorted_vals,
+                });
+
+                const final_keys = sorted_keys;
+                const final_vals = sorted_vals;
+                self.kvs = &.{
+                    .keys = &final_keys,
+                    .values = &final_vals,
+                    .len = @intCast(field_names.len),
+                };
+
+                var len_indexes: [self.max_len + 1]u32 = undefined;
+                self.initLenIndexes(&len_indexes);
+                const final_len_indexes = len_indexes;
+                self.len_indexes = &final_len_indexes;
+                self.len_indexes_len = @intCast(len_indexes.len);
+                return self;
+            }
+        }
+
         /// Returns a map backed by memory allocated with `allocator`.
         ///
         /// Handles `kvs_list` the same way as `initComptime()`.
@@ -195,6 +241,9 @@ pub fn StaticStringMapWithEql(
             return self.kvs.values[self.getIndex(str) orelse return null];
         }
 
+        /// Returns the index corresponding to the `str` within the
+        /// generated `kvs`, or `null` if `str` was not found.
+        /// The returned index is unrelated to the input `kvs_list`.
         pub fn getIndex(self: Self, str: []const u8) ?usize {
             const kvs = self.kvs.*;
             if (kvs.len == 0)
@@ -233,6 +282,14 @@ pub fn StaticStringMapWithEql(
             };
         }
 
+        /// Returns the index within the generated `kvs` corresponding to the
+        /// key-value pair where key is the longest prefix of `str`, or `null`
+        /// if no such key-value pair was found. The returned index is unrelated
+        /// to the input `kvs_list`.
+        ///
+        /// This is effectively an O(N) algorithm which loops from `max_len` to
+        /// `min_len` and calls `getIndex()` to check all keys with the given
+        /// len.
         pub fn getLongestPrefixIndex(self: Self, str: []const u8) ?usize {
             if (self.kvs.len == 0)
                 return null;
@@ -248,11 +305,15 @@ pub fn StaticStringMapWithEql(
             return null;
         }
 
+        /// Returns the slice of keys from the generated `kvs`, which may
+        /// be in a different order than the input `kvs_list`.
         pub fn keys(self: Self) []const []const u8 {
             const kvs = self.kvs.*;
             return kvs.keys[0..kvs.len];
         }
 
+        /// Returns the slice of values from the generated `kvs`, which may
+        /// be in a different order than the input `kvs_list`.
         pub fn values(self: Self) []const V {
             const kvs = self.kvs.*;
             return kvs.values[0..kvs.len];
@@ -458,6 +519,20 @@ test "comptime-only value" {
     try testing.expect(map.get("d") == null);
 }
 
+test "getIndex" {
+    const slice = [_]TestKV{
+        .{ "longer", .A },
+        .{ "short", .B },
+    };
+    const map = TestMap.initComptime(slice);
+
+    // This index can be different than the index of the "short" KV in `slice`
+    const short_index = map.getIndex("short").?;
+    try testing.expectEqualStrings("short", map.keys()[short_index]);
+    try testing.expectEqual(.B, map.values()[short_index]);
+    try testing.expectEqual(null, map.getIndex("missing"));
+}
+
 test "getLongestPrefix" {
     const slice = [_]TestKV{
         .{ "a", .A },
@@ -535,4 +610,16 @@ test "sorting kvs doesn't exceed eval branch quota" {
         .{ "t1", 1 },
     });
     try testing.expectEqual(1, TypeToByteSizeLUT.get("t1"));
+}
+
+test "initEnum" {
+    const UnsortedEnum = enum { BB, A, CCC, DDD };
+    const map = StaticStringMap(UnsortedEnum).initEnum();
+    try testing.expect(map.has("A"));
+    try testing.expect(!map.has("a"));
+    try testing.expectEqual(.BB, map.get("BB"));
+    try testing.expectEqual(.A, map.get("A"));
+    try testing.expectEqual(.CCC, map.get("CCC"));
+    try testing.expectEqual(.DDD, map.get("DDD"));
+    try testing.expectEqual(null, map.getIndex("F"));
 }

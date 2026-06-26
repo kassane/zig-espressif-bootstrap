@@ -16,7 +16,7 @@ pub const empty: Preopens = switch (native_os) {
 
 pub const Map = switch (native_os) {
     // Indexed by file descriptor number.
-    .wasi => std.StringArrayHashMapUnmanaged(void),
+    .wasi => std.array_hash_map.String(void),
     else => void,
 };
 

@@ -5,7 +5,9 @@ const A = extern struct {
 extern fn issue529(?*A) void;
 
 comptime {
-    _ = @import("conflicting_externs/b.zig");
+    if (builtin.zig_backend != .stage2_spirv) {
+        _ = @import("conflicting_externs/b.zig");
+    }
 }
 
 const builtin = @import("builtin");

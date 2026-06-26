@@ -854,6 +854,7 @@ fn canSerializeTypeInner(
         .frame,
         .@"anyframe",
         .@"opaque",
+        .spirv,
         => false,
 
         .@"enum" => |@"enum"| @"enum".mode == .exhaustive,

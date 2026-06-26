@@ -2746,7 +2746,7 @@ pub const Compiler = struct {
         // 1. Any permutation that does not have PRELOAD in it just uses the
         //    default flags.
         const initial_flags = flags.*;
-        var flags_set = std.enums.EnumSet(rc.CommonResourceAttributes).empty;
+        var flags_set: std.enums.EnumSet(rc.CommonResourceAttributes) = .empty;
         for (tokens) |token| {
             const attribute = rc.CommonResourceAttributes.map.get(token.slice(source)).?;
             flags_set.insert(attribute);
@@ -2769,7 +2769,7 @@ pub const Compiler = struct {
         // 3. If none of DISCARDABLE, SHARED, or PURE is specified, then PRELOAD
         //    implies `flags &= ~SHARED` and LOADONCALL implies `flags |= SHARED`
         const shared_set = comptime blk: {
-            var set = std.enums.EnumSet(rc.CommonResourceAttributes).empty;
+            var set: std.enums.EnumSet(rc.CommonResourceAttributes) = .empty;
             set.insert(.discardable);
             set.insert(.shared);
             set.insert(.pure);
@@ -3049,7 +3049,7 @@ pub const StringTablesByLanguage = struct {
     /// when the first STRINGTABLE for the language was defined, and all blocks for a given
     /// language are written contiguously.
     /// Using an ArrayHashMap here gives us this property for free.
-    tables: std.AutoArrayHashMapUnmanaged(res.Language, StringTable) = .empty,
+    tables: std.array_hash_map.Auto(res.Language, StringTable) = .empty,
 
     pub fn deinit(self: *StringTablesByLanguage, allocator: Allocator) void {
         self.tables.deinit(allocator);
@@ -3080,7 +3080,7 @@ pub const StringTable = struct {
     /// was added to the block (i.e. `STRINGTABLE { 16 "b" 0 "a" }` would then get written
     /// with block ID 2 (the one with "b") first and block ID 1 (the one with "a") second).
     /// Using an ArrayHashMap here gives us this property for free.
-    blocks: std.AutoArrayHashMapUnmanaged(u16, Block) = .empty,
+    blocks: std.array_hash_map.Auto(u16, Block) = .empty,
 
     pub const Block = struct {
         strings: std.ArrayList(Token) = .empty,

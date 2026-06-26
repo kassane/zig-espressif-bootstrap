@@ -41,22 +41,22 @@ tid_shift_32: if (single_threaded) u0 else std.math.Log2Int(u32),
 /// * For a `func`, this is the source of the full function signature.
 /// These are also invalidated if tracking fails for this instruction.
 /// Value is index into `dep_entries` of the first dependency on this hash.
-src_hash_deps: std.AutoArrayHashMapUnmanaged(TrackedInst.Index, DepEntry.Index),
+src_hash_deps: std.array_hash_map.Auto(TrackedInst.Index, DepEntry.Index),
 /// Dependencies on the value of a Nav.
 /// Value is index into `dep_entries` of the first dependency on this Nav value.
-nav_val_deps: std.AutoArrayHashMapUnmanaged(Nav.Index, DepEntry.Index),
+nav_val_deps: std.array_hash_map.Auto(Nav.Index, DepEntry.Index),
 /// Dependencies on the type of a Nav.
 /// Value is index into `dep_entries` of the first dependency on this Nav value.
-nav_ty_deps: std.AutoArrayHashMapUnmanaged(Nav.Index, DepEntry.Index),
+nav_ty_deps: std.array_hash_map.Auto(Nav.Index, DepEntry.Index),
 /// Dependencies on a function's inferred error set. Key is the function body, not the IES.
 /// Value is index into `dep_entries` of the first dependency on this function's IES.
-func_ies_deps: std.AutoArrayHashMapUnmanaged(Index, DepEntry.Index),
+func_ies_deps: std.array_hash_map.Auto(Index, DepEntry.Index),
 /// Dependencies on the resolved layout of a `struct`, `union`, or `enum` type.
 /// Value is index into `dep_entries` of the first dependency on this type's layout.
-type_layout_deps: std.AutoArrayHashMapUnmanaged(Index, DepEntry.Index),
+type_layout_deps: std.array_hash_map.Auto(Index, DepEntry.Index),
 /// Dependencies on the resolved default field values of a `struct` type.
 /// Value is index into `dep_entries` of the first dependency on this type's inits.
-struct_defaults_deps: std.AutoArrayHashMapUnmanaged(Index, DepEntry.Index),
+struct_defaults_deps: std.array_hash_map.Auto(Index, DepEntry.Index),
 /// Dependencies on a Zig or ZON source file. Triggered by `@import`.
 /// * For ZON source files, the dependency is invalidated if the file changes at all. The `@import`
 ///   must be re-analyzed to return the new data structure.
@@ -64,18 +64,18 @@ struct_defaults_deps: std.AutoArrayHashMapUnmanaged(Index, DepEntry.Index),
 ///   (which can only happen because the `.main_struct_inst` got lost). The `@import` must be
 ///   re-analyzed to return the new type.
 /// Value is index into `dep_entries` of the first dependency on this Zig/ZON file.
-source_file_deps: std.AutoArrayHashMapUnmanaged(FileIndex, DepEntry.Index),
+source_file_deps: std.array_hash_map.Auto(FileIndex, DepEntry.Index),
 /// Dependencies on an embedded file.
 /// Introduced by `@embedFile`; invalidated when the file changes.
 /// Value is index into `dep_entries` of the first dependency on this `Zcu.EmbedFile`.
-embed_file_deps: std.AutoArrayHashMapUnmanaged(Zcu.EmbedFile.Index, DepEntry.Index),
+embed_file_deps: std.array_hash_map.Auto(Zcu.EmbedFile.Index, DepEntry.Index),
 /// Dependencies on the full set of names in a ZIR namespace.
 /// Key refers to a `struct_decl`, `union_decl`, etc.
 /// Value is index into `dep_entries` of the first dependency on this namespace.
-namespace_deps: std.AutoArrayHashMapUnmanaged(TrackedInst.Index, DepEntry.Index),
+namespace_deps: std.array_hash_map.Auto(TrackedInst.Index, DepEntry.Index),
 /// Dependencies on the (non-)existence of some name in a namespace.
 /// Value is index into `dep_entries` of the first dependency on this name.
-namespace_name_deps: std.AutoArrayHashMapUnmanaged(NamespaceNameKey, DepEntry.Index),
+namespace_name_deps: std.array_hash_map.Auto(NamespaceNameKey, DepEntry.Index),
 // Dependencies on the value of fields memoized on `Zcu` (`panic_messages` etc).
 // If set, these are indices into `dep_entries` of the first dependency on this state.
 memoized_state_main_deps: DepEntry.Index.Optional,
@@ -86,7 +86,7 @@ memoized_state_assembly_deps: DepEntry.Index.Optional,
 /// Given a `Depender`, points to an entry in `dep_entries` whose `depender`
 /// matches. The `next_dependee` field can be used to iterate all such entries
 /// and remove them from the corresponding lists.
-first_dependency: std.AutoArrayHashMapUnmanaged(AnalUnit, DepEntry.Index),
+first_dependency: std.array_hash_map.Auto(AnalUnit, DepEntry.Index),
 
 /// Stores dependency information. The hashmaps declared above are used to look
 /// up entries in this list as required. This is not stored in `extra` so that
@@ -108,9 +108,9 @@ pub const empty: InternPool = .{
     .shards = &.{},
     .global_error_set = .empty,
     .tid_width = 0,
-    .tid_shift_30 = if (single_threaded) 0 else 31,
-    .tid_shift_31 = if (single_threaded) 0 else 31,
-    .tid_shift_32 = if (single_threaded) 0 else 31,
+    .tid_shift_30 = 0,
+    .tid_shift_31 = 0,
+    .tid_shift_32 = 0,
     .src_hash_deps = .empty,
     .nav_val_deps = .empty,
     .nav_ty_deps = .empty,
@@ -648,15 +648,15 @@ pub const Nav = struct {
 
             fn wrap(unwrapped: Unwrapped, ip: *const InternPool) Nav.Index {
                 assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
-                assert(unwrapped.index <= ip.getIndexMask(u32));
-                return @enumFromInt(@shlExact(@as(u32, @intFromEnum(unwrapped.tid)), ip.tid_shift_32) |
+                assert(unwrapped.index <= ip.getIndexMask(u30));
+                return @enumFromInt(@shlExact(@as(u32, @intFromEnum(unwrapped.tid)), ip.tid_shift_30) |
                     unwrapped.index);
             }
         };
         fn unwrap(nav_index: Nav.Index, ip: *const InternPool) Unwrapped {
             return .{
-                .tid = @enumFromInt(@intFromEnum(nav_index) >> ip.tid_shift_32 & ip.getTidMask()),
-                .index = @intFromEnum(nav_index) & ip.getIndexMask(u32),
+                .tid = @enumFromInt(@intFromEnum(nav_index) >> ip.tid_shift_30 & ip.getTidMask()),
+                .index = @intFromEnum(nav_index) & ip.getIndexMask(u30),
             };
         }
 
@@ -1587,7 +1587,7 @@ fn getIndexMask(ip: *const InternPool, comptime BackingInt: type) u32 {
     return @as(u32, std.math.maxInt(BackingInt)) >> ip.tid_width;
 }
 
-const FieldMap = std.ArrayHashMapUnmanaged(void, void, std.array_hash_map.AutoContext(void), false);
+const FieldMap = std.array_hash_map.Custom(void, void, std.array_hash_map.AutoContext(void), false);
 
 /// An index into `maps` which might be `none`.
 pub const OptionalMapIndex = enum(u32) {
@@ -1983,6 +1983,7 @@ pub const Key = union(enum) {
     union_type: ContainerType,
     opaque_type: ContainerType,
     enum_type: ContainerType,
+    spirv_type: SpirvType,
     func_type: FuncType,
     error_set_type: ErrorSetType,
     /// The payload is the function body, either a `func_decl` or `func_instance`.
@@ -2144,6 +2145,13 @@ pub const Key = union(enum) {
                 external: []const CaptureValue,
             },
         };
+    };
+
+    pub const SpirvType = struct {
+        /// A `spirv_reify` instruction.
+        zir_index: TrackedInst.Index,
+        /// A hash of this type's attributes generated by Sema.
+        type_hash: u64,
     };
 
     pub const FuncType = struct {
@@ -2590,6 +2598,7 @@ pub const Key = union(enum) {
             .opt_type,
             .anyframe_type,
             .error_union_type,
+            .spirv_type,
             .simple_type,
             .simple_value,
             .opt,
@@ -2839,6 +2848,10 @@ pub const Key = union(enum) {
             },
             .error_union_type => |a_info| {
                 const b_info = b.error_union_type;
+                return std.meta.eql(a_info, b_info);
+            },
+            .spirv_type => |a_info| {
+                const b_info = b.spirv_type;
                 return std.meta.eql(a_info, b_info);
             },
             .simple_type => |a_info| {
@@ -3130,6 +3143,7 @@ pub const Key = union(enum) {
             .simple_type,
             .struct_type,
             .union_type,
+            .spirv_type,
             .opaque_type,
             .enum_type,
             .tuple_type,
@@ -3877,6 +3891,14 @@ pub fn loadOpaqueType(ip: *const InternPool, index: Index) LoadedOpaqueType {
     };
 }
 
+pub fn loadSpirvType(ip: *const InternPool, index: Index) Tag.TypeSpirv {
+    const unwrapped_index = index.unwrap(ip);
+    const item = unwrapped_index.getItem(ip);
+    assert(item.tag == .type_spirv);
+    const extra = extraData(unwrapped_index.getExtra(ip), Tag.TypeSpirv, item.data);
+    return extra;
+}
+
 pub const Item = struct {
     tag: Tag,
     /// The doc comments on the respective Tag explain how to interpret this.
@@ -4146,10 +4168,7 @@ pub const Index = enum(u32) {
         const debug_state = InternPool.debug_state;
     };
     pub fn unwrap(index: Index, ip: *const InternPool) Unwrapped {
-        return if (single_threaded) .{
-            .tid = .main,
-            .index = @intFromEnum(index),
-        } else .{
+        return .{
             .tid = @enumFromInt(@intFromEnum(index) >> ip.tid_shift_30 & ip.getTidMask()),
             .index = @intFromEnum(index) & ip.getIndexMask(u30),
         };
@@ -4183,12 +4202,14 @@ pub const Index = enum(u32) {
         type_function: struct {
             const @"data.flags.has_comptime_bits" = opaque {};
             const @"data.flags.has_noalias_bits" = opaque {};
+            const @"data.flags.cc.extraLen()" = opaque {};
             const @"data.params_len" = opaque {};
             data: *Tag.TypeFunction,
             @"trailing.comptime_bits.len": *@"data.flags.has_comptime_bits",
             @"trailing.noalias_bits.len": *@"data.flags.has_noalias_bits",
+            @"trailing.cc_bits.len": *@"data.flags.cc.extraLen()",
             @"trailing.param_types.len": *@"data.params_len",
-            trailing: struct { comptime_bits: []u32, noalias_bits: []u32, param_types: []Index },
+            trailing: struct { comptime_bits: []u32, noalias_bits: []u32, cc_bits: []u32, param_types: []Index },
         },
         type_tuple: struct {
             const @"data.fields_len" = opaque {};
@@ -4213,6 +4234,8 @@ pub const Index = enum(u32) {
         type_enum_explicit: struct { data: *Tag.TypeEnum },
         type_enum_nonexhaustive: struct { data: *Tag.TypeEnum },
         type_opaque: struct { data: *Tag.TypeOpaque },
+
+        type_spirv: struct { data: *Tag.TypeSpirv },
 
         undef: DataIsIndex,
         simple_value: void,
@@ -4841,6 +4864,10 @@ pub const Tag = enum(u8) {
     /// data is extra index of `TypeEnum`.
     type_enum_nonexhaustive,
 
+    /// An spirv type.
+    /// data is index of `TypeSpirv` in extra.
+    type_spirv,
+
     /// An opaque type.
     /// data is extra index of `TypeOpaque`.
     type_opaque,
@@ -5033,9 +5060,9 @@ pub const Tag = enum(u8) {
             field_types: []Index,
         },
         .config = .{
-            .@"trailing.type_hash.?" = .@"payload.captures_len == .reified",
-            .@"trailing.captures.?" = .@"payload.captures_len != .reified",
-            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.captures_len)",
+            .@"trailing.type_hash.?" = .@"payload.bits.captures_len == .reified",
+            .@"trailing.captures.?" = .@"payload.bits.captures_len != .reified",
+            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.bits.captures_len)",
             .@"trailing.field_names.len" = .@"payload.fields_len",
             .@"trailing.field_types.len" = .@"payload.fields_len",
         },
@@ -5051,9 +5078,9 @@ pub const Tag = enum(u8) {
             field_defaults: []Index,
         },
         .config = .{
-            .@"trailing.type_hash.?" = .@"payload.captures_len == .reified",
-            .@"trailing.captures.?" = .@"payload.captures_len != .reified",
-            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.captures_len)",
+            .@"trailing.type_hash.?" = .@"payload.bits.captures_len == .reified",
+            .@"trailing.captures.?" = .@"payload.bits.captures_len != .reified",
+            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.bits.captures_len)",
             .@"trailing.field_names.len" = .@"payload.fields_len",
             .@"trailing.field_types.len" = .@"payload.fields_len",
             .@"trailing.field_defaults.len" = .@"payload.fields_len",
@@ -5068,9 +5095,9 @@ pub const Tag = enum(u8) {
             field_types: []Index,
         },
         .config = .{
-            .@"trailing.type_hash.?" = .@"payload.captures_len == .reified",
-            .@"trailing.captures.?" = .@"payload.captures_len != .reified",
-            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.captures_len)",
+            .@"trailing.type_hash.?" = .@"payload.bits.captures_len == .reified",
+            .@"trailing.captures.?" = .@"payload.bits.captures_len != .reified",
+            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.bits.captures_len)",
             .@"trailing.field_types.len" = .@"payload.fields_len",
         },
     };
@@ -5087,11 +5114,11 @@ pub const Tag = enum(u8) {
             field_values: []Index,
         },
         .config = .{
-            .@"trailing.owner_union.?" = .@"payload.captures_len == .generated_union_tag",
-            .@"trailing.zir_index.?" = .@"payload.captures_len != .generated_union_tag",
-            .@"trailing.type_hash.?" = .@"payload.captures_len == .reified",
-            .@"trailing.captures.?" = .@"payload.captures_len != .reified and payload.captures_len != .generated_enum_tag",
-            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.captures_len)",
+            .@"trailing.owner_union.?" = .@"payload.bits.captures_len == .generated_union_tag",
+            .@"trailing.zir_index.?" = .@"payload.bits.captures_len != .generated_union_tag",
+            .@"trailing.type_hash.?" = .@"payload.bits.captures_len == .reified",
+            .@"trailing.captures.?" = .@"payload.bits.captures_len != .reified and payload.bits.captures_len != .generated_union_tag",
+            .@"trailing.captures.?.len" = .@"@intFromEnum(payload.bits.captures_len)",
             .@"trailing.field_names.len" = .@"payload.fields_len",
             .@"trailing.field_values.len" = .@"payload.fields_len",
         },
@@ -5140,6 +5167,7 @@ pub const Tag = enum(u8) {
             .trailing = struct {
                 param_comptime_bits: ?[]u32,
                 param_noalias_bits: ?[]u32,
+                param_cc_bits: ?[]u32,
                 param_type: []Index,
             },
             .config = .{
@@ -5147,6 +5175,8 @@ pub const Tag = enum(u8) {
                 .@"trailing.param_comptime_bits.?.len" = .@"(payload.params_len + 31) / 32",
                 .@"trailing.param_noalias_bits.?" = .@"payload.flags.has_noalias_bits",
                 .@"trailing.param_noalias_bits.?.len" = .@"(payload.params_len + 31) / 32",
+                .@"trailing.param_cc_bits.?" = .@"payload.flags.cc.extraLen() != 0",
+                .@"trailing.param_cc_bits.?.len" = .@"payload.flags.cc.extraLen()",
                 .@"trailing.param_type.len" = .@"payload.params_len",
             },
         },
@@ -5221,16 +5251,17 @@ pub const Tag = enum(u8) {
                 field_names: []NullTerminatedString,
             },
             .config = .{
-                .@"trailing.owner_union.?" = .@"payload.captures_len == .generated_union_tag",
-                .@"trailing.zir_index.?" = .@"payload.captures_len != .generated_union_tag",
-                .@"trailing.type_hash.?" = .@"payload.captures_len == .reified",
-                .@"trailing.captures.?" = .@"payload.captures_len != .reified and payload.captures_len != .generated_enum_tag",
-                .@"trailing.captures.?.len" = .@"@intFromEnum(payload.captures_len)",
+                .@"trailing.owner_union.?" = .@"payload.bits.captures_len == .generated_union_tag",
+                .@"trailing.zir_index.?" = .@"payload.bits.captures_len != .generated_union_tag",
+                .@"trailing.type_hash.?" = .@"payload.bits.captures_len == .reified",
+                .@"trailing.captures.?" = .@"payload.bits.captures_len != .reified and payload.bits.captures_len != .generated_union_tag",
+                .@"trailing.captures.?.len" = .@"@intFromEnum(payload.bits.captures_len)",
                 .@"trailing.field_names.len" = .@"payload.fields_len",
             },
         },
         .type_enum_explicit = enum_explicit_encoding,
         .type_enum_nonexhaustive = enum_explicit_encoding,
+        .type_spirv = .{ .summary = .@"{.payload.name%summary#\"}", .payload = Tag.TypeSpirv },
         .type_opaque = .{
             .summary = .@"{.payload.name%summary#\"}",
             .payload = TypeOpaque,
@@ -5375,16 +5406,15 @@ pub const Tag = enum(u8) {
             _: u23 = 0,
 
             pub const Source = enum(u1) { builtin, syntax };
-            pub const DecorationType = enum(u2) { none, location, descriptor };
+            pub const DecorationType = enum(u2) { none, location, descriptor, flat };
         };
 
         pub fn decoration(self: Extern) ?std.lang.ExternOptions.Decoration {
             return switch (self.flags.decoration_type) {
                 .none => null,
-                .location => std.lang.ExternOptions.Decoration{
-                    .location = self.location_or_descriptor_set,
-                },
+                .location => std.lang.ExternOptions.Decoration{ .location = self.location_or_descriptor_set },
                 .descriptor => std.lang.ExternOptions.Decoration{ .descriptor = .{ .set = self.location_or_descriptor_set, .binding = self.descriptor_binding } },
+                .flat => std.lang.ExternOptions.Decoration{ .flat = self.location_or_descriptor_set },
             };
         }
     };
@@ -5688,6 +5718,34 @@ pub const Tag = enum(u8) {
         name_nav: Nav.Index.Optional,
         namespace: NamespaceIndex,
     };
+
+    /// Trailing:
+    /// 0. type_hash: PackedU64
+    pub const TypeSpirv = struct {
+        name: NullTerminatedString,
+        /// The index of the `reify_spirv_type` instruction.
+        zir_index: TrackedInst.Index,
+        /// If tag is `.image`, this is the sampled type or `.none` if `usage` is `.storage`.
+        /// If tag is `.sampled_image`, this is the image type.
+        /// If tag is `.runtime_array`, this is the element type.
+        /// Otherwise this is `.none`.
+        ty: Index,
+        flags: Flags,
+
+        pub const Flags = packed struct(u32) {
+            tag: @typeInfo(std.lang.Type.Spirv).@"union".tag_type.?,
+            // Image type flags
+            usage: @typeInfo(std.lang.Type.Spirv.Image.Usage).@"union".tag_type.?,
+            format: std.lang.Type.Spirv.Image.Format,
+            dim: std.lang.Type.Spirv.Image.Dimensionality,
+            depth: std.lang.Type.Spirv.Image.Depth,
+            access: std.lang.Type.Spirv.Image.Access,
+            is_arrayed: bool,
+            is_multisampled: bool,
+
+            _: u16 = 0,
+        };
+    };
 };
 
 /// Differentiates between user-provided and compiler-generated backing types for packed and tagged types.
@@ -5949,13 +6007,7 @@ pub const Alignment = enum(u6) {
         return r;
     }
 
-    const LlvmBuilderAlignment = std.zig.llvm.Builder.Alignment;
-
-    pub fn toLlvm(a: Alignment) LlvmBuilderAlignment {
-        return @enumFromInt(@intFromEnum(a));
-    }
-
-    pub fn fromLlvm(a: LlvmBuilderAlignment) Alignment {
+    pub fn toLlvm(a: Alignment) std.zig.llvm.Builder.Alignment {
         return @enumFromInt(@intFromEnum(a));
     }
 };
@@ -6322,7 +6374,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, io: Io, available_threads: usize) !
 }
 
 pub fn deinit(ip: *InternPool, gpa: Allocator, io: Io) void {
-    if (debug_state.enable_checks) std.debug.assert(debug_state.intern_pool == null);
+    std.debug.assert(debug_state.intern_pool == null);
 
     ip.src_hash_deps.deinit(gpa);
     ip.nav_val_deps.deinit(gpa);
@@ -6367,8 +6419,15 @@ pub fn deinit(ip: *InternPool, gpa: Allocator, io: Io) void {
     ip.* = undefined;
 }
 
-pub fn activate(ip: *const InternPool) void {
-    if (!debug_state.enable) return;
+pub const Active = struct {
+    prev_ip: if (debug_state.enable) ?*const InternPool else void,
+    pub fn deactivate(active: Active) void {
+        if (!debug_state.enable) return;
+        debug_state.intern_pool = active.prev_ip;
+    }
+};
+pub fn activate(ip: *const InternPool) Active {
+    if (!debug_state.enable) return .{ .prev_ip = {} };
     _ = Index.Unwrapped.debug_state;
     _ = String.debug_state;
     _ = OptionalString.debug_state;
@@ -6378,20 +6437,16 @@ pub fn activate(ip: *const InternPool) void {
     _ = TrackedInst.Index.Optional.debug_state;
     _ = Nav.Index.debug_state;
     _ = Nav.Index.Optional.debug_state;
-    if (debug_state.enable_checks) std.debug.assert(debug_state.intern_pool == null);
-    debug_state.intern_pool = ip;
-}
-
-pub fn deactivate(ip: *const InternPool) void {
-    if (!debug_state.enable) return;
-    std.debug.assert(debug_state.intern_pool == ip);
-    if (debug_state.enable_checks) debug_state.intern_pool = null;
+    defer debug_state.intern_pool = ip;
+    return .{ .prev_ip = debug_state.intern_pool };
 }
 
 /// For debugger access only.
 const debug_state = struct {
-    const enable = false;
-    const enable_checks = enable and !builtin.single_threaded;
+    const enable = switch (builtin.zig_backend) {
+        else => false,
+        .stage2_x86_64 => !builtin.strip_debug_info and build_options.io_mode == .threaded,
+    };
     threadlocal var intern_pool: ?*const InternPool = null;
 };
 
@@ -6571,6 +6626,14 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                         .len = @intFromEnum(len),
                     } },
                 } },
+            };
+        } },
+        .type_spirv => .{ .spirv_type = ns: {
+            const extra_list = unwrapped_index.getExtra(ip);
+            const extra = extraDataTrail(extra_list, Tag.TypeSpirv, data);
+            break :ns .{
+                .zir_index = extra.data.zir_index,
+                .type_hash = extraData(extra_list, PackedU64, extra.end).get(),
             };
         } },
         .type_opaque => .{ .opaque_type = ns: {
@@ -6918,6 +6981,9 @@ fn extraFuncType(tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Ke
         trail_index += 1;
         break :b x;
     };
+    const cc_extra_len = type_function.data.flags.cc.extraLen();
+    const cc = type_function.data.flags.cc.unpack(extra.view().items(.@"0")[trail_index..][0..cc_extra_len]);
+    trail_index += cc_extra_len;
     return .{
         .param_types = .{
             .tid = tid,
@@ -6927,7 +6993,7 @@ fn extraFuncType(tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Ke
         .return_type = type_function.data.return_type,
         .comptime_bits = comptime_bits,
         .noalias_bits = noalias_bits,
-        .cc = type_function.data.flags.cc.unpack(),
+        .cc = cc,
         .is_var_args = type_function.data.flags.is_var_args,
         .is_noinline = type_function.data.flags.is_noinline,
     };
@@ -7345,6 +7411,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, io: Io, tid: Zcu.PerThread.Id, key: 
         .union_type => unreachable, // instead use: getDeclaredUnionType, getReifiedUnionType
         .enum_type => unreachable, // instead use: getDeclaredEnumType, getReifiedEnumType, getGeneratedEnumTagType
         .opaque_type => unreachable, // instead use: getDeclaredOpaqueType
+        .spirv_type => unreachable, // instead use: getSpirvType
 
         .tuple_type => unreachable, // use getTupleType() instead
         .func_type => unreachable, // use getFuncType() instead
@@ -8717,6 +8784,39 @@ pub fn getReifiedEnumType(ip: *InternPool, gpa: Allocator, io: Io, tid: Zcu.PerT
     } };
 }
 
+pub fn getReifiedSpirvType(
+    ip: *InternPool,
+    gpa: Allocator,
+    io: Io,
+    tid: Zcu.PerThread.Id,
+    ini: struct {
+        zir_index: TrackedInst.Index,
+        type_hash: u64,
+        type_spirv: Tag.TypeSpirv,
+    },
+) Allocator.Error!Index {
+    var gop = try ip.getOrPutKey(gpa, io, tid, .{ .spirv_type = .{
+        .zir_index = ini.zir_index,
+        .type_hash = ini.type_hash,
+    } });
+    defer gop.deinit();
+    if (gop == .existing) return gop.existing;
+
+    const local = ip.getLocal(tid);
+    const items = local.getMutableItems(gpa, io);
+    const extra = local.getMutableExtra(gpa, io);
+    try items.ensureUnusedCapacity(1);
+
+    try extra.ensureUnusedCapacity(@typeInfo(Tag.TypeSpirv).@"struct".field_names.len +
+        2 // type_hash: PackedU64
+    );
+    const extra_index = addExtraAssumeCapacity(extra, ini.type_spirv);
+    _ = addExtraAssumeCapacity(extra, PackedU64.init(ini.type_hash));
+
+    items.appendAssumeCapacity(.{ .tag = .type_spirv, .data = extra_index });
+    return gop.put();
+}
+
 pub fn getGeneratedEnumTagType(ip: *InternPool, gpa: Allocator, io: Io, tid: Zcu.PerThread.Id, ini: struct {
     /// The union type for which this enum is a generated tag.
     union_type: Index,
@@ -8992,18 +9092,21 @@ pub fn getFuncType(
     // ask if it already exists, and if so, revert the lengths of the mutated
     // arrays. This is similar to what `getOrPutTrailingString` does.
     const prev_extra_len = extra.mutate.len;
+    const packed_cc: PackedCallingConvention = .pack(key.cc orelse .auto);
+    const cc_extra_len = packed_cc.extraLen();
     const params_len: u32 = @intCast(key.param_types.len);
 
     try extra.ensureUnusedCapacity(@typeInfo(Tag.TypeFunction).@"struct".field_names.len +
         @intFromBool(key.comptime_bits != 0) +
         @intFromBool(key.noalias_bits != 0) +
+        cc_extra_len +
         params_len);
 
     const func_type_extra_index = addExtraAssumeCapacity(extra, Tag.TypeFunction{
         .params_len = params_len,
         .return_type = key.return_type,
         .flags = .{
-            .cc = .pack(key.cc orelse .auto),
+            .cc = packed_cc,
             .is_var_args = key.is_var_args,
             .has_comptime_bits = key.comptime_bits != 0,
             .has_noalias_bits = key.noalias_bits != 0,
@@ -9013,6 +9116,18 @@ pub fn getFuncType(
 
     if (key.comptime_bits != 0) extra.appendAssumeCapacity(.{key.comptime_bits});
     if (key.noalias_bits != 0) extra.appendAssumeCapacity(.{key.noalias_bits});
+    if (key.cc) |cc| switch (cc) {
+        .spirv_kernel, .spirv_task => |kernel| extra.appendSliceAssumeCapacity(.{&.{
+            kernel.x,
+            kernel.y,
+            kernel.z,
+        }}),
+        .spirv_mesh => |mesh| extra.appendSliceAssumeCapacity(.{&.{
+            mesh.max_primitives,
+            mesh.max_vertices,
+        }}),
+        else => {},
+    };
     extra.appendSliceAssumeCapacity(.{@ptrCast(key.param_types)});
     errdefer extra.mutate.len = prev_extra_len;
 
@@ -9077,7 +9192,8 @@ pub fn getExtern(
     }) catch unreachable; // capacity asserted above
     const decoration_type, const location_or_descriptor_set, const descriptor_binding = if (key.decoration) |decoration| switch (decoration) {
         .location => |location| .{ Tag.Extern.Flags.DecorationType.location, location, undefined },
-        .descriptor => |descriptor| .{ Tag.Extern.Flags.DecorationType.descriptor, descriptor.binding, descriptor.set },
+        .flat => |location| .{ Tag.Extern.Flags.DecorationType.flat, location, undefined },
+        .descriptor => |descriptor| .{ Tag.Extern.Flags.DecorationType.descriptor, descriptor.set, descriptor.binding },
     } else .{ Tag.Extern.Flags.DecorationType.none, undefined, undefined };
     const extra_index = addExtraAssumeCapacity(extra, Tag.Extern{
         .ty = key.ty,
@@ -9810,6 +9926,7 @@ fn addExtraAssumeCapacity(extra: Local.Extra.Mutable, item: anytype) u32 {
             Tag.TypeStructPacked.Bits,
             Tag.TypeUnionPacked.Bits,
             Tag.TypeEnum.Bits,
+            Tag.TypeSpirv.Flags,
             => @bitCast(@field(item, field_name)),
 
             else => @compileError("bad field type: " ++ @typeName(field_type)),
@@ -9877,6 +9994,7 @@ fn extraDataTrail(extra: Local.Extra, comptime T: type, index: u32) struct { dat
             Tag.TypeStructPacked.Bits,
             Tag.TypeUnionPacked.Bits,
             Tag.TypeEnum.Bits,
+            Tag.TypeSpirv.Flags,
             => @bitCast(extra_item),
 
             else => @compileError("bad field type: " ++ @typeName(field_type)),
@@ -9930,6 +10048,11 @@ pub fn childType(ip: *const InternPool, i: Index) Index {
         .vector_type => |vector_type| vector_type.child,
         .array_type => |array_type| array_type.child,
         .opt_type, .anyframe_type => |child| child,
+        .spirv_type => blk: {
+            const info = ip.loadSpirvType(i);
+            assert(info.flags.tag == .runtime_array);
+            break :blk info.ty;
+        },
         else => unreachable,
     };
 }
@@ -10583,6 +10706,7 @@ fn dumpStatsFallible(ip: *const InternPool, w: *Io.Writer, arena: Allocator) !vo
                 .type_optional => 0,
                 .type_anyframe => 0,
                 .type_error_union => @sizeOf(Key.ErrorUnionType),
+                .type_spirv => @sizeOf(Tag.TypeSpirv) + @sizeOf(PackedU64),
                 .type_anyerror_union => 0,
                 .type_error_set => b: {
                     const info = extraData(extra_list, Tag.ErrorSet, data);
@@ -10597,6 +10721,7 @@ fn dumpStatsFallible(ip: *const InternPool, w: *Io.Writer, arena: Allocator) !vo
                     const info = extraData(extra_list, Tag.TypeFunction, data);
                     break :b @sizeOf(Tag.TypeFunction) +
                         (@sizeOf(Index) * info.params_len) +
+                        (@as(u32, 4) * info.flags.cc.extraLen()) +
                         (@as(u32, 4) * @intFromBool(info.flags.has_comptime_bits)) +
                         (@as(u32, 4) * @intFromBool(info.flags.has_noalias_bits));
                 },
@@ -10860,6 +10985,7 @@ fn dumpAllFallible(ip: *const InternPool, w: *Io.Writer) anyerror!void {
                 .type_enum_explicit,
                 .type_enum_nonexhaustive,
                 .type_opaque,
+                .type_spirv,
                 .undef,
                 .ptr_nav,
                 .ptr_comptime_alloc,
@@ -10931,7 +11057,7 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator,
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    var instances: std.AutoArrayHashMapUnmanaged(Index, std.ArrayList(Index)) = .empty;
+    var instances: std.array_hash_map.Auto(Index, std.ArrayList(Index)) = .empty;
     for (ip.locals, 0..) |*local, tid| {
         const items = local.shared.items.view().slice();
         const extra_list = local.shared.extra;
@@ -11598,6 +11724,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
                 .type_enum_explicit,
                 .type_enum_nonexhaustive,
                 .type_opaque,
+                .type_spirv,
                 => .type_type,
 
                 .undef,
@@ -11954,6 +12081,8 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.lang.TypeId {
             => .@"enum",
             .type_opaque,
             => .@"opaque",
+
+            .type_spirv => .spirv,
 
             .type_function => .@"fn",
 
@@ -12462,12 +12591,35 @@ const PackedCallingConvention = packed struct(u18) {
                     .incoming_stack_alignment = .fromByteUnits(pl.incoming_stack_alignment orelse 0),
                     .extra = @intFromEnum(pl.save),
                 },
+                std.lang.CallingConvention.SpirvKernelOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .none,
+                    .extra = 0,
+                },
+                std.lang.CallingConvention.SpirvFragmentOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .none,
+                    .extra = @as(u4, @intFromEnum(pl.depth_assumption)) << 1 | @intFromBool(pl.pixel_centered_integer),
+                },
+                std.lang.CallingConvention.SpirvMeshOptions => .{
+                    .tag = tag,
+                    .incoming_stack_alignment = .none,
+                    .extra = @intFromEnum(pl.stage_output),
+                },
                 else => comptime unreachable,
             },
         };
     }
 
-    fn unpack(cc: PackedCallingConvention) std.lang.CallingConvention {
+    fn extraLen(cc: PackedCallingConvention) u2 {
+        return switch (cc.tag) {
+            .spirv_kernel, .spirv_task => 3,
+            .spirv_mesh => 2,
+            else => 0,
+        };
+    }
+
+    fn unpack(cc: PackedCallingConvention, trailing: []const u32) std.lang.CallingConvention {
         return switch (cc.tag) {
             inline else => |tag| @unionInit(
                 std.lang.CallingConvention,
@@ -12504,6 +12656,20 @@ const PackedCallingConvention = packed struct(u18) {
                     std.lang.CallingConvention.ShInterruptOptions => .{
                         .incoming_stack_alignment = cc.incoming_stack_alignment.toByteUnits(),
                         .save = @enumFromInt(cc.extra),
+                    },
+                    std.lang.CallingConvention.SpirvKernelOptions => .{
+                        .x = trailing[0],
+                        .y = trailing[1],
+                        .z = trailing[2],
+                    },
+                    std.lang.CallingConvention.SpirvFragmentOptions => .{
+                        .pixel_centered_integer = @bitCast(@as(u1, @truncate(cc.extra))),
+                        .depth_assumption = @enumFromInt(@as(u2, @truncate(cc.extra >> 1))),
+                    },
+                    std.lang.CallingConvention.SpirvMeshOptions => .{
+                        .stage_output = @enumFromInt(cc.extra),
+                        .max_primitives = trailing[0],
+                        .max_vertices = trailing[1],
                     },
                     else => comptime unreachable,
                 },

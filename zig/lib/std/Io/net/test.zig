@@ -92,6 +92,11 @@ test "invalid but parseable IPv6 scope ids" {
     try testing.expectError(error.InterfaceNotFound, net.IpAddress.resolveIp6(io, "ff01::fb%123s45678901234", 0));
 }
 
+test "oversized IPv6 scope id" {
+    const long_scope: [256]u8 = @splat('a');
+    try testing.expectError(error.ParseFailed, net.IpAddress.resolveIp6(testing.io, "ff01::fb%" ++ &long_scope, 0));
+}
+
 test "parse and render IPv4 addresses" {
     try testIp4ParseAndRender("0.0.0.0");
     try testIp4ParseAndRender("255.255.255.255");

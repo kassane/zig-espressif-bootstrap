@@ -12,7 +12,6 @@ pub fn legalizeFeatures(_: *const std.Target) ?*Air.Legalize.Features {
 pub fn generate(
     _: *link.File,
     pt: Zcu.PerThread,
-    _: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: *const Air,
     liveness: *const ?Air.Liveness,

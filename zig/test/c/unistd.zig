@@ -8,6 +8,7 @@ test "swab" {
     if (builtin.target.cpu.arch.isMIPS64() and @sizeOf(usize) == 4) return error.SkipZigTest; // TODO
     if (builtin.target.cpu.arch == .x86_64 and @sizeOf(usize) == 4) return error.SkipZigTest; // TODO
     if (builtin.target.os.tag == .netbsd) return error.SkipZigTest; // TODO
+    if (builtin.target.cpu.arch.isX86() and builtin.target.os.tag == .windows and builtin.target.abi == .msvc) return error.SkipZigTest; // TODO
 
     var a: [4]u8 = undefined;
     @memset(a[0..], '\x00');

@@ -125,14 +125,6 @@ pub const Id = if (InternPool.single_threaded) enum {
     }
 };
 
-pub fn activate(zcu: *Zcu, tid: Id) Zcu.PerThread {
-    zcu.intern_pool.activate();
-    return .{ .zcu = zcu, .tid = tid };
-}
-pub fn deactivate(pt: Zcu.PerThread) void {
-    pt.zcu.intern_pool.deactivate();
-}
-
 /// Called from `Compilation.performAllTheWork`. Performs one incremental update of the ZCU: detects
 /// changes to files, runs AstGen, and then enters the main semantic analysis loop, where we build
 /// up a graph of declarations, functions, etc, while also sending declarations and functions to
@@ -378,10 +370,10 @@ fn workerUpdateFile(
     const child_prog_node = prog_node.start(std.fs.path.basename(file.path.sub_path), 0);
     defer child_prog_node.end();
 
-    const pt: Zcu.PerThread = .activate(comp.zcu.?, tid);
-    defer pt.deactivate();
-    pt.updateFile(file_index, file) catch |err| {
-        pt.reportRetryableFileError(file_index, "unable to load '{s}': {s}", .{ std.fs.path.basename(file.path.sub_path), @errorName(err) }) catch |oom| switch (oom) {
+    const active = comp.zcu.?.activate(tid);
+    defer active.deactivate();
+    active.pt.updateFile(file_index, file) catch |err| {
+        active.pt.reportRetryableFileError(file_index, "unable to load '{s}': {s}", .{ std.fs.path.basename(file.path.sub_path), @errorName(err) }) catch |oom| switch (oom) {
             error.OutOfMemory => {
                 comp.mutex.lockUncancelable(io);
                 defer comp.mutex.unlock(io);
@@ -411,7 +403,7 @@ fn workerUpdateFile(
 
             const import_path = file.zir.?.nullTerminatedString(item.data.name);
 
-            if (pt.discoverImport(file.path, import_path)) |res| switch (res) {
+            if (active.pt.discoverImport(file.path, import_path)) |res| switch (res) {
                 .module, .existing_file => {},
                 .new_file => |new| {
                     group.async(io, workerUpdateFile, .{
@@ -443,13 +435,15 @@ fn workerUpdateEmbedFile(comp: *Compilation, ef_index: Zcu.EmbedFile.Index, ef: 
 fn detectEmbedFileUpdate(comp: *Compilation, tid: Zcu.PerThread.Id, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) !void {
     const io = comp.io;
     const zcu = comp.zcu.?;
-    const pt: Zcu.PerThread = .activate(zcu, tid);
-    defer pt.deactivate();
 
     const old_val = ef.val;
     const old_err = ef.err;
 
-    try pt.updateEmbedFile(ef, null);
+    {
+        const active = zcu.activate(tid);
+        defer active.deactivate();
+        try active.pt.updateEmbedFile(ef, null);
+    }
 
     if (ef.val != .none and ef.val == old_val) return; // success, value unchanged
     if (ef.val == .none and old_val == .none and ef.err == old_err) return; // failure, error unchanged
@@ -458,27 +452,6 @@ fn detectEmbedFileUpdate(comp: *Compilation, tid: Zcu.PerThread.Id, ef_index: Zc
     defer comp.mutex.unlock(io);
 
     try zcu.markDependeeOutdated(.not_marked_po, .{ .embed_file = ef_index });
-}
-
-fn deinitFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) void {
-    const zcu = pt.zcu;
-    const gpa = zcu.gpa;
-    const file = zcu.fileByIndex(file_index);
-    log.debug("deinit File {f}", .{file.path.fmt(zcu.comp)});
-    file.path.deinit(gpa);
-    file.unload(gpa);
-    if (file.prev_zir) |prev_zir| {
-        prev_zir.deinit(gpa);
-        gpa.destroy(prev_zir);
-    }
-    file.* = undefined;
-}
-
-pub fn destroyFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) void {
-    const gpa = pt.zcu.gpa;
-    const file = pt.zcu.fileByIndex(file_index);
-    pt.deinitFile(file_index);
-    gpa.destroy(file);
 }
 
 /// Ensures that `file` has up-to-date ZIR. If not, loads the ZIR cache or runs
@@ -814,7 +787,7 @@ const UpdatedFile = struct {
     inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index),
 };
 
-fn cleanupUpdatedFiles(gpa: Allocator, updated_files: *std.AutoArrayHashMapUnmanaged(Zcu.File.Index, UpdatedFile)) void {
+fn cleanupUpdatedFiles(gpa: Allocator, updated_files: *std.array_hash_map.Auto(Zcu.File.Index, UpdatedFile)) void {
     for (updated_files.values()) |*elem| elem.inst_map.deinit(gpa);
     updated_files.deinit(gpa);
 }
@@ -832,7 +805,7 @@ fn updateZirRefs(pt: Zcu.PerThread) (Io.Cancelable || Allocator.Error)!void {
 
     // We need to visit every updated File for every TrackedInst in InternPool.
     // This only includes Zig files; ZON files are omitted.
-    var updated_files: std.AutoArrayHashMapUnmanaged(Zcu.File.Index, UpdatedFile) = .empty;
+    var updated_files: std.array_hash_map.Auto(Zcu.File.Index, UpdatedFile) = .empty;
     defer cleanupUpdatedFiles(gpa, &updated_files);
 
     for (zcu.import_table.keys()) |file_index| {
@@ -934,7 +907,7 @@ fn updateZirRefs(pt: Zcu.PerThread) (Io.Cancelable || Allocator.Error)!void {
             if (!has_namespace) continue;
 
             // Value is whether the declaration is `pub`.
-            var old_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, bool) = .empty;
+            var old_names: std.array_hash_map.Auto(InternPool.NullTerminatedString, bool) = .empty;
             defer old_names.deinit(zcu.gpa);
             for (old_zir.typeDecls(old_inst)) |decl_inst| {
                 const old_decl = old_zir.getDeclaration(decl_inst);
@@ -3595,8 +3568,8 @@ pub fn processExports(pt: Zcu.PerThread) !void {
     }
 
     // First, construct a mapping of every exported value and Nav to the indices of all its different exports.
-    var nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, std.ArrayList(Zcu.Export.Index)) = .empty;
-    var uav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, std.ArrayList(Zcu.Export.Index)) = .empty;
+    var nav_exports: std.array_hash_map.Auto(InternPool.Nav.Index, std.ArrayList(Zcu.Export.Index)) = .empty;
+    var uav_exports: std.array_hash_map.Auto(InternPool.Index, std.ArrayList(Zcu.Export.Index)) = .empty;
     defer {
         for (nav_exports.values()) |*exports| {
             exports.deinit(gpa);
@@ -3692,7 +3665,7 @@ pub fn processExports(pt: Zcu.PerThread) !void {
     }
 }
 
-const SymbolExports = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, Zcu.Export.Index);
+const SymbolExports = std.array_hash_map.Auto(InternPool.NullTerminatedString, Zcu.Export.Index);
 
 fn processExportsInner(
     pt: Zcu.PerThread,
@@ -3700,7 +3673,7 @@ fn processExportsInner(
     exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
     skip_linker_work: bool,
-) error{OutOfMemory}!void {
+) error{ OutOfMemory, Canceled }!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -4533,14 +4506,13 @@ pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) Ru
     return codegen_result catch |err| {
         switch (err) {
             error.OutOfMemory => comp.setAllocFailure(),
-            error.CodegenFail => zcu.assertCodegenFailed(zcu.funcInfo(func_index).owner_nav),
+            error.AlreadyReported => {},
             error.NoLinkFile => assert(comp.bin_file == null),
             error.BackendDoesNotProduceMir => switch (target_util.zigBackend(
                 &zcu.root_mod.resolved_target.result,
                 comp.config.use_llvm,
             )) {
                 else => unreachable, // assertion failure
-                .stage2_spirv,
                 .stage2_llvm,
                 => {},
             },
@@ -4552,7 +4524,7 @@ pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) Ru
 fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) error{
     OutOfMemory,
     Canceled,
-    CodegenFail,
+    AlreadyReported,
     NoLinkFile,
     BackendDoesNotProduceMir,
 }!codegen.AnyMir {
@@ -4572,8 +4544,12 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
     tracy_trace.addText(fqn.toSlice(ip));
     tracy_trace.addTextFmt("func_ip_index={d}", .{func_index});
 
+    Air.Verify.run(pt, func_index, air);
+
     if (codegen.legalizeFeatures(pt, nav)) |features| {
         try air.legalize(pt, features);
+        // Verify the AIR again post-legalization.
+        Air.Verify.run(pt, func_index, air);
     }
 
     var liveness: ?Air.Liveness = if (codegen.wantsLiveness(pt, nav))
@@ -4621,26 +4597,7 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
 
     const lf = comp.bin_file orelse return error.NoLinkFile;
 
-    // Just like LLVM, the SPIR-V backend can't multi-threaded due to SPIR-V design limitations.
-    if (lf.cast(.spirv)) |spirv_file| {
-        assert(zcu.pending_codegen_jobs.load(.monotonic) == 2); // only one codegen at a time (but the value is 2 because 1 is the base)
-        spirv_file.updateFunc(pt, func_index, air, &liveness) catch |err| {
-            switch (err) {
-                error.OutOfMemory => comp.link_diags.setAllocFailure(),
-            }
-            return error.CodegenFail;
-        };
-        return error.BackendDoesNotProduceMir;
-    }
-
-    return codegen.generateFunction(lf, pt, zcu.navSrcLoc(nav), func_index, air, &liveness) catch |err| switch (err) {
-        error.OutOfMemory,
-        error.CodegenFail,
-        => |e| return e,
-        error.Overflow,
-        error.RelocationNotByteAligned,
-        => return zcu.codegenFail(nav, "unable to codegen: {s}", .{@errorName(err)}),
-    };
+    return codegen.generateFunction(lf, pt, func_index, air, &liveness);
 }
 
 fn printVerboseAir(

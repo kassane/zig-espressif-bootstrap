@@ -456,7 +456,6 @@ test "binary math operator in partially inlined function" {
 test "comptime shl" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const a: u128 = 3;
     const b: u7 = 63;
@@ -883,6 +882,8 @@ test "debug variable type resolved through indirect zero-bit types" {
 }
 
 test "const local with comptime init through array init" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const E1 = enum {
         A,
         pub fn a() void {}
@@ -1180,8 +1181,6 @@ test "lazy sizeof is resolved in division" {
 }
 
 test "lazy sizeof union tag size in compare" {
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
     const A = union(enum) {
         a: void,
         b: void,
@@ -1194,7 +1193,6 @@ test "lazy value is resolved as slice operand" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
     const A = struct { a: u32 };
     var a: [512]u64 = undefined;
 

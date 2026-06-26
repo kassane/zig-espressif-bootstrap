@@ -343,7 +343,7 @@ set(ZIG_STAGE2_SOURCES
     src/Package/Module.zig
     src/RangeSet.zig
     src/Sema.zig
-    src/Sema/bitcast.zig
+    src/Sema/reinterpret.zig
     src/Sema/comptime_ptr_access.zig
     src/Sema/type_resolution.zig
     src/Type.zig
@@ -679,10 +679,8 @@ set(BUILD_ZIG2_ARGS
   -femit-bin="${ZIG2_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
   --dep "build_options"
-  --dep "aro"
   "-Mroot=src/main.zig"
   "-Mbuild_options=${ZIG_CONFIG_ZIG_OUT}"
-  "-Maro=lib/compiler/aro/aro.zig"
 )
 
 add_custom_command(

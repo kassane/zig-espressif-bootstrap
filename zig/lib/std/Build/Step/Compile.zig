@@ -51,7 +51,6 @@ shared_memory: bool = false,
 global_base: ?u64 = null,
 /// Set via options; intended to be read-only after that.
 zig_lib_dir: ?LazyPath,
-exec_cmd_args: ?[]const ?[]const u8,
 filters: []const []const u8,
 test_runner: ?TestRunner,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
@@ -187,7 +186,7 @@ entry: Entry = .default,
 /// List of symbols forced as undefined in the symbol table
 /// thus forcing their resolution by the linker.
 /// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
-force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
+force_undefined_symbols: std.array_hash_map.String(void),
 
 /// Overrides the default stack size
 stack_size: ?u64 = null,
@@ -233,6 +232,12 @@ is_linking_libcpp: bool = false,
 /// To instead enable fuzz testing instrumentation on a compilation using Zig's
 /// builtin fuzzer, see the `fuzz` flag in `Module`.
 sanitize_coverage_trace_pc_guard: ?bool = null,
+
+/// Enable or disable incremental compilation.
+///
+/// Incremental compilation reduces compile time by mutating an existing build artifact. Non-
+/// incremental compilation is slower but preserves previous build artifacts.
+incremental: ?bool = null,
 
 emit_directory: Configuration.OptionalGeneratedFileIndex = .none,
 generated_docs: Configuration.OptionalGeneratedFileIndex = .none,
@@ -413,7 +418,6 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .out_filename = out_filename,
         .installed_headers = .empty,
         .zig_lib_dir = null,
-        .exec_cmd_args = null,
         .filters = options.filters,
         .test_runner = null, // set below
         .rdynamic = false,
@@ -730,17 +734,6 @@ pub fn getEmittedLlvmBc(compile: *Compile) LazyPath {
     return compile.getEmittedFileGeneric(&compile.generated_llvm_bc);
 }
 
-pub fn setExecCmd(compile: *Compile, args: []const ?[]const u8) void {
-    const graph = compile.step.owner.graph;
-    const arena = graph.arena;
-    assert(compile.kind == .@"test");
-    const duped_args = arena.alloc(?[]const u8, args.len) catch @panic("OOM");
-    for (args, 0..) |arg, i| {
-        duped_args[i] = if (arg) |a| graph.dupeString(a) else null;
-    }
-    compile.exec_cmd_args = duped_args;
-}
-
 pub fn rootModuleTarget(c: *Compile) std.Target {
     // The root module is always given a target, so we know this to be non-null.
     return c.root_module.resolved_target.?.result;
@@ -753,7 +746,7 @@ pub fn rootModuleTarget(c: *Compile) std.Target {
 pub fn getCompileDependencies(start: *Compile, chase_dynamic: bool) []const *Compile {
     const arena = start.step.owner.graph.arena;
 
-    var compiles: std.AutoArrayHashMapUnmanaged(*Compile, void) = .empty;
+    var compiles: std.array_hash_map.Auto(*Compile, void) = .empty;
     var next_idx: usize = 0;
 
     compiles.putNoClobber(arena, start, {}) catch @panic("OOM");

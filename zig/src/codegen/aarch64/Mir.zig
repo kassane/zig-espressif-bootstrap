@@ -54,7 +54,6 @@ pub fn emit(
     mir: Mir,
     lf: *link.File,
     pt: Zcu.PerThread,
-    src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     atom_index: link.File.AtomId,
     w: *std.Io.Writer,
@@ -94,16 +93,11 @@ pub fn emit(
         lf,
         zcu,
         atom_index,
-        switch (try @import("../../codegen.zig").genNavRef(
+        try @import("../../codegen.zig").genNavRef(
             lf,
             pt,
-            src_loc,
             nav_reloc.nav,
-            &mod.resolved_target.result,
-        )) {
-            .sym_index => |sym_index| sym_index,
-            .fail => |em| return zcu.codegenFailMsg(func.owner_nav, em),
-        },
+        ),
         mir.body[nav_reloc.reloc.label],
         body_end - Instruction.size * (1 + nav_reloc.reloc.label),
         nav_reloc.reloc.addend,
@@ -113,15 +107,11 @@ pub fn emit(
         lf,
         zcu,
         atom_index,
-        switch (try lf.lowerUav(
+        try lf.lowerUav(
             pt,
             uav_reloc.uav.val,
             ZigType.fromInterned(uav_reloc.uav.orig_ty).ptrAlignment(zcu),
-            src_loc,
-        )) {
-            .sym_index => |sym_index| sym_index,
-            .fail => |em| return zcu.codegenFailMsg(func.owner_nav, em),
-        },
+        ),
         mir.body[uav_reloc.reloc.label],
         body_end - Instruction.size * (1 + uav_reloc.reloc.label),
         uav_reloc.reloc.addend,

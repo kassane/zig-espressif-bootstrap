@@ -179,6 +179,8 @@ test "@memset with zero-length array" {
 }
 
 test "@memset a global array" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const S = struct {
         var buf: [1]u32 = .{123};
     };
@@ -190,6 +192,8 @@ test "@memset a global array" {
 }
 
 test "@memset array of booleans" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const S = struct {
         var x: bool = false;
         var y: [1]bool = undefined;

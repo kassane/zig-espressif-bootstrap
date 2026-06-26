@@ -253,11 +253,11 @@ fn testUnion() !void {
     try expect(typeinfo_info == .@"union");
     try expect(typeinfo_info.@"union".layout == .auto);
     try expect(typeinfo_info.@"union".tag_type.? == TypeId);
-    try expect(typeinfo_info.@"union".field_names.len == 24);
+    try expect(typeinfo_info.@"union".field_names.len == 25);
     try expect(typeinfo_info.@"union".field_names.len == typeinfo_info.@"union".field_types.len);
     try expect(typeinfo_info.@"union".field_names.len == typeinfo_info.@"union".field_attrs.len);
     try expect(typeinfo_info.@"union".field_types[4] == @TypeOf(@typeInfo(u8).int));
-    try expect(typeinfo_info.@"union".decl_names.len == 16);
+    try expect(typeinfo_info.@"union".decl_names.len == 17);
 
     const TestNoTagUnion = union {
         Foo: void,
@@ -310,6 +310,8 @@ const TestStruct = struct {
 };
 
 test "type info: packed struct info" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     try testPackedStruct();
     try comptime testPackedStruct();
 }
@@ -594,6 +596,8 @@ test "value from struct @typeInfo default_value_ptr can be loaded at comptime" {
 }
 
 test "type info of tuple of string literal default value" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const struct_info = @typeInfo(@TypeOf(.{"hi"})).@"struct";
     const struct_field_attrs = struct_info.field_attrs[0];
     const struct_field_type = struct_info.field_types[0];
@@ -609,3 +613,43 @@ test "@typeInfo function with generic return type and inferred error set" {
     const ret_ty = @typeInfo(@TypeOf(S.testFn)).@"fn".return_type;
     comptime assert(ret_ty == null);
 }
+
+test "type info: spirv info" {
+    if (builtin.zig_backend != .stage2_spirv) return error.SkipZigTest;
+
+    try testSpirv();
+    try comptime testSpirv();
+}
+
+fn testSpirv() !void {
+    const image_info = @typeInfo(Image);
+    try expect(image_info.spirv.image.usage.sampled == f32);
+    try expect(image_info.spirv.image.format == .unknown);
+    try expect(image_info.spirv.image.dim == .@"2d");
+    try expect(image_info.spirv.image.depth == .not_depth);
+    try expect(image_info.spirv.image.arrayed == false);
+    try expect(image_info.spirv.image.multisampled == false);
+    try expect(image_info.spirv.image.access == .unknown);
+
+    const sampled_image_info = @typeInfo(SampledImage);
+    try expect(sampled_image_info.spirv.sampled_image == Image);
+
+    const sampler_info = @typeInfo(Sampler);
+    try expect(sampler_info.spirv.sampler == {});
+
+    const runtime_array_info = @typeInfo(RuntimeArray);
+    try expect(runtime_array_info.spirv.runtime_array == f32);
+}
+
+pub const Image = @SpirvType(.{ .image = .{
+    .usage = .{ .sampled = f32 },
+    .format = .unknown,
+    .dim = .@"2d",
+    .depth = .not_depth,
+    .arrayed = false,
+    .multisampled = false,
+    .access = .unknown,
+} });
+pub const SampledImage = @SpirvType(.{ .sampled_image = Image });
+pub const Sampler = @SpirvType(.sampler);
+pub const RuntimeArray = @SpirvType(.{ .runtime_array = f32 });

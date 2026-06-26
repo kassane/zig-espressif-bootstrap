@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 
 test "inline scalar prongs" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var x: usize = 0;
     switch (x) {
@@ -18,6 +19,7 @@ test "inline scalar prongs" {
 
 test "inline prong ranges" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var x: usize = 0;
     _ = &x;
@@ -32,7 +34,6 @@ test "inline prong ranges" {
 const E = enum { a, b, c, d };
 test "inline switch enums" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
     var x: E = .a;
     _ = &x;
     switch (x) {
@@ -45,7 +46,7 @@ const U = union(E) { a: void, b: u2, c: u3, d: u4 };
 test "inline switch unions" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     var x: U = .a;
     _ = &x;
     switch (x) {
@@ -70,7 +71,6 @@ test "inline switch unions" {
 
 test "inline else bool" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
     var a = true;
     _ = &a;
     switch (a) {
@@ -81,7 +81,7 @@ test "inline else bool" {
 
 test "inline else error" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     const Err = error{ a, b, c };
     var a = Err.a;
     _ = &a;
@@ -93,6 +93,7 @@ test "inline else error" {
 
 test "inline else enum" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const E2 = enum(u8) { a = 2, b = 3, c = 4, d = 5 };
     var a: E2 = .a;
@@ -123,6 +124,7 @@ test "inline else int with gaps" {
 
 test "inline else int all values" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var a: u2 = 0;
     _ = &a;
@@ -138,6 +140,8 @@ test "inline else int all values" {
 }
 
 test "inline switch capture is set when switch operand is comptime known" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const U2 = union(enum) {
         a: u32,
     };

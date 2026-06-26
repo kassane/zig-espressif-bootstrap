@@ -49,7 +49,7 @@ web_server: if (!builtin.single_threaded) ?WebServer else ?noreturn,
 /// Allocated into `gpa`.
 memory_blocked_steps: std.ArrayList(Configuration.Step.Index),
 /// Allocated into `gpa`.
-step_stack: std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void),
+step_stack: std.array_hash_map.Auto(Configuration.Step.Index, void),
 pkg_config: PkgConfig,
 
 error_style: ErrorStyle,
@@ -481,7 +481,7 @@ pub fn main(init: process.Init.Minimal) !void {
         // maker process fails or crashes and it's helpful to be able to repeat
         // execution of the command line or otherwise inspect the configuration file.
         const c = &configuration;
-        var top_level_steps: std.StringArrayHashMapUnmanaged(Configuration.Step.Index) = .empty;
+        var top_level_steps: std.array_hash_map.String(Configuration.Step.Index) = .empty;
         for (configuration.steps, 0..) |*conf_step, step_index_usize| {
             if (conf_step.owner != .root) continue;
             const step_index: Configuration.Step.Index = @enumFromInt(step_index_usize);
@@ -1217,7 +1217,7 @@ fn printTreeStep(
     step_index: Configuration.Step.Index,
     stderr: Io.Terminal,
     parent_node: *PrintNode,
-    step_stack: *std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void),
+    step_stack: *std.array_hash_map.Auto(Configuration.Step.Index, void),
 ) !void {
     const writer = stderr.writer;
     const first = step_stack.swapRemove(step_index);
@@ -1502,7 +1502,7 @@ fn printChildNodePrefix(stderr: Io.Terminal) !void {
 fn constructGraphAndCheckForDependencyLoop(
     maker: *Maker,
     step_index: Configuration.Step.Index,
-    step_stack: *std.AutoArrayHashMapUnmanaged(Configuration.Step.Index, void),
+    step_stack: *std.array_hash_map.Auto(Configuration.Step.Index, void),
     rand: std.Random,
 ) error{ DependencyLoopDetected, OutOfMemory }!void {
     const c = &maker.scanned_config.configuration;

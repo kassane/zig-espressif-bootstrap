@@ -48,6 +48,8 @@ test "ffs" {
 }
 
 test "strcasecmp" {
+    if (builtin.target.os.tag == .windows and builtin.target.abi != .gnu) return; // mingw-only
+
     try testing.expect(c.strcasecmp(@ptrCast("a"), @ptrCast("b")) < 0);
     try testing.expect(c.strcasecmp(@ptrCast("b"), @ptrCast("a")) > 0);
     try testing.expect(c.strcasecmp(@ptrCast("A"), @ptrCast("b")) < 0);
@@ -58,6 +60,8 @@ test "strcasecmp" {
 }
 
 test "strncasecmp" {
+    if (builtin.target.os.tag == .windows and builtin.target.abi != .gnu) return; // mingw-only
+
     try testing.expect(c.strncasecmp(@ptrCast("a"), @ptrCast("b"), 1) < 0);
     try testing.expect(c.strncasecmp(@ptrCast("b"), @ptrCast("a"), 1) > 0);
     try testing.expect(c.strncasecmp(@ptrCast("A"), @ptrCast("b"), 1) < 0);

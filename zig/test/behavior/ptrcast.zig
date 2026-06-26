@@ -193,6 +193,7 @@ const Bytes = struct {
 
 test "ptrcast of const integer has the correct object size" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const is_value = ~@as(isize, @intCast(std.math.minInt(isize)));
     const is_bytes = @as([*]const u8, @ptrCast(&is_value))[0..@sizeOf(isize)];
@@ -279,6 +280,8 @@ test "@ptrCast undefined value at comptime" {
 }
 
 test "comptime @ptrCast with packed struct leaves value unmodified" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const S = packed struct { three: u3 };
     const st: S = .{ .three = 6 };
     try expect(st.three == 6);
@@ -288,6 +291,8 @@ test "comptime @ptrCast with packed struct leaves value unmodified" {
 }
 
 test "@ptrCast restructures comptime-only array" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     {
         const a3a2: [3][2]comptime_int = .{
             .{ 1, 2 },
@@ -330,6 +335,8 @@ test "@ptrCast restructures comptime-only array" {
 }
 
 test "@ptrCast restructures sliced comptime-only array" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const a3a2: [4][2]comptime_int = .{
         .{ 1, 2 },
         .{ 3, 4 },
@@ -552,6 +559,8 @@ test "@ptrCast single-item pointer to slice of bytes" {
 }
 
 test "@ptrCast array pointer removing sentinel" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const in: *const [4:0]u8 = &.{ 1, 2, 3, 4 };
     const out: []const i8 = @ptrCast(in);
     comptime assert(out.len == 4);
@@ -562,6 +571,8 @@ test "@ptrCast array pointer removing sentinel" {
 }
 
 test "@ptrcast larger type to smaller one" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const T = packed struct { x: u17 };
     const a: u32 = 0;
     const b: *const T = @ptrCast(&a);

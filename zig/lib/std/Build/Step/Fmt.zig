@@ -34,8 +34,8 @@ pub fn create(owner: *std.Build, options: Options) *Fmt {
             .name = if (options.check) "zig fmt --check" else "zig fmt",
             .owner = owner,
         }),
-        .paths = options.paths,
-        .exclude_paths = options.exclude_paths,
+        .paths = LazyPath.dupeList(options.paths, graph),
+        .exclude_paths = LazyPath.dupeList(options.exclude_paths, graph),
         .check = options.check,
     };
 

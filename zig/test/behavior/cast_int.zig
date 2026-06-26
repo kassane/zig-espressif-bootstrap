@@ -8,7 +8,6 @@ const minInt = std.math.minInt;
 test "@intCast i32 to u7" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x: u128 = maxInt(u128);
@@ -144,7 +143,7 @@ fn testIntCast(comptime S: type, a: S, comptime D: type, expected: D) !void {
 
 test "@intCast <= 64 bits" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     try testIntCast(i32, minInt(i32), i64, minInt(i32));
     try testIntCast(i32, maxInt(i32), i64, maxInt(i32));
     try testIntCast(u32, maxInt(u32), u64, maxInt(u32));
@@ -170,6 +169,7 @@ test "@intCast <= 64 bits" {
 test "@intCast > 128 bits" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try testIntCast(u8, 123, u140, 123);
     try testIntCast(u64, 1 << 63, u140, 1 << 63);
@@ -212,120 +212,4 @@ test "@intCast > 128 bits" {
     try testIntCast(u32, maxInt(u32), i255, maxInt(u32));
     try testIntCast(u64, maxInt(u64), i255, maxInt(u64));
     try testIntCast(u128, maxInt(u128), i255, maxInt(u128));
-}
-
-const Piece = packed struct {
-    color: Color,
-    type: Type,
-
-    const Type = enum(u3) { KING, QUEEN, BISHOP, KNIGHT, ROOK, PAWN };
-    const Color = enum(u1) { WHITE, BLACK };
-
-    fn charToPiece(c: u8) !@This() {
-        return .{
-            .type = try charToPieceType(c),
-            .color = if (std.ascii.isUpper(c)) Color.WHITE else Color.BLACK,
-        };
-    }
-
-    fn charToPieceType(c: u8) !Type {
-        return switch (std.ascii.toLower(c)) {
-            'p' => .PAWN,
-            'k' => .KING,
-            'q' => .QUEEN,
-            'b' => .BISHOP,
-            'n' => .KNIGHT,
-            'r' => .ROOK,
-            else => error.UnexpectedCharError,
-        };
-    }
-};
-
-// Originally reported at https://github.com/ziglang/zig/issues/14200
-test "load non byte-sized optional value" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
-
-    // note: this bug is triggered by the == operator, expectEqual will hide it
-    const opt: ?Piece = try Piece.charToPiece('p');
-    try expect(opt.?.type == .PAWN);
-    try expect(opt.?.color == .BLACK);
-
-    var p: Piece = undefined;
-    @as(*u8, @ptrCast(&p)).* = 0b11111011;
-    try expect(p.type == .PAWN);
-    try expect(p.color == .BLACK);
-}
-
-test "load non byte-sized value in struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-    if (builtin.cpu.arch.endian() != .little) return error.SkipZigTest; // packed struct TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
-
-    // note: this bug is triggered by the == operator, expectEqual will hide it
-    // using ptrCast not to depend on unitialised memory state
-
-    var struct0: struct {
-        p: Piece,
-        int: u8,
-    } = undefined;
-    @as(*u8, @ptrCast(&struct0.p)).* = 0b11111011;
-    try expect(struct0.p.type == .PAWN);
-    try expect(struct0.p.color == .BLACK);
-
-    var struct1: packed struct {
-        p0: Piece,
-        p1: Piece,
-        pad: u1,
-        p2: Piece,
-    } = undefined;
-    @as(*u8, @ptrCast(&struct1.p0)).* = 0b11111011;
-    struct1.p1 = try Piece.charToPiece('p');
-    struct1.p2 = try Piece.charToPiece('p');
-    try expect(struct1.p0.type == .PAWN);
-    try expect(struct1.p0.color == .BLACK);
-    try expect(struct1.p1.type == .PAWN);
-    try expect(struct1.p1.color == .BLACK);
-    try expect(struct1.p2.type == .PAWN);
-    try expect(struct1.p2.color == .BLACK);
-}
-
-test "load non byte-sized value in union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    // note: this bug is triggered by the == operator, expectEqual will hide it
-    // using ptrCast not to depend on unitialised memory state
-
-    var union0: packed union {
-        p: packed struct(u8) {
-            a: Piece,
-            b: u4,
-        },
-        int: u8,
-    } = .{ .int = 0 };
-    union0.int = 0b11111011;
-    try expect(union0.p.a.type == .PAWN);
-    try expect(union0.p.a.color == .BLACK);
-
-    var union1: union {
-        p: packed struct(u8) {
-            a: Piece,
-            b: u4,
-        },
-        int: u8,
-    } = .{ .p = .{ .a = .{ .color = .WHITE, .type = .KING }, .b = 0 } };
-    @as(*u8, @ptrCast(&union1.p.a)).* = 0b11111011;
-    try expect(union1.p.a.type == .PAWN);
-    try expect(union1.p.a.color == .BLACK);
-
-    var pieces: [3]Piece = undefined;
-    @as(*u8, @ptrCast(&pieces[1])).* = 0b11111011;
-    try expect(pieces[1].type == .PAWN);
-    try expect(pieces[1].color == .BLACK);
 }

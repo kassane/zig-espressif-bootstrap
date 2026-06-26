@@ -101,8 +101,6 @@ pub fn enqueueZcu(
 ) Io.Cancelable!void {
     const io = comp.io;
 
-    assert(tid == .main);
-
     if (q.future != null) {
         if (q.zcu_queue.putOne(io, task)) |_| {
             return;
@@ -130,14 +128,17 @@ pub fn finishPrelinkQueue(q: *Queue, comp: *Compilation) Io.Cancelable!void {
     prelink: {
         const lf = comp.bin_file orelse break :prelink;
         if (lf.post_prelink) break :prelink;
-
-        if (lf.prelink()) |_| {
-            lf.post_prelink = true;
-        } else |err| switch (err) {
-            error.OutOfMemory => comp.link_diags.setAllocFailure(),
-            error.LinkFailure => {},
-            error.Canceled => |e| return e,
+        if (comp.zcu != null and comp.zcu.?.llvm_object != null) {
+            // Don't call `prelink` just yet. It will be the frontend's responsibility instead,
+            // after it sends the ZCU object emitted by LLVM as the final link input.
+            break :prelink;
         }
+
+        lf.prelink() catch |err| switch (err) {
+            error.OutOfMemory => comp.link_diags.setAllocFailure(),
+            error.AlreadyReported => {},
+            error.Canceled => |e| return e,
+        };
     }
 }
 
@@ -171,16 +172,19 @@ fn runLinkTasks(q: *Queue, comp: *Compilation) void {
     }
 
     // We've finished the prelink tasks, so run prelink if necessary.
-    if (comp.bin_file) |lf| {
-        if (!lf.post_prelink) {
-            if (lf.prelink()) |_| {
-                lf.post_prelink = true;
-            } else |err| switch (err) {
-                error.OutOfMemory => comp.link_diags.setAllocFailure(),
-                error.Canceled => @panic("TODO"),
-                error.LinkFailure => {},
-            }
+    prelink: {
+        const lf = comp.bin_file orelse break :prelink;
+        if (lf.post_prelink) break :prelink;
+        if (comp.zcu != null and comp.zcu.?.llvm_object != null) {
+            // Don't call `prelink` just yet. It will be the frontend's responsibility instead,
+            // after it sends the ZCU object emitted by LLVM as the final link input.
+            break :prelink;
         }
+        lf.prelink() catch |err| switch (err) {
+            error.OutOfMemory => comp.link_diags.setAllocFailure(),
+            error.Canceled => @panic("TODO"),
+            error.AlreadyReported => {},
+        };
     }
 
     zcu_tasks: while (true) {
@@ -205,7 +209,11 @@ fn runIdleTask(comp: *Compilation, tid: Zcu.PerThread.Id) bool {
             comp.link_diags.setAllocFailure();
             break :have_more false;
         },
-        error.LinkFailure => false,
+        error.AlreadyReported => false,
+        error.Canceled => {
+            comp.io.recancel();
+            return false;
+        },
     };
 }
 

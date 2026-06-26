@@ -232,12 +232,19 @@ const Writer = struct {
             .arg => try w.writeArg(s, inst),
 
             .not,
-            .bitcast,
+            .bit_cast,
+            .ptr_cast,
+            .ptr_from_int,
+            .int_from_ptr,
+            .error_cast,
+            .error_from_int,
+            .int_from_error,
+            .union_from_enum,
             .load,
             .fptrunc,
             .fpext,
-            .intcast,
-            .intcast_safe,
+            .int_cast,
+            .int_cast_safe,
             .trunc,
             .optional_payload,
             .optional_payload_ptr,
@@ -306,6 +313,7 @@ const Writer = struct {
 
             .struct_field_ptr => try w.writeStructField(s, inst),
             .struct_field_val => try w.writeStructField(s, inst),
+            .spirv_runtime_array_len => try w.writeStructField(s, inst),
             .inferred_alloc => @panic("TODO"),
             .inferred_alloc_comptime => @panic("TODO"),
             .assembly => try w.writeAssembly(s, inst),
@@ -516,7 +524,6 @@ const Writer = struct {
         try w.writeOperand(s, inst, 1, bin.lhs);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 2, bin.rhs);
-        try s.writeAll(", ");
     }
 
     fn writeLegalizeCompilerRtCall(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {

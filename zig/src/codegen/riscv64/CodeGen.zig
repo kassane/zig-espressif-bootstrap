@@ -30,8 +30,6 @@ const verbose_tracking_log = std.log.scoped(.verbose_tracking);
 const wip_mir_log = std.log.scoped(.wip_mir);
 const Alignment = InternPool.Alignment;
 
-const CodeGenError = codegen.CodeGenError;
-
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
 const Lower = @import("Lower.zig");
@@ -49,11 +47,11 @@ const RegisterManager = abi.RegisterManager;
 const RegisterLock = RegisterManager.RegisterLock;
 const Instruction = encoding.Instruction;
 
-const InnerError = CodeGenError || error{OutOfRegisters};
+const InnerError = codegen.Error || error{OutOfRegisters};
 
 pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
     return comptime &.initMany(&.{
-        .expand_intcast_safe,
+        .expand_int_cast_safe,
         .expand_int_from_float_safe,
         .expand_int_from_float_optimized_safe,
         .expand_add_safe,
@@ -75,7 +73,6 @@ ret_mcv: InstTracking,
 func_index: InternPool.Index,
 fn_type: Type,
 arg_index: usize,
-src_loc: Zcu.LazySrcLoc,
 
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 
@@ -115,7 +112,7 @@ const_tracking: ConstTrackingMap = .{},
 inst_tracking: InstTrackingMap = .{},
 
 frame_allocs: std.MultiArrayList(FrameAlloc) = .{},
-free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .empty,
+free_frame_indices: std.array_hash_map.Auto(FrameIndex, void) = .empty,
 frame_locs: std.MultiArrayList(Mir.FrameLoc) = .{},
 
 loops: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
@@ -341,7 +338,7 @@ const MCValue = union(enum) {
 };
 
 const Branch = struct {
-    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .empty,
+    inst_table: std.array_hash_map.Auto(Air.Inst.Index, MCValue) = .empty,
 
     fn deinit(func: *Branch, gpa: Allocator) void {
         func.inst_table.deinit(gpa);
@@ -349,8 +346,8 @@ const Branch = struct {
     }
 };
 
-const InstTrackingMap = std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InstTracking);
-const ConstTrackingMap = std.AutoArrayHashMapUnmanaged(InternPool.Index, InstTracking);
+const InstTrackingMap = std.array_hash_map.Auto(Air.Inst.Index, InstTracking);
+const ConstTrackingMap = std.array_hash_map.Auto(InternPool.Index, InstTracking);
 
 const InstTracking = struct {
     long: MCValue,
@@ -742,11 +739,10 @@ const CallView = enum(u1) {
 pub fn generate(
     bin_file: *link.File,
     pt: Zcu.PerThread,
-    src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: *const Air,
     liveness: *const ?Air.Liveness,
-) CodeGenError!Mir {
+) codegen.Error!Mir {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -777,7 +773,6 @@ pub fn generate(
         .fn_type = fn_type,
         .arg_index = 0,
         .branch_stack = &branch_stack,
-        .src_loc = src_loc,
         .end_di_line = func.rbrace_line,
         .end_di_column = func.rbrace_column,
         .scope_generation = 0,
@@ -811,10 +806,7 @@ pub fn generate(
     );
 
     const fn_info = zcu.typeToFunc(fn_type).?;
-    var call_info = function.resolveCallingConventionValues(fn_info, &.{}) catch |err| switch (err) {
-        error.CodegenFail => |e| return e,
-        else => |e| return e,
-    };
+    var call_info = try function.resolveCallingConventionValues(fn_info, &.{});
 
     defer call_info.deinit(&function);
 
@@ -841,7 +833,6 @@ pub fn generate(
     }));
 
     function.gen() catch |err| switch (err) {
-        error.CodegenFail => |e| return e,
         error.OutOfRegisters => return function.fail("ran out of registers (Zig compiler bug)", .{}),
         else => |e| return e,
     };
@@ -857,12 +848,11 @@ pub fn generate(
 pub fn generateLazy(
     bin_file: *link.File,
     pt: Zcu.PerThread,
-    src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
     atom_index: link.File.AtomId,
     w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
-) (CodeGenError || std.Io.Writer.Error)!void {
+) (codegen.Error || std.Io.Writer.Error)!void {
     _ = atom_index;
     const comp = bin_file.comp;
     const gpa = comp.gpa;
@@ -883,7 +873,6 @@ pub fn generateLazy(
         .fn_type = undefined,
         .arg_index = 0,
         .branch_stack = undefined,
-        .src_loc = src_loc,
         .end_di_line = undefined,
         .end_di_column = undefined,
         .scope_generation = 0,
@@ -893,7 +882,6 @@ pub fn generateLazy(
     defer function.mir_instructions.deinit(gpa);
 
     function.genLazy(lazy_sym) catch |err| switch (err) {
-        error.CodegenFail => |e| return e,
         error.OutOfRegisters => return function.fail("ran out of registers (Zig compiler bug)", .{}),
         else => |e| return e,
     };
@@ -910,7 +898,7 @@ pub fn generateLazy(
             .allocator = gpa,
             .mir = mir,
             .cc = .auto,
-            .src_loc = src_loc,
+            .src_loc = Type.fromInterned(lazy_sym.ty).srcLocOrNull(pt.zcu) orelse .unneeded,
             .output_mode = comp.config.output_mode,
             .link_mode = comp.config.link_mode,
             .pic = mod.pic,
@@ -946,7 +934,10 @@ fn formatWipMir(data: FormatWipMirData, writer: *std.Io.Writer) std.Io.Writer.Er
             .frame_locs = data.func.frame_locs.slice(),
         },
         .cc = .auto,
-        .src_loc = data.func.src_loc,
+        .src_loc = switch (data.func.owner) {
+            .nav_index => |nav| pt.zcu.navSrcLoc(nav),
+            .lazy_sym => |lazy_sym| Type.fromInterned(lazy_sym.ty).srcLocOrNull(pt.zcu) orelse .unneeded,
+        },
         .output_mode = comp.config.output_mode,
         .link_mode = comp.config.link_mode,
         .pic = comp.root_mod.pic,
@@ -1462,7 +1453,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .add_safe,
             .sub_safe,
             .mul_safe,
-            .intcast_safe,
+            .int_cast_safe,
             .int_from_float_safe,
             .int_from_float_optimized_safe,
             => return func.fail("TODO implement safety_checked_instructions", .{}),
@@ -1488,7 +1479,14 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .ret_ptr         => try func.airRetPtr(inst),
             .arg             => try func.airArg(inst),
             .assembly        => try func.airAsm(inst),
-            .bitcast         => try func.airBitCast(inst),
+            .bit_cast        => try func.airBitCast(inst),
+            .ptr_cast        => try func.airBitCast(inst),
+            .ptr_from_int    => try func.airBitCast(inst),
+            .int_from_ptr    => try func.airBitCast(inst),
+            .error_cast      => try func.airBitCast(inst),
+            .error_from_int  => try func.airBitCast(inst),
+            .int_from_error  => try func.airBitCast(inst),
+            .union_from_enum => try func.airBitCast(inst),
             .block           => try func.airBlock(inst),
             .br              => try func.airBr(inst),
             .repeat          => try func.airRepeat(inst),
@@ -1502,7 +1500,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .dbg_empty_stmt  => func.finishAirBookkeeping(),
             .fptrunc         => try func.airFptrunc(inst),
             .fpext           => try func.airFpext(inst),
-            .intcast         => try func.airIntCast(inst),
+            .int_cast        => try func.airIntCast(inst),
             .trunc           => try func.airTrunc(inst),
             .is_non_null     => try func.airIsNonNull(inst),
             .is_non_null_ptr => try func.airIsNonNullPtr(inst),
@@ -1651,6 +1649,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .work_item_id => unreachable,
             .work_group_size => unreachable,
             .work_group_id => unreachable,
+            .spirv_runtime_array_len => unreachable,
             // zig fmt: on
         }
 
@@ -3171,7 +3170,7 @@ fn airMulWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
         switch (lhs_ty.zigTypeTag(zcu)) {
             else => |x| return func.fail("TODO: airMulWithOverflow {s}", .{@tagName(x)}),
             .int => {
-                if (std.debug.runtime_safety) assert(lhs_ty.eql(rhs_ty, zcu));
+                if (std.debug.runtime_safety) assert(lhs_ty.eql(rhs_ty));
 
                 const trunc_reg = try func.copyToTmpRegister(lhs_ty, .{ .register = dest_reg });
                 const trunc_reg_lock = func.register_manager.lockRegAssumeUnused(trunc_reg);
@@ -3961,9 +3960,7 @@ fn airPtrElemPtr(func: *Func, inst: Air.Inst.Index) !void {
         const elem_ptr_ty = func.typeOfIndex(inst);
         const base_ptr_ty = func.typeOf(extra.lhs);
 
-        if (elem_ptr_ty.ptrInfo(zcu).flags.vector_index != .none) {
-            @panic("audit");
-        }
+        assert(elem_ptr_ty.ptrInfo(zcu).flags.vector_index == .none);
 
         const base_ptr_mcv = try func.resolveInst(extra.lhs);
         const base_ptr_lock: ?RegisterLock = switch (base_ptr_mcv) {
@@ -8144,28 +8141,21 @@ fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
     const pt = func.pt;
 
     const lf = func.bin_file;
-    const src_loc = func.src_loc;
 
-    const result: codegen.GenResult = if (val.isUndef(pt.zcu))
-        switch (try lf.lowerUav(pt, val.toIntern(), .none, src_loc)) {
-            .sym_index => |sym_index| .{ .mcv = .{ .load_symbol = sym_index } },
-            .fail => |em| .{ .fail = em },
-        }
+    const result: codegen.MCValue = if (val.isUndef(pt.zcu))
+        .{ .load_symbol = try lf.lowerUav(pt, val.toIntern(), .none) }
     else
-        try codegen.genTypedValue(lf, pt, src_loc, val, func.target);
+        try codegen.genTypedValue(lf, pt, val, func.target);
     const mcv: MCValue = switch (result) {
-        .mcv => |mcv| switch (mcv) {
-            .none => .none,
-            .undef => unreachable,
-            .lea_symbol => |sym_index| .{ .lea_symbol = .{ .sym = sym_index } },
-            .load_symbol => |sym_index| .{ .load_symbol = .{ .sym = sym_index } },
-            .immediate => |imm| .{ .immediate = imm },
-            .memory => |addr| .{ .memory = addr },
-            .load_got, .load_direct, .lea_direct => {
-                return func.fail("TODO: genTypedValue {s}", .{@tagName(mcv)});
-            },
+        .none => .none,
+        .undef => unreachable,
+        .lea_symbol => |sym_index| .{ .lea_symbol = .{ .sym = sym_index } },
+        .load_symbol => |sym_index| .{ .load_symbol = .{ .sym = sym_index } },
+        .immediate => |imm| .{ .immediate = imm },
+        .memory => |addr| .{ .memory = addr },
+        .load_got, .load_direct, .lea_direct => {
+            return func.fail("TODO: genTypedValue {s}", .{@tagName(result)});
         },
-        .fail => |msg| return func.failMsg(msg),
     };
     return mcv;
 }
@@ -8353,24 +8343,24 @@ fn wantSafety(func: *Func) bool {
     };
 }
 
-fn fail(func: *const Func, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
+fn fail(func: *const Func, comptime format: []const u8, args: anytype) error{ OutOfMemory, AlreadyReported } {
     @branchHint(.cold);
     const zcu = func.pt.zcu;
     switch (func.owner) {
         .nav_index => |i| return zcu.codegenFail(i, format, args),
         .lazy_sym => |s| return zcu.codegenFailType(s.ty, format, args),
     }
-    return error.CodegenFail;
+    return error.AlreadyReported;
 }
 
-fn failMsg(func: *const Func, msg: *ErrorMsg) error{ OutOfMemory, CodegenFail } {
+fn failMsg(func: *const Func, msg: *ErrorMsg) error{ OutOfMemory, AlreadyReported } {
     @branchHint(.cold);
     const zcu = func.pt.zcu;
     switch (func.owner) {
         .nav_index => |i| return zcu.codegenFailMsg(i, msg),
         .lazy_sym => |s| return zcu.codegenFailTypeMsg(s.ty, msg),
     }
-    return error.CodegenFail;
+    return error.AlreadyReported;
 }
 
 fn parseRegName(name: []const u8) ?Register {

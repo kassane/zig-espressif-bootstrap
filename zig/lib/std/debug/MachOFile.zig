@@ -4,7 +4,7 @@ strings: []const u8,
 text_vmaddr: u64,
 
 /// Key is index into `strings` of the file path.
-ofiles: std.AutoArrayHashMapUnmanaged(u32, Error!OFile),
+ofiles: std.array_hash_map.Auto(u32, Error!OFile),
 
 pub const Error = error{
     InvalidMachO,
@@ -115,7 +115,7 @@ pub fn load(gpa: Allocator, io: Io, path: []const u8, arch: std.Target.Cpu.Arch)
     // necessary because we prefer to use STAB ("symbolic debugging table") symbols,
     // but they might not be present, so we track normal symbols too.
     // Indices match 1-1 with those of `symbols`.
-    var symbol_names: std.StringArrayHashMapUnmanaged(void) = .empty;
+    var symbol_names: std.array_hash_map.String(void) = .empty;
     defer symbol_names.deinit(gpa);
     try symbol_names.ensureUnusedCapacity(gpa, symtab.nsyms);
 
@@ -305,7 +305,7 @@ const OFile = struct {
     symtab_raw: []align(1) const macho.nlist_64,
     /// All named symbols in `symtab_raw`. Stored `u32` key is the index into `symtab_raw`. Accessed
     /// through `SymbolAdapter`, so that the symbol name is used as the logical key.
-    symbols_by_name: std.ArrayHashMapUnmanaged(u32, void, void, true),
+    symbols_by_name: std.array_hash_map.Custom(u32, void, void, true),
 
     const SymbolAdapter = struct {
         strtab: []const u8,
@@ -380,7 +380,7 @@ test {
 
 fn appendStabSymbol(
     symbols: *std.ArrayList(Symbol),
-    symbol_names: *std.StringArrayHashMapUnmanaged(void),
+    symbol_names: *std.array_hash_map.String(void),
     strings: []const u8,
     last_sym: Symbol,
 ) void {
@@ -476,7 +476,7 @@ fn loadOFile(gpa: Allocator, io: Io, o_file_name: []const u8) !OFile {
     const symtab_raw: []align(1) const macho.nlist_64 = @ptrCast(mapped_ofile[symtab_cmd.symoff..][0..n_sym_bytes]);
 
     // TODO handle tentative (common) symbols
-    var symbols_by_name: std.ArrayHashMapUnmanaged(u32, void, void, true) = .empty;
+    var symbols_by_name: std.array_hash_map.Custom(u32, void, void, true) = .empty;
     defer symbols_by_name.deinit(gpa);
     try symbols_by_name.ensureUnusedCapacity(gpa, @intCast(symtab_raw.len));
     for (symtab_raw, 0..) |sym_raw, sym_index| {

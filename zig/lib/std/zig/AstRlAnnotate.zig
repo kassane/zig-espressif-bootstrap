@@ -1079,6 +1079,10 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
             _ = try astrl.expr(args[3], block, ResultInfo.type_only);
             return false;
         },
+        .SpirvType => {
+            _ = try astrl.expr(args[0], block, ResultInfo.type_only);
+            return false;
+        },
         .Vector => {
             _ = try astrl.expr(args[0], block, ResultInfo.type_only);
             _ = try astrl.expr(args[1], block, ResultInfo.type_only);

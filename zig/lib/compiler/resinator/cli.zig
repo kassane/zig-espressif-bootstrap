@@ -15,7 +15,7 @@ pub const usage_string_after_command_name =
     \\ [options] [--] <INPUT> [<OUTPUT>]
     \\
     \\The sequence -- can be used to signify when to stop parsing options.
-    \\This is necessary when the input path begins with a forward slash.
+    \\This avoids ambiguity when the input path begins with a forward slash.
     \\
     \\Supported option prefixes are /, -, and --, so e.g. /h, -h, and --h all work.
     \\Drop-in compatible with the Microsoft Resource Compiler.
@@ -159,7 +159,7 @@ pub const Options = struct {
     default_language_id: ?u16 = null,
     default_code_page: ?SupportedCodePage = null,
     verbose: bool = false,
-    symbols: std.StringArrayHashMapUnmanaged(SymbolValue) = .empty,
+    symbols: std.array_hash_map.String(SymbolValue) = .empty,
     null_terminate_string_table_strings: bool = false,
     max_string_literal_codepoints: u15 = lex.default_max_string_literal_codepoints,
     silent_duplicate_control_ids: bool = false,

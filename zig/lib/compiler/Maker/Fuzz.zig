@@ -27,7 +27,7 @@ prog_node: std.Progress.Node,
 
 /// Protects `coverage_files`.
 coverage_mutex: Io.Mutex,
-coverage_files: std.AutoArrayHashMapUnmanaged(u64, CoverageMap),
+coverage_files: std.array_hash_map.Auto(u64, CoverageMap),
 
 queue_mutex: Io.Mutex,
 queue_cond: Io.Condition,
@@ -273,7 +273,7 @@ pub fn serveSourcesTar(fuzz: *Fuzz, req: *std.http.Server.Request) !void {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const DedupTable = std.ArrayHashMapUnmanaged(Build.Cache.Path, void, Build.Cache.Path.TableAdapter, false);
+    const DedupTable = std.array_hash_map.Custom(Build.Cache.Path, void, Build.Cache.Path.TableAdapter, false);
     var dedup_table: DedupTable = .empty;
     defer dedup_table.deinit(gpa);
 

@@ -3,7 +3,7 @@ size: u64 = 0,
 alignment: Atom.Alignment = .@"1",
 output_section_index: u32 = 0,
 // atoms: std.ArrayList(Elf.Ref) = .empty,
-atoms: std.AutoArrayHashMapUnmanaged(Elf.Ref, void) = .empty,
+atoms: std.array_hash_map.Auto(Elf.Ref, void) = .empty,
 
 dirty: bool = true,
 

@@ -40,7 +40,7 @@ const Thread = struct {
     steal_ready_search_index: u32,
     /// For ensuring multiple fibers waiting on the same file descriptor and
     /// filter use the same kevent.
-    wait_queues: std.AutoArrayHashMapUnmanaged(WaitQueueKey, *Fiber),
+    wait_queues: std.array_hash_map.Auto(WaitQueueKey, *Fiber),
 
     const WaitQueueKey = struct {
         ident: usize,

@@ -15,7 +15,7 @@ pub fn main() void {
     // You can use _ to throw away unwanted values.
     _, x, _ = tuple;
 
-    print("x = {}", .{x});
+    print("x = {}\n", .{x});
 }
 
 // exe=succeed

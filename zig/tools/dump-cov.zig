@@ -67,7 +67,7 @@ pub fn main(init: std.process.Init) !void {
     try stdout.print("{any}\n", .{header.*});
     const pcs = header.pcAddrs();
 
-    var indexed_pcs: std.AutoArrayHashMapUnmanaged(usize, void) = .empty;
+    var indexed_pcs: std.array_hash_map.Auto(usize, void) = .empty;
     try indexed_pcs.entries.resize(arena, pcs.len);
     @memcpy(indexed_pcs.entries.items(.key), pcs);
     try indexed_pcs.reIndex(arena);

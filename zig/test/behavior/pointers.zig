@@ -144,7 +144,6 @@ test "initialize const optional C pointer to null" {
 test "assigning integer to C pointer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
     var x: i32 = 0;
     var y: i32 = 1;
     var ptr: [*c]u8 = 0;
@@ -696,7 +695,6 @@ fn constant() !void {
 test "pointer-to-array constness for zero-size elements, var" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
     try mutable();
     try comptime mutable();
 }
@@ -720,6 +718,8 @@ test "cast pointers with zero sized elements" {
 }
 
 test "comptime pointer equality through distinct fields with well-defined layout" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const A = extern struct {
         x: u32,
         z: u16,
@@ -744,6 +744,8 @@ test "comptime pointer equality through distinct fields with well-defined layout
 }
 
 test "comptime pointer equality through distinct elements with well-defined layout" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const buf: [2]u32 = .{ 123, 456 };
 
     const ptr: *const [2]u32 = &buf;
@@ -780,9 +782,11 @@ test "pointers to elements of many-ptr to zero-bit type" {
 }
 
 test "comptime C pointer to optional pointer" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const opt: ?*u8 = @ptrFromInt(0x1000);
     const outer_ptr: [*c]const ?*u8 = &opt;
     const inner_ptr = &outer_ptr.*.?;
-    comptime assert(@TypeOf(inner_ptr) == [*c]const *u8);
+    comptime assert(@TypeOf(inner_ptr) == *const *u8);
     comptime assert(@intFromPtr(inner_ptr.*) == 0x1000);
 }

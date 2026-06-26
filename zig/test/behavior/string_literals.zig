@@ -101,7 +101,6 @@ test "Peer type resolution with string literals and unknown length u8 pointers" 
 
 test "including the sentinel when dereferencing a string literal" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
     var var_str = "abc";
     const var_derefed = var_str[0 .. var_str.len + 1].*;
 

@@ -6,20 +6,20 @@ const innerParse = @import("static.zig").innerParse;
 const innerParseFromValue = @import("static.zig").innerParseFromValue;
 const Value = @import("dynamic.zig").Value;
 
-/// A thin wrapper around `std.StringArrayHashMapUnmanaged` that implements
+/// A thin wrapper around `std.array_hash_map.String` that implements
 /// `jsonParse`, `jsonParseFromValue`, and `jsonStringify`.
 /// This is useful when your JSON schema has an object with arbitrary data keys
 /// instead of comptime-known struct field names.
 pub fn ArrayHashMap(comptime T: type) type {
     return struct {
-        map: std.StringArrayHashMapUnmanaged(T) = .empty,
+        map: std.array_hash_map.String(T) = .empty,
 
         pub fn deinit(self: *@This(), allocator: Allocator) void {
             self.map.deinit(allocator);
         }
 
         pub fn jsonParse(allocator: Allocator, source: anytype, options: ParseOptions) !@This() {
-            var map: std.StringArrayHashMapUnmanaged(T) = .empty;
+            var map: std.array_hash_map.String(T) = .empty;
             errdefer map.deinit(allocator);
 
             if (.object_begin != try source.next()) return error.UnexpectedToken;
@@ -52,7 +52,7 @@ pub fn ArrayHashMap(comptime T: type) type {
         pub fn jsonParseFromValue(allocator: Allocator, source: Value, options: ParseOptions) !@This() {
             if (source != .object) return error.UnexpectedToken;
 
-            var map: std.StringArrayHashMapUnmanaged(T) = .empty;
+            var map: std.array_hash_map.String(T) = .empty;
             errdefer map.deinit(allocator);
 
             var it = source.object.iterator();

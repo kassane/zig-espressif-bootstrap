@@ -78,12 +78,19 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
             // unary
             .not,
-            .bitcast,
+            .bit_cast,
+            .ptr_cast,
+            .ptr_from_int,
+            .int_from_ptr,
+            .error_cast,
+            .error_from_int,
+            .int_from_error,
+            .union_from_enum,
             .load,
             .fpext,
             .fptrunc,
-            .intcast,
-            .intcast_safe,
+            .int_cast,
+            .int_cast_safe,
             .trunc,
             .optional_payload,
             .optional_payload_ptr,
@@ -191,7 +198,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
                 try self.verifyInstOperands(inst, .{ extra.init, .none, .none });
             },
-            .struct_field_ptr, .struct_field_val => {
+            .struct_field_ptr, .struct_field_val, .spirv_runtime_array_len => {
                 const ty_pl = data[@intFromEnum(inst)].ty_pl;
                 const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
                 try self.verifyInstOperands(inst, .{ extra.struct_operand, .none, .none });

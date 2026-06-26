@@ -7,7 +7,7 @@ const Translator = @import("Translator.zig");
 
 const Scope = @This();
 
-pub const SymbolTable = std.StringArrayHashMapUnmanaged(ast.Node);
+pub const SymbolTable = std.array_hash_map.String(ast.Node);
 pub const AliasList = std.ArrayList(struct {
     alias: []const u8,
     name: []const u8,
@@ -18,7 +18,7 @@ pub const ContainerMemberFns = struct {
     container_decl_ptr: *ast.Node,
     member_fns: std.ArrayList(*ast.Payload.Func) = .empty,
 };
-pub const ContainerMemberFnsHashMap = std.ArrayHashMapUnmanaged(
+pub const ContainerMemberFnsHashMap = std.array_hash_map.Custom(
     aro.QualType,
     ContainerMemberFns,
     struct {
@@ -79,7 +79,7 @@ pub const Block = struct {
     /// will be used. This maps the variable's name to the Discard payload, so that if
     /// the variable is subsequently referenced we can indicate that the discard should
     /// be skipped during the intermediate AST -> Zig AST render step.
-    variable_discards: std.StringArrayHashMapUnmanaged(*ast.Payload.Discard),
+    variable_discards: std.array_hash_map.String(*ast.Payload.Discard),
 
     /// When the block corresponds to a function, keep track of the return type
     /// so that the return expression can be cast, if necessary
@@ -209,7 +209,7 @@ pub const Root = struct {
     base: Scope,
     translator: *Translator,
     sym_table: SymbolTable,
-    blank_macros: std.StringArrayHashMapUnmanaged(void),
+    blank_macros: std.array_hash_map.String(void),
     nodes: std.ArrayList(ast.Node),
     container_member_fns_map: ContainerMemberFnsHashMap,
 
@@ -267,7 +267,7 @@ pub const Root = struct {
         const gpa = root.translator.gpa;
         const arena = root.translator.arena;
 
-        var member_names: std.StringArrayHashMapUnmanaged(void) = .empty;
+        var member_names: std.array_hash_map.String(void) = .empty;
         defer member_names.deinit(gpa);
         for (root.container_member_fns_map.keys(), root.container_member_fns_map.values()) |container_qt, members| {
             // Get the container name

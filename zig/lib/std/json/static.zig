@@ -32,6 +32,7 @@ pub const ParseOptions = struct {
     /// The default for `parseFromSlice` or `parseFromTokenSource` with a `*std.json.Scanner` input
     /// is the length of the input slice, which means `error.ValueTooLong` will never be returned.
     /// The default for `parseFromTokenSource` with a `*std.json.Reader` is `std.json.default_max_value_len`.
+    /// Ignored for values that don't need allocation or are not copied (see `allocate`).
     /// Ignored for `parseFromValue` and `parseFromValueLeaky`.
     max_value_len: ?usize = null,
 
@@ -495,7 +496,7 @@ pub fn innerParse(
                             if (ptrInfo.sentinel()) |s| {
                                 // Use our own array list so we can append the sentinel.
                                 var value_list = ArrayList(u8).init(allocator);
-                                _ = try source.allocNextIntoArrayList(&value_list, .alloc_always);
+                                _ = try source.allocNextIntoArrayListMax(&value_list, .alloc_always, options.max_value_len.?);
                                 return try value_list.toOwnedSliceSentinel(s);
                             }
                             if (ptrInfo.attrs.@"const") {

@@ -238,9 +238,6 @@ fn pegToken(a: *AstSmith, tag: Token.Tag) SourceError!void {
 
     switch (lexeme[0]) {
         '_', 'a'...'z', 'A'...'Z', '0'...'9' => try a.preservePegEndOfWord(),
-        '*' => if (a.tokens_len > 0 and a.source_buf[a.source_len - 1] == '*') {
-            try a.addSourceByte(' ');
-        },
         '.' => if (a.tokens_len > 0 and switch (a.source_buf[a.source_len - 1]) {
             '.' => true,
             '0'...'9', 'a'...'z', 'A'...'Z' => a.token_tag_buf[a.tokens_len - 1] == .number_literal,
@@ -1810,7 +1807,7 @@ fn pegPrefixTypeOp(a: *AstSmith) SourceError!void {
 }
 
 /// SuffixOp
-///     <- LBRACKET Expr (DOT2 (Expr? (COLON Expr)?)?)? RBRACKET
+///     <- LBRACKET Expr (DOT2 Expr? (COLON Expr)?)? RBRACKET
 ///      / DOT IDENTIFIER
 ///      / DOTASTERISK
 ///      / DOTQUESTIONMARK
@@ -1820,12 +1817,14 @@ fn pegSuffixOp(a: *AstSmith) SourceError!void {
             try a.pegToken(.l_bracket);
             try a.pegExpr();
 
-            const components = a.smith.value(u2);
-            if (components >= 1) try a.pegToken(.ellipsis2);
-            if (components >= 2) try a.pegExpr();
-            if (components >= 3) {
-                try a.pegToken(.colon);
-                try a.pegExpr();
+            if (a.smith.value(bool)) {
+                try a.pegToken(.ellipsis2);
+                if (a.smith.value(bool))
+                    try a.pegExpr();
+                if (a.smith.value(bool)) {
+                    try a.pegToken(.colon);
+                    try a.pegExpr();
+                }
             }
 
             try a.pegToken(.r_bracket);

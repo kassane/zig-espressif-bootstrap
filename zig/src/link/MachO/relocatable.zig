@@ -1,4 +1,4 @@
-pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
+pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Path) link.Error!void {
     const gpa = comp.gpa;
     const io = comp.io;
     const diags = &comp.link_diags;
@@ -9,8 +9,8 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Pat
     try positionals.ensureUnusedCapacity(comp.link_inputs.len);
     positionals.appendSliceAssumeCapacity(comp.link_inputs);
 
-    for (comp.c_object_table.keys()) |key| {
-        try positionals.append(try link.openObjectInput(io, diags, key.status.success.object_path));
+    for (comp.c_objects.items) |c_object| {
+        try positionals.append(try link.openObjectInput(io, diags, c_object.status.success.object_path));
     }
 
     if (module_obj_path) |path| try positionals.append(try link.openObjectInput(io, diags, path));
@@ -34,15 +34,15 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Pat
             diags.addParseError(link_input.path().?, "failed to read input file: {s}", .{@errorName(err)});
     }
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 
     try macho_file.parseInputFiles();
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 
     try macho_file.resolveSymbols();
     macho_file.dedupLiterals() catch |err| switch (err) {
-        error.OutOfMemory, error.LinkFailure => |e| return e,
+        error.OutOfMemory, error.AlreadyReported => |e| return e,
         else => |e| return diags.fail("failed to update ar size: {s}", .{@errorName(e)}),
     };
     markExports(macho_file);
@@ -54,7 +54,7 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Pat
 
     try createSegment(macho_file);
     allocateSections(macho_file) catch |err| switch (err) {
-        error.LinkFailure => |e| return e,
+        error.AlreadyReported => |e| return e,
         else => |e| return diags.fail("failed to allocate sections: {s}", .{@errorName(e)}),
     };
     allocateSegment(macho_file);
@@ -75,7 +75,7 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Pat
     try writeHeader(macho_file, ncmds, sizeofcmds);
 }
 
-pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
+pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Path) link.Error!void {
     const gpa = comp.gpa;
     const io = comp.io;
     const diags = &macho_file.base.comp.link_diags;
@@ -86,8 +86,8 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     try positionals.ensureUnusedCapacity(comp.link_inputs.len);
     positionals.appendSliceAssumeCapacity(comp.link_inputs);
 
-    for (comp.c_object_table.keys()) |key| {
-        try positionals.append(try link.openObjectInput(io, diags, key.status.success.object_path));
+    for (comp.c_objects.items) |c_object| {
+        try positionals.append(try link.openObjectInput(io, diags, c_object.status.success.object_path));
     }
 
     if (module_obj_path) |path| try positionals.append(try link.openObjectInput(io, diags, path));
@@ -105,11 +105,11 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
             diags.addParseError(link_input.path().?, "failed to read input file: {s}", .{@errorName(err)});
     }
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 
     try parseInputFilesAr(macho_file);
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 
     // First, we flush relocatable object file generated with our backends.
     if (macho_file.getZigObject()) |zo| {
@@ -231,7 +231,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     try macho_file.setLength(total_size);
     try macho_file.pwriteAll(writer.buffered(), 0);
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 }
 
 fn parseInputFilesAr(macho_file: *MachO) !void {
@@ -339,7 +339,7 @@ fn calcSectionSizes(macho_file: *MachO) !void {
     }
     try calcSymtabSize(macho_file);
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 }
 
 fn calcSectionSizeWorker(macho_file: *MachO, sect_id: u8) void {
@@ -586,7 +586,7 @@ fn sortRelocs(macho_file: *MachO) void {
     }
 }
 
-fn writeSections(macho_file: *MachO) link.File.FlushError!void {
+fn writeSections(macho_file: *MachO) link.Error!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -632,7 +632,7 @@ fn writeSections(macho_file: *MachO) link.File.FlushError!void {
         }
     }
 
-    if (diags.hasErrors()) return error.LinkFailure;
+    if (diags.hasErrors()) return error.AlreadyReported;
 
     if (macho_file.getZigObject()) |zo| {
         try zo.writeRelocs(macho_file);
@@ -685,7 +685,7 @@ fn writeSectionsToFile(macho_file: *MachO) !void {
     try macho_file.pwriteAll(macho_file.strtab.items, macho_file.symtab_cmd.stroff);
 }
 
-fn writeLoadCommands(macho_file: *MachO) error{ LinkFailure, OutOfMemory }!struct { usize, usize } {
+fn writeLoadCommands(macho_file: *MachO) error{ AlreadyReported, OutOfMemory }!struct { usize, usize } {
     const gpa = macho_file.base.comp.gpa;
     const needed_size = load_commands.calcLoadCommandsSizeObject(macho_file);
     const buffer = try gpa.alloc(u8, needed_size);

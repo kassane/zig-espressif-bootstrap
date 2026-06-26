@@ -707,7 +707,7 @@ def root_InternPool_Index_SummaryProvider(value, _=None):
     return re.sub(
         expr_path_re,
         lambda matchobj: getattr(unwrapped.GetValueForExpressionPath(matchobj[1]), matchobj[2]).strip(matchobj[3] or ''),
-        summary.summary.removeprefix('.').removeprefix('@"').removesuffix('"').replace(r'\"', '"'),
+        summary.value.removeprefix('.').removeprefix('@"').removesuffix('"').replace(r'\"', '"'),
     )
 
 class root_InternPool_Index_SynthProvider:
@@ -773,7 +773,7 @@ class root_InternPool_Index_Unwrapped_SynthProvider:
                 trailing_type = encoding_trailing.GetValueAsType()
                 trailing_bytes, trailing_data = bytearray(trailing_type.size), lldb.SBData()
                 def eval_config(config_name):
-                    expr = encoding_config.GetChildMemberWithName(config_name).summary.removeprefix('.').removeprefix('@"').removesuffix('"').replace(r'\"', '"')
+                    expr = encoding_config.GetChildMemberWithName(config_name).value.removeprefix('.').removeprefix('@"').removesuffix('"').replace(r'\"', '"')
                     if 'payload.' in expr:
                         return self.payload.EvaluateExpression(expr.replace('payload.', '@this().'))
                     elif expr.startswith('trailing.'):
@@ -848,7 +848,8 @@ def root_InternPool_String_SummaryProvider(value, _=None):
     if local_value is None:
         wrapped = 0
         local_value = locals_value.child[0]
-    string = local_value.GetChildMemberWithName('shared').GetChildMemberWithName('strings').GetChildMemberWithName('view').GetChildMemberWithName('0').child[wrapped & (1 << tid_shift_32) - 1].address_of
+    shared = local_value.GetChildMemberWithName('shared')
+    string = shared.GetChildMemberWithName('string_bytes').GetChildMemberWithName('view').GetChildMemberWithName('0').child[shared.GetChildMemberWithName('strings').GetChildMemberWithName('view').GetChildMemberWithName('0').child[wrapped & (1 << tid_shift_32) - 1].unsigned].address_of
     string.format = lldb.eFormatCString
     return string.value
 
@@ -878,13 +879,13 @@ class root_InternPool_Nav_Index_SynthProvider:
         wrapped = self.value.unsigned
         if wrapped == (1 << 32) - 1: return
         ip = self.value.CreateValueFromType(self.value.type).GetChildMemberWithName('debug_state').GetChildMemberWithName('intern_pool').GetNonSyntheticValue().GetChildMemberWithName('?')
-        tid_shift_32 = ip.GetChildMemberWithName('tid_shift_32').unsigned
+        tid_shift_30 = ip.GetChildMemberWithName('tid_shift_30').unsigned
         locals_value = ip.GetChildMemberWithName('locals').GetSyntheticValue()
-        local_value = locals_value.child[wrapped >> tid_shift_32]
+        local_value = locals_value.child[wrapped >> tid_shift_30]
         if local_value is None:
             wrapped = 0
             local_value = locals_value.child[0]
-        self.nav = local_value.GetChildMemberWithName('shared').GetChildMemberWithName('navs').GetChildMemberWithName('view').child[wrapped & (1 << tid_shift_32) - 1]
+        self.nav = local_value.GetChildMemberWithName('shared').GetChildMemberWithName('navs').GetChildMemberWithName('view').child[wrapped & (1 << tid_shift_30) - 1]
     def has_children(self): return False if self.nav is None else self.nav.GetNumChildren(1) > 0
     def num_children(self): return 0 if self.nav is None else self.nav.GetNumChildren()
     def get_child_index(self, name): return -1 if self.nav is None else self.nav.GetIndexOfChildWithName(name)
