@@ -29,6 +29,27 @@
 
 using namespace llvm;
 
+std::optional<unsigned> llvm::getQR64LaneSubIdx(MCRegister Reg) {
+  if (Reg >= RISCV::Q0_D0 && Reg <= RISCV::Q7_D0)
+    return RISCV::sub_qr_64;
+  if (Reg >= RISCV::Q0_D1 && Reg <= RISCV::Q7_D1)
+    return RISCV::sub_qr_64_hi;
+  return std::nullopt;
+}
+
+std::optional<unsigned>
+llvm::getQR64SubRegIdxForExtractIndex(unsigned OrigIdx, unsigned VecNumElts) {
+  if (OrigIdx == 0)
+    return RISCV::sub_qr_64;
+  if (OrigIdx == VecNumElts / 2)
+    return RISCV::sub_qr_64_hi;
+  return std::nullopt;
+}
+
+unsigned llvm::getQR64HiExtractIndex(unsigned VecNumElts) {
+  return VecNumElts / 2;
+}
+
 static cl::opt<bool> DisableCostPerUse("riscv-disable-cost-per-use",
                                        cl::init(false), cl::Hidden);
 static cl::opt<bool>
@@ -503,6 +524,120 @@ void RISCVRegisterInfo::lowerSegmentSpillReload(MachineBasicBlock::iterator II,
   II->eraseFromParent();
 }
 
+void RISCVRegisterInfo::lowerESPVSPILL(MachineBasicBlock::iterator II) const {
+  DebugLoc DL = II->getDebugLoc();
+  MachineBasicBlock &MBB = *II->getParent();
+  MachineFunction &MF = *MBB.getParent();
+  MachineRegisterInfo &MRI = MF.getRegInfo();
+  const RISCVSubtarget &STI = MF.getSubtarget<RISCVSubtarget>();
+  const TargetInstrInfo *TII = STI.getInstrInfo();
+
+  Register SrcReg = II->getOperand(0).getReg();
+  Register Base = II->getOperand(1).getReg();
+  int64_t Offset = II->getOperand(2).getImm();
+
+  Register TempReg = MRI.createVirtualRegister(&RISCV::GPRPIERegClass);
+  BuildMI(MBB, II, DL, TII->get(RISCV::ADDI), TempReg)
+      .addReg(Base)
+      .addImm(Offset);
+
+  unsigned OpcVst = STI.getESPSpill128Opcode();
+  BuildMI(MBB, II, DL, TII->get(OpcVst))
+      .addReg(TempReg, RegState::Define | RegState::Dead)
+      .addReg(SrcReg, getKillRegState(II->getOperand(0).isKill()))
+      .addReg(TempReg)
+      .addImm(0)
+      .addMemOperand(*(II->memoperands_begin()));
+
+  II->eraseFromParent();
+}
+
+void RISCVRegisterInfo::lowerESPVRELOAD(MachineBasicBlock::iterator II) const {
+  DebugLoc DL = II->getDebugLoc();
+  MachineBasicBlock &MBB = *II->getParent();
+  MachineFunction &MF = *MBB.getParent();
+  MachineRegisterInfo &MRI = MF.getRegInfo();
+  const RISCVSubtarget &STI = MF.getSubtarget<RISCVSubtarget>();
+  const TargetInstrInfo *TII = STI.getInstrInfo();
+
+  Register DstReg = II->getOperand(0).getReg();
+  Register Base = II->getOperand(1).getReg();
+  int64_t Offset = II->getOperand(2).getImm();
+
+  Register TempReg = MRI.createVirtualRegister(&RISCV::GPRPIERegClass);
+  BuildMI(MBB, II, DL, TII->get(RISCV::ADDI), TempReg)
+      .addReg(Base)
+      .addImm(Offset);
+
+  unsigned OpcVld = STI.getESPReload128Opcode();
+  BuildMI(MBB, II, DL, TII->get(OpcVld))
+      .addReg(DstReg, RegState::Define)
+      .addReg(TempReg, RegState::Define | RegState::Dead)
+      .addReg(TempReg)
+      .addImm(0)
+      .addMemOperand(*(II->memoperands_begin()));
+
+  II->eraseFromParent();
+}
+
+void RISCVRegisterInfo::lowerESPVSPILL_64(
+    MachineBasicBlock::iterator II) const {
+  DebugLoc DL = II->getDebugLoc();
+  MachineBasicBlock &MBB = *II->getParent();
+  MachineFunction &MF = *MBB.getParent();
+  MachineRegisterInfo &MRI = MF.getRegInfo();
+  const RISCVSubtarget &STI = MF.getSubtarget<RISCVSubtarget>();
+  const TargetInstrInfo *TII = STI.getInstrInfo();
+
+  Register SrcReg = II->getOperand(0).getReg();
+  Register Base = II->getOperand(1).getReg();
+  int64_t Offset = II->getOperand(2).getImm();
+
+  Register TempReg = MRI.createVirtualRegister(&RISCV::GPRPIERegClass);
+  BuildMI(MBB, II, DL, TII->get(RISCV::ADDI), TempReg)
+      .addReg(Base)
+      .addImm(Offset);
+
+  unsigned OpcVst = STI.getESPSpillL64Opcode();
+  BuildMI(MBB, II, DL, TII->get(OpcVst))
+      .addReg(TempReg, RegState::Define | RegState::Dead)
+      .addReg(SrcReg, getKillRegState(II->getOperand(0).isKill()))
+      .addReg(TempReg)
+      .addImm(0)
+      .addMemOperand(*(II->memoperands_begin()));
+
+  II->eraseFromParent();
+}
+
+void RISCVRegisterInfo::lowerESPVRELOAD_64(
+    MachineBasicBlock::iterator II) const {
+  DebugLoc DL = II->getDebugLoc();
+  MachineBasicBlock &MBB = *II->getParent();
+  MachineFunction &MF = *MBB.getParent();
+  MachineRegisterInfo &MRI = MF.getRegInfo();
+  const RISCVSubtarget &STI = MF.getSubtarget<RISCVSubtarget>();
+  const TargetInstrInfo *TII = STI.getInstrInfo();
+
+  Register DstReg = II->getOperand(0).getReg();
+  Register Base = II->getOperand(1).getReg();
+  int64_t Offset = II->getOperand(2).getImm();
+
+  Register TempReg = MRI.createVirtualRegister(&RISCV::GPRPIERegClass);
+  BuildMI(MBB, II, DL, TII->get(RISCV::ADDI), TempReg)
+      .addReg(Base)
+      .addImm(Offset);
+
+  unsigned OpcVld = STI.getESPReloadL64Opcode();
+  BuildMI(MBB, II, DL, TII->get(OpcVld))
+      .addReg(DstReg, RegState::Define)
+      .addReg(TempReg, RegState::Define | RegState::Dead)
+      .addReg(TempReg)
+      .addImm(0)
+      .addMemOperand(*(II->memoperands_begin()));
+
+  II->eraseFromParent();
+}
+
 bool RISCVRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
                                             int SPAdj, unsigned FIOperandNum,
                                             RegScavenger *RS) const {
@@ -526,10 +661,32 @@ bool RISCVRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
         "Frame offsets outside of the signed 32-bit range not supported");
   }
 
+  unsigned Opc = MI.getOpcode();
+  auto IsESPVIPFrameIndex = [](unsigned Opc) {
+    return Opc == RISCV::ESP_VST_128_IP || Opc == RISCV::ESP_VLD_128_IP ||
+           Opc == RISCV::ESP_VST_128_IP_2P2 ||
+           Opc == RISCV::ESP_VLD_128_IP_2P2 || Opc == RISCV::ESP_VST_H_64_IP ||
+           Opc == RISCV::ESP_VLD_H_64_IP || Opc == RISCV::ESP_VST_H_64_IP_2P2 ||
+           Opc == RISCV::ESP_VLD_H_64_IP_2P2 || Opc == RISCV::ESP_VST_L_64_IP ||
+           Opc == RISCV::ESP_VLD_L_64_IP || Opc == RISCV::ESP_VST_L_64_IP_2P2 ||
+           Opc == RISCV::ESP_VLD_L_64_IP_2P2;
+  };
+
+  if (IsESPVIPFrameIndex(Opc)) {
+    Register AddrReg = MRI.createVirtualRegister(&RISCV::GPRPIERegClass);
+    adjustReg(*II->getParent(), II, DL, AddrReg, FrameReg, Offset,
+              MachineInstr::NoFlags, std::nullopt);
+    MI.getOperand(FIOperandNum)
+        .ChangeToRegister(AddrReg, /*IsDef*/ false,
+                          /*IsImp*/ false,
+                          /*IsKill*/ true);
+    MI.getOperand(FIOperandNum + 1).ChangeToImmediate(0);
+    return false;
+  }
+
   if (!IsRVVSpill) {
     int64_t Val = Offset.getFixed();
     int64_t Lo12 = SignExtend64<12>(Val);
-    unsigned Opc = MI.getOpcode();
 
     if (Opc == RISCV::ADDI && !isInt<12>(Val)) {
       // We chose to emit the canonical immediate sequence rather than folding
@@ -618,6 +775,18 @@ bool RISCVRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   case RISCV::PseudoVRELOAD7_M1:
   case RISCV::PseudoVRELOAD8_M1:
     lowerSegmentSpillReload(II, /*IsSpill=*/false);
+    return true;
+  case RISCV::PseudoESP_VSPILL_128:
+    lowerESPVSPILL(II);
+    return true;
+  case RISCV::PseudoESP_VRELOAD_128:
+    lowerESPVRELOAD(II);
+    return true;
+  case RISCV::PseudoESP_VSPILL_64:
+    lowerESPVSPILL_64(II);
+    return true;
+  case RISCV::PseudoESP_VRELOAD_64:
+    lowerESPVRELOAD_64(II);
     return true;
   }
 

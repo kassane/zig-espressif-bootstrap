@@ -170,11 +170,53 @@ public:
   bool GETTER() const { return ATTRIBUTE; }
 #include "RISCVGenSubtargetInfo.inc"
 
-  /// ESPV target lowering is enabled only when both the ESPV ISA (xespv1v) and
-  /// the opt-in flag (espv-lowering) are set. Default off; use -mattr=+espv-lowering
-  /// for tests and IDF builds until well tested.
+  /// ESPV target lowering when +espv-lowering is on and the function has ESPV
+  /// 2.1 (+xespv1v) and/or 2.2 (+xespv).
   bool hasESPVTargetLowering() const {
-    return hasVendorXespv1v() && hasVendorXespvLowering();
+    return hasVendorXespvLowering() && (hasVendorXespv1v() || hasVendorXespv());
+  }
+
+  /// Shared .m intrinsics select 2.2 MC instructions only on pure ESPV 2.2.
+  bool useESPV2P2Instructions() const {
+    return hasVendorXespv() && !hasVendorXespv1v();
+  }
+
+  unsigned getESPSpill128Opcode() const {
+    return hasVendorXespv() ? RISCV::ESP_VST_128_IP_2P2 : RISCV::ESP_VST_128_IP;
+  }
+  unsigned getESPReload128Opcode() const {
+    return hasVendorXespv() ? RISCV::ESP_VLD_128_IP_2P2 : RISCV::ESP_VLD_128_IP;
+  }
+  unsigned getESPSpillL64Opcode() const {
+    return hasVendorXespv() ? RISCV::ESP_VST_L_64_IP_2P2
+                            : RISCV::ESP_VST_L_64_IP;
+  }
+  unsigned getESPReloadL64Opcode() const {
+    return hasVendorXespv() ? RISCV::ESP_VLD_L_64_IP_2P2
+                            : RISCV::ESP_VLD_L_64_IP;
+  }
+  static bool isESPVFrameIndexSpillOpcode(unsigned Opc) {
+    switch (Opc) {
+    case RISCV::PseudoESP_VSPILL_128:
+    case RISCV::PseudoESP_VRELOAD_128:
+    case RISCV::PseudoESP_VSPILL_64:
+    case RISCV::PseudoESP_VRELOAD_64:
+    case RISCV::ESP_VST_128_IP:
+    case RISCV::ESP_VLD_128_IP:
+    case RISCV::ESP_VST_128_IP_2P2:
+    case RISCV::ESP_VLD_128_IP_2P2:
+    case RISCV::ESP_VST_H_64_IP:
+    case RISCV::ESP_VLD_H_64_IP:
+    case RISCV::ESP_VST_H_64_IP_2P2:
+    case RISCV::ESP_VLD_H_64_IP_2P2:
+    case RISCV::ESP_VST_L_64_IP:
+    case RISCV::ESP_VLD_L_64_IP:
+    case RISCV::ESP_VST_L_64_IP_2P2:
+    case RISCV::ESP_VLD_L_64_IP_2P2:
+      return true;
+    default:
+      return false;
+    }
   }
 
   LLVM_DEPRECATED("Now Equivalent to hasStdExtZca", "hasStdExtZca")

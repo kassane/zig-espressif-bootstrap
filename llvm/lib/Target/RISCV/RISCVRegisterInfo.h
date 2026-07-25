@@ -16,10 +16,21 @@
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/TargetParser/RISCVTargetParser.h"
 
+#include <optional>
+
 #define GET_REGINFO_HEADER
 #include "RISCVGenRegisterInfo.inc"
 
 namespace llvm {
+
+/// QR_64 physical encoding: Q0_D0..Q7_D0 = low lane, Q0_D1..Q7_D1 = high.
+std::optional<unsigned> getQR64LaneSubIdx(MCRegister Reg);
+
+/// Map EXTRACT_SUBVECTOR index on a QR (v16i8) to subregister index.
+std::optional<unsigned> getQR64SubRegIdxForExtractIndex(unsigned OrigIdx,
+                                                        unsigned VecNumElts);
+
+unsigned getQR64HiExtractIndex(unsigned VecNumElts);
 
 namespace RISCVRI {
 enum : uint8_t {
@@ -116,6 +127,11 @@ struct RISCVRegisterInfo : public RISCVGenRegisterInfo {
 
   void lowerSegmentSpillReload(MachineBasicBlock::iterator II,
                                bool IsSpill) const;
+
+  void lowerESPVSPILL(MachineBasicBlock::iterator II) const;
+  void lowerESPVRELOAD(MachineBasicBlock::iterator II) const;
+  void lowerESPVSPILL_64(MachineBasicBlock::iterator II) const;
+  void lowerESPVRELOAD_64(MachineBasicBlock::iterator II) const;
 
   Register getFrameRegister(const MachineFunction &MF) const override;
 
