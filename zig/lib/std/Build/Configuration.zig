@@ -10,8 +10,7 @@ const native_endian = builtin.target.cpu.arch.endian();
 
 string_bytes: []u8,
 steps: []Step,
-path_deps_base: []Path.Base,
-path_deps_sub: []String,
+path_deps: []PathDep,
 unlazy_deps: []String,
 system_integrations: []SystemIntegration,
 available_options: []AvailableOption,
@@ -57,7 +56,7 @@ pub const Wip = struct {
     system_integrations: std.ArrayList(SystemIntegration) = .empty,
     available_options: std.ArrayList(AvailableOption) = .empty,
     steps: std.ArrayList(Step) = .empty,
-    path_deps: std.MultiArrayList(Path) = .empty,
+    path_deps: std.ArrayList(PathDep) = .empty,
     search_prefixes: std.ArrayList(String) = .empty,
     extra: std.ArrayList(u32) = .empty,
     next_generated_file_index: u32 = 0,
@@ -110,7 +109,7 @@ pub const Wip = struct {
         }
 
         pub fn hash(ctx: @This(), key: String) u64 {
-            return std.hash_map.hashString(std.mem.sliceTo(ctx.bytes[@intFromEnum(key)..], 0));
+            return std.hash_map.hashString(std.mem.sliceTo(ctx.bytes[@backingInt(key)..], 0));
         }
     };
 
@@ -118,7 +117,7 @@ pub const Wip = struct {
         bytes: []const u8,
 
         pub fn eql(ctx: @This(), a: []const u8, b: String) bool {
-            return std.mem.eql(u8, a, std.mem.sliceTo(ctx.bytes[@intFromEnum(b)..], 0));
+            return std.mem.eql(u8, a, std.mem.sliceTo(ctx.bytes[@backingInt(b)..], 0));
         }
 
         pub fn hash(_: @This(), adapted_key: []const u8) u64 {
@@ -154,7 +153,7 @@ pub const Wip = struct {
         const header: Header = .{
             .string_bytes_len = @intCast(wip.string_bytes.items.len),
             .steps_len = @intCast(wip.steps.items.len),
-            .path_deps_len = @intCast(wip.path_deps.len),
+            .path_deps_len = @intCast(wip.path_deps.items.len),
             .unlazy_deps_len = @intCast(wip.unlazy_deps.items.len),
             .system_integrations_len = @intCast(wip.system_integrations.items.len),
             .available_options_len = @intCast(wip.available_options.items.len),
@@ -171,8 +170,7 @@ pub const Wip = struct {
             @ptrCast(&header),
             wip.string_bytes.items,
             @ptrCast(wip.steps.items),
-            @ptrCast(wip.path_deps.items(.base)),
-            @ptrCast(wip.path_deps.items(.sub)),
+            @ptrCast(wip.path_deps.items),
             @ptrCast(wip.unlazy_deps.items),
             @ptrCast(wip.system_integrations.items),
             @ptrCast(wip.available_options.items),
@@ -194,7 +192,7 @@ pub const Wip = struct {
         if (gop.found_existing) return gop.key_ptr.*;
 
         try wip.string_bytes.ensureUnusedCapacity(gpa, bytes.len + 1);
-        const new_off: String = @enumFromInt(wip.string_bytes.items.len);
+        const new_off: String = @fromBackingInt(@intCast(wip.string_bytes.items.len));
 
         wip.string_bytes.appendSliceAssumeCapacity(bytes);
         wip.string_bytes.appendAssumeCapacity(0);
@@ -215,7 +213,7 @@ pub const Wip = struct {
         const revert_index: u32 = @intCast(wip.extra.items.len);
         const added = try wip.extra.addManyAsSlice(gpa, list.len + 1);
         added[0] = @intCast(list.len);
-        for (added[1..], list) |*d, s| d.* = @intFromEnum(try addString(wip, s));
+        for (added[1..], list) |*d, s| d.* = @backingInt(try addString(wip, s));
         const gop = try wip.dedupe_table.getOrPutContext(gpa, .{
             .index = revert_index,
             .len = @intCast(added.len),
@@ -223,10 +221,10 @@ pub const Wip = struct {
 
         if (gop.found_existing) {
             wip.extra.items.len = revert_index;
-            return @enumFromInt(gop.key_ptr.index);
+            return @fromBackingInt(@intCast(gop.key_ptr.index));
         }
 
-        return @enumFromInt(revert_index);
+        return @fromBackingInt(@intCast(revert_index));
     }
 
     pub fn addBytes(wip: *Wip, bytes: []const u8) Allocator.Error!Bytes {
@@ -298,7 +296,7 @@ pub const Wip = struct {
             .extra = wip.extra.items,
         }));
         if (gop.found_existing) {
-            wip.extra.items.len = @intFromEnum(result_index);
+            wip.extra.items.len = @backingInt(result_index);
             return .init(gop.key_ptr.*);
         } else {
             return .init(result_index);
@@ -373,7 +371,7 @@ pub const Wip = struct {
             .extra = wip.extra.items,
         }));
         if (gop.found_existing) {
-            wip.extra.items.len = @intFromEnum(result_index);
+            wip.extra.items.len = @backingInt(result_index);
             return gop.key_ptr.*;
         } else {
             return result_index;
@@ -412,14 +410,14 @@ pub const Wip = struct {
 
         if (gop.found_existing) {
             wip.extra.items.len = revert_index;
-            return @enumFromInt(gop.key_ptr.index);
+            return @fromBackingInt(@intCast(gop.key_ptr.index));
         }
 
-        return @enumFromInt(new_index);
+        return @fromBackingInt(@intCast(new_index));
     }
 
     pub fn addExtraReserved(wip: *Wip, comptime T: type, v: T) T.Index {
-        return @enumFromInt(addExtraReservedErased(wip, T, v));
+        return @fromBackingInt(@intCast(addExtraReservedErased(wip, T, v)));
     }
 
     pub fn addExtraReservedErased(wip: *Wip, comptime T: type, v: T) u32 {
@@ -430,17 +428,17 @@ pub const Wip = struct {
 
     fn addExtraOptionalStringAssumeCapacity(wip: *Wip, optional_string: ?String) void {
         const string = optional_string orelse return;
-        wip.extra.appendAssumeCapacity(@intFromEnum(string));
+        wip.extra.appendAssumeCapacity(@backingInt(string));
     }
 
     pub fn addGeneratedFile(wip: *Wip) GeneratedFileIndex {
         defer wip.next_generated_file_index += 1;
-        return @enumFromInt(wip.next_generated_file_index);
+        return @fromBackingInt(@intCast(wip.next_generated_file_index));
     }
 
     /// Returned slice expires upon next append to the configuration.
     pub fn stringSlice(wip: *const Wip, s: String) [:0]const u8 {
-        const start_slice = wip.string_bytes.items[@intFromEnum(s)..];
+        const start_slice = wip.string_bytes.items[@backingInt(s)..];
         return start_slice[0..std.mem.indexOfScalar(u8, start_slice, 0).? :0];
     }
 };
@@ -505,7 +503,7 @@ pub const Step = extern struct {
         _,
 
         pub fn ptr(i: Index, c: *const Configuration) *const Step {
-            return &c.steps[@intFromEnum(i)];
+            return &c.steps[@backingInt(i)];
         }
     };
 
@@ -1136,7 +1134,7 @@ pub const Step = extern struct {
                         .undef => .undef,
                         .defined => .defined,
                         _ => {
-                            const value = extraData(c, Value, @intFromEnum(this));
+                            const value = extraData(c, Value, @backingInt(this));
                             return switch (value.flags.tag) {
                                 .ident => .{ .ident = value.ident.value.?.slice(c) },
                                 .string => .{ .string = value.string.value.?.slice(c) },
@@ -1459,7 +1457,7 @@ pub const Step = extern struct {
     };
 
     pub fn flags(s: *const Step, c: *const Configuration) Flags {
-        return @bitCast(c.extra[@intFromEnum(s.extended)]);
+        return @bitCast(c.extra[@backingInt(s.extended)]);
     }
 };
 
@@ -1468,12 +1466,12 @@ pub const MaxRss = enum(u32) {
     _,
 
     pub fn toBytes(mr: MaxRss) u64 {
-        const x: usize = @intFromEnum(mr);
+        const x: usize = @backingInt(mr);
         return x << 8;
     }
 
     pub fn fromBytes(bytes: u64) MaxRss {
-        return @enumFromInt(bytes >> 8);
+        return @fromBackingInt(@intCast(bytes >> 8));
     }
 };
 
@@ -1501,7 +1499,7 @@ pub const LazyPath = union(@This().Tag) {
         _,
 
         pub fn get(this: @This(), c: *const Configuration) LazyPath {
-            return extraData(c, LazyPath, @intFromEnum(this));
+            return extraData(c, LazyPath, @backingInt(this));
         }
     };
 
@@ -1513,7 +1511,7 @@ pub const LazyPath = union(@This().Tag) {
         pub fn unwrap(this: @This()) ?Index {
             return switch (this) {
                 .none => null,
-                else => @enumFromInt(@intFromEnum(this)),
+                else => @fromBackingInt(@intCast(@backingInt(this))),
             };
         }
     };
@@ -1551,8 +1549,22 @@ pub const LazyPath = union(@This().Tag) {
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .relative,
-            base: Path.Base,
+            base: Base,
             _: u16 = 0,
+        };
+
+        pub const Base = enum(u8) {
+            cwd,
+            local_cache,
+            global_cache,
+            /// Must not be used with Relative since package index is missing.
+            build_root,
+            zig_exe,
+            zig_lib,
+            install_prefix,
+            install_lib,
+            install_bin,
+            install_include,
         };
     };
 };
@@ -1566,13 +1578,13 @@ pub const OptionalGeneratedFileIndex = enum(u32) {
     _,
 
     pub fn init(i: ?GeneratedFileIndex) OptionalGeneratedFileIndex {
-        return @enumFromInt(@intFromEnum(i orelse return .none));
+        return @fromBackingInt(@intCast(@backingInt(i orelse return .none)));
     }
 
     pub fn unwrap(this: @This()) ?GeneratedFileIndex {
         return switch (this) {
             .none => null,
-            else => @enumFromInt(@intFromEnum(this)),
+            else => @fromBackingInt(@intCast(@backingInt(this))),
         };
     }
 };
@@ -1589,12 +1601,32 @@ pub const Package = struct {
         /// Returns `null` for root package.
         pub fn get(i: @This(), c: *const Configuration) ?Package {
             if (i == .root) return null;
-            return extraData(c, Package, @intFromEnum(i));
+            return extraData(c, Package, @backingInt(i));
         }
 
         pub fn depPrefixSlice(i: @This(), c: *const Configuration) [:0]const u8 {
             const package = get(i, c) orelse return "";
             return package.dep_prefix.slice(c);
+        }
+    };
+
+    pub const OptionalIndex = enum(u32) {
+        none = max_u32 - 1,
+        root = max_u32,
+        _,
+
+        pub fn init(i: Index) OptionalIndex {
+            const result: OptionalIndex = @fromBackingInt(@intCast(@backingInt(i)));
+            assert(result != .none);
+            return result;
+        }
+
+        pub fn unwrap(this: @This()) ?Index {
+            return switch (this) {
+                .none => null,
+                .root => .root,
+                _ => @fromBackingInt(@intCast(@backingInt(this))),
+            };
         }
     };
 };
@@ -1623,10 +1655,10 @@ pub const Module = struct {
 
         pub fn init(o: ?std.builtin.OptimizeMode) Optimize {
             return switch (o orelse return .default) {
-                .Debug => .debug,
-                .ReleaseSafe => .safe,
-                .ReleaseFast => .fast,
-                .ReleaseSmall => .small,
+                .debug => .debug,
+                .safe => .safe,
+                .fast => .fast,
+                .small => .small,
             };
         }
     };
@@ -1678,7 +1710,7 @@ pub const Module = struct {
         _,
 
         pub fn get(this: @This(), c: *const Configuration) Module {
-            return extraData(c, Module, @intFromEnum(this));
+            return extraData(c, Module, @backingInt(this));
         }
     };
 
@@ -1770,7 +1802,7 @@ pub const ImportTable = struct {
         pub fn get(this: @This(), c: *const Configuration) ImportTable {
             return switch (this) {
                 .invalid => unreachable,
-                _ => extraData(c, ImportTable, @intFromEnum(this)),
+                _ => extraData(c, ImportTable, @backingInt(this)),
             };
         }
     };
@@ -1783,7 +1815,7 @@ pub const Deps = struct {
         _,
 
         pub fn get(this: @This(), c: *const Configuration) Deps {
-            return extraData(c, Deps, @intFromEnum(this));
+            return extraData(c, Deps, @backingInt(this));
         }
 
         pub fn slice(this: @This(), c: *const Configuration) []const Step.Index {
@@ -1807,8 +1839,8 @@ pub const StringList = enum(u32) {
     _,
 
     pub fn slice(this: @This(), c: *const Configuration) []const String {
-        const len = c.extra[@intFromEnum(this)];
-        return @ptrCast(c.extra[@intFromEnum(this) + 1 ..][0..len]);
+        const len = c.extra[@backingInt(this)];
+        return @ptrCast(c.extra[@backingInt(this) + 1 ..][0..len]);
     }
 };
 
@@ -1818,14 +1850,14 @@ pub const OptionalStringList = enum(u32) {
 
     pub fn init(opt_string_list: ?StringList) OptionalStringList {
         const sl = opt_string_list orelse return .none;
-        const result: OptionalStringList = @enumFromInt(@intFromEnum(sl));
+        const result: OptionalStringList = @fromBackingInt(@intCast(@backingInt(sl)));
         assert(result != .none);
         return result;
     }
 
     pub fn unwrap(this: @This()) ?StringList {
         if (this == .none) return null;
-        return @enumFromInt(@intFromEnum(this));
+        return @fromBackingInt(@intCast(@backingInt(this)));
     }
 
     pub fn slice(this: @This(), c: *const Configuration) ?[]const String {
@@ -1833,29 +1865,18 @@ pub const OptionalStringList = enum(u32) {
     }
 };
 
-pub const Path = extern struct {
-    base: Base,
+pub const PathDep = extern struct {
+    flags: Flags,
     sub: String,
+    pkg: Package.OptionalIndex,
 
-    pub const Base = enum(u8) {
-        cwd,
-        local_cache,
-        global_cache,
-        build_root,
-        zig_exe,
-        zig_lib,
-        install_prefix,
-        install_lib,
-        install_bin,
-        install_include,
+    pub const Flags = packed struct(u32) {
+        mode: Mode,
+        base: LazyPath.Relative.Base,
+        _: u16 = 0,
     };
 
-    pub fn toCachePath(path: Path, c: *const Configuration, arena: Allocator) std.Build.Cache.Path {
-        _ = c;
-        _ = arena;
-        _ = path;
-        @panic("TODO");
-    }
+    pub const Mode = enum(u8) { directory, contents, metadata };
 };
 
 pub const InstallDestDir = enum(u32) {
@@ -1868,8 +1889,8 @@ pub const InstallDestDir = enum(u32) {
     _,
 
     pub fn initCustom(sub_path: String) InstallDestDir {
-        assert(@intFromEnum(sub_path) < @intFromEnum(InstallDestDir.none));
-        return @enumFromInt(@intFromEnum(sub_path));
+        assert(@backingInt(sub_path) < @backingInt(InstallDestDir.none));
+        return @fromBackingInt(@intCast(@backingInt(sub_path)));
     }
 
     pub const Unpacked = union(enum) {
@@ -1887,7 +1908,7 @@ pub const InstallDestDir = enum(u32) {
             .lib => .lib,
             .bin => .bin,
             .header => .header,
-            _ => .{ .sub_path = @enumFromInt(@intFromEnum(this)) },
+            _ => .{ .sub_path = @fromBackingInt(@intCast(@backingInt(this))) },
         };
     }
 };
@@ -1901,14 +1922,14 @@ pub const OptionalString = enum(u32) {
     _,
 
     pub fn init(s: String) OptionalString {
-        const result: OptionalString = @enumFromInt(@intFromEnum(s));
+        const result: OptionalString = @fromBackingInt(@intCast(@backingInt(s)));
         assert(result != .none);
         return result;
     }
 
     pub fn unwrap(this: @This()) ?String {
         if (this == .none) return null;
-        return @enumFromInt(@intFromEnum(this));
+        return @fromBackingInt(@intCast(@backingInt(this)));
     }
 
     pub fn slice(this: @This(), c: *const Configuration) ?[:0]const u8 {
@@ -1924,7 +1945,7 @@ pub const String = enum(u32) {
     _,
 
     pub fn slice(index: String, c: *const Configuration) [:0]const u8 {
-        const start_slice = c.string_bytes[@intFromEnum(index)..];
+        const start_slice = c.string_bytes[@backingInt(index)..];
         return start_slice[0..std.mem.indexOfScalar(u8, start_slice, 0).? :0];
     }
 };
@@ -1954,13 +1975,13 @@ pub const Alignment = enum(u6) {
 
     pub fn init(optional_alignment: ?std.mem.Alignment) @This() {
         const a = optional_alignment orelse return .none;
-        return @enumFromInt(@intFromEnum(a));
+        return @fromBackingInt(@intCast(@backingInt(a)));
     }
 
     pub fn toBytes(a: @This()) ?u64 {
         return switch (a) {
             .none => null,
-            else => @as(u64, 1) << @intFromEnum(a),
+            else => @as(u64, 1) << @backingInt(a),
         };
     }
 };
@@ -1994,7 +2015,7 @@ pub const SystemLib = struct {
         _,
 
         pub fn get(this: @This(), c: *const Configuration) SystemLib {
-            return extraData(c, SystemLib, @intFromEnum(this));
+            return extraData(c, SystemLib, @backingInt(this));
         }
     };
 
@@ -2033,7 +2054,7 @@ pub const CSourceFiles = struct {
         _,
 
         pub fn get(this: @This(), c: *const Configuration) CSourceFiles {
-            return extraData(c, CSourceFiles, @intFromEnum(this));
+            return extraData(c, CSourceFiles, @backingInt(this));
         }
     };
 
@@ -2053,7 +2074,7 @@ pub const CSourceFile = struct {
         _,
 
         pub fn get(this: @This(), c: *const Configuration) CSourceFile {
-            return extraData(c, CSourceFile, @intFromEnum(this));
+            return extraData(c, CSourceFile, @backingInt(this));
         }
     };
 
@@ -2074,7 +2095,7 @@ pub const RcSourceFile = struct {
         _,
 
         pub fn get(this: @This(), c: *const Configuration) RcSourceFile {
-            return extraData(c, RcSourceFile, @intFromEnum(this));
+            return extraData(c, RcSourceFile, @backingInt(this));
         }
     };
 
@@ -2128,7 +2149,7 @@ pub const ResolvedTarget = struct {
         _,
 
         pub fn get(this: @This(), c: *const Configuration) ResolvedTarget {
-            return extraData(c, ResolvedTarget, @intFromEnum(this));
+            return extraData(c, ResolvedTarget, @backingInt(this));
         }
     };
 
@@ -2137,7 +2158,7 @@ pub const ResolvedTarget = struct {
         _,
 
         pub fn init(i: Index) OptionalIndex {
-            const result: OptionalIndex = @enumFromInt(@intFromEnum(i));
+            const result: OptionalIndex = @fromBackingInt(@intCast(@backingInt(i)));
             assert(result != .none);
             return result;
         }
@@ -2145,7 +2166,7 @@ pub const ResolvedTarget = struct {
         pub fn unwrap(this: @This()) ?Index {
             return switch (this) {
                 .none => null,
-                _ => @enumFromInt(@intFromEnum(this)),
+                _ => @fromBackingInt(@intCast(@backingInt(this))),
             };
         }
 
@@ -2198,15 +2219,15 @@ pub const TargetQuery = struct {
         _,
 
         pub fn extraSlice(i: Index, extra: []const u32) []const u32 {
-            return extra[@intFromEnum(i)..][0..length(i, extra)];
+            return extra[@backingInt(i)..][0..length(i, extra)];
         }
 
         pub fn length(i: Index, extra: []const u32) usize {
-            return Storage.dataLength(extra, @intFromEnum(i), TargetQuery);
+            return Storage.dataLength(extra, @backingInt(i), TargetQuery);
         }
 
         pub fn get(this: @This(), c: *const Configuration) TargetQuery {
-            return extraData(c, TargetQuery, @intFromEnum(this));
+            return extraData(c, TargetQuery, @backingInt(this));
         }
     };
 
@@ -2215,7 +2236,7 @@ pub const TargetQuery = struct {
         _,
 
         pub fn init(i: Index) OptionalIndex {
-            const result: OptionalIndex = @enumFromInt(@intFromEnum(i));
+            const result: OptionalIndex = @fromBackingInt(@intCast(@backingInt(i)));
             assert(result != .none);
             return result;
         }
@@ -2223,7 +2244,7 @@ pub const TargetQuery = struct {
         pub fn unwrap(this: @This()) ?Index {
             return switch (this) {
                 .none => null,
-                _ => @enumFromInt(@intFromEnum(this)),
+                _ => @fromBackingInt(@intCast(@backingInt(this))),
             };
         }
 
@@ -2611,6 +2632,7 @@ pub const TargetQuery = struct {
         uefi,
         @"3ds",
         wiiu,
+        @"switch",
         psx,
         ps3,
         ps4,
@@ -2628,6 +2650,7 @@ pub const TargetQuery = struct {
         opengl,
         vulkan,
         tios,
+        ashetos,
 
         default,
 
@@ -2675,6 +2698,7 @@ pub const TargetQuery = struct {
                 .uefi => .uefi,
                 .@"3ds" => .@"3ds",
                 .wiiu => .wiiu,
+                .@"switch" => .@"switch",
                 .psx => .psx,
                 .ps3 => .ps3,
                 .ps4 => .ps4,
@@ -2692,6 +2716,7 @@ pub const TargetQuery = struct {
                 .opengl => .opengl,
                 .vulkan => .vulkan,
                 .tios => .tios,
+                .ashetos => .ashetos,
             };
         }
 
@@ -2739,6 +2764,7 @@ pub const TargetQuery = struct {
                 .uefi => .uefi,
                 .@"3ds" => .@"3ds",
                 .wiiu => .wiiu,
+                .@"switch" => .@"switch",
                 .psx => .psx,
                 .ps3 => .ps3,
                 .ps4 => .ps4,
@@ -2756,6 +2782,7 @@ pub const TargetQuery = struct {
                 .opengl => .opengl,
                 .vulkan => .vulkan,
                 .tios => .tios,
+                .ashetos => .ashetos,
 
                 .default => null,
             };
@@ -2942,7 +2969,7 @@ pub const Storage = enum {
             pub const storage: Storage = .extended;
 
             pub fn tag(this: @This(), c: *const Configuration) @FieldType(BaseFlags, "tag") {
-                const base_flags: BaseFlags = @bitCast(c.extra[@intFromEnum(this)]);
+                const base_flags: BaseFlags = @bitCast(c.extra[@backingInt(this)]);
                 return base_flags.tag;
             }
 
@@ -2951,14 +2978,14 @@ pub const Storage = enum {
                     const info = @typeInfo(S.Flags).@"struct";
                     break :blk info.field_attrs[0].defaultValue(info.field_types[0]).?;
                 };
-                const base_flags: BaseFlags = @bitCast(c.extra[@intFromEnum(this)]);
+                const base_flags: BaseFlags = @bitCast(c.extra[@backingInt(this)]);
                 if (base_flags.tag != wanted_tag) return null;
-                var i: usize = @intFromEnum(this);
+                var i: usize = @backingInt(this);
                 return data(c.extra, &i, S);
             }
 
             pub fn get(this: @This(), buffer: []const u32) U {
-                var i: usize = @intFromEnum(this);
+                var i: usize = @backingInt(this);
                 const base_flags: BaseFlags = @bitCast(buffer[i]);
                 return switch (base_flags.tag) {
                     inline else => |t| @unionInit(U, @tagName(t), data(buffer, &i, @FieldType(U, @tagName(t)))),
@@ -3086,7 +3113,7 @@ pub const Storage = enum {
             pub fn get(this: *const @This(), extra: []const u32, i: usize) Union {
                 const elem = slice(this, extra)[i];
                 return switch (this.tag(extra, i)) {
-                    inline else => |comptime_tag| @unionInit(Union, @tagName(comptime_tag), @enumFromInt(elem)),
+                    inline else => |comptime_tag| @unionInit(Union, @tagName(comptime_tag), @fromBackingInt(@intCast(elem))),
                 };
             }
 
@@ -3124,7 +3151,7 @@ pub const Storage = enum {
                     inline else => |comptime_tag| @unionInit(
                         T,
                         @tagName(comptime_tag),
-                        data(buffer, i, info.field_types[@intFromEnum(comptime_tag)]),
+                        data(buffer, i, info.field_types[@backingInt(comptime_tag)]),
                     ),
                 };
             },
@@ -3148,7 +3175,7 @@ pub const Storage = enum {
             },
             .@"enum" => {
                 defer i.* += 1;
-                return @enumFromInt(buffer[i.*]);
+                return @fromBackingInt(@intCast(buffer[i.*]));
             },
             .@"struct" => |info| switch (info.layout) {
                 .@"packed" => switch (info.backing_integer.?) {
@@ -3191,7 +3218,7 @@ pub const Storage = enum {
                                             buffer,
                                             i,
                                             container,
-                                            @typeInfo(Field.Union).@"union".field_types[@intFromEnum(comptime_tag)],
+                                            @typeInfo(Field.Union).@"union".field_types[@backingInt(comptime_tag)],
                                         ),
                                     ),
                                 },
@@ -3339,7 +3366,7 @@ pub const Storage = enum {
                 else => comptime unreachable,
             },
             .@"enum" => {
-                buffer[i] = @intFromEnum(value);
+                buffer[i] = @backingInt(value);
                 return 1;
             },
             .@"struct" => |info| switch (info.layout) {
@@ -3394,7 +3421,7 @@ pub const Storage = enum {
                             const field_names = @typeInfo(Field.Elem).@"struct".field_names;
                             inline for (0..field_names.len) |field_i| @memcpy(
                                 buffer[i + 1 + field_i * len ..][0..len],
-                                @as([]const u32, @ptrCast(value.mal.items(@enumFromInt(field_i)))),
+                                @as([]const u32, @ptrCast(value.mal.items(@fromBackingInt(@intCast(field_i))))),
                             );
                             return 1 + field_names.len * len;
                         },
@@ -3444,7 +3471,7 @@ fn IndexType(comptime T: type) type {
         _,
 
         pub fn get(this: @This(), c: *const Configuration) T {
-            return extraData(c, T, @intFromEnum(this));
+            return extraData(c, T, @backingInt(this));
         }
     };
 }
@@ -3472,8 +3499,7 @@ pub fn load(arena: Allocator, reader: *Io.Reader) LoadError!Configuration {
     const result: Configuration = .{
         .string_bytes = try arena.alloc(u8, header.string_bytes_len),
         .steps = try arena.alloc(Step, header.steps_len),
-        .path_deps_sub = try arena.alloc(String, header.path_deps_len),
-        .path_deps_base = try arena.alloc(Path.Base, header.path_deps_len),
+        .path_deps = try arena.alloc(PathDep, header.path_deps_len),
         .unlazy_deps = try arena.alloc(String, header.unlazy_deps_len),
         .system_integrations = try arena.alloc(SystemIntegration, header.system_integrations_len),
         .available_options = try arena.alloc(AvailableOption, header.available_options_len),
@@ -3486,8 +3512,7 @@ pub fn load(arena: Allocator, reader: *Io.Reader) LoadError!Configuration {
     var vecs = [_][]u8{
         result.string_bytes,
         @ptrCast(result.steps),
-        @ptrCast(result.path_deps_base),
-        @ptrCast(result.path_deps_sub),
+        @ptrCast(result.path_deps),
         @ptrCast(result.unlazy_deps),
         @ptrCast(result.system_integrations),
         @ptrCast(result.available_options),

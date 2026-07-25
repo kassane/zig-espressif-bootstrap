@@ -28,7 +28,7 @@ mutex: Io.Mutex = .init,
 /// are replaced with single-character indicators. This is not to save
 /// space but to eliminate absolute file paths. This improves portability
 /// and usefulness of the cache for advanced use cases.
-prefixes_buffer: [4]Directory = undefined,
+prefixes_buffer: [5]Directory = undefined,
 prefixes_len: usize = 0,
 /// Used to identify prefixes. References external memory.
 cwd: []const u8,
@@ -57,7 +57,7 @@ pub fn prefixes(cache: *const Cache) []const Directory {
     return cache.prefixes_buffer[0..cache.prefixes_len];
 }
 
-const PrefixedPath = struct {
+pub const PrefixedPath = struct {
     prefix: u8,
     sub_path: []const u8,
 
@@ -70,6 +70,15 @@ const PrefixedPath = struct {
     }
 };
 
+fn findPrefixPath(cache: *const Cache, path: Path) !PrefixedPath {
+    const gpa = cache.gpa;
+    const resolved_path = try std.fs.path.resolve(gpa, &.{
+        cache.cwd, path.root_dir.path orelse ".", path.subPathOrDot(),
+    });
+    errdefer gpa.free(resolved_path);
+    return findPrefixResolved(cache, resolved_path);
+}
+
 fn findPrefix(cache: *const Cache, file_path: []const u8) !PrefixedPath {
     const gpa = cache.gpa;
     const resolved_path = try std.fs.path.resolve(gpa, &.{file_path});
@@ -81,23 +90,21 @@ fn findPrefix(cache: *const Cache, file_path: []const u8) !PrefixedPath {
 fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
     const gpa = cache.gpa;
     const cwd = cache.cwd;
-    const prefixes_slice = cache.prefixes();
-    var i: u8 = 1; // Start at 1 to skip over checking the null prefix.
-    while (i < prefixes_slice.len) : (i += 1) {
-        const p = prefixes_slice[i].path.?;
+    for (cache.prefixes(), 0..) |prefix, i| {
+        const p = prefix.path orelse continue;
         const sub_path = getPrefixSubpath(gpa, cwd, p, resolved_path) catch |err| switch (err) {
             error.NotASubPath => continue,
             else => |e| return e,
         };
         // Free the resolved path since we're not going to return it
         gpa.free(resolved_path);
-        return PrefixedPath{
-            .prefix = i,
+        return .{
+            .prefix = @intCast(i),
             .sub_path = sub_path,
         };
     }
 
-    return PrefixedPath{
+    return .{
         .prefix = 0,
         .sub_path = resolved_path,
     };
@@ -492,7 +499,13 @@ pub const Manifest = struct {
     /// The lock on the manifest file is released when `deinit` is called. As another
     /// option, one may call `toOwnedLock` to obtain a smaller object which can represent
     /// the lock. `deinit` is safe to call whether or not `toOwnedLock` has been called.
-    pub fn hit(self: *Manifest) HitError!bool {
+    pub fn hit(man: *Manifest, parent_progress_node: std.Progress.Node) HitError!bool {
+        const node = parent_progress_node.start("Reusing Cache Artifacts", 0);
+        defer node.end();
+        return hitInner(man);
+    }
+
+    pub fn hitInner(self: *Manifest) HitError!bool {
         assert(self.manifest_file == null);
 
         self.diagnostic = .none;
@@ -998,20 +1011,34 @@ pub const Manifest = struct {
     /// This is useful for processes that don't know the all the files that are
     /// depended on ahead of time. For example, a source file that can import
     /// other files will need to be recompiled if the imported file is changed.
-    pub fn addFilePost(self: *Manifest, file_path: []const u8) !void {
-        assert(self.manifest_file != null);
+    pub fn addFilePost(man: *Manifest, file_path: []const u8) !void {
+        assert(man.manifest_file != null);
+        const gpa = man.cache.gpa;
+        const prefixed_path = try man.cache.findPrefix(file_path);
+        var keep = false;
+        defer if (!keep) gpa.free(prefixed_path.sub_path);
+        keep = try addPrefixedPathPost(man, prefixed_path);
+    }
 
-        const gpa = self.cache.gpa;
-        const prefixed_path = try self.cache.findPrefix(file_path);
-        errdefer gpa.free(prefixed_path.sub_path);
+    pub fn addPathPost(man: *Manifest, path: Path) !void {
+        assert(man.manifest_file != null);
+        const gpa = man.cache.gpa;
+        const prefixed_path: PrefixedPath = try man.cache.findPrefixPath(path);
+        var keep = false;
+        defer if (!keep) gpa.free(prefixed_path.sub_path);
+        keep = try addPrefixedPathPost(man, prefixed_path);
+    }
 
-        const gop = try self.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
-        errdefer _ = self.files.pop();
+    /// Low level function. `prefixed_path` references cloned memory. Returns
+    /// whether or not `prefixed_path.sub_path` should be kept.
+    pub fn addPrefixedPathPost(man: *Manifest, prefixed_path: PrefixedPath) !bool {
+        assert(man.manifest_file != null);
+        const gpa = man.cache.gpa;
 
-        if (gop.found_existing) {
-            gpa.free(prefixed_path.sub_path);
-            return;
-        }
+        const gop = try man.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
+        errdefer _ = man.files.pop();
+
+        if (gop.found_existing) return false;
 
         gop.key_ptr.* = .{
             .prefixed_path = prefixed_path,
@@ -1022,16 +1049,11 @@ pub const Manifest = struct {
             .contents = null,
         };
 
-        self.files.lockPointers();
-        defer self.files.unlockPointers();
+        man.files.lockPointers();
+        defer man.files.unlockPointers();
 
-        try self.populateFileHash(gop.key_ptr);
-    }
-
-    pub fn addPathPost(man: *Manifest, path: Path) !void {
-        _ = man;
-        _ = path;
-        @panic("TODO");
+        try man.populateFileHash(gop.key_ptr);
+        return true;
     }
 
     /// Like `addFilePost` but when the file contents have already been loaded from disk.
@@ -1362,7 +1384,7 @@ test "cache file and then recall it" {
             _ = try ch.addFile(temp_file, null);
 
             // There should be nothing in the cache
-            try testing.expectEqual(false, try ch.hit());
+            try testing.expectEqual(false, try ch.hit(.none));
 
             digest1 = ch.final();
             try ch.writeManifest();
@@ -1377,7 +1399,7 @@ test "cache file and then recall it" {
             _ = try ch.addFile(temp_file, null);
 
             // Cache hit! We just "built" the same file
-            try testing.expect(try ch.hit());
+            try testing.expect(try ch.hit(.none));
             digest2 = ch.final();
 
             try testing.expectEqual(false, ch.have_exclusive_lock);
@@ -1430,7 +1452,7 @@ test "check that changing a file makes cache fail" {
             const temp_file_idx = try ch.addFile(temp_file, 100);
 
             // There should be nothing in the cache
-            try testing.expectEqual(false, try ch.hit());
+            try testing.expectEqual(false, try ch.hit(.none));
 
             try testing.expect(mem.eql(u8, original_temp_file_contents, ch.files.keys()[temp_file_idx].contents.?));
 
@@ -1449,7 +1471,7 @@ test "check that changing a file makes cache fail" {
             const temp_file_idx = try ch.addFile(temp_file, 100);
 
             // A file that we depend on has been updated, so the cache should not contain an entry for it
-            try testing.expectEqual(false, try ch.hit());
+            try testing.expectEqual(false, try ch.hit(.none));
 
             // The cache system does not keep the contents of re-hashed input files.
             try testing.expect(ch.files.keys()[temp_file_idx].contents == null);
@@ -1493,7 +1515,7 @@ test "no file inputs" {
         man.hash.addBytes("1234");
 
         // There should be nothing in the cache
-        try testing.expectEqual(false, try man.hit());
+        try testing.expectEqual(false, try man.hit(.none));
 
         digest1 = man.final();
 
@@ -1505,7 +1527,7 @@ test "no file inputs" {
 
         man.hash.addBytes("1234");
 
-        try testing.expect(try man.hit());
+        try testing.expect(try man.hit(.none));
         digest2 = man.final();
         try testing.expectEqual(false, man.have_exclusive_lock);
     }
@@ -1557,7 +1579,7 @@ test "Manifest with files added after initial hash work" {
             _ = try ch.addFile(temp_file1, null);
 
             // There should be nothing in the cache
-            try testing.expectEqual(false, try ch.hit());
+            try testing.expectEqual(false, try ch.hit(.none));
 
             _ = try ch.addFilePost(temp_file2);
 
@@ -1571,7 +1593,7 @@ test "Manifest with files added after initial hash work" {
             ch.hash.addBytes("1234");
             _ = try ch.addFile(temp_file1, null);
 
-            try testing.expect(try ch.hit());
+            try testing.expect(try ch.hit(.none));
             digest2 = ch.final();
 
             try testing.expectEqual(false, ch.have_exclusive_lock);
@@ -1595,7 +1617,7 @@ test "Manifest with files added after initial hash work" {
             _ = try ch.addFile(temp_file1, null);
 
             // A file that we depend on has been updated, so the cache should not contain an entry for it
-            try testing.expectEqual(false, try ch.hit());
+            try testing.expectEqual(false, try ch.hit(.none));
 
             _ = try ch.addFilePost(temp_file2);
 

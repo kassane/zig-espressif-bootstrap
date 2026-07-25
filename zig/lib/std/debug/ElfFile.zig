@@ -455,7 +455,7 @@ fn loadInner(
     };
 
     if (opt_crc) |crc| {
-        if (std.hash.crc.Crc32.hash(mapped_mem) != crc) {
+        if (std.hash.Crc32.hash(mapped_mem) != crc) {
             return error.CrcMismatch;
         }
     }
@@ -504,7 +504,7 @@ fn loadInner(
             @typeInfo(Section.Id).@"enum".field_values,
         ) |s_name, s_value| {
             if (std.mem.eql(u8, "." ++ s_name, name)) {
-                break @enumFromInt(s_value);
+                break @fromBackingInt(@intCast(s_value));
             }
         } else continue;
 

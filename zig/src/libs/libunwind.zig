@@ -4,7 +4,7 @@ const assert = std.debug.assert;
 
 const target_util = @import("../target.zig");
 const Compilation = @import("../Compilation.zig");
-const Module = @import("../Package/Module.zig");
+const Module = @import("../Module.zig");
 const build_options = @import("build_options");
 const trace = @import("../tracy.zig").trace;
 
@@ -118,7 +118,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         // defines will be correct.
         try cflags.append("-D_LIBUNWIND_IS_NATIVE_ONLY");
 
-        if (comp.root_mod.optimize_mode == .Debug) {
+        if (comp.root_mod.optimize_mode == .debug) {
             try cflags.append("-D_DEBUG");
         }
         if (!comp.config.any_non_single_threaded) {

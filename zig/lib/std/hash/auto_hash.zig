@@ -99,14 +99,14 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
                 } else {
                     // Take only the part containing the key value, the remaining
                     // bytes are undefined and must not be hashed!
-                    const byte_size = comptime std.math.divCeil(comptime_int, @bitSizeOf(Key), 8) catch unreachable;
+                    const byte_size = @divCeil(@bitSizeOf(Key), 8);
                     @call(.always_inline, Hasher.update, .{ hasher, std.mem.asBytes(&key)[0..byte_size] });
                 }
             },
         },
 
         .bool => hash(hasher, @intFromBool(key), strat),
-        .@"enum" => hash(hasher, @intFromEnum(key), strat),
+        .@"enum" => hash(hasher, @backingInt(key), strat),
         .error_set => hash(hasher, @intFromError(key), strat),
         .@"anyframe", .@"fn" => hash(hasher, @intFromPtr(key), strat),
 

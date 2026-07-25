@@ -253,7 +253,7 @@ pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeIn
     .error_set => struct { name: [:0]const u8 },
     else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
 } {
-    const idx = @intFromEnum(field);
+    const idx = @backingInt(field);
     return switch (@typeInfo(T)) {
         .@"struct" => |info| .{
             .name = info.field_names[idx],
@@ -399,7 +399,7 @@ pub fn FieldEnum(comptime T: type) type {
     switch (@typeInfo(T)) {
         .@"union" => |@"union"| if (@"union".tag_type) |EnumTag| {
             for (std.enums.values(EnumTag), 0..) |v, i| {
-                if (@intFromEnum(v) != i) break; // enum values not consecutive
+                if (@backingInt(v) != i) break; // enum values not consecutive
                 if (!std.mem.eql(u8, @tagName(v), field_names[i])) break; // fields out of order
             } else {
                 return EnumTag;
@@ -408,7 +408,8 @@ pub fn FieldEnum(comptime T: type) type {
         else => {},
     }
 
-    const IntTag = std.math.IntFittingRange(0, field_names.len -| 1);
+    if (field_names.len == 0) return enum {};
+    const IntTag = std.math.IntFittingRange(0, field_names.len - 1);
     return @Enum(IntTag, .exhaustive, field_names, &std.simd.iota(IntTag, field_names.len));
 }
 
@@ -469,7 +470,8 @@ test FieldEnum {
 
 pub fn DeclEnum(comptime T: type) type {
     const decl_names = declarations(T);
-    const IntTag = std.math.IntFittingRange(0, decl_names.len -| 1);
+    if (decl_names.len == 0) return enum {};
+    const IntTag = std.math.IntFittingRange(0, decl_names.len - 1);
     return @Enum(IntTag, .exhaustive, decl_names, &std.simd.iota(IntTag, decl_names.len));
 }
 
@@ -504,8 +506,38 @@ pub fn BareUnion(comptime T: type) type {
         .@"union" => |u| u,
         else => @compileError("expected union type, found '" ++ @typeName(T) ++ "'"),
     };
-
     return @Union(u.layout, null, u.field_names, u.field_types[0..], u.field_attrs[0..]);
+}
+
+/// For enums, packed unions and packed structs, returns their backing integer type.
+/// For tagged unions, returns the backing integer type of their enum tag type.
+pub fn BackingInt(comptime T: type) type {
+    switch (@typeInfo(T)) {
+        .@"enum" => |info| return info.tag_type,
+        .@"struct" => |info| if (info.backing_integer) |Int| return Int,
+        .@"union" => |info| switch (info.layout) {
+            .@"packed" => return info.backing_integer.?,
+            .auto => if (info.tag_type) |EnumTag|
+                return @typeInfo(EnumTag).@"enum".tag_type,
+            .@"extern" => {},
+        },
+        else => {},
+    }
+    @compileError("expected enum, tagged union, packed union or packed struct type, found '" ++ @typeName(T) ++ "'");
+}
+
+test BackingInt {
+    const E = enum(u8) { a, b, c };
+    try testing.expect(BackingInt(E) == u8);
+
+    const S = packed struct(u16) { x: u8, y: i8 };
+    try testing.expect(BackingInt(S) == u16);
+
+    const U = packed union(i32) { a: u32, b: enum(i32) { _ } };
+    try testing.expect(BackingInt(U) == i32);
+
+    const T = union(enum(i8)) { a, b, c };
+    try testing.expect(BackingInt(T) == i8);
 }
 
 pub fn Tag(comptime T: type) type {
@@ -909,6 +941,15 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
             return @sizeOf(T) == sum_size;
         },
 
+        .@"union" => |info| {
+            if (info.layout == .@"packed") return @sizeOf(T) * 8 == @bitSizeOf(T);
+            inline for (info.field_types) |field_type| {
+                if (@sizeOf(field_type) != @sizeOf(T)) return false;
+                if (!hasUniqueRepresentation(field_type)) return false;
+            }
+            return true;
+        },
+
         .vector => |info| hasUniqueRepresentation(info.child) and
             @sizeOf(T) == @sizeOf(info.child) * info.len,
     };
@@ -977,6 +1018,27 @@ test hasUniqueRepresentation {
     };
 
     try testing.expect(!hasUniqueRepresentation(TestUnion4));
+
+    const TestUnion5 = extern union {
+        a: u32,
+        b: i32,
+    };
+
+    try testing.expect(hasUniqueRepresentation(TestUnion5));
+
+    const TestUnion6 = packed union(u7) {
+        a: u7,
+        b: i7,
+    };
+
+    try testing.expect(!hasUniqueRepresentation(TestUnion6));
+
+    const TestUnion7 = packed union(u8) {
+        a: u8,
+        b: i8,
+    };
+
+    try testing.expect(hasUniqueRepresentation(TestUnion7));
 
     inline for ([_]type{ u8, i16, u32, i64 }) |T| {
         try testing.expect(hasUniqueRepresentation(T));

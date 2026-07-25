@@ -12,7 +12,6 @@ const Path = std.Build.Cache.Path;
 const assert = std.debug.assert;
 const mem = std.mem;
 const process = std.process;
-const allocPrint = std.fmt.allocPrint;
 const Allocator = std.mem.Allocator;
 
 const Step = @import("../Step.zig");
@@ -196,8 +195,8 @@ pub fn make(
         const cache_dir_string = try convertPathArg(arena, run_index, maker, .{ .root_dir = cache_root }, false);
 
         try argv_list.ensureUnusedCapacity(gpa, 3);
-        argv_list.appendAssumeCapacity(try allocPrint(arena, "--cache-dir={s}", .{cache_dir_string}));
-        argv_list.appendAssumeCapacity(try allocPrint(arena, "--seed=0x{x}", .{graph.random_seed}));
+        argv_list.appendAssumeCapacity(try arena.print("--cache-dir={s}", .{cache_dir_string}));
+        argv_list.appendAssumeCapacity(try arena.print("--seed=0x{x}", .{graph.random_seed}));
         argv_list.appendAssumeCapacity("--listen=-");
     }
 
@@ -255,7 +254,7 @@ pub fn make(
             .check, .zig_test => false,
         };
 
-    if (!has_side_effects and try step.cacheHitAndWatch(maker, &man)) {
+    if (!has_side_effects and try step.cacheHitWatched(maker, &man, progress_node)) {
         // Cache hit; skip running command.
         const digest = man.final();
         try populateGeneratedStdIo(maker, &conf_run, cache_root, &digest);
@@ -1242,7 +1241,7 @@ fn evalZigTest(
                 step.test_results = test_results;
                 if (test_metadata) |tm| {
                     run.cached_test_metadata = tm.toCachedTestMetadata();
-                    if (maker.web_server) |*ws| {
+                    if (maker.web_server) |ws| {
                         if (graph.time_report) {
                             ws.updateTimeReportRunTest(
                                 run_index,
@@ -1381,7 +1380,7 @@ fn sendRunFuzzTestMessage(
     w.interface.writeStruct(header, .little) catch |err| switch (err) {
         error.WriteFailed => return w.err.?,
     };
-    w.interface.writeByte(@intFromEnum(kind)) catch |err| switch (err) {
+    w.interface.writeByte(@backingInt(kind)) catch |err| switch (err) {
         error.WriteFailed => return w.err.?,
     };
     w.interface.writeInt(u64, amount_or_instance, .little) catch |err| switch (err) {
@@ -1627,8 +1626,8 @@ pub fn rerunInFuzzMode(
         const cache_dir_string = try convertPathArg(arena, run_index, maker, .{ .root_dir = cache_root }, false);
 
         try argv_list.ensureUnusedCapacity(gpa, 3);
-        argv_list.appendAssumeCapacity(try allocPrint(arena, "--cache-dir={s}", .{cache_dir_string}));
-        argv_list.appendAssumeCapacity(try allocPrint(arena, "--seed=0x{x}", .{graph.random_seed}));
+        argv_list.appendAssumeCapacity(try arena.print("--cache-dir={s}", .{cache_dir_string}));
+        argv_list.appendAssumeCapacity(try arena.print("--seed=0x{x}", .{graph.random_seed}));
         argv_list.appendAssumeCapacity("--listen=-");
     }
 
@@ -1925,7 +1924,7 @@ fn runCommand(
                                 const path = try maker.resolveLazyPath(arena, lazy_path.get(conf), run_index);
                                 path.root_dir.handle.createDirPath(io, path.subPathOrDot()) catch |e|
                                     return step.fail(maker, "failed creating directory {f}: {t}", .{ path, e });
-                                interp_argv.appendAssumeCapacity(try allocPrint(arena, "--dir={f}::{s}", .{ path, name.slice(conf) }));
+                                interp_argv.appendAssumeCapacity(try arena.print("--dir={f}::{s}", .{ path, name.slice(conf) }));
                             }
                             // Wasmtime doeesn't inherit environment variables from the parent process
                             // by default. '-S inherit-env' was added in Wasmtime version 20.
@@ -2107,8 +2106,8 @@ fn runCommand(
             if (conf_run.expect_term_value.value) |expected_term_value| {
                 const expected_term: process.Child.Term = switch (conf_run.flags2.expect_term_status) {
                     .exited => .{ .exited = @intCast(expected_term_value) },
-                    .signal => .{ .signal = @enumFromInt(expected_term_value) },
-                    .stopped => .{ .stopped = @enumFromInt(expected_term_value) },
+                    .signal => .{ .signal = @fromBackingInt(@intCast(expected_term_value)) },
+                    .stopped => .{ .stopped = @fromBackingInt(@intCast(expected_term_value)) },
                     .unknown => .{ .unknown = expected_term_value },
                 };
                 if (!termMatches(expected_term, generic_result.term)) {
@@ -2306,6 +2305,7 @@ fn spawnChildAndCollect(
     };
 
     if (conf_run.flags.stdio == .zig_test) {
+        try setColorEnvironmentVariables(&conf_run, environ_map, graph.stderr_mode.?);
         const started: Io.Clock.Timestamp = .now(io, .awake);
         const result = evalZigTest(run, run_index, maker, progress_node, spawn_options, fuzz_context) catch |err| switch (err) {
             error.Canceled => |e| return e,
@@ -2478,7 +2478,7 @@ fn addPathForDynLibs(
             const dll_path = try maker.generatedPath(conf_comp.generated_bin.value.?).toString(arena);
             const search_path = Dir.path.dirname(dll_path).?;
             if (environ_map.get(path_key)) |prev_path| {
-                const new_path = try allocPrint(arena, "{s}{c}{s}", .{ prev_path, path_delimiter, search_path });
+                const new_path = try arena.print("{s}{c}{s}", .{ prev_path, path_delimiter, search_path });
                 try environ_map.put(path_key, new_path);
             } else {
                 try environ_map.put(path_key, search_path);

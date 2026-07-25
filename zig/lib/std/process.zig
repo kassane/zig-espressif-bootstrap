@@ -644,7 +644,7 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
 /// leaks can be accurate. In release builds, this calls `exit` with code zero,
 /// and does not return.
 pub fn cleanExit(io: Io) void {
-    if (builtin.mode == .Debug) return;
+    if (builtin.mode == .debug) return;
     _ = io.lockStderr(&.{}, .no_color) catch {};
     exit(0);
 }
@@ -809,7 +809,7 @@ pub fn abort() noreturn {
     // even when linking libc on Windows we use our own abort implementation.
     // See https://github.com/ziglang/zig/issues/2071 for more details.
     if (native_os == .windows) {
-        if (builtin.mode == .Debug and windows.peb().BeingDebugged.toBool()) {
+        if (builtin.mode == .debug and windows.peb().BeingDebugged.toBool()) {
             @breakpoint();
         }
         windows.ntdll.RtlExitUserProcess(3);
@@ -875,10 +875,10 @@ pub fn exit(status: u8) noreturn {
             // exit() is only available if exitBootServices() has not been called yet.
             // This call to exit should not fail, so we catch-ignore errors.
             if (uefi.system_table.boot_services) |bs| {
-                bs.exit(uefi.handle, @enumFromInt(status), null) catch {};
+                bs.exit(uefi.handle, @fromBackingInt(@intCast(status)), null) catch {};
             }
             // If we can't exit, reboot the system instead.
-            uefi.system_table.runtime_services.resetSystem(.cold, @enumFromInt(status), null);
+            uefi.system_table.runtime_services.resetSystem(.cold, @fromBackingInt(@intCast(status)), null);
         },
         else => posix.system.exit(status),
     }

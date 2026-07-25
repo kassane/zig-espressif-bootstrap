@@ -183,7 +183,7 @@ pub const Error = union(enum) {
             location.column += node_or_offset;
             return location;
         } else {
-            const ast_node: Ast.Node.Index = @enumFromInt(node_or_offset);
+            const ast_node: Ast.Node.Index = @fromBackingInt(@intCast(node_or_offset));
             const token = ast.nodeMainToken(ast_node);
             return ast.tokenLocation(0, token);
         }
@@ -294,7 +294,7 @@ pub fn fromSliceAlloc(
 ) error{ OutOfMemory, ParseZon }!T {
     if (diag) |s| s.assertEmpty();
 
-    var ast = try std.zig.Ast.parse(gpa, source, .zon);
+    var ast = try std.zig.Ast.parse(gpa, source, .{ .mode = .zon });
     defer if (diag == null) ast.deinit(gpa);
     if (diag) |s| s.ast = ast;
 
@@ -672,7 +672,7 @@ const Parser = struct {
                 const enum_info = @typeInfo(T).@"enum";
                 comptime var kvs_list: [enum_info.field_names.len]struct { []const u8, T } = undefined;
                 inline for (enum_info.field_names, enum_info.field_values, 0..) |enum_field_name, enum_field_value, i| {
-                    kvs_list[i] = .{ enum_field_name, @enumFromInt(enum_field_value) };
+                    kvs_list[i] = .{ enum_field_name, @fromBackingInt(@intCast(enum_field_value)) };
                 }
                 const enum_tags = std.StaticStringMap(T).initComptime(kvs_list);
 
@@ -2140,7 +2140,7 @@ test "std.zon string literal" {
     // Passing string literal to a array
     {
         {
-            var ast = try std.zig.Ast.parse(gpa, "\"abcd\"", .zon);
+            var ast = try std.zig.Ast.parse(gpa, "\"abcd\"", .{ .mode = .zon });
             defer ast.deinit(gpa);
             var zoir = try ZonGen.generate(gpa, ast, .{ .parse_str_lits = false });
             defer zoir.deinit(gpa);
@@ -3534,7 +3534,7 @@ test "std.zon no alloc" {
 
     const Nested = struct { u8, u8, struct { u8, u8 } };
 
-    var ast = try std.zig.Ast.parse(gpa, ".{ 1, 2, .{ 3, 4 } }", .zon);
+    var ast = try std.zig.Ast.parse(gpa, ".{ 1, 2, .{ 3, 4 } }", .{ .mode = .zon });
     defer ast.deinit(gpa);
 
     var zoir = try ZonGen.generate(gpa, ast, .{ .parse_str_lits = false });

@@ -7,6 +7,7 @@ const std = @import("std");
 const Io = std.Io;
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
+const Crc32 = std.hash.crc.@"CRC-32/JAMCRC";
 
 const codegen = @import("../codegen.zig");
 const Compilation = @import("../Compilation.zig");
@@ -233,11 +234,11 @@ pub const Node = union(enum) {
         _,
 
         pub fn name(psmi: PseudoSectionMapIndex, coff: *const Coff) String {
-            return coff.pseudo_section_table.keys()[@intFromEnum(psmi)];
+            return coff.pseudo_section_table.keys()[@backingInt(psmi)];
         }
 
         pub fn symbol(psmi: PseudoSectionMapIndex, coff: *const Coff) Symbol.Index {
-            return coff.pseudo_section_table.values()[@intFromEnum(psmi)];
+            return coff.pseudo_section_table.values()[@backingInt(psmi)];
         }
     };
 
@@ -245,11 +246,11 @@ pub const Node = union(enum) {
         _,
 
         pub fn name(osmi: ObjectSectionMapIndex, coff: *const Coff) String {
-            return coff.object_section_table.keys()[@intFromEnum(osmi)];
+            return coff.object_section_table.keys()[@backingInt(osmi)];
         }
 
         pub fn symbol(osmi: ObjectSectionMapIndex, coff: *const Coff) Symbol.Index {
-            return coff.object_section_table.values()[@intFromEnum(osmi)];
+            return coff.object_section_table.values()[@backingInt(osmi)];
         }
     };
 
@@ -258,13 +259,13 @@ pub const Node = union(enum) {
         _,
 
         pub fn wrap(i: ?u32) GlobalMapIndex {
-            return @enumFromInt((i orelse return .none) + 1);
+            return @fromBackingInt(@intCast((i orelse return .none) + 1));
         }
 
         pub fn unwrap(gmi: GlobalMapIndex) ?u32 {
             return switch (gmi) {
                 .none => null,
-                _ => @intFromEnum(gmi) - 1,
+                _ => @backingInt(gmi) - 1,
             };
         }
 
@@ -285,11 +286,11 @@ pub const Node = union(enum) {
         _,
 
         pub fn navIndex(nmi: NavMapIndex, coff: *const Coff) InternPool.Nav.Index {
-            return coff.navs.keys()[@intFromEnum(nmi)];
+            return coff.navs.keys()[@backingInt(nmi)];
         }
 
         pub fn symbol(nmi: NavMapIndex, coff: *const Coff) Symbol.Index {
-            return coff.navs.values()[@intFromEnum(nmi)];
+            return coff.navs.values()[@backingInt(nmi)];
         }
     };
 
@@ -297,11 +298,11 @@ pub const Node = union(enum) {
         _,
 
         pub fn uavValue(umi: UavMapIndex, coff: *const Coff) InternPool.Index {
-            return coff.uavs.keys()[@intFromEnum(umi)];
+            return coff.uavs.keys()[@backingInt(umi)];
         }
 
         pub fn symbol(umi: UavMapIndex, coff: *const Coff) Symbol.Index {
-            return coff.uavs.values()[@intFromEnum(umi)];
+            return coff.uavs.values()[@backingInt(umi)];
         }
     };
 
@@ -317,23 +318,23 @@ pub const Node = union(enum) {
             _,
 
             pub fn inputSection(isi: Index, coff: *const Coff) *InputSection {
-                return &coff.input_sections.items[@intFromEnum(isi)];
+                return &coff.input_sections.items[@backingInt(isi)];
             }
 
             pub fn input(isi: Index, coff: *const Coff) InputObject.Index {
-                return coff.input_sections.items[@intFromEnum(isi)].ioi;
+                return coff.input_sections.items[@backingInt(isi)].ioi;
             }
 
             pub fn fileLocation(isi: Index, coff: *const Coff) MappedFile.Node.FileLocation {
-                return coff.input_sections.items[@intFromEnum(isi)].file_location;
+                return coff.input_sections.items[@backingInt(isi)].file_location;
             }
 
             pub fn symbol(isi: Index, coff: *const Coff) Symbol.Index {
-                return coff.input_sections.items[@intFromEnum(isi)].si;
+                return coff.input_sections.items[@backingInt(isi)].si;
             }
 
             pub fn firstSymbol(isi: Index, coff: *const Coff) LocalIndex {
-                return coff.input_sections.items[@intFromEnum(isi)].first_li;
+                return coff.input_sections.items[@backingInt(isi)].first_li;
             }
         };
 
@@ -341,7 +342,7 @@ pub const Node = union(enum) {
             _,
 
             pub fn name(isli: LocalIndex, coff: *const Coff) String {
-                return coff.input_symbols.items[@intFromEnum(isli)].name;
+                return coff.input_symbols.items[@backingInt(isli)].name;
             }
         };
     };
@@ -355,7 +356,7 @@ pub const Node = union(enum) {
                 _,
 
                 pub fn ref(lmi: @This()) LazyMapRef {
-                    return .{ .kind = kind, .index = @intFromEnum(lmi) };
+                    return .{ .kind = kind, .index = @backingInt(lmi) };
                 }
 
                 pub fn lazySymbol(lmi: @This(), coff: *const Coff) link.File.LazySymbol {
@@ -401,7 +402,7 @@ pub const Node = union(enum) {
         var mut_known: std.enums.EnumFieldStruct(Known, MappedFile.Node.Index, null) = undefined;
         const info = @typeInfo(Known).@"enum";
         for (info.field_names, info.field_values) |field_name, field_value|
-            @field(mut_known, field_name) = @enumFromInt(field_value);
+            @field(mut_known, field_name) = @fromBackingInt(@intCast(field_value));
         break :known mut_known;
     };
 
@@ -417,7 +418,7 @@ pub const InputArchive = struct {
         _,
 
         pub fn path(iai: InputArchive.Index, coff: *Coff) std.Build.Cache.Path {
-            return coff.input_archives.items[@intFromEnum(iai)].path;
+            return coff.input_archives.items[@backingInt(iai)].path;
         }
     };
 
@@ -445,7 +446,7 @@ pub const InputArchive = struct {
             _,
 
             pub fn member(iami: InputArchive.Member.Index, coff: *Coff) *InputArchive.Member {
-                return &coff.input_archive_members.items[@intFromEnum(iami)];
+                return &coff.input_archive_members.items[@backingInt(iami)];
             }
         };
 
@@ -475,11 +476,11 @@ pub const InputObject = struct {
         _,
 
         pub fn path(ioi: Index, coff: *const Coff) std.Build.Cache.Path {
-            return coff.input_objects.items[@intFromEnum(ioi)].path;
+            return coff.input_objects.items[@backingInt(ioi)].path;
         }
 
         pub fn memberName(ioi: Index, coff: *const Coff) ?[]const u8 {
-            return coff.input_objects.items[@intFromEnum(ioi)].member_name;
+            return coff.input_objects.items[@backingInt(ioi)].member_name;
         }
     };
 };
@@ -502,7 +503,7 @@ pub const Member = struct {
         const known_count = @typeInfo(Index).@"enum".field_names.len;
 
         pub fn get(member_index: Member.Index, coff: *Coff) *Member {
-            return &coff.members.items[@intFromEnum(member_index)];
+            return &coff.members.items[@backingInt(member_index)];
         }
     };
 
@@ -656,7 +657,7 @@ pub const SymbolTable = struct {
                 },
                 .long => |l| {
                     @memset(field[0..4], 0);
-                    std.mem.writePackedInt(u32, field[4..], 0, @intFromEnum(l), coff.targetEndian());
+                    std.mem.writePackedInt(u32, field[4..], 0, @backingInt(l), coff.targetEndian());
                 },
             }
         }
@@ -670,13 +671,13 @@ pub const SymbolTable = struct {
         _,
 
         pub fn wrap(i: u32) Index {
-            return @enumFromInt(i + 1);
+            return @fromBackingInt(@intCast(i + 1));
         }
 
         pub fn unwrap(sti: Index) ?u32 {
             return switch (sti) {
                 .none => null,
-                _ => @intFromEnum(sti) - 1,
+                _ => @backingInt(sti) - 1,
             };
         }
     };
@@ -719,7 +720,7 @@ pub const ExportTable = struct {
         _,
 
         pub fn get(export_index: ExportTable.Ordinal, coff: *Coff) *Entry {
-            return &coff.export_table.entries.values()[@intFromEnum(export_index)];
+            return &coff.export_table.entries.values()[@backingInt(export_index)];
         }
     };
 };
@@ -767,7 +768,7 @@ pub const ImportTable = struct {
         _,
 
         pub fn get(import_index: ImportTable.Index, coff: *Coff) *Entry {
-            return &coff.import_table.entries.values()[@intFromEnum(import_index)];
+            return &coff.import_table.entries.values()[@backingInt(import_index)];
         }
     };
 };
@@ -790,26 +791,26 @@ pub const String = enum(u32) {
     _,
 
     pub const Optional = enum(u32) {
-        @".data" = @intFromEnum(String.@".data"),
-        @".idata" = @intFromEnum(String.@".idata"),
-        @".rdata" = @intFromEnum(String.@".rdata"),
-        @".text" = @intFromEnum(String.@".text"),
-        @".tls$" = @intFromEnum(String.@".tls$"),
-        @".edata" = @intFromEnum(String.@".edata"),
-        @".ctors" = @intFromEnum(String.@".ctors"),
-        @".ctors$ZZZ" = @intFromEnum(String.@".ctors$ZZZ"),
-        @".dtors" = @intFromEnum(String.@".dtors"),
-        @".dtors$ZZZ" = @intFromEnum(String.@".dtors$ZZZ"),
-        @".bss" = @intFromEnum(String.@".bss"),
-        @".fptable" = @intFromEnum(String.@".fptable"),
-        @".tls" = @intFromEnum(String.@".tls"),
-        @".thunks" = @intFromEnum(String.@".thunks"),
+        @".data" = @backingInt(String.@".data"),
+        @".idata" = @backingInt(String.@".idata"),
+        @".rdata" = @backingInt(String.@".rdata"),
+        @".text" = @backingInt(String.@".text"),
+        @".tls$" = @backingInt(String.@".tls$"),
+        @".edata" = @backingInt(String.@".edata"),
+        @".ctors" = @backingInt(String.@".ctors"),
+        @".ctors$ZZZ" = @backingInt(String.@".ctors$ZZZ"),
+        @".dtors" = @backingInt(String.@".dtors"),
+        @".dtors$ZZZ" = @backingInt(String.@".dtors$ZZZ"),
+        @".bss" = @backingInt(String.@".bss"),
+        @".fptable" = @backingInt(String.@".fptable"),
+        @".tls" = @backingInt(String.@".tls"),
+        @".thunks" = @backingInt(String.@".thunks"),
         none = std.math.maxInt(u32),
         _,
 
         pub fn unwrap(os: String.Optional) ?String {
             return switch (os) {
-                else => |s| @enumFromInt(@intFromEnum(s)),
+                else => |s| @fromBackingInt(@intCast(@backingInt(s))),
                 .none => null,
             };
         }
@@ -820,12 +821,12 @@ pub const String = enum(u32) {
     };
 
     pub fn toSlice(s: String, coff: *Coff) [:0]const u8 {
-        const slice = coff.string_bytes.items[@intFromEnum(s)..];
+        const slice = coff.string_bytes.items[@backingInt(s)..];
         return slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
     }
 
     pub fn toOptional(s: String) String.Optional {
-        return @enumFromInt(@intFromEnum(s));
+        return @fromBackingInt(@intCast(@backingInt(s)));
     }
 };
 
@@ -838,13 +839,13 @@ pub const Section = struct {
         _,
 
         pub fn wrap(i: ?u16) RelocationIndex {
-            return @enumFromInt((i orelse return .none) + 1);
+            return @fromBackingInt(@intCast((i orelse return .none) + 1));
         }
 
         pub fn unwrap(sri: RelocationIndex) ?u16 {
             return switch (sri) {
                 .none => null,
-                _ => @intFromEnum(sri) - 1,
+                _ => @backingInt(sri) - 1,
             };
         }
 
@@ -1007,11 +1008,11 @@ pub const Symbol = struct {
         _,
 
         fn toIndex(sn: SectionNumber) u15 {
-            return @intCast(@intFromEnum(sn) - 1);
+            return @intCast(@backingInt(sn) - 1);
         }
 
         fn hasIndex(sn: SectionNumber) bool {
-            return @intFromEnum(sn) > 0;
+            return @backingInt(sn) > 0;
         }
 
         pub fn symbol(sn: SectionNumber, coff: *const Coff) Symbol.Index {
@@ -1042,7 +1043,7 @@ pub const Symbol = struct {
         const known_count = @typeInfo(Index).@"enum".field_names.len;
 
         pub fn get(si: Symbol.Index, coff: *Coff) *Symbol {
-            return &coff.symbols.items[@intFromEnum(si)];
+            return &coff.symbols.items[@backingInt(si)];
         }
 
         pub fn unwrap(si: Symbol.Index) ?Symbol.Index {
@@ -1062,7 +1063,7 @@ pub const Symbol = struct {
         }
 
         pub fn next(si: Symbol.Index) Symbol.Index {
-            return @enumFromInt(@intFromEnum(si) + 1);
+            return @fromBackingInt(@intCast(@backingInt(si) + 1));
         }
 
         pub fn knownString(si: Symbol.Index) String.Optional {
@@ -1106,7 +1107,7 @@ pub const Symbol = struct {
             switch (sym.loc_relocs) {
                 .none => {},
                 else => |loc_relocs| {
-                    for (coff.relocs.items[@intFromEnum(loc_relocs)..]) |*reloc| {
+                    for (coff.relocs.items[@backingInt(loc_relocs)..]) |*reloc| {
                         if (reloc.loc != si) break;
                         if (reloc.sri.entry(coff, sym.section_number)) |entry| coff.targetStore(
                             &entry.virtual_address,
@@ -1135,7 +1136,7 @@ pub const Symbol = struct {
             switch (sym.loc_relocs) {
                 .none => {},
                 else => |loc_relocs| {
-                    for (coff.relocs.items[@intFromEnum(loc_relocs)..]) |*reloc| {
+                    for (coff.relocs.items[@backingInt(loc_relocs)..]) |*reloc| {
                         if (reloc.loc != si) break;
                         reloc.delete(coff);
                     }
@@ -1188,11 +1189,11 @@ pub const Reloc = extern struct {
         _,
 
         pub fn wrap(i: ?u32) Reloc.Index {
-            return @enumFromInt((i orelse return .none) + 1);
+            return @fromBackingInt(@intCast((i orelse return .none) + 1));
         }
 
         pub fn get(ri: Reloc.Index, coff: *Coff) *Reloc {
-            return &coff.relocs.items[@intFromEnum(ri)];
+            return &coff.relocs.items[@backingInt(ri)];
         }
     };
 
@@ -1573,13 +1574,13 @@ fn create(
         else => return error.UnsupportedCOFFArchitecture,
     };
     const section_align: std.mem.Alignment = switch (machine) {
-        .AMD64, .I386 => @enumFromInt(12),
-        .SH3, .SH3DSP, .SH4, .SH5 => @enumFromInt(12),
-        .MIPS16, .MIPSFPU, .MIPSFPU16, .WCEMIPSV2 => @enumFromInt(12),
-        .POWERPC, .POWERPCFP => @enumFromInt(12),
-        .ALPHA, .ALPHA64 => @enumFromInt(13),
-        .IA64 => @enumFromInt(13),
-        .ARM => @enumFromInt(12),
+        .AMD64, .I386 => @fromBackingInt(@intCast(12)),
+        .SH3, .SH3DSP, .SH4, .SH5 => @fromBackingInt(@intCast(12)),
+        .MIPS16, .MIPSFPU, .MIPSFPU16, .WCEMIPSV2 => @fromBackingInt(@intCast(12)),
+        .POWERPC, .POWERPCFP => @fromBackingInt(@intCast(12)),
+        .ALPHA, .ALPHA64 => @fromBackingInt(@intCast(13)),
+        .IA64 => @fromBackingInt(@intCast(13)),
+        .ARM => @fromBackingInt(@intCast(12)),
         else => return error.UnsupportedCOFFArchitecture,
     };
 
@@ -2192,7 +2193,7 @@ fn initHeaders(
         const export_address_table_sym = coff.export_table.export_address_table_si.get(coff);
         export_address_table_sym.ni = export_address_table_ni;
         assert(export_address_table_sym.loc_relocs == .none);
-        export_address_table_sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+        export_address_table_sym.loc_relocs = @fromBackingInt(@intCast(coff.relocs.items.len));
         export_address_table_sym.section_number =
             coff.getNode(coff.export_table.ni).pseudo_section.symbol(coff).get(coff).section_number;
 
@@ -2382,7 +2383,7 @@ pub fn endProgress(coff: *Coff) void {
 }
 
 fn getNode(coff: *const Coff, ni: MappedFile.Node.Index) Node {
-    return coff.nodes.get(@intFromEnum(ni));
+    return coff.nodes.get(@backingInt(ni));
 }
 fn computeNodeRva(coff: *Coff, ni: MappedFile.Node.Index) u32 {
     const parent_rva = parent_rva: {
@@ -2498,7 +2499,7 @@ fn targetLoad(coff: *const Coff, ptr: anytype) @typeInfo(@TypeOf(ptr)).pointer.c
     return switch (@typeInfo(Child)) {
         else => @compileError(@typeName(Child)),
         .int => std.mem.toNative(Child, ptr.*, coff.targetEndian()),
-        .@"enum" => |@"enum"| @enumFromInt(coff.targetLoad(@as(*@"enum".tag_type, @ptrCast(ptr)))),
+        .@"enum" => |@"enum"| @fromBackingInt(@intCast(coff.targetLoad(@as(*@"enum".tag_type, @ptrCast(ptr))))),
         .@"struct" => |@"struct"| @bitCast(
             coff.targetLoad(@as(*@"struct".backing_integer.?, @ptrCast(ptr))),
         ),
@@ -2511,7 +2512,7 @@ fn targetStore(coff: *const Coff, ptr: anytype, val: @typeInfo(@TypeOf(ptr)).poi
         .int => ptr.* = std.mem.nativeTo(Child, val, coff.targetEndian()),
         .@"enum" => |@"enum"| coff.targetStore(
             @as(*@"enum".tag_type, @ptrCast(ptr)),
-            @intFromEnum(val),
+            @backingInt(val),
         ),
         .@"struct" => |@"struct"| coff.targetStore(
             @as(*@"struct".backing_integer.?, @ptrCast(ptr)),
@@ -2612,7 +2613,7 @@ pub fn dataDirectoryPtr(
     coff: *Coff,
     entry: std.coff.IMAGE.DIRECTORY_ENTRY,
 ) *std.coff.ImageDataDirectory {
-    return &coff.dataDirectorySlice()[@intFromEnum(entry)];
+    return &coff.dataDirectorySlice()[@backingInt(entry)];
 }
 
 pub fn sectionTableSlice(coff: *Coff) []std.coff.SectionHeader {
@@ -2664,7 +2665,7 @@ pub fn importDirectoryEntryPtr(
     coff: *Coff,
     import_index: ImportTable.Index,
 ) *std.coff.ImportDirectoryEntry {
-    return &coff.importDirectoryTableSlice()[@intFromEnum(import_index)];
+    return &coff.importDirectoryTableSlice()[@backingInt(import_index)];
 }
 
 pub fn exportDirectoryTable(coff: *Coff) *std.coff.ExportDirectoryTable {
@@ -2700,7 +2701,7 @@ fn addSymbolAssumeCapacity(coff: *Coff) Symbol.Index {
         .section_number = .UNDEFINED,
         .gmi = .none,
     };
-    return @enumFromInt(coff.symbols.items.len);
+    return @fromBackingInt(@intCast(coff.symbols.items.len));
 }
 
 fn initSymbolAssumeCapacity(coff: *Coff) !Symbol.Index {
@@ -2720,7 +2721,7 @@ fn getString(coff: *Coff, string: []const u8) String.Optional {
         string,
         std.hash_map.StringIndexAdapter{ .bytes = &coff.string_bytes },
     )) |key|
-        return @as(String, @enumFromInt(key)).toOptional()
+        return @as(String, @fromBackingInt(@intCast(key))).toOptional()
     else
         return .none;
 }
@@ -2738,7 +2739,7 @@ fn getOrPutSymbolName(coff: *Coff, name: []const u8, opt_string: ?String) !Symbo
         const string_gop = try coff.symbol_table.strings.getOrPut(gpa, string);
         if (!string_gop.found_existing) {
             const string_index = coff.symbol_table.strings_ni.location(&coff.mf).resolve(&coff.mf)[1];
-            string_gop.value_ptr.* = @enumFromInt(string_index);
+            string_gop.value_ptr.* = @fromBackingInt(@intCast(string_index));
 
             try coff.symbol_table.strings_ni.resize(&coff.mf, gpa, string_index + name.len + 1);
             const slice = coff.symbol_table.strings_ni.slice(&coff.mf);
@@ -2775,7 +2776,7 @@ fn getOrPutStringAssumeCapacity(coff: *Coff, string: []const u8) String {
         coff.string_bytes.appendSliceAssumeCapacity(string);
         coff.string_bytes.appendAssumeCapacity(0);
     }
-    return @enumFromInt(gop.key_ptr.*);
+    return @fromBackingInt(@intCast(gop.key_ptr.*));
 }
 
 const GlobalOptions = struct {
@@ -2886,7 +2887,7 @@ fn navMapIndex(coff: *Coff, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Node.Na
     try coff.symbols.ensureUnusedCapacity(gpa, 1);
     const sym_gop = try coff.navs.getOrPut(gpa, nav_index);
     if (!sym_gop.found_existing) sym_gop.value_ptr.* = coff.addSymbolAssumeCapacity();
-    return @enumFromInt(sym_gop.index);
+    return @fromBackingInt(@intCast(sym_gop.index));
 }
 pub fn navSymbol(coff: *Coff, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Symbol.Index {
     const ip = &zcu.intern_pool;
@@ -2907,7 +2908,7 @@ fn uavMapIndex(coff: *Coff, uav_val: InternPool.Index) !Node.UavMapIndex {
     try coff.symbols.ensureUnusedCapacity(gpa, 1);
     const sym_gop = try coff.uavs.getOrPut(gpa, uav_val);
     if (!sym_gop.found_existing) sym_gop.value_ptr.* = coff.addSymbolAssumeCapacity();
-    return @enumFromInt(sym_gop.index);
+    return @fromBackingInt(@intCast(sym_gop.index));
 }
 pub fn uavSymbol(coff: *Coff, uav_val: InternPool.Index) !Symbol.Index {
     const umi = try coff.uavMapIndex(uav_val);
@@ -2944,7 +2945,7 @@ pub fn getUavVAddr(
 
 pub fn getVAddr(coff: *Coff, reloc_info: link.File.RelocInfo, target_si: Symbol.Index) link.Error!u64 {
     try coff.addReloc(
-        @enumFromInt(@intFromEnum(reloc_info.parent.atom_index)),
+        @fromBackingInt(@intCast(@backingInt(reloc_info.parent.atom_index))),
         reloc_info.offset,
         target_si,
         .{ .known = reloc_info.addend },
@@ -2985,7 +2986,7 @@ fn addMemberAssumeCapacity(coff: *Coff, kind: std.coff.ArchiveMemberHeader.Kind,
         .fixed = true,
     });
 
-    const mi: Member.Index = @enumFromInt(coff.members.items.len);
+    const mi: Member.Index = @fromBackingInt(@intCast(coff.members.items.len));
     coff.members.appendAssumeCapacity(.{
         .kind = kind,
         .header_ni = header_ni,
@@ -3064,7 +3065,7 @@ fn ensureMemberSymbol(coff: *Coff, mi: Member.Index, name: String) !void {
         const num_symbols_ptr = coff.firstLinkerMemberNumSymbolsPtr();
         const num_symbols = std.mem.toNative(u32, num_symbols_ptr.*, .big);
         num_symbols_ptr.* = std.mem.nativeTo(u32, num_symbols + 1, .big);
-        break :blk @enumFromInt(num_symbols);
+        break :blk @fromBackingInt(@intCast(num_symbols));
     };
 
     gop.value_ptr.* = mfli;
@@ -3077,7 +3078,7 @@ fn ensureMemberSymbol(coff: *Coff, mi: Member.Index, name: String) !void {
     defer coff.lib_string_len = new_string_table_size;
 
     {
-        const old_header_size: usize = @intCast(@sizeOf(u32) + @intFromEnum(mfli) * @sizeOf(u32));
+        const old_header_size: usize = @intCast(@sizeOf(u32) + @backingInt(mfli) * @sizeOf(u32));
         const new_header_size: usize = @intCast(old_header_size + @sizeOf(u32));
         try Node.known.first_linker_member.resize(&coff.mf, gpa, new_header_size + new_string_table_size);
 
@@ -3091,7 +3092,7 @@ fn ensureMemberSymbol(coff: *Coff, mi: Member.Index, name: String) !void {
 
     {
         const num_members = coff.targetLoad(coff.secondLinkerMemberNumMembersPtr());
-        const old_header_size = 2 * @sizeOf(u32) + num_members * @sizeOf(u32) + @intFromEnum(mfli) * @sizeOf(u16);
+        const old_header_size = 2 * @sizeOf(u32) + num_members * @sizeOf(u32) + @backingInt(mfli) * @sizeOf(u16);
         const new_header_size = old_header_size + @sizeOf(u16);
         try Node.known.second_linker_member.resize(&coff.mf, gpa, new_header_size + new_string_table_size);
 
@@ -3108,7 +3109,7 @@ fn ensureMemberSymbol(coff: *Coff, mi: Member.Index, name: String) !void {
         try coff.lib_string_table.append(gpa, name);
 
         const slice = Node.known.second_linker_member.slice(&coff.mf);
-        coff.targetStore(coff.secondLinkerMemberNumSymbolsPtr(), @intFromEnum(mfli) + 1);
+        coff.targetStore(coff.secondLinkerMemberNumSymbolsPtr(), @backingInt(mfli) + 1);
         if (!needs_sort) {
             @memmove(slice[new_header_size..][0..coff.lib_string_len], slice[old_header_size..][0..coff.lib_string_len]);
             @memcpy(slice[new_header_size + coff.lib_string_len ..][0..name_slice.len], name_slice[0..name_slice.len]);
@@ -3120,7 +3121,7 @@ fn ensureMemberSymbol(coff: *Coff, mi: Member.Index, name: String) !void {
 
         // Indices in this table are 1-based
         const index_ptr: *u16 = @ptrCast(@alignCast(slice[old_header_size..]));
-        coff.targetStore(index_ptr, @intCast(@intFromEnum(mi) - Member.Index.known_count + 1));
+        coff.targetStore(index_ptr, @intCast(@backingInt(mi) - Member.Index.known_count + 1));
     }
 
     coff.pending_members.putAssumeCapacity(mi, {});
@@ -3208,7 +3209,7 @@ fn flushSymbolTableEntry(coff: *Coff, index: u32, pt: Zcu.PerThread) !void {
         const entry = coff.symbolTableEntryPtr(sti.*).?;
         symbol_name.store(coff, &entry.name);
 
-        entry.section_number = @enumFromInt(@intFromEnum(sym.section_number));
+        entry.section_number = @fromBackingInt(@intCast(@backingInt(sym.section_number)));
         entry.type = .{
             .complex_type = complex_type,
             .base_type = .NULL,
@@ -3398,7 +3399,7 @@ fn addSection(coff: *Coff, name: String, flags: std.coff.SectionHeader.Flags) !S
         const sym = si.get(coff);
         sym.ni = ni;
         sym.rva = rva;
-        sym.section_number = @enumFromInt(section_table_len);
+        sym.section_number = @fromBackingInt(@intCast(section_table_len));
     }
     const section = &section_table[section_index];
     section.* = .{
@@ -3485,7 +3486,7 @@ fn pseudoSectionMapIndex(
 ) !Node.PseudoSectionMapIndex {
     const gpa = coff.base.comp.gpa;
     const pseudo_section_gop = try coff.pseudo_section_table.getOrPut(gpa, name);
-    const psmi: Node.PseudoSectionMapIndex = @enumFromInt(pseudo_section_gop.index);
+    const psmi: Node.PseudoSectionMapIndex = @fromBackingInt(@intCast(pseudo_section_gop.index));
     const parent_sn = if (!pseudo_section_gop.found_existing) sn: {
         const effective_name = coff.section_merges.get(name) orelse name;
         const parent = if (coff.section_table.get(effective_name)) |existing_sec|
@@ -3513,7 +3514,7 @@ fn pseudoSectionMapIndex(
         sym.rva = coff.computeNodeRva(ni);
         sym.section_number = parent.get(coff).section_number;
         assert(sym.loc_relocs == .none);
-        sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+        sym.loc_relocs = @fromBackingInt(@intCast(coff.relocs.items.len));
         coff.nodes.appendAssumeCapacity(.{ .pseudo_section = psmi });
         break :sn sym.section_number;
     } else pseudo_section_gop.value_ptr.get(coff).section_number;
@@ -3556,7 +3557,7 @@ fn objectSectionMapIndex(
     } else attributes;
 
     const object_section_gop = try coff.object_section_table.getOrPut(gpa, name);
-    const osmi: Node.ObjectSectionMapIndex = @enumFromInt(object_section_gop.index);
+    const osmi: Node.ObjectSectionMapIndex = @fromBackingInt(@intCast(object_section_gop.index));
     const sym = if (!object_section_gop.found_existing) sym: {
         try coff.ensureUnusedStringCapacity(name_slice.len);
         const parent_name = coff.getOrPutStringAssumeCapacity(coff.objectSectionParentName(name_slice));
@@ -3592,7 +3593,7 @@ fn objectSectionMapIndex(
         sym.rva = coff.computeNodeRva(ni);
         sym.section_number = parent.get(coff).section_number;
         assert(sym.loc_relocs == .none);
-        sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+        sym.loc_relocs = @fromBackingInt(@intCast(coff.relocs.items.len));
         coff.nodes.appendAssumeCapacity(.{ .object_section = osmi });
         break :sym sym;
     } else object_section_gop.value_ptr.get(coff);
@@ -3601,13 +3602,13 @@ fn objectSectionMapIndex(
     const parent_alignment = parent_ni.alignment(&coff.mf);
     if (alignment.compare(.gt, parent_alignment)) {
         log.debug("realignParent({s}, {d}) {d}->{d}", .{ name.toSlice(coff), parent_ni, parent_alignment, alignment });
-        try parent_ni.realign(&coff.mf, gpa, alignment, .{ .set_alignment = true });
+        try parent_ni.realign(&coff.mf, gpa, alignment, .{ .try_backwards = true });
     }
 
     const old_alignment = sym.ni.alignment(&coff.mf);
     if (alignment.compare(.gt, old_alignment)) {
         log.debug("realignObject({s}) {d}->{d}", .{ name.toSlice(coff), old_alignment, alignment });
-        try sym.ni.realign(&coff.mf, gpa, alignment, .{ .set_alignment = true });
+        try sym.ni.realign(&coff.mf, gpa, alignment, .{ .try_backwards = true });
     }
 
     try coff.verifyParentSectionAttributes(
@@ -3722,7 +3723,7 @@ fn addRelocAssumeCapacity(
     const gpa = coff.base.comp.gpa;
     const target = target_si.get(coff);
 
-    const ri: Reloc.Index = @enumFromInt(coff.relocs.items.len);
+    const ri: Reloc.Index = @fromBackingInt(@intCast(coff.relocs.items.len));
     log.debug("addReloc({d}@{d}+0x{x} -> {d}@{d}+0x{x}{s}) = {d}", .{
         loc_si,
         loc_si.get(coff).section_number,
@@ -3983,7 +3984,7 @@ fn loadObject(
         symbol_table_end + string_table_len > fl.size)
         return diags.failParse(path, "bad string table length: 0x{x}", .{string_table_len});
 
-    const ioi: InputObject.Index = @enumFromInt(coff.input_objects.items.len);
+    const ioi: InputObject.Index = @fromBackingInt(@intCast(coff.input_objects.items.len));
     try coff.input_objects.ensureUnusedCapacity(gpa, 1);
     const input = coff.input_objects.addOneAssumeCapacity();
     input.* = .{
@@ -4012,13 +4013,13 @@ fn loadObject(
         _,
 
         pub fn wrap(i: ?u32) @This() {
-            return @enumFromInt((i orelse return .none) + 1);
+            return @fromBackingInt(@intCast((i orelse return .none) + 1));
         }
 
         pub fn unwrap(i: @This()) ?u32 {
             return switch (i) {
                 .none => null,
-                _ => @intFromEnum(i) - 1,
+                _ => @backingInt(i) - 1,
             };
         }
     };
@@ -4207,12 +4208,12 @@ fn loadObject(
 
         switch (symbol.section_number) {
             .UNDEFINED, .DEBUG, .ABSOLUTE => {},
-            else => |sn| if (@intFromEnum(sn) > sections.len)
+            else => |sn| if (@backingInt(sn) > sections.len)
                 return diags.failParse(path, "out-of-bounds section number {d} in symbol 0x{x}", .{ sn, symbol_i }),
         }
 
         const psi: PendingSymbolIndex = .wrap(@intCast(pending_symbols.count()));
-        const section_number: Symbol.SectionNumber = @enumFromInt(@intFromEnum(symbol.section_number));
+        const section_number: Symbol.SectionNumber = @fromBackingInt(@intCast(@backingInt(symbol.section_number)));
 
         const values: []const @FieldType(PendingSymbol, "value") = pending_symbols: switch (symbol.storage_class) {
             .STATIC, .LABEL => |storage_class| switch (section_number) {
@@ -4269,7 +4270,7 @@ fn loadObject(
                                         .{ symbol_i + 1, name, section_def.number },
                                     );
 
-                                section.comdat_association = @enumFromInt(section_def.number);
+                                section.comdat_association = @fromBackingInt(@intCast(section_def.number));
                             }
 
                             section.comdat = section_def.selection;
@@ -4599,7 +4600,7 @@ fn loadObject(
                         const sym = si.get(coff);
                         const existing_crc = switch (coff.getNode(sym.ni)) {
                             .input_section => |isi| isi.inputSection(coff).crc,
-                            else => std.hash.crc.Crc32Jamcrc.hash(sym.ni.sliceConst(&coff.mf)),
+                            else => Crc32.hash(sym.ni.sliceConst(&coff.mf)),
                         };
 
                         if (existing_crc == section.comdat_crc) {
@@ -4683,7 +4684,7 @@ fn loadObject(
             .alignment = section.header.flags.ALIGN.alignment() orelse .@"1",
             .moved = true,
         });
-        coff.nodes.appendAssumeCapacity(.{ .input_section = @enumFromInt(coff.input_sections.items.len) });
+        coff.nodes.appendAssumeCapacity(.{ .input_section = @fromBackingInt(@intCast(coff.input_sections.items.len)) });
 
         section.si = coff.addSymbolAssumeCapacity();
         if (section.psi.unwrap()) |psi|
@@ -4700,7 +4701,7 @@ fn loadObject(
                 .offset = fl.offset + section.header.pointer_to_raw_data,
                 .size = section.header.size_of_raw_data,
             },
-            .first_li = @enumFromInt(coff.input_symbols.items.len),
+            .first_li = @fromBackingInt(@intCast(coff.input_symbols.items.len)),
             .crc = section.comdat_crc,
             .comdat_si = if (section.comdat_psi.unwrap()) |psi|
                 pending_symbols.values()[psi].si
@@ -4887,7 +4888,7 @@ fn loadObject(
 
         const loc_sym = section.si.get(coff);
         assert(loc_sym.loc_relocs == .none);
-        loc_sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+        loc_sym.loc_relocs = @fromBackingInt(@intCast(coff.relocs.items.len));
 
         if (section.header.number_of_relocations == 0) continue;
 
@@ -4946,8 +4947,8 @@ fn loadObject(
             const lhs = &ctx.v[a_index];
             const rhs = &ctx.v[b_index];
             if (lhs.section_number == rhs.section_number)
-                return @intFromEnum(lhs.si) < @intFromEnum(rhs.si);
-            return @intFromEnum(lhs.section_number) < @intFromEnum(rhs.section_number);
+                return @backingInt(lhs.si) < @backingInt(rhs.si);
+            return @backingInt(lhs.section_number) < @backingInt(rhs.section_number);
         }
     };
 
@@ -4967,14 +4968,14 @@ fn loadObject(
                 include_section = section.comdat_result == .include;
                 if (include_section) {
                     const isi = coff.getNode(section.si.get(coff).ni).input_section;
-                    isi.inputSection(coff).first_li = @enumFromInt(coff.input_symbols.items.len);
+                    isi.inputSection(coff).first_li = @fromBackingInt(@intCast(coff.input_symbols.items.len));
                 }
             }
         }
 
         if (include_section) {
             assert(coff.getNode(symbol.si.get(coff).ni) == .input_section);
-            symbol.si.get(coff).setExtra(.{ .isli = @enumFromInt(coff.input_symbols.items.len) });
+            symbol.si.get(coff).setExtra(.{ .isli = @fromBackingInt(@intCast(coff.input_symbols.items.len)) });
             coff.input_symbols.addOneAssumeCapacity().* = .{
                 .si = symbol.si,
                 .name = symbol.name,
@@ -5091,7 +5092,7 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) Loa
     }) = .empty;
     var symbol_member_indices: std.ArrayList(u32) = .empty;
 
-    const iai: InputArchive.Index = @enumFromInt(coff.input_archives.items.len);
+    const iai: InputArchive.Index = @fromBackingInt(@intCast(coff.input_archives.items.len));
     (try coff.input_archives.addOne(gpa)).* = .{
         .path = path,
     };
@@ -5102,13 +5103,13 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) Loa
 
     errdefer {
         for (coff.input_archive_symbol_indices.values()) |*v| {
-            if (@intFromEnum(v.last) < first_iamsi) continue;
-            if (@intFromEnum(v.first) >= first_iamsi) continue;
+            if (@backingInt(v.last) < first_iamsi) continue;
+            if (@backingInt(v.first) >= first_iamsi) continue;
 
             var iter = v.first;
             v.last = while (iter != v.last) {
-                const sym = &coff.input_archive_symbols.items[@intFromEnum(iter)];
-                if (@intFromEnum(sym.next) >= first_iamsi) {
+                const sym = &coff.input_archive_symbols.items[@backingInt(iter)];
+                if (@backingInt(sym.next) >= first_iamsi) {
                     sym.next = iter;
                     break iter;
                 }
@@ -5188,7 +5189,7 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) Loa
                     }) |n| n else return diags.failParse(path, "unterminated string found in second linker member", .{});
 
                     const string = coff.getOrPutStringAssumeCapacity(name);
-                    const iamsi: InputArchive.Member.Symbol.Index = @enumFromInt(coff.input_archive_symbols.items.len);
+                    const iamsi: InputArchive.Member.Symbol.Index = @fromBackingInt(@intCast(coff.input_archive_symbols.items.len));
                     const symbol_gop = coff.input_archive_symbol_indices.getOrPutAssumeCapacity(string);
                     if (!symbol_gop.found_existing) {
                         symbol_gop.value_ptr.* = .{
@@ -5196,12 +5197,12 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) Loa
                             .last = iamsi,
                         };
                     } else {
-                        coff.input_archive_symbols.items[@intFromEnum(symbol_gop.value_ptr.last)].next = iamsi;
+                        coff.input_archive_symbols.items[@backingInt(symbol_gop.value_ptr.last)].next = iamsi;
                         symbol_gop.value_ptr.last = iamsi;
                     }
 
                     const iami = members.items[symbol_member_indices.items[symbol_i]].iami orelse iami: {
-                        const iami: InputArchive.Member.Index = @enumFromInt(coff.input_archive_members.items.len);
+                        const iami: InputArchive.Member.Index = @fromBackingInt(@intCast(coff.input_archive_members.items.len));
                         const member_offset = members.items[symbol_member_indices.items[symbol_i]].offset;
                         coff.input_archive_members.addOneAssumeCapacity().* = .{
                             .iai = iai,
@@ -5270,7 +5271,7 @@ fn loadArchive(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) Loa
 
         const member_sig = try r.peek(4);
         const machine: std.coff.IMAGE.FILE.MACHINE =
-            @enumFromInt(std.mem.readInt(u16, member_sig[0..2], target_endian));
+            @fromBackingInt(@intCast(std.mem.readInt(u16, member_sig[0..2], target_endian)));
         const sig = std.mem.readInt(u16, member_sig[2..4], target_endian);
 
         log.debug("verifyArchiveMember({s}) = 0x{x}+{x}", .{
@@ -5369,7 +5370,9 @@ fn loadDll(coff: *Coff, path: std.Build.Cache.Path, fr: *Io.File.Reader) LoadInp
 }
 
 pub fn prelink(coff: *Coff, prog_node: std.Progress.Node) link.Error!void {
-    _ = prog_node;
+    const sub_prog_node = prog_node.start("COFF Prelink", 0);
+    defer sub_prog_node.end();
+
     const base = coff.base;
     const comp = base.comp;
 
@@ -5483,7 +5486,7 @@ fn updateNavInner(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         }
         const sym = si.get(coff);
         assert(sym.loc_relocs == .none);
-        sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+        sym.loc_relocs = @fromBackingInt(@intCast(coff.relocs.items.len));
         if (!isImage(coff) and sym.target_relocs != .none)
             try coff.pendingSymbolTableEntry(si);
 
@@ -5499,7 +5502,7 @@ fn updateNavInner(coff: *Coff, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
             pt,
             .fromInterned(nav.resolved.?.value),
             &nw.interface,
-            .{ .atom_index = @enumFromInt(@intFromEnum(si)) },
+            .{ .atom_index = @fromBackingInt(@intCast(@backingInt(si))) },
         ) catch |err| switch (err) {
             error.WriteFailed => return nw.err.?,
             else => |e| return e,
@@ -5553,7 +5556,7 @@ pub fn lowerUav(
             coff.const_prog_node.increaseEstimatedTotalItems(1);
         }
     }
-    return @enumFromInt(@intFromEnum(si));
+    return @fromBackingInt(@intCast(@backingInt(si)));
 }
 
 pub fn updateFunc(
@@ -5597,11 +5600,11 @@ fn updateFuncInner(
                 const ni = try coff.mf.addLastChildNode(gpa, sec_si.node(coff), .{
                     .alignment = switch (nav.resolved.?.@"align") {
                         .none => switch (mod.optimize_mode) {
-                            .Debug,
-                            .ReleaseSafe,
-                            .ReleaseFast,
+                            .debug,
+                            .safe,
+                            .fast,
                             => target_util.defaultFunctionAlignment(target),
-                            .ReleaseSmall => target_util.minFunctionAlignment(target),
+                            .small => target_util.minFunctionAlignment(target),
                         },
                         else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
                     }.toStdMem(),
@@ -5616,7 +5619,7 @@ fn updateFuncInner(
         }
         const sym = si.get(coff);
         assert(sym.loc_relocs == .none);
-        sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+        sym.loc_relocs = @fromBackingInt(@intCast(coff.relocs.items.len));
         if (!isImage(coff) and sym.target_relocs != .none)
             try coff.pendingSymbolTableEntry(si);
         break :ni sym.ni;
@@ -5629,7 +5632,7 @@ fn updateFuncInner(
         &coff.base,
         pt,
         func_index,
-        @enumFromInt(@intFromEnum(si)),
+        @fromBackingInt(@intCast(@backingInt(si))),
         mir,
         &nw.interface,
         .none,
@@ -5755,9 +5758,9 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
             const reloc_l = &ctx.relocs.items[lhs];
             const reloc_r = &ctx.relocs.items[rhs];
             if (reloc_l.target == reloc_r.target)
-                return @intFromEnum(reloc_l.loc) < @intFromEnum(reloc_r.loc)
+                return @backingInt(reloc_l.loc) < @backingInt(reloc_r.loc)
             else
-                return @intFromEnum(reloc_l.target) < @intFromEnum(reloc_r.target);
+                return @backingInt(reloc_l.target) < @backingInt(reloc_r.target);
         }
     }.lessThan;
 
@@ -5797,7 +5800,7 @@ fn reportUndefs(coff: *Coff, tid: Zcu.PerThread.Id) !void {
                 switch (coff.getNode(loc_sym.ni)) {
                     .data_directories => {
                         const dir: std.coff.IMAGE.DIRECTORY_ENTRY =
-                            @enumFromInt(reloc.offset / @sizeOf(std.coff.ImageDataDirectory));
+                            @fromBackingInt(@intCast(reloc.offset / @sizeOf(std.coff.ImageDataDirectory)));
                         err.addNote("referenced by data directory entry: {t}", .{dir});
                     },
                     .optional_header => err.addNote("referenced by optional header field", .{}),
@@ -5885,7 +5888,9 @@ pub fn flush(
     prog_node: std.Progress.Node,
 ) link.Error!void {
     _ = arena;
-    _ = prog_node;
+    const sub_prog_node = prog_node.start("COFF Flush", 0);
+    defer sub_prog_node.end();
+
     const comp = coff.base.comp;
 
     // TODO: When https://github.com/ziglang/zig/issues/23617 is in,
@@ -6094,7 +6099,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
     task: {
         // TODO: Idle task for flushing obj into lib
         if (coff.input_section_pending_index < coff.input_sections.items.len) {
-            const isi: Node.InputSection.Index = @enumFromInt(coff.input_section_pending_index);
+            const isi: Node.InputSection.Index = @fromBackingInt(@intCast(coff.input_section_pending_index));
             coff.input_section_pending_index += 1;
             const sub_prog_node = coff.idleProgNode(tid, coff.input_prog_node, coff.getNode(isi.symbol(coff).node(coff)));
             defer sub_prog_node.end();
@@ -6228,7 +6233,7 @@ fn flushUav(
         }
         const sym = si.get(coff);
         assert(sym.loc_relocs == .none);
-        sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+        sym.loc_relocs = @fromBackingInt(@intCast(coff.relocs.items.len));
         if (!isImage(coff) and sym.target_relocs != .none)
             try coff.pendingSymbolTableEntry(si);
 
@@ -6243,7 +6248,7 @@ fn flushUav(
         pt,
         .fromInterned(uav_val),
         &nw.interface,
-        .{ .atom_index = @enumFromInt(@intFromEnum(si)) },
+        .{ .atom_index = @fromBackingInt(@intCast(@backingInt(si))) },
     ) catch |err| switch (err) {
         error.WriteFailed => return nw.err.?,
         else => |e| return e,
@@ -6374,8 +6379,8 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             const indices_list = opt_indices_list orelse continue;
             var iter: InputArchive.Member.Symbol.Index = indices_list.first;
             while (true) {
-                const archive_sym = &coff.input_archive_symbols.items[@intFromEnum(iter)];
-                const member = &coff.input_archive_members.items[@intFromEnum(archive_sym.iami)];
+                const archive_sym = &coff.input_archive_symbols.items[@backingInt(iter)];
+                const member = &coff.input_archive_members.items[@backingInt(archive_sym.iami)];
                 member: switch (member.content) {
                     .object => if (!member.flags.is_loaded) {
                         if (gmi.libName(coff).unwrap()) |lib_name|
@@ -6522,7 +6527,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             const import_address_table_sym = import_address_table_si.get(coff);
             import_address_table_sym.ni = import_address_table_ni;
             assert(import_address_table_sym.loc_relocs == .none);
-            import_address_table_sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+            import_address_table_sym.loc_relocs = @fromBackingInt(@intCast(coff.relocs.items.len));
             import_address_table_sym.section_number =
                 coff.getNode(idata_section_ni).object_section.symbol(coff).get(coff).section_number;
         }
@@ -6543,9 +6548,9 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
         @memcpy(import_hint_name_slice[0..lib_name.len], lib_name);
         @memcpy(import_hint_name_slice[lib_name.len..][0..".dll".len], ".dll");
         @memset(import_hint_name_slice[lib_name.len + ".dll".len ..], 0);
-        coff.nodes.appendAssumeCapacity(.{ .import_lookup_table = @enumFromInt(gop.index) });
-        coff.nodes.appendAssumeCapacity(.{ .import_address_table = @enumFromInt(gop.index) });
-        coff.nodes.appendAssumeCapacity(.{ .import_hint_name_table = @enumFromInt(gop.index) });
+        coff.nodes.appendAssumeCapacity(.{ .import_lookup_table = @fromBackingInt(@intCast(gop.index)) });
+        coff.nodes.appendAssumeCapacity(.{ .import_address_table = @fromBackingInt(@intCast(gop.index)) });
+        coff.nodes.appendAssumeCapacity(.{ .import_hint_name_table = @fromBackingInt(@intCast(gop.index)) });
 
         const import_directory_entries = coff.importDirectoryTableSlice()[gop.index..][0..2];
         import_directory_entries.* = .{ .{
@@ -6571,7 +6576,7 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
     );
 
     const iat_symbol_gop = try coff.import_table.iat_symbol_indices.getOrPut(gpa, .{
-        .iti = @enumFromInt(gop.index),
+        .iti = @fromBackingInt(@intCast(gop.index)),
         .name = import.name,
         .ordinal_hint = import.ordinal_hint,
     });
@@ -6644,15 +6649,15 @@ fn flushGlobal(coff: *Coff, gmi: Node.GlobalMapIndex) !bool {
             (try gop.value_ptr.import_address_table_symbols.addOne(gpa)).* = si;
         },
         .thunk => {
-            sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+            sym.loc_relocs = @fromBackingInt(@intCast(coff.relocs.items.len));
 
             const target = &comp.root_mod.resolved_target.result;
             const alignment = switch (comp.root_mod.optimize_mode) {
-                .Debug,
-                .ReleaseSafe,
-                .ReleaseFast,
+                .debug,
+                .safe,
+                .fast,
                 => target_util.defaultFunctionAlignment(target),
-                .ReleaseSmall => target_util.minFunctionAlignment(target),
+                .small => target_util.minFunctionAlignment(target),
             }.toStdMem();
             const parent_si = (try coff.pseudoSectionMapIndex(
                 .@".thunks",
@@ -6737,7 +6742,7 @@ fn flushSpecialSymbol(coff: *Coff, pending: SpecialSymbol) !SpecialSymbol {
                 const optional_hdr_sym = optional_hdr_si.get(coff);
                 optional_hdr_sym.ni = Node.known.optional_header;
                 assert(optional_hdr_sym.loc_relocs == .none);
-                optional_hdr_sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+                optional_hdr_sym.loc_relocs = @fromBackingInt(@intCast(coff.relocs.items.len));
 
                 const optional_hdr = coff.optionalHeaderStandardPtr();
                 optional_hdr.address_of_entry_point = std.mem.nativeTo(
@@ -6784,7 +6789,7 @@ fn flushSpecialSymbol(coff: *Coff, pending: SpecialSymbol) !SpecialSymbol {
                 const data_dir_sym = data_dir_si.get(coff);
                 data_dir_sym.ni = Node.known.data_directories;
                 assert(data_dir_sym.loc_relocs == .none);
-                data_dir_sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+                data_dir_sym.loc_relocs = @fromBackingInt(@intCast(coff.relocs.items.len));
 
                 try coff.addReloc(
                     data_dir_si,
@@ -6822,8 +6827,8 @@ fn flushLazy(coff: *Coff, pt: Zcu.PerThread, lmr: Node.LazyMapRef) !void {
                 };
                 const ni = try coff.mf.addLastChildNode(gpa, sec_si.node(coff), .{ .moved = true });
                 coff.nodes.appendAssumeCapacity(switch (lazy.kind) {
-                    .code => .{ .lazy_code = @enumFromInt(lmr.index) },
-                    .const_data => .{ .lazy_const_data = @enumFromInt(lmr.index) },
+                    .code => .{ .lazy_code = @fromBackingInt(@intCast(lmr.index)) },
+                    .const_data => .{ .lazy_const_data = @fromBackingInt(@intCast(lmr.index)) },
                 });
                 sym.ni = ni;
                 sym.section_number = sec_si.get(coff).section_number;
@@ -6831,7 +6836,7 @@ fn flushLazy(coff: *Coff, pt: Zcu.PerThread, lmr: Node.LazyMapRef) !void {
             else => si.deleteLocationRelocs(coff),
         }
         assert(sym.loc_relocs == .none);
-        sym.loc_relocs = @enumFromInt(coff.relocs.items.len);
+        sym.loc_relocs = @fromBackingInt(@intCast(coff.relocs.items.len));
         if (!isImage(coff) and sym.target_relocs != .none)
             try coff.pendingSymbolTableEntry(si);
 
@@ -6849,7 +6854,7 @@ fn flushLazy(coff: *Coff, pt: Zcu.PerThread, lmr: Node.LazyMapRef) !void {
         &required_alignment,
         &nw.interface,
         .none,
-        .{ .atom_index = @enumFromInt(@intFromEnum(si)) },
+        .{ .atom_index = @fromBackingInt(@intCast(@backingInt(si))) },
     ) catch |err| switch (err) {
         error.WriteFailed => return nw.err.?,
         else => |e| return e,
@@ -6898,7 +6903,7 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
             switch (member.kind) {
                 .first_linker, .second_linker, .longnames => {},
                 else => coff.targetStore(
-                    &coff.secondLinkerMemberOffsetsSlice()[@intFromEnum(mi) - Member.Index.known_count],
+                    &coff.secondLinkerMemberOffsetsSlice()[@backingInt(mi) - Member.Index.known_count],
                     @intCast(ni.fileLocation(&coff.mf, false).offset),
                 ),
             }
@@ -6925,7 +6930,7 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
         },
         .input_section => |isi| {
             try isi.symbol(coff).flushMoved(coff);
-            for (coff.input_symbols.items[@intFromEnum(isi.firstSymbol(coff))..]) |input_symbol| {
+            for (coff.input_symbols.items[@backingInt(isi.firstSymbol(coff))..]) |input_symbol| {
                 if (input_symbol.si.get(coff).ni != ni) break;
                 try input_symbol.si.flushMoved(coff);
             }
@@ -7031,7 +7036,7 @@ fn flushMoved(coff: *Coff, ni: MappedFile.Node.Index) !void {
                 coff.exportNamePointerTableSlice(),
                 coff.exportOrdinalTableSlice(),
             ) |*np, target_ord| {
-                const ord: ExportTable.Ordinal = @enumFromInt(coff.targetLoad(&target_ord.unbiased_ordinal));
+                const ord: ExportTable.Ordinal = @fromBackingInt(@intCast(coff.targetLoad(&target_ord.unbiased_ordinal)));
                 const entry = ord.get(coff);
                 coff.targetStore(
                     &np.name_rva,
@@ -7242,7 +7247,7 @@ fn flushMember(coff: *Coff, mi: Member.Index) !void {
             const file_offset: u32 = @intCast(member.header_ni.fileLocation(&coff.mf, false).offset);
             const first_linker_offsets = coff.firstLinkerMemberOffsetsSlice();
             for (member.first_linker_indices.values()) |mfli|
-                first_linker_offsets[@intFromEnum(mfli)] = std.mem.nativeTo(u32, file_offset, .big);
+                first_linker_offsets[@backingInt(mfli)] = std.mem.nativeTo(u32, file_offset, .big);
         },
     }
 }
@@ -7322,7 +7327,7 @@ fn flushSectionMerge(coff: *Coff, index: u32) !void {
         @memcpy(from_name[0..to_slice.len], to_slice);
         @memset(from_name[to_slice.len..], 0);
     } else if (coff.pseudo_section_table.getIndex(from)) |from_index| {
-        const from_psmi: Node.PseudoSectionMapIndex = @enumFromInt(from_index);
+        const from_psmi: Node.PseudoSectionMapIndex = @fromBackingInt(@intCast(from_index));
         const from_sym = from_psmi.symbol(coff).get(coff);
         if (opt_to_sec) |to_sec| {
             const to_sym = to_sec.si.get(coff);
@@ -7394,11 +7399,11 @@ fn updateExportsInner(
     try coff.symbols.ensureUnusedCapacity(gpa, export_indices.len);
     const exported_si: Symbol.Index = switch (exported) {
         .nav => |nav| try coff.navSymbol(zcu, nav),
-        .uav => |uav| @enumFromInt(@intFromEnum(try coff.lowerUav(
+        .uav => |uav| @fromBackingInt(@intCast(@backingInt(try coff.lowerUav(
             pt,
             uav,
             Type.fromInterned(ip.typeOf(uav)).abiAlignment(zcu),
-        ))),
+        )))),
     };
     switch (exported) {
         .nav => |nav| log.debug("updateExports({f}) = {d}", .{ ip.getNav(nav).fqn.fmt(ip), exported_si }),
@@ -7478,7 +7483,7 @@ fn updateExportsInner(
                 const ordinal_table_slice = coff.exportOrdinalTableSlice();
                 if (ordinal_table_slice.len > 0 and !coff.export_table.pending_sort) {
                     const tail_index: ExportTable.Ordinal =
-                        @enumFromInt(ordinal_table_slice[ordinal_table_slice.len - 1].unbiased_ordinal);
+                        @fromBackingInt(@intCast(ordinal_table_slice[ordinal_table_slice.len - 1].unbiased_ordinal));
                     const tail_entry = tail_index.get(coff);
                     const tail_name = name_table_slice[tail_entry.name_index..][0..tail_entry.name_len];
                     coff.export_table.pending_sort = std.mem.lessThan(u8, name, tail_name);
@@ -7522,7 +7527,7 @@ fn updateExportsInner(
                 .si = export_si,
                 .name_index = @intCast(name_index),
                 .name_len = @intCast(name.len),
-                .export_address_table_ri = @enumFromInt(coff.relocs.items.len),
+                .export_address_table_ri = @fromBackingInt(@intCast(coff.relocs.items.len)),
             };
 
             try coff.addReloc(
@@ -7582,7 +7587,7 @@ pub fn dump(coff: *Coff, w: *Io.Writer, tid: Zcu.PerThread.Id) !link.File.DumpRe
             try coff.printSection(w, name, sec.si);
         try w.writeAll("Symbol table:\n");
         for (1..coff.symbols.items.len) |si|
-            try coff.printSymbol(w, tid, @enumFromInt(si));
+            try coff.printSymbol(w, tid, @fromBackingInt(@intCast(si)));
 
         return .enabled;
     }
@@ -7687,7 +7692,7 @@ fn printNodeName(
                 const comdat_name = if (comdat_sym.gmi != .none)
                     comdat_sym.gmi.name(coff).toSlice(coff)
                 else
-                    coff.input_symbols.items[@intFromEnum(comdat_sym.extra.isli)].name.toSlice(coff);
+                    coff.input_symbols.items[@backingInt(comdat_sym.extra.isli)].name.toSlice(coff);
 
                 try w.print("={s}", .{comdat_name});
             }
@@ -7754,10 +7759,10 @@ pub fn printNode(
     try w.writeAll(@tagName(node));
     try coff.printNodeName(w, tid, node);
     {
-        const mf_node = &coff.mf.nodes.items[@intFromEnum(ni)];
+        const mf_node = &coff.mf.nodes.items[@backingInt(ni)];
         const off, const size = mf_node.location().resolve(&coff.mf);
         try w.print(" index={d} offset=0x{x} size=0x{x} align=0x{x}{s}{s}{s}{s}\n", .{
-            @intFromEnum(ni),
+            @backingInt(ni),
             off,
             size,
             mf_node.flags.alignment.toByteUnits(),

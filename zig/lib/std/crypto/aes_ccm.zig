@@ -122,6 +122,9 @@ fn AesCcm(comptime BlockCipher: type, comptime tag_len: usize, comptime nonce_le
         ) AuthenticationError!void {
             assert(m.len == c.len);
 
+            const max_msg_len: u64 = if (L >= 8) std.math.maxInt(u64) else (@as(u64, 1) << @as(u6, @intCast(L * 8))) - 1;
+            if (c.len > max_msg_len) return error.AuthenticationFailed;
+
             const cipher_ctx = BlockCipher.initEnc(key);
 
             // Decrypt the ciphertext using CTR mode (starting from counter = 1)
@@ -823,7 +826,7 @@ test "Aes128Ccm0 - IEEE 802.15.4 Data Frame (Encryption-only)" {
     var plaintext: [4]u8 = undefined;
     _ = try hexToBytes(&plaintext, "61626364");
     var ad: [26]u8 = undefined;
-    _ = try hexToBytes(&ad, "69DC84214302000000004DEAC010000000048DEAC04050000");
+    _ = try hexToBytes(&ad, "69DC842143020000000048DEAC010000000048DEAC0405000000");
 
     // Expected ciphertext from IEEE spec
     var expected_ciphertext: [4]u8 = undefined;
@@ -873,4 +876,12 @@ test "Aes256Ccm0 - Basic encryption-only round-trip" {
     try Aes256Ccm0.decrypt(&m2, &c, tag, "", nonce, key);
 
     try testing.expectEqualSlices(u8, m[0..], m2[0..]);
+}
+
+test "Aes256Ccm decryption of oversized ciphertext" {
+    const key: [32]u8 = @splat(0);
+    const nonce: [13]u8 = @splat(0);
+    const tag: [Aes256Ccm16.tag_length]u8 = @splat(0);
+    var buf: [65536]u8 = @splat(0);
+    try testing.expectError(error.AuthenticationFailed, Aes256Ccm16.decrypt(&buf, &buf, tag, "", nonce, key));
 }

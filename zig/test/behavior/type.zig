@@ -197,13 +197,13 @@ test "Type.Enum" {
 
     const Foo = @Enum(u8, .exhaustive, &.{ "a", "b" }, &.{ 1, 5 });
     try testing.expectEqual(std.builtin.Type.Enum.Mode.exhaustive, @typeInfo(Foo).@"enum".mode);
-    try testing.expectEqual(@as(u8, 1), @intFromEnum(Foo.a));
-    try testing.expectEqual(@as(u8, 5), @intFromEnum(Foo.b));
+    try testing.expectEqual(@as(u8, 1), @backingInt(Foo.a));
+    try testing.expectEqual(@as(u8, 5), @backingInt(Foo.b));
     const Bar = @Enum(u32, .nonexhaustive, &.{ "a", "b" }, &.{ 1, 5 });
     try testing.expectEqual(std.builtin.Type.Enum.Mode.nonexhaustive, @typeInfo(Bar).@"enum".mode);
-    try testing.expectEqual(@as(u32, 1), @intFromEnum(Bar.a));
-    try testing.expectEqual(@as(u32, 5), @intFromEnum(Bar.b));
-    try testing.expectEqual(@as(u32, 6), @intFromEnum(@as(Bar, @enumFromInt(6))));
+    try testing.expectEqual(@as(u32, 1), @backingInt(Bar.a));
+    try testing.expectEqual(@as(u32, 5), @backingInt(Bar.b));
+    try testing.expectEqual(@as(u32, 6), @backingInt(@as(Bar, @fromBackingInt(@intCast(6)))));
 
     { // from https://github.com/ziglang/zig/issues/19985
         { // enum with single field can be initialized.
@@ -266,13 +266,21 @@ test "Type.Union from regular enum" {
 test "Type.Union from empty regular enum" {
     const E = enum {};
     const U = @Union(.auto, E, &.{}, &.{}, &.{});
-    try testing.expectEqual(@typeInfo(U).@"union".field_names.len, 0);
+
+    const info = @typeInfo(U).@"union";
+    try testing.expect(info.field_names.len == 0);
+    try testing.expect(info.tag_type != null);
+    try testing.expect(@typeInfo(info.tag_type.?).@"enum".tag_type == noreturn);
 }
 
 test "Type.Union from empty Type.Enum" {
-    const E = @Enum(u0, .exhaustive, &.{}, &.{});
+    const E = @Enum(noreturn, .exhaustive, &.{}, &.{});
     const U = @Union(.auto, E, &.{}, &.{}, &.{});
-    try testing.expectEqual(@typeInfo(U).@"union".field_names.len, 0);
+
+    const info = @typeInfo(U).@"union";
+    try testing.expect(info.field_names.len == 0);
+    try testing.expect(info.tag_type != null);
+    try testing.expect(@typeInfo(info.tag_type.?).@"enum".tag_type == noreturn);
 }
 
 test "Type.Fn" {

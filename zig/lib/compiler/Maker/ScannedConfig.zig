@@ -9,7 +9,7 @@ const Graph = @import("Graph.zig");
 
 configuration: Configuration,
 top_level_steps: std.array_hash_map.String(Configuration.Step.Index),
-path: []const u8,
+path: std.Build.Cache.Path,
 
 pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
     std.log.err("TODO also print paths", .{});
@@ -26,11 +26,11 @@ pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
         try tf.end();
     }
 
-    try s.field("default_step", @intFromEnum(c.default_step), .{});
+    try s.field("default_step", @backingInt(c.default_step), .{});
     {
         var sf = try s.beginStructField("top_level_steps", .{});
         for (sc.top_level_steps.keys(), sc.top_level_steps.values()) |name, step| {
-            try sf.field(name, @intFromEnum(step), .{});
+            try sf.field(name, @backingInt(step), .{});
         }
         try sf.end();
     }
@@ -122,7 +122,7 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                 } else if (std.enums.tagName(Field, field_value)) |name| {
                     try s.ident(name);
                 } else {
-                    try s.int(@intFromEnum(field_value));
+                    try s.int(@backingInt(field_value));
                 }
             },
             .@"struct" => |info| switch (info.layout) {
@@ -152,7 +152,7 @@ fn printValue(sc: *const ScannedConfig, s: *Serializer, comptime Field: type, fi
                             inline else => |tag| {
                                 var sub_struct = try s.beginStruct(.{});
                                 try sub_struct.fieldPrefix(@tagName(tag));
-                                try printValue(sc, s, @FieldType(Field.Union, @tagName(tag)), @enumFromInt(elem));
+                                try printValue(sc, s, @FieldType(Field.Union, @tagName(tag)), @fromBackingInt(@intCast(elem)));
                                 try sub_struct.end();
                             },
                         };
@@ -342,7 +342,7 @@ pub fn printUsage(sc: *const ScannedConfig, graph: *Graph, w: *Writer) !void {
         \\  --build-file [file]          Override path to build.zig
         \\  --cache-dir [path]           Override path to local Zig cache directory
         \\  --global-cache-dir [path]    Override path to global Zig cache directory
-        \\  --zig-lib-dir [arg]          Override path to Zig lib directory
+        \\  --zig-lib=[arg]              Override path to Zig lib directory
         \\  --seed [integer]             For shuffling dependency traversal order (default: random)
         \\  --cache-poison[=mode]        Override configuration caching behavior
         \\      pure                     (default) Avoid false positive cache hits
@@ -360,7 +360,6 @@ pub fn printUsage(sc: *const ScannedConfig, graph: *Graph, w: *Writer) !void {
         \\      none                     (default) No build ID
         \\  --debug-log [scope]          Enable debugging the compiler
         \\  --debug-pkg-config           Fail if unknown pkg-config flags encountered
-        \\  --maker-opt=[mode]           Change maker executable optimization mode (default: ReleaseSafe)
         \\  --verbose-link               Enable compiler debug output for linking
         \\  --verbose-air                Enable compiler debug output for Zig AIR
         \\  --verbose-llvm-ir            Enable compiler debug output for LLVM IR

@@ -21,16 +21,17 @@ const Zcu = @import("Zcu.zig");
 const InternPool = @import("InternPool.zig");
 const Type = @import("Type.zig");
 const Value = @import("Value.zig");
-const Package = @import("Package.zig");
 const dev = @import("dev.zig");
 const target_util = @import("target.zig");
 const codegen = @import("codegen.zig");
 const crash_report = @import("crash_report.zig");
 
-pub const aarch64 = @import("link/aarch64.zig");
 pub const LdScript = @import("link/LdScript.zig");
 pub const Queue = @import("link/Queue.zig");
 pub const ConstPool = @import("link/ConstPool.zig");
+
+pub const aarch64 = @import("link/aarch64.zig");
+pub const loongarch = @import("link/loongarch.zig");
 
 pub const Error = Allocator.Error || Io.Cancelable || error{
     /// An error message has already been stored in persistent state on `Compilation` or `Zcu`, for
@@ -385,7 +386,7 @@ pub const Diags = struct {
             });
             const notes_start = try bundle.reserveNotes(@intCast(link_err.notes.len));
             for (link_err.notes, 0..) |note, i| {
-                bundle.extra.items[notes_start + i] = @intFromEnum(try bundle.addErrorMessage(.{
+                bundle.extra.items[notes_start + i] = @backingInt(try bundle.addErrorMessage(.{
                     .msg = try note.string(bundle, base),
                 }));
             }
@@ -859,7 +860,7 @@ pub const File = struct {
         {
             const ti = ti_id.resolveFull(&pt.zcu.intern_pool).?;
             const file = pt.zcu.fileByIndex(ti.file);
-            const inst = file.zir.?.instructions.get(@intFromEnum(ti.inst));
+            const inst = file.zir.?.instructions.get(@backingInt(ti.inst));
             assert(inst.tag == .declaration);
         }
 
@@ -1241,7 +1242,7 @@ pub const File = struct {
                 dev.check(tag.devFeature());
                 try @as(*tag.Type(), @fieldParentPtr("base", base)).prelink(base.comp.link_prog_node);
             },
-            else => {},
+            else => base.comp.link_prog_node.completeOne(),
         }
 
         base.post_prelink = true;

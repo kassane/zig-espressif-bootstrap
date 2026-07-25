@@ -5,7 +5,7 @@ pub const Bool = enum(c_int) {
     _,
 
     pub fn fromBool(b: bool) Bool {
-        return @as(Bool, @enumFromInt(@intFromBool(b)));
+        return @as(Bool, @fromBackingInt(@intCast(@intFromBool(b))));
     }
 
     pub fn toBool(b: Bool) bool {
@@ -331,6 +331,8 @@ extern fn ZigLLVMWriteArchive(
     file_names_ptr: [*]const [*:0]const u8,
     file_names_len: usize,
     archive_kind: ArchiveKind,
+    err_file_index_out: *usize,
+    err_msg_out: *[*:0]u8,
 ) bool;
 
 pub const ParseCommandLineOptions = ZigLLVMParseCommandLineOptions;

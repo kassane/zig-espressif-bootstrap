@@ -1544,7 +1544,6 @@ fn testNeg(comptime T: type) !void {
 }
 
 test "negate f80" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var f: f80 = 0.0;
@@ -1679,7 +1678,7 @@ test "runtime isNan(inf * 0)" {
 
 test "optimized float mode" {
     if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
-    if (builtin.mode == .Debug) return error.SkipZigTest;
+    if (builtin.mode == .debug) return error.SkipZigTest;
 
     const big = 0x1p40;
     const small = 0.001;

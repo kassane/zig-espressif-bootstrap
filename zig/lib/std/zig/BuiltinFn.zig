@@ -31,6 +31,7 @@ pub const Tag = enum {
     c_va_copy,
     c_va_end,
     c_va_start,
+    div_ceil,
     div_exact,
     div_floor,
     div_trunc,
@@ -55,6 +56,8 @@ pub const Tag = enum {
     import,
     in_comptime,
     int_cast,
+    backing_int,
+    from_backing_int,
     enum_from_int,
     error_from_int,
     float_from_int,
@@ -399,6 +402,13 @@ pub const list = list: {
             },
         },
         .{
+            "@divCeil",
+            .{
+                .tag = .div_ceil,
+                .param_count = 2,
+            },
+        },
+        .{
             "@divTrunc",
             .{
                 .tag = .div_trunc,
@@ -553,6 +563,20 @@ pub const list = list: {
             "@intCast",
             .{
                 .tag = .int_cast,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@backingInt",
+            .{
+                .tag = .backing_int,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@fromBackingInt",
+            .{
+                .tag = .from_backing_int,
                 .param_count = 1,
             },
         },

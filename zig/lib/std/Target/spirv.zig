@@ -6,7 +6,6 @@ const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
     abort_khr,
-    addresses,
     arithmetic_fence_ext,
     atomic_float16add_ext,
     atomic_float16min_max_ext,
@@ -87,8 +86,6 @@ pub const Feature = enum {
     int64image_ext,
     int8,
     interpolation_function,
-    kernel,
-    linkage,
     literal_sampler,
     long_vector_ext,
     matrix,
@@ -98,7 +95,6 @@ pub const Feature = enum {
     multi_viewport,
     named_barrier,
     opt_none_ext,
-    physical_storage_buffer_addresses,
     pipe_storage,
     pipes,
     poison_freeze_khr,
@@ -121,7 +117,6 @@ pub const Feature = enum {
     sampled_image_array_dynamic_indexing,
     sampled_image_array_non_uniform_indexing,
     sampled_rect,
-    shader,
     shader64bit_indexing_ext,
     shader_clock_khr,
     shader_invocation_reorder_ext,
@@ -172,7 +167,6 @@ pub const Feature = enum {
     SPV_KHR_fragment_shading_rate,
     SPV_KHR_integer_dot_product,
     SPV_KHR_multiview,
-    SPV_KHR_physical_storage_buffer,
     SPV_KHR_poison_freeze,
     SPV_KHR_post_depth_coverage,
     SPV_KHR_quad_control,
@@ -251,1606 +245,1576 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).@"enum".field_names.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
-    result[@intFromEnum(Feature.abort_khr)] = .{
+    result[@backingInt(Feature.abort_khr)] = .{
         .llvm_name = null,
-        .description = "Enable abort_khr Capability.",
+        .description = "Enable abort_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_abort,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.addresses)] = .{
+    result[@backingInt(Feature.arithmetic_fence_ext)] = .{
         .llvm_name = null,
-        .description = "Enable addresses Capability.",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_0,
-        }),
-    };
-    result[@intFromEnum(Feature.arithmetic_fence_ext)] = .{
-        .llvm_name = null,
-        .description = "Enable arithmetic_fence_ext Capability.",
+        .description = "Enable arithmetic_fence_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_arithmetic_fence,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.atomic_float16add_ext)] = .{
+    result[@backingInt(Feature.atomic_float16add_ext)] = .{
         .llvm_name = null,
-        .description = "Enable atomic_float16add_ext Capability.",
+        .description = "Enable atomic_float16add_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_shader_atomic_float16_add,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.atomic_float16min_max_ext)] = .{
+    result[@backingInt(Feature.atomic_float16min_max_ext)] = .{
         .llvm_name = null,
-        .description = "Enable atomic_float16min_max_ext Capability.",
+        .description = "Enable atomic_float16min_max_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_shader_atomic_float_min_max,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.atomic_float32add_ext)] = .{
+    result[@backingInt(Feature.atomic_float32add_ext)] = .{
         .llvm_name = null,
-        .description = "Enable atomic_float32add_ext Capability.",
+        .description = "Enable atomic_float32add_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_shader_atomic_float_add,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.atomic_float32min_max_ext)] = .{
+    result[@backingInt(Feature.atomic_float32min_max_ext)] = .{
         .llvm_name = null,
-        .description = "Enable atomic_float32min_max_ext Capability.",
+        .description = "Enable atomic_float32min_max_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_shader_atomic_float_min_max,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.atomic_float64add_ext)] = .{
+    result[@backingInt(Feature.atomic_float64add_ext)] = .{
         .llvm_name = null,
-        .description = "Enable atomic_float64add_ext Capability.",
+        .description = "Enable atomic_float64add_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_shader_atomic_float_add,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.atomic_float64min_max_ext)] = .{
+    result[@backingInt(Feature.atomic_float64min_max_ext)] = .{
         .llvm_name = null,
-        .description = "Enable atomic_float64min_max_ext Capability.",
+        .description = "Enable atomic_float64min_max_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_shader_atomic_float_min_max,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.atomic_storage)] = .{
+    result[@backingInt(Feature.atomic_storage)] = .{
         .llvm_name = null,
-        .description = "Enable atomic_storage Capability.",
+        .description = "Enable atomic_storage capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.atomic_storage_ops)] = .{
+    result[@backingInt(Feature.atomic_storage_ops)] = .{
         .llvm_name = null,
-        .description = "Enable atomic_storage_ops Capability.",
+        .description = "Enable atomic_storage_ops capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_shader_atomic_counter_ops,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.b_float16cooperative_matrix_khr)] = .{
+    result[@backingInt(Feature.b_float16cooperative_matrix_khr)] = .{
         .llvm_name = null,
-        .description = "Enable b_float16cooperative_matrix_khr Capability.",
+        .description = "Enable b_float16cooperative_matrix_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_bfloat16,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.b_float16dot_product_khr)] = .{
+    result[@backingInt(Feature.b_float16dot_product_khr)] = .{
         .llvm_name = null,
-        .description = "Enable b_float16dot_product_khr Capability.",
+        .description = "Enable b_float16dot_product_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_bfloat16,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.b_float16type_khr)] = .{
+    result[@backingInt(Feature.b_float16type_khr)] = .{
         .llvm_name = null,
-        .description = "Enable b_float16type_khr Capability.",
+        .description = "Enable b_float16type_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_bfloat16,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.bit_instructions)] = .{
+    result[@backingInt(Feature.bit_instructions)] = .{
         .llvm_name = null,
-        .description = "Enable bit_instructions Capability.",
+        .description = "Enable bit_instructions capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_bit_instructions,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.clip_distance)] = .{
+    result[@backingInt(Feature.clip_distance)] = .{
         .llvm_name = null,
-        .description = "Enable clip_distance Capability.",
+        .description = "Enable clip_distance capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.compute_derivative_group_linear_khr)] = .{
+    result[@backingInt(Feature.compute_derivative_group_linear_khr)] = .{
         .llvm_name = null,
-        .description = "Enable compute_derivative_group_linear_khr Capability.",
-        .dependencies = featureSet(&[_]Feature{
-            .SPV_KHR_compute_shader_derivatives,
-            .v1_0,
-        }),
-    };
-    result[@intFromEnum(Feature.compute_derivative_group_quads_khr)] = .{
-        .llvm_name = null,
-        .description = "Enable compute_derivative_group_quads_khr Capability.",
+        .description = "Enable compute_derivative_group_linear_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_compute_shader_derivatives,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.constant_data_khr)] = .{
+    result[@backingInt(Feature.compute_derivative_group_quads_khr)] = .{
         .llvm_name = null,
-        .description = "Enable constant_data_khr Capability.",
+        .description = "Enable compute_derivative_group_quads_khr capability",
+        .dependencies = featureSet(&[_]Feature{
+            .SPV_KHR_compute_shader_derivatives,
+            .v1_0,
+        }),
+    };
+    result[@backingInt(Feature.constant_data_khr)] = .{
+        .llvm_name = null,
+        .description = "Enable constant_data_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_constant_data,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.cooperative_matrix_khr)] = .{
+    result[@backingInt(Feature.cooperative_matrix_khr)] = .{
         .llvm_name = null,
-        .description = "Enable cooperative_matrix_khr Capability.",
+        .description = "Enable cooperative_matrix_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_cooperative_matrix,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.cull_distance)] = .{
+    result[@backingInt(Feature.cull_distance)] = .{
         .llvm_name = null,
-        .description = "Enable cull_distance Capability.",
+        .description = "Enable cull_distance capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.demote_to_helper_invocation)] = .{
+    result[@backingInt(Feature.demote_to_helper_invocation)] = .{
         .llvm_name = null,
-        .description = "Enable demote_to_helper_invocation Capability.",
+        .description = "Enable demote_to_helper_invocation capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_demote_to_helper_invocation,
             .v1_6,
         }),
     };
-    result[@intFromEnum(Feature.denorm_flush_to_zero)] = .{
+    result[@backingInt(Feature.denorm_flush_to_zero)] = .{
         .llvm_name = null,
-        .description = "Enable denorm_flush_to_zero Capability.",
+        .description = "Enable denorm_flush_to_zero capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_float_controls,
             .v1_4,
         }),
     };
-    result[@intFromEnum(Feature.denorm_preserve)] = .{
+    result[@backingInt(Feature.denorm_preserve)] = .{
         .llvm_name = null,
-        .description = "Enable denorm_preserve Capability.",
+        .description = "Enable denorm_preserve capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_float_controls,
             .v1_4,
         }),
     };
-    result[@intFromEnum(Feature.derivative_control)] = .{
+    result[@backingInt(Feature.derivative_control)] = .{
         .llvm_name = null,
-        .description = "Enable derivative_control Capability.",
+        .description = "Enable derivative_control capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.descriptor_heap_ext)] = .{
+    result[@backingInt(Feature.descriptor_heap_ext)] = .{
         .llvm_name = null,
-        .description = "Enable descriptor_heap_ext Capability.",
+        .description = "Enable descriptor_heap_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_descriptor_heap,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.device_enqueue)] = .{
+    result[@backingInt(Feature.device_enqueue)] = .{
         .llvm_name = null,
-        .description = "Enable device_enqueue Capability.",
+        .description = "Enable device_enqueue capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.device_group)] = .{
+    result[@backingInt(Feature.device_group)] = .{
         .llvm_name = null,
-        .description = "Enable device_group Capability.",
+        .description = "Enable device_group capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_device_group,
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.dot_product)] = .{
+    result[@backingInt(Feature.dot_product)] = .{
         .llvm_name = null,
-        .description = "Enable dot_product Capability.",
+        .description = "Enable dot_product capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_integer_dot_product,
             .v1_6,
         }),
     };
-    result[@intFromEnum(Feature.dot_product_input4x8bit)] = .{
+    result[@backingInt(Feature.dot_product_input4x8bit)] = .{
         .llvm_name = null,
-        .description = "Enable dot_product_input4x8bit Capability.",
+        .description = "Enable dot_product_input4x8bit capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_integer_dot_product,
             .v1_6,
         }),
     };
-    result[@intFromEnum(Feature.dot_product_input4x8bit_packed)] = .{
+    result[@backingInt(Feature.dot_product_input4x8bit_packed)] = .{
         .llvm_name = null,
-        .description = "Enable dot_product_input4x8bit_packed Capability.",
+        .description = "Enable dot_product_input4x8bit_packed capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_integer_dot_product,
             .v1_6,
         }),
     };
-    result[@intFromEnum(Feature.dot_product_input_all)] = .{
+    result[@backingInt(Feature.dot_product_input_all)] = .{
         .llvm_name = null,
-        .description = "Enable dot_product_input_all Capability.",
+        .description = "Enable dot_product_input_all capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_integer_dot_product,
             .v1_6,
         }),
     };
-    result[@intFromEnum(Feature.draw_parameters)] = .{
+    result[@backingInt(Feature.draw_parameters)] = .{
         .llvm_name = null,
-        .description = "Enable draw_parameters Capability.",
+        .description = "Enable draw_parameters capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_shader_draw_parameters,
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.expect_assume_khr)] = .{
+    result[@backingInt(Feature.expect_assume_khr)] = .{
         .llvm_name = null,
-        .description = "Enable expect_assume_khr Capability.",
+        .description = "Enable expect_assume_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_expect_assume,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.float16)] = .{
+    result[@backingInt(Feature.float16)] = .{
         .llvm_name = null,
-        .description = "Enable float16 Capability.",
+        .description = "Enable float16 capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.float16buffer)] = .{
+    result[@backingInt(Feature.float16buffer)] = .{
         .llvm_name = null,
-        .description = "Enable float16buffer Capability.",
+        .description = "Enable float16buffer capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.float64)] = .{
+    result[@backingInt(Feature.float64)] = .{
         .llvm_name = null,
-        .description = "Enable float64 Capability.",
+        .description = "Enable float64 capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.float8cooperative_matrix_ext)] = .{
+    result[@backingInt(Feature.float8cooperative_matrix_ext)] = .{
         .llvm_name = null,
-        .description = "Enable float8cooperative_matrix_ext Capability.",
-        .dependencies = featureSet(&[_]Feature{
-            .SPV_EXT_float8,
-            .v1_0,
-        }),
-    };
-    result[@intFromEnum(Feature.float8ext)] = .{
-        .llvm_name = null,
-        .description = "Enable float8ext Capability.",
+        .description = "Enable float8cooperative_matrix_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_float8,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.float_controls2)] = .{
+    result[@backingInt(Feature.float8ext)] = .{
         .llvm_name = null,
-        .description = "Enable float_controls2 Capability.",
+        .description = "Enable float8ext capability",
+        .dependencies = featureSet(&[_]Feature{
+            .SPV_EXT_float8,
+            .v1_0,
+        }),
+    };
+    result[@backingInt(Feature.float_controls2)] = .{
+        .llvm_name = null,
+        .description = "Enable float_controls2 capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_float_controls2,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.fmakhr)] = .{
+    result[@backingInt(Feature.fmakhr)] = .{
         .llvm_name = null,
-        .description = "Enable fmakhr Capability.",
+        .description = "Enable fmakhr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_fma,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.fragment_barycentric_khr)] = .{
+    result[@backingInt(Feature.fragment_barycentric_khr)] = .{
         .llvm_name = null,
-        .description = "Enable fragment_barycentric_khr Capability.",
+        .description = "Enable fragment_barycentric_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_fragment_shader_barycentric,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.fragment_density_ext)] = .{
+    result[@backingInt(Feature.fragment_density_ext)] = .{
         .llvm_name = null,
-        .description = "Enable fragment_density_ext Capability.",
+        .description = "Enable fragment_density_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_fragment_invocation_density,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.fragment_fully_covered_ext)] = .{
+    result[@backingInt(Feature.fragment_fully_covered_ext)] = .{
         .llvm_name = null,
-        .description = "Enable fragment_fully_covered_ext Capability.",
+        .description = "Enable fragment_fully_covered_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_fragment_fully_covered,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.fragment_shader_pixel_interlock_ext)] = .{
+    result[@backingInt(Feature.fragment_shader_pixel_interlock_ext)] = .{
         .llvm_name = null,
-        .description = "Enable fragment_shader_pixel_interlock_ext Capability.",
+        .description = "Enable fragment_shader_pixel_interlock_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_fragment_shader_interlock,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.fragment_shader_sample_interlock_ext)] = .{
+    result[@backingInt(Feature.fragment_shader_sample_interlock_ext)] = .{
         .llvm_name = null,
-        .description = "Enable fragment_shader_sample_interlock_ext Capability.",
+        .description = "Enable fragment_shader_sample_interlock_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_fragment_shader_interlock,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.fragment_shader_shading_rate_interlock_ext)] = .{
+    result[@backingInt(Feature.fragment_shader_shading_rate_interlock_ext)] = .{
         .llvm_name = null,
-        .description = "Enable fragment_shader_shading_rate_interlock_ext Capability.",
+        .description = "Enable fragment_shader_shading_rate_interlock_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_fragment_shader_interlock,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.fragment_shading_rate_khr)] = .{
+    result[@backingInt(Feature.fragment_shading_rate_khr)] = .{
         .llvm_name = null,
-        .description = "Enable fragment_shading_rate_khr Capability.",
+        .description = "Enable fragment_shading_rate_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_fragment_shading_rate,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.generic_pointer)] = .{
+    result[@backingInt(Feature.generic_pointer)] = .{
         .llvm_name = null,
-        .description = "Enable generic_pointer Capability.",
+        .description = "Enable generic_pointer capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.geometry)] = .{
+    result[@backingInt(Feature.geometry)] = .{
         .llvm_name = null,
-        .description = "Enable geometry Capability.",
+        .description = "Enable geometry capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.geometry_point_size)] = .{
+    result[@backingInt(Feature.geometry_point_size)] = .{
         .llvm_name = null,
-        .description = "Enable geometry_point_size Capability.",
+        .description = "Enable geometry_point_size capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.geometry_streams)] = .{
+    result[@backingInt(Feature.geometry_streams)] = .{
         .llvm_name = null,
-        .description = "Enable geometry_streams Capability.",
+        .description = "Enable geometry_streams capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.group_non_uniform)] = .{
+    result[@backingInt(Feature.group_non_uniform)] = .{
         .llvm_name = null,
-        .description = "Enable group_non_uniform Capability.",
+        .description = "Enable group_non_uniform capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.group_non_uniform_arithmetic)] = .{
+    result[@backingInt(Feature.group_non_uniform_arithmetic)] = .{
         .llvm_name = null,
-        .description = "Enable group_non_uniform_arithmetic Capability.",
+        .description = "Enable group_non_uniform_arithmetic capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.group_non_uniform_ballot)] = .{
+    result[@backingInt(Feature.group_non_uniform_ballot)] = .{
         .llvm_name = null,
-        .description = "Enable group_non_uniform_ballot Capability.",
+        .description = "Enable group_non_uniform_ballot capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.group_non_uniform_clustered)] = .{
+    result[@backingInt(Feature.group_non_uniform_clustered)] = .{
         .llvm_name = null,
-        .description = "Enable group_non_uniform_clustered Capability.",
+        .description = "Enable group_non_uniform_clustered capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.group_non_uniform_partitioned_ext)] = .{
+    result[@backingInt(Feature.group_non_uniform_partitioned_ext)] = .{
         .llvm_name = null,
-        .description = "Enable group_non_uniform_partitioned_ext Capability.",
+        .description = "Enable group_non_uniform_partitioned_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_shader_subgroup_partitioned,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.group_non_uniform_quad)] = .{
+    result[@backingInt(Feature.group_non_uniform_quad)] = .{
         .llvm_name = null,
-        .description = "Enable group_non_uniform_quad Capability.",
+        .description = "Enable group_non_uniform_quad capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.group_non_uniform_rotate_khr)] = .{
+    result[@backingInt(Feature.group_non_uniform_rotate_khr)] = .{
         .llvm_name = null,
-        .description = "Enable group_non_uniform_rotate_khr Capability.",
+        .description = "Enable group_non_uniform_rotate_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_subgroup_rotate,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.group_non_uniform_shuffle)] = .{
+    result[@backingInt(Feature.group_non_uniform_shuffle)] = .{
         .llvm_name = null,
-        .description = "Enable group_non_uniform_shuffle Capability.",
+        .description = "Enable group_non_uniform_shuffle capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.group_non_uniform_shuffle_relative)] = .{
+    result[@backingInt(Feature.group_non_uniform_shuffle_relative)] = .{
         .llvm_name = null,
-        .description = "Enable group_non_uniform_shuffle_relative Capability.",
+        .description = "Enable group_non_uniform_shuffle_relative capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.group_non_uniform_vote)] = .{
+    result[@backingInt(Feature.group_non_uniform_vote)] = .{
         .llvm_name = null,
-        .description = "Enable group_non_uniform_vote Capability.",
+        .description = "Enable group_non_uniform_vote capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.group_uniform_arithmetic_khr)] = .{
+    result[@backingInt(Feature.group_uniform_arithmetic_khr)] = .{
         .llvm_name = null,
-        .description = "Enable group_uniform_arithmetic_khr Capability.",
+        .description = "Enable group_uniform_arithmetic_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_uniform_group_instructions,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.groups)] = .{
+    result[@backingInt(Feature.groups)] = .{
         .llvm_name = null,
-        .description = "Enable groups Capability.",
+        .description = "Enable groups capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.image_basic)] = .{
+    result[@backingInt(Feature.image_basic)] = .{
         .llvm_name = null,
-        .description = "Enable image_basic Capability.",
+        .description = "Enable image_basic capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.image_buffer)] = .{
+    result[@backingInt(Feature.image_buffer)] = .{
         .llvm_name = null,
-        .description = "Enable image_buffer Capability.",
+        .description = "Enable image_buffer capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.image_cube_array)] = .{
+    result[@backingInt(Feature.image_cube_array)] = .{
         .llvm_name = null,
-        .description = "Enable image_cube_array Capability.",
+        .description = "Enable image_cube_array capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.image_gather_extended)] = .{
+    result[@backingInt(Feature.image_gather_extended)] = .{
         .llvm_name = null,
-        .description = "Enable image_gather_extended Capability.",
+        .description = "Enable image_gather_extended capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.image_mipmap)] = .{
+    result[@backingInt(Feature.image_mipmap)] = .{
         .llvm_name = null,
-        .description = "Enable image_mipmap Capability.",
+        .description = "Enable image_mipmap capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.image_ms_array)] = .{
+    result[@backingInt(Feature.image_ms_array)] = .{
         .llvm_name = null,
-        .description = "Enable image_ms_array Capability.",
+        .description = "Enable image_ms_array capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.image_query)] = .{
+    result[@backingInt(Feature.image_query)] = .{
         .llvm_name = null,
-        .description = "Enable image_query Capability.",
+        .description = "Enable image_query capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.image_read_write)] = .{
+    result[@backingInt(Feature.image_read_write)] = .{
         .llvm_name = null,
-        .description = "Enable image_read_write Capability.",
+        .description = "Enable image_read_write capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.image_rect)] = .{
+    result[@backingInt(Feature.image_rect)] = .{
         .llvm_name = null,
-        .description = "Enable image_rect Capability.",
+        .description = "Enable image_rect capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.input_attachment)] = .{
+    result[@backingInt(Feature.input_attachment)] = .{
         .llvm_name = null,
-        .description = "Enable input_attachment Capability.",
+        .description = "Enable input_attachment capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.input_attachment_array_dynamic_indexing)] = .{
+    result[@backingInt(Feature.input_attachment_array_dynamic_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable input_attachment_array_dynamic_indexing Capability.",
+        .description = "Enable input_attachment_array_dynamic_indexing capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_descriptor_indexing,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.input_attachment_array_non_uniform_indexing)] = .{
+    result[@backingInt(Feature.input_attachment_array_non_uniform_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable input_attachment_array_non_uniform_indexing Capability.",
+        .description = "Enable input_attachment_array_non_uniform_indexing capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_descriptor_indexing,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.int16)] = .{
+    result[@backingInt(Feature.int16)] = .{
         .llvm_name = null,
-        .description = "Enable int16 Capability.",
+        .description = "Enable int16 capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.int64)] = .{
+    result[@backingInt(Feature.int64)] = .{
         .llvm_name = null,
-        .description = "Enable int64 Capability.",
+        .description = "Enable int64 capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.int64atomics)] = .{
+    result[@backingInt(Feature.int64atomics)] = .{
         .llvm_name = null,
-        .description = "Enable int64atomics Capability.",
+        .description = "Enable int64atomics capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.int64image_ext)] = .{
+    result[@backingInt(Feature.int64image_ext)] = .{
         .llvm_name = null,
-        .description = "Enable int64image_ext Capability.",
+        .description = "Enable int64image_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_shader_image_int64,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.int8)] = .{
+    result[@backingInt(Feature.int8)] = .{
         .llvm_name = null,
-        .description = "Enable int8 Capability.",
+        .description = "Enable int8 capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.interpolation_function)] = .{
+    result[@backingInt(Feature.interpolation_function)] = .{
         .llvm_name = null,
-        .description = "Enable interpolation_function Capability.",
+        .description = "Enable interpolation_function capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.kernel)] = .{
+    result[@backingInt(Feature.literal_sampler)] = .{
         .llvm_name = null,
-        .description = "Enable kernel Capability.",
+        .description = "Enable literal_sampler capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.linkage)] = .{
+    result[@backingInt(Feature.long_vector_ext)] = .{
         .llvm_name = null,
-        .description = "Enable linkage Capability.",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_0,
-        }),
-    };
-    result[@intFromEnum(Feature.literal_sampler)] = .{
-        .llvm_name = null,
-        .description = "Enable literal_sampler Capability.",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_0,
-        }),
-    };
-    result[@intFromEnum(Feature.long_vector_ext)] = .{
-        .llvm_name = null,
-        .description = "Enable long_vector_ext Capability.",
+        .description = "Enable long_vector_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_long_vector,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.matrix)] = .{
+    result[@backingInt(Feature.matrix)] = .{
         .llvm_name = null,
-        .description = "Enable matrix Capability.",
+        .description = "Enable matrix capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.mesh_shading_ext)] = .{
+    result[@backingInt(Feature.mesh_shading_ext)] = .{
         .llvm_name = null,
-        .description = "Enable mesh_shading_ext Capability.",
+        .description = "Enable mesh_shading_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_mesh_shader,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.min_lod)] = .{
+    result[@backingInt(Feature.min_lod)] = .{
         .llvm_name = null,
-        .description = "Enable min_lod Capability.",
+        .description = "Enable min_lod capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.multi_view)] = .{
+    result[@backingInt(Feature.multi_view)] = .{
         .llvm_name = null,
-        .description = "Enable multi_view Capability.",
+        .description = "Enable multi_view capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_multiview,
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.multi_viewport)] = .{
+    result[@backingInt(Feature.multi_viewport)] = .{
         .llvm_name = null,
-        .description = "Enable multi_viewport Capability.",
+        .description = "Enable multi_viewport capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.named_barrier)] = .{
+    result[@backingInt(Feature.named_barrier)] = .{
         .llvm_name = null,
-        .description = "Enable named_barrier Capability.",
+        .description = "Enable named_barrier capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_1,
         }),
     };
-    result[@intFromEnum(Feature.opt_none_ext)] = .{
+    result[@backingInt(Feature.opt_none_ext)] = .{
         .llvm_name = null,
-        .description = "Enable opt_none_ext Capability.",
+        .description = "Enable opt_none_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_optnone,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.physical_storage_buffer_addresses)] = .{
+    result[@backingInt(Feature.pipe_storage)] = .{
         .llvm_name = null,
-        .description = "Enable physical_storage_buffer_addresses Capability.",
-        .dependencies = featureSet(&[_]Feature{
-            .SPV_EXT_physical_storage_buffer,
-            .SPV_KHR_physical_storage_buffer,
-            .v1_5,
-        }),
-    };
-    result[@intFromEnum(Feature.pipe_storage)] = .{
-        .llvm_name = null,
-        .description = "Enable pipe_storage Capability.",
+        .description = "Enable pipe_storage capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_1,
         }),
     };
-    result[@intFromEnum(Feature.pipes)] = .{
+    result[@backingInt(Feature.pipes)] = .{
         .llvm_name = null,
-        .description = "Enable pipes Capability.",
+        .description = "Enable pipes capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.poison_freeze_khr)] = .{
+    result[@backingInt(Feature.poison_freeze_khr)] = .{
         .llvm_name = null,
-        .description = "Enable poison_freeze_khr Capability.",
+        .description = "Enable poison_freeze_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_poison_freeze,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.quad_control_khr)] = .{
+    result[@backingInt(Feature.quad_control_khr)] = .{
         .llvm_name = null,
-        .description = "Enable quad_control_khr Capability.",
+        .description = "Enable quad_control_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_quad_control,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.ray_cull_mask_khr)] = .{
+    result[@backingInt(Feature.ray_cull_mask_khr)] = .{
         .llvm_name = null,
-        .description = "Enable ray_cull_mask_khr Capability.",
+        .description = "Enable ray_cull_mask_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_ray_cull_mask,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.ray_query_khr)] = .{
+    result[@backingInt(Feature.ray_query_khr)] = .{
         .llvm_name = null,
-        .description = "Enable ray_query_khr Capability.",
+        .description = "Enable ray_query_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_ray_query,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.ray_query_position_fetch_khr)] = .{
+    result[@backingInt(Feature.ray_query_position_fetch_khr)] = .{
         .llvm_name = null,
-        .description = "Enable ray_query_position_fetch_khr Capability.",
+        .description = "Enable ray_query_position_fetch_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_ray_tracing_position_fetch,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.ray_query_provisional_khr)] = .{
+    result[@backingInt(Feature.ray_query_provisional_khr)] = .{
         .llvm_name = null,
-        .description = "Enable ray_query_provisional_khr Capability.",
+        .description = "Enable ray_query_provisional_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_ray_query,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.ray_tracing_khr)] = .{
+    result[@backingInt(Feature.ray_tracing_khr)] = .{
         .llvm_name = null,
-        .description = "Enable ray_tracing_khr Capability.",
+        .description = "Enable ray_tracing_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_ray_tracing,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.ray_tracing_opacity_micromap_ext)] = .{
+    result[@backingInt(Feature.ray_tracing_opacity_micromap_ext)] = .{
         .llvm_name = null,
-        .description = "Enable ray_tracing_opacity_micromap_ext Capability.",
+        .description = "Enable ray_tracing_opacity_micromap_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_opacity_micromap,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.ray_tracing_position_fetch_khr)] = .{
+    result[@backingInt(Feature.ray_tracing_position_fetch_khr)] = .{
         .llvm_name = null,
-        .description = "Enable ray_tracing_position_fetch_khr Capability.",
+        .description = "Enable ray_tracing_position_fetch_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_ray_tracing_position_fetch,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.ray_tracing_provisional_khr)] = .{
+    result[@backingInt(Feature.ray_tracing_provisional_khr)] = .{
         .llvm_name = null,
-        .description = "Enable ray_tracing_provisional_khr Capability.",
+        .description = "Enable ray_tracing_provisional_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_ray_tracing,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.ray_traversal_primitive_culling_khr)] = .{
+    result[@backingInt(Feature.ray_traversal_primitive_culling_khr)] = .{
         .llvm_name = null,
-        .description = "Enable ray_traversal_primitive_culling_khr Capability.",
+        .description = "Enable ray_traversal_primitive_culling_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_ray_query,
             .SPV_KHR_ray_tracing,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.replicated_composites_ext)] = .{
+    result[@backingInt(Feature.replicated_composites_ext)] = .{
         .llvm_name = null,
-        .description = "Enable replicated_composites_ext Capability.",
+        .description = "Enable replicated_composites_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_replicated_composites,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.runtime_descriptor_array)] = .{
+    result[@backingInt(Feature.runtime_descriptor_array)] = .{
         .llvm_name = null,
-        .description = "Enable runtime_descriptor_array Capability.",
+        .description = "Enable runtime_descriptor_array capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_descriptor_indexing,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.sample_mask_post_depth_coverage)] = .{
+    result[@backingInt(Feature.sample_mask_post_depth_coverage)] = .{
         .llvm_name = null,
-        .description = "Enable sample_mask_post_depth_coverage Capability.",
+        .description = "Enable sample_mask_post_depth_coverage capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_post_depth_coverage,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.sample_rate_shading)] = .{
+    result[@backingInt(Feature.sample_rate_shading)] = .{
         .llvm_name = null,
-        .description = "Enable sample_rate_shading Capability.",
+        .description = "Enable sample_rate_shading capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.sampled_buffer)] = .{
+    result[@backingInt(Feature.sampled_buffer)] = .{
         .llvm_name = null,
-        .description = "Enable sampled_buffer Capability.",
+        .description = "Enable sampled_buffer capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.sampled_cube_array)] = .{
+    result[@backingInt(Feature.sampled_cube_array)] = .{
         .llvm_name = null,
-        .description = "Enable sampled_cube_array Capability.",
+        .description = "Enable sampled_cube_array capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.sampled_image_array_dynamic_indexing)] = .{
+    result[@backingInt(Feature.sampled_image_array_dynamic_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable sampled_image_array_dynamic_indexing Capability.",
+        .description = "Enable sampled_image_array_dynamic_indexing capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.sampled_image_array_non_uniform_indexing)] = .{
+    result[@backingInt(Feature.sampled_image_array_non_uniform_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable sampled_image_array_non_uniform_indexing Capability.",
+        .description = "Enable sampled_image_array_non_uniform_indexing capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_descriptor_indexing,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.sampled_rect)] = .{
+    result[@backingInt(Feature.sampled_rect)] = .{
         .llvm_name = null,
-        .description = "Enable sampled_rect Capability.",
+        .description = "Enable sampled_rect capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.shader)] = .{
+    result[@backingInt(Feature.shader64bit_indexing_ext)] = .{
         .llvm_name = null,
-        .description = "Enable shader Capability.",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_0,
-        }),
-    };
-    result[@intFromEnum(Feature.shader64bit_indexing_ext)] = .{
-        .llvm_name = null,
-        .description = "Enable shader64bit_indexing_ext Capability.",
+        .description = "Enable shader64bit_indexing_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_shader_64bit_indexing,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.shader_clock_khr)] = .{
+    result[@backingInt(Feature.shader_clock_khr)] = .{
         .llvm_name = null,
-        .description = "Enable shader_clock_khr Capability.",
+        .description = "Enable shader_clock_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_shader_clock,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.shader_invocation_reorder_ext)] = .{
+    result[@backingInt(Feature.shader_invocation_reorder_ext)] = .{
         .llvm_name = null,
-        .description = "Enable shader_invocation_reorder_ext Capability.",
+        .description = "Enable shader_invocation_reorder_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_shader_invocation_reorder,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.shader_layer)] = .{
+    result[@backingInt(Feature.shader_layer)] = .{
         .llvm_name = null,
-        .description = "Enable shader_layer Capability.",
+        .description = "Enable shader_layer capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.shader_non_uniform)] = .{
+    result[@backingInt(Feature.shader_non_uniform)] = .{
         .llvm_name = null,
-        .description = "Enable shader_non_uniform Capability.",
+        .description = "Enable shader_non_uniform capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_descriptor_indexing,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.shader_viewport_index)] = .{
+    result[@backingInt(Feature.shader_viewport_index)] = .{
         .llvm_name = null,
-        .description = "Enable shader_viewport_index Capability.",
+        .description = "Enable shader_viewport_index capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.shader_viewport_index_layer_ext)] = .{
+    result[@backingInt(Feature.shader_viewport_index_layer_ext)] = .{
         .llvm_name = null,
-        .description = "Enable shader_viewport_index_layer_ext Capability.",
+        .description = "Enable shader_viewport_index_layer_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_shader_viewport_index_layer,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.signed_zero_inf_nan_preserve)] = .{
+    result[@backingInt(Feature.signed_zero_inf_nan_preserve)] = .{
         .llvm_name = null,
-        .description = "Enable signed_zero_inf_nan_preserve Capability.",
+        .description = "Enable signed_zero_inf_nan_preserve capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_float_controls,
             .v1_4,
         }),
     };
-    result[@intFromEnum(Feature.sparse_residency)] = .{
+    result[@backingInt(Feature.sparse_residency)] = .{
         .llvm_name = null,
-        .description = "Enable sparse_residency Capability.",
+        .description = "Enable sparse_residency capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.SPV_EXT_arithmetic_fence)] = .{
+    result[@backingInt(Feature.SPV_EXT_arithmetic_fence)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_arithmetic_fence Extension.",
+        .description = "Enable SPV_EXT_arithmetic_fence extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_demote_to_helper_invocation)] = .{
+    result[@backingInt(Feature.SPV_EXT_demote_to_helper_invocation)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_demote_to_helper_invocation Extension.",
+        .description = "Enable SPV_EXT_demote_to_helper_invocation extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_descriptor_heap)] = .{
+    result[@backingInt(Feature.SPV_EXT_descriptor_heap)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_descriptor_heap Extension.",
+        .description = "Enable SPV_EXT_descriptor_heap extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_descriptor_indexing)] = .{
+    result[@backingInt(Feature.SPV_EXT_descriptor_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_descriptor_indexing Extension.",
+        .description = "Enable SPV_EXT_descriptor_indexing extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_float8)] = .{
+    result[@backingInt(Feature.SPV_EXT_float8)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_float8 Extension.",
+        .description = "Enable SPV_EXT_float8 extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_fragment_fully_covered)] = .{
+    result[@backingInt(Feature.SPV_EXT_fragment_fully_covered)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_fragment_fully_covered Extension.",
+        .description = "Enable SPV_EXT_fragment_fully_covered extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_fragment_invocation_density)] = .{
+    result[@backingInt(Feature.SPV_EXT_fragment_invocation_density)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_fragment_invocation_density Extension.",
+        .description = "Enable SPV_EXT_fragment_invocation_density extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_fragment_shader_interlock)] = .{
+    result[@backingInt(Feature.SPV_EXT_fragment_shader_interlock)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_fragment_shader_interlock Extension.",
+        .description = "Enable SPV_EXT_fragment_shader_interlock extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_long_vector)] = .{
+    result[@backingInt(Feature.SPV_EXT_long_vector)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_long_vector Extension.",
+        .description = "Enable SPV_EXT_long_vector extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_mesh_shader)] = .{
+    result[@backingInt(Feature.SPV_EXT_mesh_shader)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_mesh_shader Extension.",
+        .description = "Enable SPV_EXT_mesh_shader extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_opacity_micromap)] = .{
+    result[@backingInt(Feature.SPV_EXT_opacity_micromap)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_opacity_micromap Extension.",
+        .description = "Enable SPV_EXT_opacity_micromap extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_optnone)] = .{
+    result[@backingInt(Feature.SPV_EXT_optnone)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_optnone Extension.",
+        .description = "Enable SPV_EXT_optnone extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_physical_storage_buffer)] = .{
+    result[@backingInt(Feature.SPV_EXT_physical_storage_buffer)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_physical_storage_buffer Extension.",
+        .description = "Enable SPV_EXT_physical_storage_buffer extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_replicated_composites)] = .{
+    result[@backingInt(Feature.SPV_EXT_replicated_composites)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_replicated_composites Extension.",
+        .description = "Enable SPV_EXT_replicated_composites extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_shader_64bit_indexing)] = .{
+    result[@backingInt(Feature.SPV_EXT_shader_64bit_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_shader_64bit_indexing Extension.",
+        .description = "Enable SPV_EXT_shader_64bit_indexing extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_shader_atomic_float16_add)] = .{
+    result[@backingInt(Feature.SPV_EXT_shader_atomic_float16_add)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_shader_atomic_float16_add Extension.",
+        .description = "Enable SPV_EXT_shader_atomic_float16_add extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_shader_atomic_float_add)] = .{
+    result[@backingInt(Feature.SPV_EXT_shader_atomic_float_add)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_shader_atomic_float_add Extension.",
+        .description = "Enable SPV_EXT_shader_atomic_float_add extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_shader_atomic_float_min_max)] = .{
+    result[@backingInt(Feature.SPV_EXT_shader_atomic_float_min_max)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_shader_atomic_float_min_max Extension.",
+        .description = "Enable SPV_EXT_shader_atomic_float_min_max extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_shader_image_int64)] = .{
+    result[@backingInt(Feature.SPV_EXT_shader_image_int64)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_shader_image_int64 Extension.",
+        .description = "Enable SPV_EXT_shader_image_int64 extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_shader_invocation_reorder)] = .{
+    result[@backingInt(Feature.SPV_EXT_shader_invocation_reorder)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_shader_invocation_reorder Extension.",
+        .description = "Enable SPV_EXT_shader_invocation_reorder extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_shader_stencil_export)] = .{
+    result[@backingInt(Feature.SPV_EXT_shader_stencil_export)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_shader_stencil_export Extension.",
+        .description = "Enable SPV_EXT_shader_stencil_export extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_shader_subgroup_partitioned)] = .{
+    result[@backingInt(Feature.SPV_EXT_shader_subgroup_partitioned)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_shader_subgroup_partitioned Extension.",
+        .description = "Enable SPV_EXT_shader_subgroup_partitioned extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_shader_tile_image)] = .{
+    result[@backingInt(Feature.SPV_EXT_shader_tile_image)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_shader_tile_image Extension.",
+        .description = "Enable SPV_EXT_shader_tile_image extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_shader_viewport_index_layer)] = .{
+    result[@backingInt(Feature.SPV_EXT_shader_viewport_index_layer)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_EXT_shader_viewport_index_layer Extension.",
+        .description = "Enable SPV_EXT_shader_viewport_index_layer extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_16bit_storage)] = .{
+    result[@backingInt(Feature.SPV_KHR_16bit_storage)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_16bit_storage Extension.",
+        .description = "Enable SPV_KHR_16bit_storage extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_8bit_storage)] = .{
+    result[@backingInt(Feature.SPV_KHR_8bit_storage)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_8bit_storage Extension.",
+        .description = "Enable SPV_KHR_8bit_storage extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_abort)] = .{
+    result[@backingInt(Feature.SPV_KHR_abort)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_abort Extension.",
+        .description = "Enable SPV_KHR_abort extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_bfloat16)] = .{
+    result[@backingInt(Feature.SPV_KHR_bfloat16)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_bfloat16 Extension.",
+        .description = "Enable SPV_KHR_bfloat16 extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_bit_instructions)] = .{
+    result[@backingInt(Feature.SPV_KHR_bit_instructions)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_bit_instructions Extension.",
+        .description = "Enable SPV_KHR_bit_instructions extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_compute_shader_derivatives)] = .{
+    result[@backingInt(Feature.SPV_KHR_compute_shader_derivatives)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_compute_shader_derivatives Extension.",
+        .description = "Enable SPV_KHR_compute_shader_derivatives extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_constant_data)] = .{
+    result[@backingInt(Feature.SPV_KHR_constant_data)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_constant_data Extension.",
+        .description = "Enable SPV_KHR_constant_data extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_cooperative_matrix)] = .{
+    result[@backingInt(Feature.SPV_KHR_cooperative_matrix)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_cooperative_matrix Extension.",
+        .description = "Enable SPV_KHR_cooperative_matrix extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_device_group)] = .{
+    result[@backingInt(Feature.SPV_KHR_device_group)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_device_group Extension.",
+        .description = "Enable SPV_KHR_device_group extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_expect_assume)] = .{
+    result[@backingInt(Feature.SPV_KHR_expect_assume)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_expect_assume Extension.",
+        .description = "Enable SPV_KHR_expect_assume extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_float_controls)] = .{
+    result[@backingInt(Feature.SPV_KHR_float_controls)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_float_controls Extension.",
+        .description = "Enable SPV_KHR_float_controls extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_float_controls2)] = .{
+    result[@backingInt(Feature.SPV_KHR_float_controls2)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_float_controls2 Extension.",
+        .description = "Enable SPV_KHR_float_controls2 extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_fma)] = .{
+    result[@backingInt(Feature.SPV_KHR_fma)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_fma Extension.",
+        .description = "Enable SPV_KHR_fma extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_fragment_shader_barycentric)] = .{
+    result[@backingInt(Feature.SPV_KHR_fragment_shader_barycentric)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_fragment_shader_barycentric Extension.",
+        .description = "Enable SPV_KHR_fragment_shader_barycentric extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_fragment_shading_rate)] = .{
+    result[@backingInt(Feature.SPV_KHR_fragment_shading_rate)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_fragment_shading_rate Extension.",
+        .description = "Enable SPV_KHR_fragment_shading_rate extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_integer_dot_product)] = .{
+    result[@backingInt(Feature.SPV_KHR_integer_dot_product)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_integer_dot_product Extension.",
+        .description = "Enable SPV_KHR_integer_dot_product extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_multiview)] = .{
+    result[@backingInt(Feature.SPV_KHR_multiview)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_multiview Extension.",
+        .description = "Enable SPV_KHR_multiview extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_physical_storage_buffer)] = .{
+    result[@backingInt(Feature.SPV_KHR_poison_freeze)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_physical_storage_buffer Extension.",
+        .description = "Enable SPV_KHR_poison_freeze extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_poison_freeze)] = .{
+    result[@backingInt(Feature.SPV_KHR_post_depth_coverage)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_poison_freeze Extension.",
+        .description = "Enable SPV_KHR_post_depth_coverage extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_post_depth_coverage)] = .{
+    result[@backingInt(Feature.SPV_KHR_quad_control)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_post_depth_coverage Extension.",
+        .description = "Enable SPV_KHR_quad_control extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_quad_control)] = .{
+    result[@backingInt(Feature.SPV_KHR_ray_cull_mask)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_quad_control Extension.",
+        .description = "Enable SPV_KHR_ray_cull_mask extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_ray_cull_mask)] = .{
+    result[@backingInt(Feature.SPV_KHR_ray_query)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_ray_cull_mask Extension.",
+        .description = "Enable SPV_KHR_ray_query extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_ray_query)] = .{
+    result[@backingInt(Feature.SPV_KHR_ray_tracing)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_ray_query Extension.",
+        .description = "Enable SPV_KHR_ray_tracing extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_ray_tracing)] = .{
+    result[@backingInt(Feature.SPV_KHR_ray_tracing_position_fetch)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_ray_tracing Extension.",
+        .description = "Enable SPV_KHR_ray_tracing_position_fetch extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_ray_tracing_position_fetch)] = .{
+    result[@backingInt(Feature.SPV_KHR_shader_atomic_counter_ops)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_ray_tracing_position_fetch Extension.",
+        .description = "Enable SPV_KHR_shader_atomic_counter_ops extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_shader_atomic_counter_ops)] = .{
+    result[@backingInt(Feature.SPV_KHR_shader_ballot)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_shader_atomic_counter_ops Extension.",
+        .description = "Enable SPV_KHR_shader_ballot extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_shader_ballot)] = .{
+    result[@backingInt(Feature.SPV_KHR_shader_clock)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_shader_ballot Extension.",
+        .description = "Enable SPV_KHR_shader_clock extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_shader_clock)] = .{
+    result[@backingInt(Feature.SPV_KHR_shader_draw_parameters)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_shader_clock Extension.",
+        .description = "Enable SPV_KHR_shader_draw_parameters extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_shader_draw_parameters)] = .{
+    result[@backingInt(Feature.SPV_KHR_subgroup_rotate)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_shader_draw_parameters Extension.",
+        .description = "Enable SPV_KHR_subgroup_rotate extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_subgroup_rotate)] = .{
+    result[@backingInt(Feature.SPV_KHR_subgroup_vote)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_subgroup_rotate Extension.",
+        .description = "Enable SPV_KHR_subgroup_vote extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_subgroup_vote)] = .{
+    result[@backingInt(Feature.SPV_KHR_uniform_group_instructions)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_subgroup_vote Extension.",
+        .description = "Enable SPV_KHR_uniform_group_instructions extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_uniform_group_instructions)] = .{
+    result[@backingInt(Feature.SPV_KHR_untyped_pointers)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_uniform_group_instructions Extension.",
+        .description = "Enable SPV_KHR_untyped_pointers extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_untyped_pointers)] = .{
+    result[@backingInt(Feature.SPV_KHR_variable_pointers)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_untyped_pointers Extension.",
+        .description = "Enable SPV_KHR_variable_pointers extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_variable_pointers)] = .{
+    result[@backingInt(Feature.SPV_KHR_vulkan_memory_model)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_variable_pointers Extension.",
+        .description = "Enable SPV_KHR_vulkan_memory_model extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_vulkan_memory_model)] = .{
+    result[@backingInt(Feature.SPV_KHR_workgroup_memory_explicit_layout)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_vulkan_memory_model Extension.",
+        .description = "Enable SPV_KHR_workgroup_memory_explicit_layout extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_workgroup_memory_explicit_layout)] = .{
+    result[@backingInt(Feature.stencil_export_ext)] = .{
         .llvm_name = null,
-        .description = "Enable SPV_KHR_workgroup_memory_explicit_layout Extension.",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.stencil_export_ext)] = .{
-        .llvm_name = null,
-        .description = "Enable stencil_export_ext Capability.",
+        .description = "Enable stencil_export_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_shader_stencil_export,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.storage_buffer16bit_access)] = .{
+    result[@backingInt(Feature.storage_buffer16bit_access)] = .{
         .llvm_name = null,
-        .description = "Enable storage_buffer16bit_access Capability.",
+        .description = "Enable storage_buffer16bit_access capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_16bit_storage,
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.storage_buffer8bit_access)] = .{
+    result[@backingInt(Feature.storage_buffer8bit_access)] = .{
         .llvm_name = null,
-        .description = "Enable storage_buffer8bit_access Capability.",
+        .description = "Enable storage_buffer8bit_access capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_8bit_storage,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.storage_buffer_array_dynamic_indexing)] = .{
+    result[@backingInt(Feature.storage_buffer_array_dynamic_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable storage_buffer_array_dynamic_indexing Capability.",
+        .description = "Enable storage_buffer_array_dynamic_indexing capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.storage_buffer_array_non_uniform_indexing)] = .{
+    result[@backingInt(Feature.storage_buffer_array_non_uniform_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable storage_buffer_array_non_uniform_indexing Capability.",
+        .description = "Enable storage_buffer_array_non_uniform_indexing capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_descriptor_indexing,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.storage_image_array_dynamic_indexing)] = .{
+    result[@backingInt(Feature.storage_image_array_dynamic_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable storage_image_array_dynamic_indexing Capability.",
+        .description = "Enable storage_image_array_dynamic_indexing capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.storage_image_array_non_uniform_indexing)] = .{
+    result[@backingInt(Feature.storage_image_array_non_uniform_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable storage_image_array_non_uniform_indexing Capability.",
+        .description = "Enable storage_image_array_non_uniform_indexing capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_descriptor_indexing,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.storage_image_extended_formats)] = .{
+    result[@backingInt(Feature.storage_image_extended_formats)] = .{
         .llvm_name = null,
-        .description = "Enable storage_image_extended_formats Capability.",
+        .description = "Enable storage_image_extended_formats capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.storage_image_multisample)] = .{
+    result[@backingInt(Feature.storage_image_multisample)] = .{
         .llvm_name = null,
-        .description = "Enable storage_image_multisample Capability.",
+        .description = "Enable storage_image_multisample capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.storage_image_read_without_format)] = .{
+    result[@backingInt(Feature.storage_image_read_without_format)] = .{
         .llvm_name = null,
-        .description = "Enable storage_image_read_without_format Capability.",
+        .description = "Enable storage_image_read_without_format capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.storage_image_write_without_format)] = .{
+    result[@backingInt(Feature.storage_image_write_without_format)] = .{
         .llvm_name = null,
-        .description = "Enable storage_image_write_without_format Capability.",
+        .description = "Enable storage_image_write_without_format capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.storage_input_output16)] = .{
+    result[@backingInt(Feature.storage_input_output16)] = .{
         .llvm_name = null,
-        .description = "Enable storage_input_output16 Capability.",
+        .description = "Enable storage_input_output16 capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_16bit_storage,
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.storage_push_constant16)] = .{
+    result[@backingInt(Feature.storage_push_constant16)] = .{
         .llvm_name = null,
-        .description = "Enable storage_push_constant16 Capability.",
+        .description = "Enable storage_push_constant16 capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_16bit_storage,
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.storage_push_constant8)] = .{
+    result[@backingInt(Feature.storage_push_constant8)] = .{
         .llvm_name = null,
-        .description = "Enable storage_push_constant8 Capability.",
+        .description = "Enable storage_push_constant8 capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_8bit_storage,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.storage_texel_buffer_array_dynamic_indexing)] = .{
+    result[@backingInt(Feature.storage_texel_buffer_array_dynamic_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable storage_texel_buffer_array_dynamic_indexing Capability.",
+        .description = "Enable storage_texel_buffer_array_dynamic_indexing capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_descriptor_indexing,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.storage_texel_buffer_array_non_uniform_indexing)] = .{
+    result[@backingInt(Feature.storage_texel_buffer_array_non_uniform_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable storage_texel_buffer_array_non_uniform_indexing Capability.",
+        .description = "Enable storage_texel_buffer_array_non_uniform_indexing capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_descriptor_indexing,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.subgroup_ballot_khr)] = .{
+    result[@backingInt(Feature.subgroup_ballot_khr)] = .{
         .llvm_name = null,
-        .description = "Enable subgroup_ballot_khr Capability.",
+        .description = "Enable subgroup_ballot_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_shader_ballot,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.subgroup_dispatch)] = .{
+    result[@backingInt(Feature.subgroup_dispatch)] = .{
         .llvm_name = null,
-        .description = "Enable subgroup_dispatch Capability.",
+        .description = "Enable subgroup_dispatch capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_1,
         }),
     };
-    result[@intFromEnum(Feature.subgroup_vote_khr)] = .{
+    result[@backingInt(Feature.subgroup_vote_khr)] = .{
         .llvm_name = null,
-        .description = "Enable subgroup_vote_khr Capability.",
+        .description = "Enable subgroup_vote_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_subgroup_vote,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.tessellation)] = .{
+    result[@backingInt(Feature.tessellation)] = .{
         .llvm_name = null,
-        .description = "Enable tessellation Capability.",
+        .description = "Enable tessellation capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.tessellation_point_size)] = .{
+    result[@backingInt(Feature.tessellation_point_size)] = .{
         .llvm_name = null,
-        .description = "Enable tessellation_point_size Capability.",
+        .description = "Enable tessellation_point_size capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.tile_image_color_read_access_ext)] = .{
+    result[@backingInt(Feature.tile_image_color_read_access_ext)] = .{
         .llvm_name = null,
-        .description = "Enable tile_image_color_read_access_ext Capability.",
-        .dependencies = featureSet(&[_]Feature{
-            .SPV_EXT_shader_tile_image,
-            .v1_0,
-        }),
-    };
-    result[@intFromEnum(Feature.tile_image_depth_read_access_ext)] = .{
-        .llvm_name = null,
-        .description = "Enable tile_image_depth_read_access_ext Capability.",
+        .description = "Enable tile_image_color_read_access_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_shader_tile_image,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.tile_image_stencil_read_access_ext)] = .{
+    result[@backingInt(Feature.tile_image_depth_read_access_ext)] = .{
         .llvm_name = null,
-        .description = "Enable tile_image_stencil_read_access_ext Capability.",
+        .description = "Enable tile_image_depth_read_access_ext capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_shader_tile_image,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.transform_feedback)] = .{
+    result[@backingInt(Feature.tile_image_stencil_read_access_ext)] = .{
         .llvm_name = null,
-        .description = "Enable transform_feedback Capability.",
+        .description = "Enable tile_image_stencil_read_access_ext capability",
+        .dependencies = featureSet(&[_]Feature{
+            .SPV_EXT_shader_tile_image,
+            .v1_0,
+        }),
+    };
+    result[@backingInt(Feature.transform_feedback)] = .{
+        .llvm_name = null,
+        .description = "Enable transform_feedback capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.uniform_and_storage_buffer16bit_access)] = .{
+    result[@backingInt(Feature.uniform_and_storage_buffer16bit_access)] = .{
         .llvm_name = null,
-        .description = "Enable uniform_and_storage_buffer16bit_access Capability.",
+        .description = "Enable uniform_and_storage_buffer16bit_access capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_16bit_storage,
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.uniform_and_storage_buffer8bit_access)] = .{
+    result[@backingInt(Feature.uniform_and_storage_buffer8bit_access)] = .{
         .llvm_name = null,
-        .description = "Enable uniform_and_storage_buffer8bit_access Capability.",
+        .description = "Enable uniform_and_storage_buffer8bit_access capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_8bit_storage,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.uniform_buffer_array_dynamic_indexing)] = .{
+    result[@backingInt(Feature.uniform_buffer_array_dynamic_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable uniform_buffer_array_dynamic_indexing Capability.",
+        .description = "Enable uniform_buffer_array_dynamic_indexing capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.uniform_buffer_array_non_uniform_indexing)] = .{
+    result[@backingInt(Feature.uniform_buffer_array_non_uniform_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable uniform_buffer_array_non_uniform_indexing Capability.",
+        .description = "Enable uniform_buffer_array_non_uniform_indexing capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_descriptor_indexing,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.uniform_decoration)] = .{
+    result[@backingInt(Feature.uniform_decoration)] = .{
         .llvm_name = null,
-        .description = "Enable uniform_decoration Capability.",
+        .description = "Enable uniform_decoration capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_6,
         }),
     };
-    result[@intFromEnum(Feature.uniform_texel_buffer_array_dynamic_indexing)] = .{
+    result[@backingInt(Feature.uniform_texel_buffer_array_dynamic_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable uniform_texel_buffer_array_dynamic_indexing Capability.",
+        .description = "Enable uniform_texel_buffer_array_dynamic_indexing capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_descriptor_indexing,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.uniform_texel_buffer_array_non_uniform_indexing)] = .{
+    result[@backingInt(Feature.uniform_texel_buffer_array_non_uniform_indexing)] = .{
         .llvm_name = null,
-        .description = "Enable uniform_texel_buffer_array_non_uniform_indexing Capability.",
+        .description = "Enable uniform_texel_buffer_array_non_uniform_indexing capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_EXT_descriptor_indexing,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.untyped_pointers_khr)] = .{
+    result[@backingInt(Feature.untyped_pointers_khr)] = .{
         .llvm_name = null,
-        .description = "Enable untyped_pointers_khr Capability.",
+        .description = "Enable untyped_pointers_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_untyped_pointers,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.v1_0)] = .{
+    result[@backingInt(Feature.v1_0)] = .{
         .llvm_name = null,
-        .description = "Enable v1_0 Extension.",
+        .description = "Enable v1_0 extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.v1_1)] = .{
+    result[@backingInt(Feature.v1_1)] = .{
         .llvm_name = null,
-        .description = "Enable v1_1 Extension.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .description = "Enable v1_1 extension",
+        .dependencies = featureSet(&[_]Feature{
+            .v1_0,
+        }),
     };
-    result[@intFromEnum(Feature.v1_2)] = .{
+    result[@backingInt(Feature.v1_2)] = .{
         .llvm_name = null,
-        .description = "Enable v1_2 Extension.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .description = "Enable v1_2 extension",
+        .dependencies = featureSet(&[_]Feature{
+            .v1_1,
+        }),
     };
-    result[@intFromEnum(Feature.v1_3)] = .{
+    result[@backingInt(Feature.v1_3)] = .{
         .llvm_name = null,
-        .description = "Enable v1_3 Extension.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .description = "Enable v1_3 extension",
+        .dependencies = featureSet(&[_]Feature{
+            .v1_2,
+        }),
     };
-    result[@intFromEnum(Feature.v1_4)] = .{
+    result[@backingInt(Feature.v1_4)] = .{
         .llvm_name = null,
-        .description = "Enable v1_4 Extension.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .description = "Enable v1_4 extension",
+        .dependencies = featureSet(&[_]Feature{
+            .v1_3,
+        }),
     };
-    result[@intFromEnum(Feature.v1_5)] = .{
+    result[@backingInt(Feature.v1_5)] = .{
         .llvm_name = null,
-        .description = "Enable v1_5 Extension.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .description = "Enable v1_5 extension",
+        .dependencies = featureSet(&[_]Feature{
+            .v1_4,
+        }),
     };
-    result[@intFromEnum(Feature.v1_6)] = .{
+    result[@backingInt(Feature.v1_6)] = .{
         .llvm_name = null,
-        .description = "Enable v1_6 Extension.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .description = "Enable v1_6 extension",
+        .dependencies = featureSet(&[_]Feature{
+            .v1_5,
+        }),
     };
-    result[@intFromEnum(Feature.variable_pointers)] = .{
+    result[@backingInt(Feature.variable_pointers)] = .{
         .llvm_name = null,
-        .description = "Enable variable_pointers Capability.",
+        .description = "Enable variable_pointers capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_variable_pointers,
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.variable_pointers_storage_buffer)] = .{
+    result[@backingInt(Feature.variable_pointers_storage_buffer)] = .{
         .llvm_name = null,
-        .description = "Enable variable_pointers_storage_buffer Capability.",
+        .description = "Enable variable_pointers_storage_buffer capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_variable_pointers,
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.vector16)] = .{
+    result[@backingInt(Feature.vector16)] = .{
         .llvm_name = null,
-        .description = "Enable vector16 Capability.",
+        .description = "Enable vector16 capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.vulkan_memory_model)] = .{
+    result[@backingInt(Feature.vulkan_memory_model)] = .{
         .llvm_name = null,
-        .description = "Enable vulkan_memory_model Capability.",
+        .description = "Enable vulkan_memory_model capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_vulkan_memory_model,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.vulkan_memory_model_device_scope)] = .{
+    result[@backingInt(Feature.vulkan_memory_model_device_scope)] = .{
         .llvm_name = null,
-        .description = "Enable vulkan_memory_model_device_scope Capability.",
+        .description = "Enable vulkan_memory_model_device_scope capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_vulkan_memory_model,
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.workgroup_memory_explicit_layout16bit_access_khr)] = .{
+    result[@backingInt(Feature.workgroup_memory_explicit_layout16bit_access_khr)] = .{
         .llvm_name = null,
-        .description = "Enable workgroup_memory_explicit_layout16bit_access_khr Capability.",
+        .description = "Enable workgroup_memory_explicit_layout16bit_access_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_workgroup_memory_explicit_layout,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.workgroup_memory_explicit_layout8bit_access_khr)] = .{
+    result[@backingInt(Feature.workgroup_memory_explicit_layout8bit_access_khr)] = .{
         .llvm_name = null,
-        .description = "Enable workgroup_memory_explicit_layout8bit_access_khr Capability.",
+        .description = "Enable workgroup_memory_explicit_layout8bit_access_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_workgroup_memory_explicit_layout,
             .v1_0,
         }),
     };
-    result[@intFromEnum(Feature.workgroup_memory_explicit_layout_khr)] = .{
+    result[@backingInt(Feature.workgroup_memory_explicit_layout_khr)] = .{
         .llvm_name = null,
-        .description = "Enable workgroup_memory_explicit_layout_khr Capability.",
+        .description = "Enable workgroup_memory_explicit_layout_khr capability",
         .dependencies = featureSet(&[_]Feature{
             .SPV_KHR_workgroup_memory_explicit_layout,
             .v1_0,

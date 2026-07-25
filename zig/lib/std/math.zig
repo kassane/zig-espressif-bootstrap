@@ -922,21 +922,10 @@ fn testDivFloor() !void {
 pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    const info = @typeInfo(T);
-    switch (info) {
-        .comptime_float, .float => return @ceil(numerator / denominator),
-        .comptime_int, .int => {
-            if (numerator < 0 and denominator < 0) {
-                if (info == .int and numerator == minInt(T) and denominator == -1)
-                    return error.Overflow;
-                return @divFloor(numerator + 1, denominator) + 1;
-            }
-            if (numerator > 0 and denominator > 0)
-                return @divFloor(numerator - 1, denominator) + 1;
-            return @divTrunc(numerator, denominator);
-        },
-        else => @compileError("divCeil unsupported on " ++ @typeName(T)),
+    if (@typeInfo(T) == .int and numerator == minInt(T) and denominator == -1) {
+        return error.Overflow;
     }
+    return @divCeil(numerator, denominator);
 }
 
 test divCeil {
@@ -1654,7 +1643,7 @@ pub const CompareOperator = enum {
 
     test reverse {
         inline for (@typeInfo(CompareOperator).@"enum".field_values) |op_field_value| {
-            const op = @as(CompareOperator, @enumFromInt(op_field_value));
+            const op = @as(CompareOperator, @fromBackingInt(@intCast(op_field_value)));
             try testing.expect(compare(2, op, 3) == compare(3, op.reverse(), 2));
             try testing.expect(compare(3, op, 3) == compare(3, op.reverse(), 3));
             try testing.expect(compare(4, op, 3) == compare(3, op.reverse(), 4));
@@ -1874,4 +1863,40 @@ fn testSign() !void {
 test sign {
     try testSign();
     try comptime testSign();
+}
+
+/// Increases the bit width of an integer by copying the most significant bit.
+/// This results in the input and output having the same arithmetic value, when
+/// interpreted as two's complement integers.
+pub fn signExtend(To: type, n: anytype) To {
+    const From = @TypeOf(n);
+    if (From == u0) return 0;
+    const FromSigned = @Int(.signed, @typeInfo(From).int.bits);
+    const ToSigned = @Int(.signed, @typeInfo(To).int.bits);
+
+    return @bitCast(@as(ToSigned, @as(FromSigned, @bitCast(n))));
+}
+
+test signExtend {
+    const number: u8 = 0x86;
+    try testing.expectEqual(0xff86, signExtend(u16, number));
+
+    try testing.expectEqual(0, signExtend(u1, @as(u0, 0)));
+    try testing.expectEqual(0, signExtend(u16, @as(u0, 0)));
+
+    try testing.expectEqual(0x0000, signExtend(u16, @as(u1, 0b0)));
+    try testing.expectEqual(0xffff, signExtend(u16, @as(u1, 0b1)));
+
+    try testing.expectEqual(0b000, signExtend(u3, @as(u2, 0b00)));
+    try testing.expectEqual(0b001, signExtend(u3, @as(u2, 0b01)));
+    try testing.expectEqual(0b110, signExtend(u3, @as(u2, 0b10)));
+    try testing.expectEqual(0b111, signExtend(u3, @as(u2, 0b11)));
+    try testing.expectEqual(0b0000_0001, signExtend(u8, @as(u2, 0b01)));
+    try testing.expectEqual(0b1111_1110, signExtend(u8, @as(u2, 0b10)));
+
+    try testing.expectEqual(0x0039, signExtend(u16, @as(u8, 0x39)));
+    try testing.expectEqual(0xff93, signExtend(u16, @as(u8, 0x93)));
+
+    try testing.expectEqual(5, signExtend(i32, @as(i8, 5)));
+    try testing.expectEqual(-123, signExtend(i16, @as(i8, -123)));
 }

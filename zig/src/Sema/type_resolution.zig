@@ -63,7 +63,7 @@ pub const LayoutResolveReason = enum {
             .@"export"     => "for export here",
             .@"extern"     => "for extern declaration here",
             .asm_out_type  => "for inline assembly output type declared here",
-            .std_lang_type  => "from 'std.lang'",
+            .std_lang_type => "from 'std.lang'",
             // zig fmt: on
         };
     }
@@ -87,11 +87,14 @@ fn ensureLayoutResolvedInner(sema: *Sema, ty: Type, orig_ty: Type, reason: *cons
         .ptr_type,
         .anyframe_type,
         .simple_type,
-        .spirv_type,
         .opaque_type,
         .error_set_type,
         .inferred_error_set_type,
         => {},
+
+        .spirv_type => if (ty.isSpirvRuntimeArray(zcu)) {
+            return ensureLayoutResolvedInner(sema, ty.childType(zcu), orig_ty, reason);
+        },
 
         .func_type => |func_type| {
             for (func_type.param_types.get(ip)) |param_ty| {
@@ -372,7 +375,7 @@ pub fn resolveStructLayout(sema: *Sema, struct_ty: Type) CompileError!void {
         }
         struct_align = struct_align.maxStrict(field_align);
         if (struct_obj.layout == .auto) {
-            struct_obj.field_runtime_order.get(ip)[field_idx] = @enumFromInt(field_idx);
+            struct_obj.field_runtime_order.get(ip)[field_idx] = @fromBackingInt(@intCast(field_idx));
         }
         switch (field_ty.classify(zcu)) {
             .one_possible_value => {},
@@ -425,8 +428,8 @@ pub fn resolveStructLayout(sema: *Sema, struct_ty: Type) CompileError!void {
                     assert(b != .unresolved);
                     if (a == .omitted) return false;
                     if (b == .omitted) return true;
-                    const a_align = ctx.aligns[@intFromEnum(a)];
-                    const b_align = ctx.aligns[@intFromEnum(b)];
+                    const a_align = ctx.aligns[@backingInt(a)];
+                    const b_align = ctx.aligns[@backingInt(b)];
                     return a_align.compare(.gt, b_align);
                 }
             };
@@ -1322,15 +1325,31 @@ pub fn resolveEnumLayout(sema: *Sema, enum_ty: Type) CompileError!void {
         const type_ref = try sema.resolveInlineBody(&block, tag_type_body, zir_index);
         break :ty try sema.analyzeAsType(&block, tag_type_src, .enum_int_tag_type, type_ref);
     };
+    const empty_exhaustive = enum_obj.field_names.len == 0 and !enum_obj.nonexhaustive;
     const int_tag_ty: Type = if (explicit_int_tag_ty) |int_tag_ty| ty: {
-        if (int_tag_ty.zigTypeTag(zcu) != .int) return sema.fail(
-            &block,
-            block.src(.container_arg),
-            "expected integer tag type, found '{f}'",
-            .{int_tag_ty.fmt(pt)},
-        );
+        switch (int_tag_ty.zigTypeTag(zcu)) {
+            .int => if (empty_exhaustive) return sema.fail(
+                &block,
+                block.src(.container_arg),
+                "empty exhaustive enums must be backed by 'noreturn'",
+                .{},
+            ),
+            .noreturn => if (!empty_exhaustive) return sema.fail(
+                &block,
+                block.src(.container_arg),
+                "non-empty enums cannot be backed by 'noreturn'",
+                .{},
+            ),
+            else => return sema.fail(
+                &block,
+                block.src(.container_arg),
+                "expected integer tag type, found '{f}'",
+                .{int_tag_ty.fmt(pt)},
+            ),
+        }
         break :ty int_tag_ty;
     } else ty: {
+        if (empty_exhaustive) break :ty .noreturn;
         // Infer the int tag type from the field count
         const bits = Type.smallestUnsignedBits(enum_obj.field_names.len -| 1);
         break :ty try pt.intType(.unsigned, bits);

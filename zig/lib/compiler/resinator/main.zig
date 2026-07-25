@@ -44,7 +44,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         try renderErrorMessage(stderr.terminal(), .err, "expected zig lib dir as first argument", .{});
         std.process.exit(1);
     }
-    const zig_lib_dir = args[1];
+    const zig_lib_dir = std.mem.cutPrefix(u8, args[1], "--zig-lib=") orelse @panic("bad --zig-lib= arg");
     var cli_args = args[2..];
 
     var zig_integration = false;
@@ -555,34 +555,35 @@ const LazyIncludePaths = struct {
     ) ![]const []const u8 {
         const io = self.io;
 
-        if (self.resolved_include_paths) |include_paths|
-            return include_paths;
+        if (self.resolved_include_paths == null) {
+            self.resolved_include_paths = getIncludePaths(
+                self.arena,
+                io,
+                self.auto_includes_option,
+                self.zig_lib_dir,
+                self.target_machine_type,
+                environ_map,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
+                else => |e| {
+                    switch (e) {
+                        error.UnsupportedAutoIncludesMachineType => {
+                            try error_handler.emitMessage(self.arena, io, .err, "automatic include path detection is not supported for target '{s}'", .{@tagName(self.target_machine_type)});
+                        },
+                        error.MsvcIncludesNotFound => {
+                            try error_handler.emitMessage(self.arena, io, .err, "MSVC include paths could not be automatically detected", .{});
+                        },
+                        error.MingwIncludesNotFound => {
+                            try error_handler.emitMessage(self.arena, io, .err, "MinGW include paths could not be automatically detected", .{});
+                        },
+                    }
+                    try error_handler.emitMessage(self.arena, io, .note, "to disable auto includes, use the option /:auto-includes none", .{});
+                    std.process.exit(1);
+                },
+            };
+        }
 
-        return getIncludePaths(
-            self.arena,
-            io,
-            self.auto_includes_option,
-            self.zig_lib_dir,
-            self.target_machine_type,
-            environ_map,
-        ) catch |err| switch (err) {
-            error.OutOfMemory => |e| return e,
-            else => |e| {
-                switch (e) {
-                    error.UnsupportedAutoIncludesMachineType => {
-                        try error_handler.emitMessage(self.arena, io, .err, "automatic include path detection is not supported for target '{s}'", .{@tagName(self.target_machine_type)});
-                    },
-                    error.MsvcIncludesNotFound => {
-                        try error_handler.emitMessage(self.arena, io, .err, "MSVC include paths could not be automatically detected", .{});
-                    },
-                    error.MingwIncludesNotFound => {
-                        try error_handler.emitMessage(self.arena, io, .err, "MinGW include paths could not be automatically detected", .{});
-                    },
-                }
-                try error_handler.emitMessage(self.arena, io, .note, "to disable auto includes, use the option /:auto-includes none", .{});
-                std.process.exit(1);
-            },
-        };
+        return self.resolved_include_paths.?;
     }
 };
 
@@ -639,7 +640,7 @@ fn getIncludePaths(
                 };
                 const target = std.zig.resolveTargetQueryOrFatal(io, target_query);
                 const is_native_abi = target_query.isNativeAbi();
-                const detected_libc = std.zig.LibCDirs.detect(arena, io, zig_lib_dir, &target, is_native_abi, true, null, environ_map) catch {
+                const detected_libc = std.zig.LibCDirs.detect(arena, io, .{ .root_dir = .cwd(), .sub_path = zig_lib_dir }, &target, is_native_abi, true, null, environ_map) catch {
                     if (includes == .any) {
                         // fall back to mingw
                         includes = .gnu;
@@ -668,7 +669,7 @@ fn getIncludePaths(
                 const detected_libc = std.zig.LibCDirs.detect(
                     arena,
                     io,
-                    zig_lib_dir,
+                    .{ .root_dir = .cwd(), .sub_path = zig_lib_dir },
                     &target,
                     is_native_abi,
                     true,

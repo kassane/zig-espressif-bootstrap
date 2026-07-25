@@ -63,6 +63,9 @@ installed_headers: std.ArrayList(HeaderInstallation),
 /// created otherwise.
 installed_headers_include_tree: ?*Step.WriteFile = null,
 
+/// Deprecated. This functionality will be moved to an external package:
+/// https://codeberg.org/ziglang/rc
+///
 /// Behavior of automatic detection of include directories when compiling .rc files.
 ///  any: Use MSVC if available, fall back to MinGW.
 ///  msvc: Use MSVC include paths (must be present on the system).
@@ -70,6 +73,9 @@ installed_headers_include_tree: ?*Step.WriteFile = null,
 ///  none: Do not use any autodetected include paths.
 rc_includes: std.zig.RcIncludes = .any,
 
+/// Deprecated. This functionality will be moved to an external package:
+/// https://codeberg.org/ziglang/rc
+///
 /// (Windows) .manifest file to embed in the compilation
 /// Set via options; intended to be read-only after that.
 win32_manifest: ?LazyPath = null,
@@ -280,6 +286,9 @@ pub const Options = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    /// Deprecated. This functionality will be moved to an external package:
+    /// https://codeberg.org/ziglang/rc
+    ///
     /// Embed a `.manifest` file in the compilation if the object format supports it.
     /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
     /// Manifest files must have the extension `.manifest`.
@@ -381,7 +390,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             @tagName(options.kind)
         else
             owner.fmt("{t} {s}", .{ options.kind, name }),
-        @tagName(options.root_module.optimize orelse .Debug),
+        @tagName(options.root_module.optimize orelse .debug),
         resolved_target.query.zigTriple(arena) catch @panic("OOM"),
     });
 
@@ -636,7 +645,7 @@ pub fn producesPdbFile(compile: *Compile) bool {
     if (target.ofmt == .c) return false;
     if (compile.use_llvm == false) return false;
     if (compile.root_module.strip == true or
-        (compile.root_module.strip == null and compile.root_module.optimize == .ReleaseSmall))
+        (compile.root_module.strip == null and compile.root_module.optimize == .small))
     {
         return false;
     }

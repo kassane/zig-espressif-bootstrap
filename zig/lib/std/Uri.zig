@@ -7,43 +7,18 @@ const testing = std.testing;
 const Uri = @This();
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
-const HostName = std.Io.net.HostName;
 
 scheme: []const u8,
 user: ?Component = null,
 password: ?Component = null,
-/// If non-null, already validated.
 host: ?Component = null,
 port: ?u16 = null,
 path: Component = Component.empty,
 query: ?Component = null,
 fragment: ?Component = null,
 
-pub const GetHostError = error{UriMissingHost};
-
-/// Returned value may point into `buffer` or be the original string.
-///
-/// See also:
-/// * `getHostAlloc`
-pub fn getHost(uri: Uri, buffer: *[HostName.max_len]u8) GetHostError!HostName {
-    const component = uri.host orelse return error.UriMissingHost;
-    const bytes = component.toRaw(buffer) catch |err| switch (err) {
-        error.NoSpaceLeft => unreachable, // `host` already validated.
-    };
-    return .{ .bytes = bytes };
-}
-
-pub const GetHostAllocError = GetHostError || error{OutOfMemory};
-
-/// Returned value may point into `buffer` or be the original string.
-///
-/// See also:
-/// * `getHost`
-pub fn getHostAlloc(uri: Uri, arena: Allocator) GetHostAllocError!HostName {
-    const component = uri.host orelse return error.UriMissingHost;
-    const bytes = try component.toRawMaybeAlloc(arena);
-    return .{ .bytes = bytes };
-}
+pub const getHost = @compileError("This function has been moved to std.Io.net.HostName.fromUri");
+pub const getHostAlloc = @compileError("This function has been deleted. See std.Io.net.HostName.fromUri instead");
 
 pub const Component = union(enum) {
     /// Invalid characters in this component must be percent encoded
@@ -197,12 +172,7 @@ pub fn percentDecodeInPlace(buffer: []u8) []u8 {
     return percentDecodeBackwards(buffer, buffer);
 }
 
-pub const ParseError = error{
-    UnexpectedCharacter,
-    InvalidFormat,
-    InvalidPort,
-    InvalidHostName,
-};
+pub const ParseError = error{ UnexpectedCharacter, InvalidFormat, InvalidPort, InvalidHostName };
 
 /// Parses the URI or returns an error. This function is not compliant, but is required to parse
 /// some forms of URIs in the wild, such as HTTP Location headers.
@@ -221,7 +191,11 @@ pub fn parseAfterScheme(scheme: []const u8, text: []const u8) ParseError!Uri {
         }
 
         var start_of_host: usize = 0;
-        if (std.mem.find(u8, authority, "@")) |index| {
+        // Use findLast to handle unencoded @ in userinfo gracefully,
+        // e.g. scheme://user:p@ssword@hostname. This deviates from RFC3986
+        // (which requires @ to be percent-encoded as %40 in userinfo) but
+        // is more robust against URIs in the wild.
+        if (std.mem.findLast(u8, authority, "@")) |index| {
             start_of_host = index + 1;
             const user_info = authority[0..index];
 
@@ -264,7 +238,9 @@ pub fn parseAfterScheme(scheme: []const u8, text: []const u8) ParseError!Uri {
         }
 
         if (start_of_host >= end_of_host) return error.InvalidFormat;
-        uri.host = .{ .percent_encoded = authority[start_of_host..end_of_host] };
+        const host = authority[start_of_host..end_of_host];
+        if (host.len > std.Io.net.HostName.max_len) return error.InvalidHostName;
+        uri.host = .{ .percent_encoded = host };
     }
 
     const path_start = i;
@@ -403,7 +379,7 @@ pub fn resolveInPlace(base: Uri, new_len: usize, aux_buf: *[]u8) ResolveInPlaceE
         .scheme = new_parsed.scheme,
         .user = new_parsed.user,
         .password = new_parsed.password,
-        .host = try validateHostComponent(new_parsed.host),
+        .host = new_parsed.host,
         .port = new_parsed.port,
         .path = remove_dot_segments(new_path),
         .query = new_parsed.query,
@@ -414,7 +390,7 @@ pub fn resolveInPlace(base: Uri, new_len: usize, aux_buf: *[]u8) ResolveInPlaceE
         .scheme = base.scheme,
         .user = new_parsed.user,
         .password = new_parsed.password,
-        .host = try validateHostComponent(host),
+        .host = host,
         .port = new_parsed.port,
         .path = remove_dot_segments(new_path),
         .query = new_parsed.query,
@@ -436,24 +412,12 @@ pub fn resolveInPlace(base: Uri, new_len: usize, aux_buf: *[]u8) ResolveInPlaceE
         .scheme = base.scheme,
         .user = base.user,
         .password = base.password,
-        .host = try validateHostComponent(base.host),
+        .host = base.host,
         .port = base.port,
         .path = path,
         .query = query,
         .fragment = new_parsed.fragment,
     };
-}
-
-fn validateHostComponent(optional_component: ?Component) error{InvalidHostName}!?Component {
-    const component = optional_component orelse return null;
-    switch (component) {
-        .raw => |raw| HostName.validate(raw) catch return error.InvalidHostName,
-        .percent_encoded => |encoded| {
-            // TODO validate decoded name instead
-            HostName.validate(encoded) catch return error.InvalidHostName;
-        },
-    }
-    return component;
 }
 
 /// In-place implementation of RFC 3986, Section 5.2.4.
@@ -594,6 +558,11 @@ test "should fail gracefully" {
     try std.testing.expectError(error.InvalidFormat, parse("foobar://"));
 }
 
+test "parse name too long" {
+    const uri = "http://" ++ @as([std.Io.net.HostName.max_len + 1]u8, @splat('Z'));
+    try std.testing.expectError(error.InvalidHostName, parse(uri));
+}
+
 test "file" {
     const parsed = try parse("file:///");
     try std.testing.expectEqualStrings("file", parsed.scheme);
@@ -656,6 +625,23 @@ test "authority" {
     try std.testing.expectEqual(@as(u16, 1234), (try parse("scheme://user:password@hostname:1234")).port.?);
     try std.testing.expectEqualStrings("user", (try parse("scheme://user:password@hostname:1234")).user.?.percent_encoded);
     try std.testing.expectEqualStrings("password", (try parse("scheme://user:password@hostname:1234")).password.?.percent_encoded);
+
+    try std.testing.expectEqualStrings("user", (try parse("scheme://user:p@ssword@hostname:1234")).user.?.percent_encoded);
+    try std.testing.expectEqualStrings("p@ssword", (try parse("scheme://user:p@ssword@hostname:1234")).password.?.percent_encoded);
+    try std.testing.expectEqualStrings("hostname", (try parse("scheme://user:p@ssword@hostname:1234")).host.?.percent_encoded);
+
+    try std.testing.expectEqualStrings("user", (try parse("scheme://user:p@@@word@hostname:1234")).user.?.percent_encoded);
+    try std.testing.expectEqualStrings("p@@@word", (try parse("scheme://user:p@@@word@hostname:1234")).password.?.percent_encoded);
+    try std.testing.expectEqualStrings("hostname", (try parse("scheme://user:p@@@word@hostname:1234")).host.?.percent_encoded);
+
+    try std.testing.expectEqualStrings("user@name", (try parse("scheme://user@name@hostname")).user.?.percent_encoded);
+    try std.testing.expectEqual(@as(?Component, null), (try parse("scheme://user@name@hostname")).password);
+    try std.testing.expectEqualStrings("hostname", (try parse("scheme://user@name@hostname")).host.?.percent_encoded);
+
+    try std.testing.expectEqualStrings("user@name", (try parse("scheme://user@name@hostname:1234")).user.?.percent_encoded);
+    try std.testing.expectEqual(@as(?Component, null), (try parse("scheme://user@name@hostname:1234")).password);
+    try std.testing.expectEqualStrings("hostname", (try parse("scheme://user@name@hostname:1234")).host.?.percent_encoded);
+    try std.testing.expectEqual(@as(u16, 1234), (try parse("scheme://user@name@hostname:1234")).port.?);
 }
 
 test "authority.password" {

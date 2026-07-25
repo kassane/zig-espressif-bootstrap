@@ -336,11 +336,6 @@ set(ZIG_STAGE2_SOURCES
     src/Compilation.zig
     src/Compilation/Config.zig
     src/InternPool.zig
-    src/Package.zig
-    src/Package/Fetch.zig
-    src/Package/Fetch/git.zig
-    src/Package/Manifest.zig
-    src/Package/Module.zig
     src/RangeSet.zig
     src/Sema.zig
     src/Sema/reinterpret.zig
@@ -370,7 +365,6 @@ set(ZIG_STAGE2_SOURCES
     src/libs/glibc.zig
     src/libs/netbsd.zig
     src/libs/openbsd.zig
-    src/introspect.zig
     src/libs/libcxx.zig
     src/libs/libtsan.zig
     src/libs/libunwind.zig
@@ -736,7 +730,7 @@ endif()
 
 
 set(ZIG_BUILD_ARGS
-  --zig-lib-dir "${PROJECT_SOURCE_DIR}/lib"
+  "--zig-lib=${PROJECT_SOURCE_DIR}/lib"
 
   "-Dversion-string=${RESOLVED_ZIG_VERSION}"
   "-Dtarget=${ZIG_TARGET_TRIPLE}"
@@ -800,7 +794,7 @@ set(ZIG2_WORKING_DIR "${PROJECT_SOURCE_DIR}")
 
 add_custom_command(
   OUTPUT "${PROJECT_BINARY_DIR}/stage3/bin/zig"
-  COMMAND zig2 build --prefix "${PROJECT_BINARY_DIR}/stage3" ${ZIG_BUILD_ARGS}
+  COMMAND zig2 build ${ZIG_BUILD_ARGS} --prefix "${PROJECT_BINARY_DIR}/stage3"
   COMMENT "Building stage3"
   WORKING_DIRECTORY "${ZIG2_WORKING_DIR}"
 )

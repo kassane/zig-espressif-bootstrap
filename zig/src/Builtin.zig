@@ -7,7 +7,7 @@ is_test: bool,
 single_threaded: bool,
 link_libc: bool,
 link_libcpp: bool,
-optimize_mode: std.lang.OptimizeMode,
+optimize_mode: std.lang.Optimize,
 error_tracing: bool,
 valgrind: bool,
 sanitize_thread: bool,
@@ -239,7 +239,9 @@ pub fn append(opts: @This(), buffer: *std.array_list.Managed(u8)) Allocator.Erro
 
     try buffer.print(
         \\pub const object_format: std.Target.ObjectFormat = .{f};
-        \\pub const mode: std.lang.OptimizeMode = .{f};
+        \\/// Deprecated, to be removed after 0.18.0
+        \\pub const mode = optimize;
+        \\pub const optimize: std.lang.Optimize = .{f};
         \\pub const link_libc = {};
         \\pub const link_libcpp = {};
         \\pub const have_error_return_tracing = {};
@@ -296,7 +298,7 @@ pub fn populateFile(opts: @This(), gpa: Allocator, file: *File) Allocator.Error!
 
     log.debug("parsing and generating 'builtin.zig'", .{});
 
-    file.tree = try std.zig.Ast.parse(gpa, file.source.?, .zig);
+    file.tree = try std.zig.Ast.parse(gpa, file.source.?, .{});
     assert(file.tree.?.errors.len == 0); // builtin.zig must parse
 
     file.zir = try AstGen.generate(gpa, file.tree.?);
@@ -370,7 +372,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 const build_options = @import("build_options");
-const Module = @import("Package/Module.zig");
+const Module = @import("Module.zig");
 const assert = std.debug.assert;
 const AstGen = std.zig.AstGen;
 const File = @import("Zcu.zig").File;

@@ -24,6 +24,7 @@ inst: struct {
     opcode: Opcode = undefined,
     operands: std.ArrayList(Operand) = .empty,
     string_bytes: std.ArrayList(u8) = .empty,
+    inst_offset: u32 = 0,
 
     fn result(ass: @This()) ?AsmValue.Ref {
         for (ass.operands.items[0..@min(ass.operands.items.len, 2)]) |op| {
@@ -35,7 +36,7 @@ inst: struct {
         return null;
     }
 } = .{},
-value_map: std.array_hash_map.String(AsmValue) = .{},
+value_map: std.array_hash_map.String(AsmValue) = .empty,
 inst_map: std.array_hash_map.String(void) = .empty,
 
 const Operand = union(enum) {
@@ -58,6 +59,10 @@ const Operand = union(enum) {
 pub fn deinit(ass: *Assembler) void {
     const gpa = ass.cg.gpa;
     for (ass.errors.items) |err| gpa.free(err.msg);
+    for (ass.value_map.values()) |v| switch (v) {
+        .constant_composite => |cc| gpa.free(cc.values),
+        else => {},
+    };
     ass.tokens.deinit(gpa);
     ass.errors.deinit(gpa);
     ass.inst.operands.deinit(gpa);
@@ -78,7 +83,7 @@ pub fn assemble(ass: *Assembler, src: []const u8) Error!void {
     if (ass.inst_map.count() == 0) {
         const instructions = spec.InstructionSet.core.instructions();
         try ass.inst_map.ensureUnusedCapacity(gpa, @intCast(instructions.len));
-        for (spec.InstructionSet.core.instructions(), 0..) |inst, i| {
+        for (instructions, 0..) |inst, i| {
             const entry = try ass.inst_map.getOrPut(gpa, inst.name);
             assert(entry.index == i);
         }
@@ -110,12 +115,13 @@ fn addError(ass: *Assembler, offset: u32, comptime fmt: []const u8, args: anytyp
 }
 
 fn fail(ass: *Assembler, offset: u32, comptime fmt: []const u8, args: anytype) Error {
+    @branchHint(.cold);
     try ass.addError(offset, fmt, args);
     return error.AssembleFail;
 }
 
 fn todo(ass: *Assembler, comptime fmt: []const u8, args: anytype) Error {
-    return ass.fail(0, "todo: " ++ fmt, args);
+    return ass.fail(ass.inst.inst_offset, "todo: " ++ fmt, args);
 }
 
 const AsmValue = union(enum) {
@@ -132,8 +138,18 @@ const AsmValue = union(enum) {
     value: Id,
     /// A type registered into the module's type system.
     ty: Id,
-    /// A pre-supplied constant integer value.
-    constant: u32,
+    /// A pre-supplied constant value, holding the raw bit pattern of the input.
+    /// For integers the value is sign-extended (for signed) or zero-extended
+    /// (for unsigned) to 64 bits. For floats, the value is the bit pattern
+    /// zero-extended from the float's width to 64 bits.
+    constant: u64,
+    /// A vector "c" input expanded by `processSpecConstVector`.
+    constant_composite: struct {
+        child: Id,
+        child_kind: std.lang.TypeId,
+        child_bit_width: u16,
+        values: []u64,
+    },
     string: []const u8,
 
     /// Retrieve the result-id of this AsmValue. Asserts that this AsmValue
@@ -145,6 +161,7 @@ const AsmValue = union(enum) {
             .unresolved_forward_reference,
             // TODO: Lower this value as constant?
             .constant,
+            .constant_composite,
             .string,
             => unreachable,
             .value => |result| result,
@@ -178,6 +195,12 @@ fn processInstruction(ass: *Assembler) !void {
             };
             break :blk .{ .value = try cg.importInstructionSet(set_tag) };
         },
+        .OpSpecConstantComposite => blk: {
+            if (try ass.processSpecConstVector()) |result| {
+                break :blk result;
+            }
+            break :blk (try ass.processGenericInstruction()) orelse return;
+        },
         else => switch (ass.inst.opcode.class()) {
             .type_declaration => try ass.processTypeInstruction(),
             else => (try ass.processGenericInstruction()) orelse return,
@@ -188,9 +211,8 @@ fn processInstruction(ass: *Assembler) !void {
     switch (ass.value_map.values()[result_ref]) {
         .just_declared => ass.value_map.values()[result_ref] = result,
         else => {
-            // TODO: Improve source location.
             const name = ass.value_map.keys()[result_ref];
-            return ass.fail(0, "duplicate definition of %{s}", .{name});
+            return ass.fail(ass.inst.inst_offset, "duplicate definition of %{s}", .{name});
         },
     }
 }
@@ -208,12 +230,11 @@ fn processTypeInstruction(ass: *Assembler) !AsmValue {
                 0 => .unsigned,
                 1 => .signed,
                 else => {
-                    // TODO: Improve source location.
-                    return ass.fail(0, "{} is not a valid signedness (expected 0 or 1)", .{operands[2].literal32});
+                    return ass.fail(ass.inst.inst_offset, "{} is not a valid signedness (expected 0 or 1)", .{operands[2].literal32});
                 },
             };
             const width = std.math.cast(u16, operands[1].literal32) orelse {
-                return ass.fail(0, "int type of {} bits is too large", .{operands[1].literal32});
+                return ass.fail(ass.inst.inst_offset, "int type of {} bits is too large", .{operands[1].literal32});
             };
             break :blk try cg.intType(signedness, width);
         },
@@ -222,7 +243,7 @@ fn processTypeInstruction(ass: *Assembler) !AsmValue {
             switch (bits) {
                 16, 32, 64 => {},
                 else => {
-                    return ass.fail(0, "{} is not a valid bit count for floats (expected 16, 32 or 64)", .{bits});
+                    return ass.fail(ass.inst.inst_offset, "{} is not a valid bit count for floats (expected 16, 32 or 64)", .{bits});
                 },
             }
             break :blk try cg.floatType(@intCast(bits));
@@ -246,7 +267,7 @@ fn processTypeInstruction(ass: *Assembler) !AsmValue {
             break :blk result_id;
         },
         .OpTypePointer => blk: {
-            const storage_class: StorageClass = @enumFromInt(operands[1].value);
+            const storage_class: StorageClass = @fromBackingInt(@intCast(operands[1].value));
             const child_type = try ass.resolveRefId(operands[2].ref_id);
             const result_id = cg.allocId();
             try section.emit(cg.gpa, .OpTypePointer, .{
@@ -269,12 +290,12 @@ fn processTypeInstruction(ass: *Assembler) !AsmValue {
             try section.emit(gpa, .OpTypeImage, .{
                 .id_result = result_id,
                 .sampled_type = sampled_type,
-                .dim = @enumFromInt(operands[2].value),
+                .dim = @fromBackingInt(@intCast(operands[2].value)),
                 .depth = operands[3].literal32,
                 .arrayed = operands[4].literal32,
                 .ms = operands[5].literal32,
                 .sampled = operands[6].literal32,
-                .image_format = @enumFromInt(operands[7].value),
+                .image_format = @fromBackingInt(@intCast(operands[7].value)),
             });
             break :blk result_id;
         },
@@ -329,7 +350,7 @@ fn processGenericInstruction(ass: *Assembler) !?AsmValue {
             .OpEntryPoint => unreachable,
             .OpExecutionMode, .OpExecutionModeId => &cg.sections.execution_modes,
             .OpVariable => section: {
-                const storage_class: spec.StorageClass = @enumFromInt(operands[2].value);
+                const storage_class: spec.StorageClass = @fromBackingInt(@intCast(operands[2].value));
                 if (storage_class == .function) break :section &ass.cg.prologue;
                 maybe_spv_decl_index = try cg.allocDecl(.global);
                 if (!target.cpu.has(.spirv, .v1_4) and storage_class != .input and storage_class != .output) {
@@ -375,7 +396,7 @@ fn processGenericInstruction(ass: *Assembler) !?AsmValue {
             },
             .string => |offset| {
                 const text = std.mem.sliceTo(ass.inst.string_bytes.items[offset..], 0);
-                const size = std.math.divCeil(usize, text.len + 1, @sizeOf(Word)) catch unreachable;
+                const size = @divCeil(text.len + 1, @sizeOf(Word));
                 try section.ensureUnusedCapacity(cg.gpa, size);
                 section.writeOperand(spec.LiteralString, text);
             },
@@ -383,7 +404,7 @@ fn processGenericInstruction(ass: *Assembler) !?AsmValue {
     }
 
     const actual_word_count = section.instructions.items.len - first_word;
-    section.instructions.items[first_word] |= @as(u32, @as(u16, @intCast(actual_word_count))) << 16 | @intFromEnum(ass.inst.opcode);
+    section.instructions.items[first_word] |= @as(u32, @as(u16, @intCast(actual_word_count))) << 16 | @backingInt(ass.inst.opcode);
 
     switch (ass.inst.opcode) {
         .OpKill,
@@ -398,13 +419,93 @@ fn processGenericInstruction(ass: *Assembler) !?AsmValue {
     return null;
 }
 
+/// Handles `%ret = OpSpecConstantComposite %ty %vec %spec_id` where `%vec` is a
+/// vector `"c"` input and `%spec_id` is a base SpecId `"c"` input.
+/// returns null to fall back to normal processing.
+fn processSpecConstVector(ass: *Assembler) !?AsmValue {
+    if (ass.inst.operands.items.len != 4) return null;
+    const vec_ref = switch (ass.inst.operands.items[2]) {
+        .ref_id => |i| i,
+        else => return null,
+    };
+    const sid_ref = switch (ass.inst.operands.items[3]) {
+        .ref_id => |i| i,
+        else => return null,
+    };
+    const cc = switch (try ass.resolveRef(vec_ref)) {
+        .constant_composite => |cc| cc,
+        else => return null,
+    };
+    const spec_id_base = switch (try ass.resolveRef(sid_ref)) {
+        .constant => |v| v,
+        else => return null,
+    };
+
+    const cg = ass.cg;
+    const gpa = cg.gpa;
+    const ty_ref = switch (ass.inst.operands.items[0]) {
+        .ref_id => |i| i,
+        else => return ass.fail(ass.inst.inst_offset, "missing result type", .{}),
+    };
+    const composite_ty_id = switch (try ass.resolveRef(ty_ref)) {
+        .ty => |id| id,
+        else => return ass.fail(ass.inst.inst_offset, "%ty must be a type", .{}),
+    };
+
+    const globals = &cg.sections.globals;
+    const annotations = &cg.sections.annotations;
+    const literal_words: usize = if (cc.child_bit_width <= @bitSizeOf(Word)) 1 else 2;
+
+    const elem_ids = try gpa.alloc(Id, cc.values.len);
+    defer gpa.free(elem_ids);
+    for (cc.values, elem_ids, 0..) |value, *elem_id_out, i| {
+        const elem_id = cg.allocId();
+        elem_id_out.* = elem_id;
+
+        switch (cc.child_kind) {
+            .bool => {
+                const opcode: Opcode = if (value & 1 != 0) .OpSpecConstantTrue else .OpSpecConstantFalse;
+                try globals.emitRaw(gpa, opcode, 2);
+                globals.writeOperand(Id, cc.child);
+                globals.writeOperand(Id, elem_id);
+            },
+            .int, .float => {
+                try globals.emitRaw(gpa, .OpSpecConstant, 2 + literal_words);
+                globals.writeOperand(Id, cc.child);
+                globals.writeOperand(Id, elem_id);
+                if (literal_words == 1) {
+                    globals.writeWord(@truncate(value));
+                } else {
+                    globals.writeDoubleWord(value);
+                }
+            },
+            else => unreachable,
+        }
+
+        const spec_id_word = std.math.cast(u32, spec_id_base + i) orelse {
+            return ass.fail(ass.inst.inst_offset, "SpecId {} does not fit in 32 bits", .{spec_id_base + i});
+        };
+        try annotations.emitRaw(gpa, .OpDecorate, 3);
+        annotations.writeOperand(Id, elem_id);
+        annotations.writeWord(@backingInt(spec.Decoration.spec_id));
+        annotations.writeWord(spec_id_word);
+    }
+
+    const result_id = cg.allocId();
+    try globals.emitRaw(gpa, .OpSpecConstantComposite, 2 + cc.values.len);
+    globals.writeOperand(Id, composite_ty_id);
+    globals.writeOperand(Id, result_id);
+    for (elem_ids) |id| globals.writeOperand(Id, id);
+
+    return .{ .value = result_id };
+}
+
 fn resolveMaybeForwardRef(ass: *Assembler, ref: AsmValue.Ref) !AsmValue {
     const value = ass.value_map.values()[ref];
     switch (value) {
         .just_declared => {
             const name = ass.value_map.keys()[ref];
-            // TODO: Improve source location.
-            return ass.fail(0, "ass-referential parameter %{s}", .{name});
+            return ass.fail(ass.inst.inst_offset, "self-referential parameter %{s}", .{name});
         },
         else => return value,
     }
@@ -416,8 +517,7 @@ fn resolveRef(ass: *Assembler, ref: AsmValue.Ref) !AsmValue {
         .just_declared => unreachable,
         .unresolved_forward_reference => {
             const name = ass.value_map.keys()[ref];
-            // TODO: Improve source location.
-            return ass.fail(0, "reference to undeclared result-id %{s}", .{name});
+            return ass.fail(ass.inst.inst_offset, "reference to undeclared result-id %{s}", .{name});
         },
         else => return value,
     }
@@ -434,6 +534,7 @@ fn parseInstruction(ass: *Assembler) !void {
     ass.inst.opcode = undefined;
     ass.inst.operands.clearRetainingCapacity();
     ass.inst.string_bytes.clearRetainingCapacity();
+    ass.inst.inst_offset = ass.currentToken().start;
 
     const lhs_result_tok = ass.currentToken();
     const maybe_lhs_result: ?AsmValue.Ref = if (ass.eatToken(.result_id_assign)) blk: {
@@ -459,7 +560,7 @@ fn parseInstruction(ass: *Assembler) !void {
     };
 
     const inst = spec.InstructionSet.core.instructions()[index];
-    ass.inst.opcode = @enumFromInt(inst.opcode);
+    ass.inst.opcode = @fromBackingInt(@intCast(inst.opcode));
 
     const expected_operands = inst.operands;
     // This is a loop because the result-id is not always the first operand.
@@ -487,8 +588,8 @@ fn parseInstruction(ass: *Assembler) !void {
             .required => if (ass.isAtInstructionBoundary()) {
                 return ass.fail(
                     ass.currentToken().start,
-                    "missing required operand", // TODO: Operand name?
-                    .{},
+                    "missing required operand '{s}'",
+                    .{@tagName(operand.kind)},
                 );
             } else {
                 try ass.parseOperand(operand.kind);
@@ -579,7 +680,14 @@ fn parseValueEnum(ass: *Assembler, kind: spec.OperandKind) !void {
             return ass.fail(tok.start, "invalid placeholder '${s}'", .{name});
         };
         switch (value) {
-            .constant => |literal32| {
+            .constant => |literal| {
+                const literal32 = std.math.cast(u32, literal) orelse {
+                    return ass.fail(
+                        tok.start,
+                        "placeholder value {} does not fit in 32 bits",
+                        .{literal},
+                    );
+                };
                 try ass.inst.operands.append(gpa, .{ .value = literal32 });
             },
             .string => |str| {
@@ -646,7 +754,14 @@ fn parseLiteralInteger(ass: *Assembler) !void {
             return ass.fail(tok.start, "invalid placeholder '${s}'", .{name});
         };
         switch (value) {
-            .constant => |literal32| {
+            .constant => |literal| {
+                const literal32 = std.math.cast(u32, literal) orelse {
+                    return ass.fail(
+                        tok.start,
+                        "placeholder value {} does not fit in 32 bits",
+                        .{literal},
+                    );
+                };
                 try ass.inst.operands.append(gpa, .{ .literal32 = literal32 });
             },
             else => {
@@ -679,7 +794,14 @@ fn parseLiteralExtInstInteger(ass: *Assembler) !void {
             return ass.fail(tok.start, "invalid placeholder '${s}'", .{name});
         };
         switch (value) {
-            .constant => |literal32| {
+            .constant => |literal| {
+                const literal32 = std.math.cast(u32, literal) orelse {
+                    return ass.fail(
+                        tok.start,
+                        "placeholder value {} does not fit in 32 bits",
+                        .{literal},
+                    );
+                };
                 try ass.inst.operands.append(gpa, .{ .literal32 = literal32 });
             },
             else => {
@@ -732,16 +854,16 @@ fn parseContextDependentNumber(ass: *Assembler) !void {
     var offset: usize = 0;
     while (offset < words.len) {
         const word_count = words[offset] >> 16;
-        const opcode: Opcode = @enumFromInt(words[offset] & 0xFFFF);
+        const opcode: Opcode = @fromBackingInt(@intCast(words[offset] & 0xFFFF));
         defer offset += word_count;
         if (word_count == 0) break;
         switch (opcode) {
-            .OpTypeInt => if (word_count >= 4 and @as(Id, @enumFromInt(words[offset + 1])) == result_id) {
+            .OpTypeInt => if (word_count >= 4 and @as(Id, @fromBackingInt(@intCast(words[offset + 1]))) == result_id) {
                 const width: u16 = @intCast(words[offset + 2]);
                 const signedness: std.lang.Signedness = if (words[offset + 3] == 0) .unsigned else .signed;
                 return ass.parseContextDependentInt(signedness, width);
             },
-            .OpTypeFloat => if (word_count >= 3 and @as(Id, @enumFromInt(words[offset + 1])) == result_id) {
+            .OpTypeFloat => if (word_count >= 3 and @as(Id, @fromBackingInt(@intCast(words[offset + 1]))) == result_id) {
                 const bits = words[offset + 2];
                 return switch (bits) {
                     16 => ass.parseContextDependentFloat(16),
@@ -767,8 +889,12 @@ fn parseContextDependentInt(ass: *Assembler, signedness: std.lang.Signedness, wi
             return ass.fail(tok.start, "invalid placeholder '${s}'", .{name});
         };
         switch (value) {
-            .constant => |literal32| {
-                try ass.inst.operands.append(gpa, .{ .literal32 = literal32 });
+            .constant => |literal| {
+                if (width <= @bitSizeOf(spec.Word)) {
+                    try ass.inst.operands.append(gpa, .{ .literal32 = @truncate(literal) });
+                } else {
+                    try ass.inst.operands.append(gpa, .{ .literal64 = literal });
+                }
             },
             else => {
                 return ass.fail(tok.start, "value '{s}' cannot be used as placeholder", .{name});
@@ -815,6 +941,25 @@ fn parseContextDependentFloat(ass: *Assembler, comptime width: u16) !void {
     const Int = @Int(.unsigned, width);
 
     const tok = ass.currentToken();
+    if (ass.eatToken(.placeholder)) {
+        const name = ass.tokenText(tok)[1..];
+        const value = ass.value_map.get(name) orelse {
+            return ass.fail(tok.start, "invalid placeholder '${s}'", .{name});
+        };
+        switch (value) {
+            .constant => |literal| {
+                if (width <= @bitSizeOf(spec.Word)) {
+                    try ass.inst.operands.append(gpa, .{ .literal32 = @truncate(literal) });
+                } else {
+                    try ass.inst.operands.append(gpa, .{ .literal64 = literal });
+                }
+            },
+            else => {
+                return ass.fail(tok.start, "value '{s}' cannot be used as placeholder", .{name});
+            },
+        }
+        return;
+    }
     try ass.expectToken(.value);
 
     const text = ass.tokenText(tok);

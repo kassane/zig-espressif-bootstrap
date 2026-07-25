@@ -65,7 +65,7 @@ pub fn render(buf: []u8, value: anytype, options: Options) Error![]const u8 {
 
     const DT = if (@bitSizeOf(T) <= 64) u64 else u128;
     const tables = switch (DT) {
-        u64 => if (@import("builtin").mode == .ReleaseSmall) &Backend64_TablesSmall else &Backend64_TablesFull,
+        u64 => if (@import("builtin").mode == .small) &Backend64_TablesSmall else &Backend64_TablesFull,
         u128 => &Backend128_Tables,
         else => unreachable,
     };
@@ -1646,8 +1646,6 @@ test "format f64" {
 }
 
 test "format f80" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-
     try check(f80, 0.0, "0e0");
     try check(f80, -0.0, "-0e0");
     try check(f80, 1.0, "1e0");

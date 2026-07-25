@@ -25,7 +25,7 @@ const Compilation = @import("Compilation.zig");
 const Cache = std.Build.Cache;
 pub const Value = @import("Value.zig");
 pub const Type = @import("Type.zig");
-const Package = @import("Package.zig");
+const Module = @import("Module.zig");
 const link = @import("link.zig");
 const Air = @import("Air.zig");
 const Zir = std.zig.Zir;
@@ -34,7 +34,6 @@ const AstGen = std.zig.AstGen;
 const Sema = @import("Sema.zig");
 const target_util = @import("target.zig");
 const build_options = @import("build_options");
-const isUpDir = @import("introspect.zig").isUpDir;
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
 const AnalUnit = InternPool.AnalUnit;
@@ -65,11 +64,11 @@ comp: *Compilation,
 llvm_object: ?LlvmObject.Ptr,
 
 /// Pointer to externally managed resource.
-root_mod: *Package.Module,
+root_mod: *Module,
 /// Normally, `main_mod` and `root_mod` are the same. The exception is `zig test`, in which
 /// `root_mod` is the test runner, and `main_mod` is the user's source file which has the tests.
-main_mod: *Package.Module,
-std_mod: *Package.Module,
+main_mod: *Module,
+std_mod: *Module,
 sema_prog_node: std.Progress.Node = .none,
 codegen_prog_node: std.Progress.Node = .none,
 /// The number of codegen jobs which are pending or in-progress. Whichever thread drops this value
@@ -106,11 +105,11 @@ multi_exports: std.array_hash_map.Auto(AnalUnit, extern struct {
 }) = .{},
 
 /// Key is the digest returned by `Builtin.hash`; value is the corresponding module.
-builtin_modules: std.array_hash_map.Auto(Cache.BinDigest, *Package.Module) = .empty,
+builtin_modules: std.array_hash_map.Auto(Cache.BinDigest, *Module) = .empty,
 
 /// Populated as soon as the `Compilation` is created. Guaranteed to contain all modules, even builtin ones.
 /// Modules whose root file is not a Zig or ZON file have the value `.none`.
-module_roots: std.array_hash_map.Auto(*Package.Module, File.Index.Optional) = .empty,
+module_roots: std.array_hash_map.Auto(*Module, File.Index.Optional) = .empty,
 
 /// The set of all the Zig source files in the Zig Compilation Unit. Tracked in
 /// order to iterate over it and check which source files have been modified on
@@ -149,7 +148,7 @@ alive_files: std.array_hash_map.Auto(File.Index, File.Reference) = .empty,
 /// Cleared and recomputed every update, after AstGen and before Sema.
 multi_module_err: ?struct {
     file: File.Index,
-    modules: [2]*Package.Module,
+    modules: [2]*Module,
     refs: [2]File.Reference,
 } = null,
 
@@ -293,7 +292,7 @@ retryable_failures: std.ArrayList(AnalUnit) = .empty,
 
 /// These are the modules which we initially queue for analysis in `Compilation.update`.
 /// `resolveReferences` will use these as the root of its reachability traversal.
-analysis_roots_buffer: [5]*Package.Module,
+analysis_roots_buffer: [5]*Module,
 analysis_roots_len: usize = 0,
 /// This is the cached result of `Zcu.resolveReferences`. It is computed on-demand, and
 /// reset to `null` when any semantic analysis occurs (since this invalidates the data).
@@ -403,7 +402,7 @@ pub const ImportTableAdapter = struct {
     zcu: *const Zcu,
     pub fn hash(ctx: ImportTableAdapter, path: Compilation.Path) u32 {
         _ = ctx;
-        return @truncate(std.hash.Wyhash.hash(@intFromEnum(path.root), path.sub_path));
+        return @truncate(std.hash.Wyhash.hash(@backingInt(path.root), path.sub_path));
     }
     pub fn eql(ctx: ImportTableAdapter, a_path: Compilation.Path, b_file: File.Index, b_index: usize) bool {
         _ = b_index;
@@ -415,7 +414,7 @@ pub const ImportTableAdapter = struct {
 pub const EmbedTableAdapter = struct {
     pub fn hash(ctx: EmbedTableAdapter, path: Compilation.Path) u32 {
         _ = ctx;
-        return @truncate(std.hash.Wyhash.hash(@intFromEnum(path.root), path.sub_path));
+        return @truncate(std.hash.Wyhash.hash(@backingInt(path.root), path.sub_path));
     }
     pub fn eql(ctx: EmbedTableAdapter, a_path: Compilation.Path, b_file: *EmbedFile, b_index: usize) bool {
         _ = ctx;
@@ -615,7 +614,7 @@ pub const StdLangDecl = enum {
             .VaList => .va_list,
             .assembly, .@"assembly.Clobbers" => .assembly,
             else => {
-                if (@intFromEnum(decl) <= @intFromEnum(StdLangDecl.@"Type.Spirv.Image.Access")) {
+                if (@backingInt(decl) <= @backingInt(StdLangDecl.@"Type.Spirv.Image.Access")) {
                     return .main;
                 } else {
                     return .panic;
@@ -636,7 +635,7 @@ pub const StdLangDecl = enum {
                 const name = @tagName(tag);
                 const split = (comptime std.mem.lastIndexOfScalar(u8, name, '.')) orelse return .{ .direct = name };
                 const parent = @field(StdLangDecl, name[0..split]);
-                comptime assert(@intFromEnum(parent) < @intFromEnum(tag)); // dependencies ordered correctly
+                comptime assert(@backingInt(parent) < @backingInt(tag)); // dependencies ordered correctly
                 return .{ .nested = .{ parent, name[split + 1 ..] } };
             },
         };
@@ -758,7 +757,7 @@ pub const Export = struct {
         _,
 
         pub fn ptr(i: Index, zcu: *const Zcu) *Export {
-            return &zcu.all_exports.items[@intFromEnum(i)];
+            return &zcu.all_exports.items[@backingInt(i)];
         }
     };
 };
@@ -770,10 +769,10 @@ pub const CompileLogLine = struct {
     pub const Index = enum(u32) {
         _,
         pub fn get(idx: Index, zcu: *Zcu) *CompileLogLine {
-            return &zcu.compile_log_lines.items[@intFromEnum(idx)];
+            return &zcu.compile_log_lines.items[@backingInt(idx)];
         }
         pub fn toOptional(idx: Index) Optional {
-            return @enumFromInt(@intFromEnum(idx));
+            return @fromBackingInt(@intCast(@backingInt(idx)));
         }
         pub const Optional = enum(u32) {
             none = std.math.maxInt(u32),
@@ -781,7 +780,7 @@ pub const CompileLogLine = struct {
             pub fn unwrap(opt: Optional) ?Index {
                 return switch (opt) {
                     .none => null,
-                    _ => @enumFromInt(@intFromEnum(opt)),
+                    _ => @fromBackingInt(@intCast(@backingInt(opt))),
                 };
             }
         };
@@ -816,10 +815,10 @@ pub const InlineReferenceFrame = struct {
     pub const Index = enum(u32) {
         _,
         pub fn ptr(idx: Index, zcu: *Zcu) *InlineReferenceFrame {
-            return &zcu.inline_reference_frames.items[@intFromEnum(idx)];
+            return &zcu.inline_reference_frames.items[@backingInt(idx)];
         }
         pub fn toOptional(idx: Index) Optional {
-            return @enumFromInt(@intFromEnum(idx));
+            return @fromBackingInt(@intCast(@backingInt(idx)));
         }
         pub const Optional = enum(u32) {
             none = std.math.maxInt(u32),
@@ -827,7 +826,7 @@ pub const InlineReferenceFrame = struct {
             pub fn unwrap(opt: Optional) ?Index {
                 return switch (opt) {
                     .none => null,
-                    _ => @enumFromInt(@intFromEnum(opt)),
+                    _ => @fromBackingInt(@intCast(@backingInt(opt))),
                 };
             }
         };
@@ -870,7 +869,7 @@ pub const Namespace = struct {
 
         pub fn hash(ctx: NavNameContext, nav: InternPool.Nav.Index) u32 {
             const name = ctx.zcu.intern_pool.getNav(nav).name;
-            return std.hash.int(@intFromEnum(name));
+            return std.hash.int(@backingInt(name));
         }
 
         pub fn eql(ctx: NavNameContext, a_nav: InternPool.Nav.Index, b_nav: InternPool.Nav.Index, b_index: usize) bool {
@@ -886,7 +885,7 @@ pub const Namespace = struct {
 
         pub fn hash(ctx: NameAdapter, s: InternPool.NullTerminatedString) u32 {
             _ = ctx;
-            return std.hash.int(@intFromEnum(s));
+            return std.hash.int(@backingInt(s));
         }
 
         pub fn eql(ctx: NameAdapter, a: InternPool.NullTerminatedString, b_nav: InternPool.Nav.Index, b_index: usize) bool {
@@ -986,7 +985,7 @@ pub const File = struct {
     /// tell, and invalidate dependencies as needed (see `module_changed`).
     /// During semantic analysis, this is always non-`null` for alive files (i.e. those which
     /// have imports targeting them).
-    mod: ?*Package.Module,
+    mod: ?*Module,
     /// Relative to the root directory of `mod`. If `mod == null`, this field is `undefined`.
     /// This memory is managed externally and must not be directly freed.
     /// Its lifetime is at least equal to that of this `File`.
@@ -1029,13 +1028,13 @@ pub const File = struct {
 
     /// A single reference to a file.
     pub const Reference = union(enum) {
-        analysis_root: *Package.Module,
+        analysis_root: *Module,
         import: struct {
             importer: Zcu.File.Index,
             tok: Ast.TokenIndex,
             /// If the file is imported as the root of a module, this is that module.
             /// `null` means the file was imported directly by path.
-            module: ?*Package.Module,
+            module: ?*Module,
         },
     };
 
@@ -1146,7 +1145,7 @@ pub const File = struct {
         if (file.tree) |*tree| return tree;
 
         const source = try file.getSource(zcu);
-        file.tree = try .parse(zcu.gpa, source, file.getMode());
+        file.tree = try .parse(zcu.gpa, source, .{ .mode = file.getMode() });
         return &file.tree.?;
     }
 
@@ -1236,7 +1235,7 @@ pub const EmbedFile = struct {
     pub const Index = enum(u32) {
         _,
         pub fn get(idx: Index, zcu: *const Zcu) *EmbedFile {
-            return zcu.embed_table.keys()[@intFromEnum(idx)];
+            return zcu.embed_table.keys()[@backingInt(idx)];
         }
     };
 };
@@ -1626,7 +1625,7 @@ pub const SrcLoc = struct {
                 // that contains this input.
                 const node_tags = tree.nodes.items(.tag);
                 for (node_tags, 0..) |node_tag, node_usize| {
-                    const node: Ast.Node.Index = @enumFromInt(node_usize);
+                    const node: Ast.Node.Index = @fromBackingInt(@intCast(node_usize));
                     switch (node_tag) {
                         .for_simple, .@"for" => {
                             const for_full = tree.fullFor(node).?;
@@ -1666,7 +1665,7 @@ pub const SrcLoc = struct {
                 var buf: [2]Ast.Node.Index = undefined;
                 const call_full = tree.fullCall(buf[0..1], node) orelse {
                     assert(tree.nodeTag(node) == .builtin_call);
-                    const call_args_node: Ast.Node.Index = @enumFromInt(tree.extra_data[@intFromEnum(tree.nodeData(node).extra_range.end) - 1]);
+                    const call_args_node: Ast.Node.Index = @fromBackingInt(@intCast(tree.extra_data[@backingInt(tree.nodeData(node).extra_range.end) - 1]));
                     switch (tree.nodeTag(call_args_node)) {
                         .array_init_one,
                         .array_init_one_comma,
@@ -2741,7 +2740,7 @@ pub const LazySrcLoc = struct {
         // Otherwise, make sure ZIR is loaded.
         const zir = file.zir.?;
 
-        const inst = zir.instructions.get(@intFromEnum(zir_inst));
+        const inst = zir.instructions.get(@backingInt(zir_inst));
         const base_node: Ast.Node.Index = switch (inst.tag) {
             .declaration => inst.data.declaration.src_node,
             .struct_init, .struct_init_ref => zir.extraData(Zir.Inst.StructInit, inst.data.pl_node.payload_index).data.abs_node,
@@ -2790,7 +2789,7 @@ pub const LazySrcLoc = struct {
         if (lhs_resolved.file_scope != rhs_resolved.file_scope) {
             const lhs_path = lhs_resolved.file_scope.path;
             const rhs_path = rhs_resolved.file_scope.path;
-            return std.math.order(@intFromEnum(lhs_path.root), @intFromEnum(rhs_path.root)).differ() orelse
+            return std.math.order(@backingInt(lhs_path.root), @backingInt(rhs_path.root)).differ() orelse
                 std.mem.order(u8, lhs_path.sub_path, rhs_path.sub_path).differ().?;
         }
         const prev_prot = zcu.comp.io.swapCancelProtection(.blocked);
@@ -3010,10 +3009,10 @@ pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_br: *Io.Reader
     if (data_has_safety_tag) {
         const tags = zir.instructions.items(.tag);
         for (zir.instructions.items(.data), 0..) |*data, i| {
-            const union_tag = Zir.Inst.Tag.data_tags[@intFromEnum(tags[i])];
+            const union_tag = Zir.Inst.Tag.data_tags[@backingInt(tags[i])];
             const as_struct = @as(*HackDataLayout, @ptrCast(data));
             as_struct.* = .{
-                .safety_tag = @intFromEnum(union_tag),
+                .safety_tag = @backingInt(union_tag),
                 .data = safety_buffer[i],
             };
         }
@@ -3409,8 +3408,8 @@ pub fn mapOldZirToNew(
         // updates. If they have, we need to ignore this mapping. These properties are essentially
         // everything passed into `InternPool.getDeclaredStructType` (likewise for unions, enums,
         // and opaques).
-        const old_tag = old_zir.instructions.items(.data)[@intFromEnum(match_item.old_inst)].extended.opcode;
-        const new_tag = new_zir.instructions.items(.data)[@intFromEnum(match_item.new_inst)].extended.opcode;
+        const old_tag = old_zir.instructions.items(.data)[@backingInt(match_item.old_inst)].extended.opcode;
+        const new_tag = new_zir.instructions.items(.data)[@backingInt(match_item.new_inst)].extended.opcode;
         if (old_tag != new_tag) continue;
         switch (old_tag) {
             .struct_decl => {
@@ -3710,7 +3709,7 @@ pub const ImportResult = struct {
     /// If this import was a simple file path, this is `null`; the imported file should exist within
     /// the importer's module. Otherwise, it's the module which the import resolved to. This module
     /// could match the module of `cur_file`, since a module can depend on itself.
-    module: ?*Package.Module,
+    module: ?*Module,
 };
 
 /// Prepares `unit` for re-analysis by clearing all of the following state:
@@ -3757,7 +3756,7 @@ pub fn resetUnit(zcu: *Zcu, unit: AnalUnit) void {
     exports: {
         const base: u32, const len: u32 = index: {
             if (zcu.single_exports.fetchSwapRemove(unit)) |kv| {
-                break :index .{ @intFromEnum(kv.value), 1 };
+                break :index .{ @backingInt(kv.value), 1 };
             }
             if (zcu.multi_exports.fetchSwapRemove(unit)) |kv| {
                 break :index .{ kv.value.index, kv.value.len };
@@ -3765,7 +3764,7 @@ pub fn resetUnit(zcu: *Zcu, unit: AnalUnit) void {
             break :exports;
         };
         for (zcu.all_exports.items[base..][0..len], base..) |exp, exp_index_usize| {
-            const exp_index: Export.Index = @enumFromInt(exp_index_usize);
+            const exp_index: Export.Index = @fromBackingInt(@intCast(exp_index_usize));
             if (zcu.llvm_object) |llvm_object| {
                 _ = llvm_object; // TODO: delete exports from LLVM
             } else if (zcu.comp.bin_file) |lf| {
@@ -3781,7 +3780,7 @@ pub fn resetUnit(zcu: *Zcu, unit: AnalUnit) void {
             break :exports;
         };
         for (base..base + len) |exp_index| {
-            zcu.free_exports.appendAssumeCapacity(@enumFromInt(exp_index));
+            zcu.free_exports.appendAssumeCapacity(@fromBackingInt(@intCast(exp_index)));
         }
     }
 
@@ -3837,7 +3836,7 @@ pub fn resetUnit(zcu: *Zcu, unit: AnalUnit) void {
 pub fn addInlineReferenceFrame(zcu: *Zcu, frame: InlineReferenceFrame) Allocator.Error!Zcu.InlineReferenceFrame.Index {
     const frame_idx: InlineReferenceFrame.Index = zcu.free_inline_reference_frames.pop() orelse idx: {
         _ = try zcu.inline_reference_frames.addOne(zcu.gpa);
-        break :idx @enumFromInt(zcu.inline_reference_frames.items.len - 1);
+        break :idx @fromBackingInt(@intCast(zcu.inline_reference_frames.items.len - 1));
     };
     frame_idx.ptr(zcu).* = frame;
     return frame_idx;
@@ -4252,7 +4251,7 @@ fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.array_hash_map.Auto(Ana
                 if (!gop.found_existing) {
                     refs_log.debug("type '{f}': ref comptime %{}", .{
                         Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
-                        @intFromEnum(ip.getComptimeUnit(cu).zir_index.resolve(ip) orelse continue),
+                        @backingInt(ip.getComptimeUnit(cu).zir_index.resolve(ip) orelse continue),
                     });
                     gop.value_ptr.* = referencer;
                 }
@@ -4286,7 +4285,7 @@ fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.array_hash_map.Auto(Ana
                         if (!gop.found_existing) {
                             refs_log.debug("type '{f}': ref test %{}", .{
                                 Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
-                                @intFromEnum(inst_info.inst),
+                                @backingInt(inst_info.inst),
                             });
                             gop.value_ptr.* = referencer;
                         }
@@ -4309,7 +4308,7 @@ fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.array_hash_map.Auto(Ana
                     if (!gop.found_existing) {
                         refs_log.debug("type '{f}': ref named %{}", .{
                             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
-                            @intFromEnum(inst_info.inst),
+                            @backingInt(inst_info.inst),
                         });
                         gop.value_ptr.* = referencer;
                     }
@@ -4326,7 +4325,7 @@ fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.array_hash_map.Auto(Ana
                     if (!gop.found_existing) {
                         refs_log.debug("type '{f}': ref named %{}", .{
                             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
-                            @intFromEnum(inst_info.inst),
+                            @backingInt(inst_info.inst),
                         });
                         gop.value_ptr.* = referencer;
                     }
@@ -4407,7 +4406,7 @@ fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.array_hash_map.Auto(Ana
     return units.move();
 }
 
-pub fn analysisRoots(zcu: *Zcu) []*Package.Module {
+pub fn analysisRoots(zcu: *Zcu) []*Module {
     return zcu.analysis_roots_buffer[0..zcu.analysis_roots_len];
 }
 
@@ -4495,16 +4494,16 @@ fn formatAnalUnit(data: FormatAnalUnit, writer: *Io.Writer) Io.Writer.Error!void
             const cu = ip.getComptimeUnit(cu_id);
             if (cu.zir_index.resolveFull(ip)) |resolved| {
                 const file_path = zcu.fileByIndex(resolved.file).path;
-                return writer.print("comptime(inst=('{f}', %{}) [{}])", .{ file_path.fmt(zcu.comp), @intFromEnum(resolved.inst), @intFromEnum(cu_id) });
+                return writer.print("comptime(inst=('{f}', %{}) [{}])", .{ file_path.fmt(zcu.comp), @backingInt(resolved.inst), @backingInt(cu_id) });
             } else {
-                return writer.print("comptime(inst=<lost> [{}])", .{@intFromEnum(cu_id)});
+                return writer.print("comptime(inst=<lost> [{}])", .{@backingInt(cu_id)});
             }
         },
-        .nav_val, .nav_ty => |nav, tag| return writer.print("{t}('{f}' [{}])", .{ tag, ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
-        .type_layout, .struct_defaults => |ty, tag| return writer.print("{t}('{f}' [{}])", .{ tag, Type.fromInterned(ty).containerTypeName(ip).fmt(ip), @intFromEnum(ty) }),
+        .nav_val, .nav_ty => |nav, tag| return writer.print("{t}('{f}' [{}])", .{ tag, ip.getNav(nav).fqn.fmt(ip), @backingInt(nav) }),
+        .type_layout, .struct_defaults => |ty, tag| return writer.print("{t}('{f}' [{}])", .{ tag, Type.fromInterned(ty).containerTypeName(ip).fmt(ip), @backingInt(ty) }),
         .func => |func| {
             const nav = zcu.funcInfo(func).owner_nav;
-            return writer.print("func('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(func) });
+            return writer.print("func('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @backingInt(func) });
         },
         .memoized_state => return writer.writeAll("memoized_state"),
     }
@@ -4520,7 +4519,7 @@ fn formatDependee(data: FormatDependee, writer: *Io.Writer) Io.Writer.Error!void
                 return writer.writeAll("inst(<lost>)");
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return writer.print("inst('{f}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
+            return writer.print("inst('{f}', %{d})", .{ file_path.fmt(zcu.comp), @backingInt(info.inst) });
         },
         .nav_val, .nav_ty => |nav, tag| {
             const fqn = ip.getNav(nav).fqn;
@@ -4547,14 +4546,14 @@ fn formatDependee(data: FormatDependee, writer: *Io.Writer) Io.Writer.Error!void
                 return writer.writeAll("namespace(<lost>)");
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return writer.print("namespace('{f}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
+            return writer.print("namespace('{f}', %{d})", .{ file_path.fmt(zcu.comp), @backingInt(info.inst) });
         },
         .namespace_name => |k| {
             const info = k.namespace.resolveFull(ip) orelse {
                 return writer.print("namespace(<lost>, '{f}')", .{k.name.fmt(ip)});
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return writer.print("namespace('{f}', %{d}, '{f}')", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst), k.name.fmt(ip) });
+            return writer.print("namespace('{f}', %{d}, '{f}')", .{ file_path.fmt(zcu.comp), @backingInt(info.inst), k.name.fmt(ip) });
         },
         .memoized_state => return writer.writeAll("memoized_state"),
     }
@@ -4821,7 +4820,7 @@ fn explainWhyFileIsInModule(
     eb: *std.zig.ErrorBundle.Wip,
     notes_out: *std.ArrayList(std.zig.ErrorBundle.MessageIndex),
     file: File.Index,
-    in_module: *Package.Module,
+    in_module: *Module,
     ref: File.Reference,
 ) Allocator.Error!void {
     const gpa = zcu.gpa;
@@ -4867,7 +4866,7 @@ fn explainWhyFileIsInModule(
         const import_src = try importer_file.errorBundleTokenSrc(import.tok, zcu, eb);
 
         const importer_ref = zcu.alive_files.get(import.importer).?;
-        const importer_root: ?*Package.Module = switch (importer_ref) {
+        const importer_root: ?*Module = switch (importer_ref) {
             .analysis_root => |mod| mod,
             .import => |i| i.module,
         };
@@ -5277,7 +5276,7 @@ pub const CodegenTaskPool = struct {
         @memset(task_funcs, .none);
 
         var free: std.ArrayList(Index) = try .initCapacity(arena, max_funcs_in_flight);
-        for (0..max_funcs_in_flight) |index| free.appendAssumeCapacity(@enumFromInt(index));
+        for (0..max_funcs_in_flight) |index| free.appendAssumeCapacity(@fromBackingInt(@intCast(index)));
 
         return .{
             .available_air_bytes = max_air_bytes_in_flight,
@@ -5350,10 +5349,10 @@ pub const CodegenTaskPool = struct {
         errdefer comptime unreachable;
 
         assert(zcu.pending_codegen_jobs.fetchAdd(1, .monotonic) > 0); // the "Code Generation" node is still active
-        assert(pool.task_funcs[@intFromEnum(index)] == .none);
-        pool.task_funcs[@intFromEnum(index)] = func_index;
-        pool.task_air_bytes[@intFromEnum(index)] = actual_air_bytes;
-        pool.task_futures[@intFromEnum(index)] = if (move_air) io.async(
+        assert(pool.task_funcs[@backingInt(index)] == .none);
+        pool.task_funcs[@backingInt(index)] = func_index;
+        pool.task_air_bytes[@backingInt(index)] = actual_air_bytes;
+        pool.task_futures[@backingInt(index)] = if (move_air) io.async(
             workerCodegenOwnedAir,
             .{ zcu, func_index, air.* },
         ) else io.async(
@@ -5374,14 +5373,14 @@ pub const CodegenTaskPool = struct {
             zcu: *const Zcu,
         ) PerThread.RunCodegenError!struct { InternPool.Index, codegen.AnyMir } {
             const io = zcu.comp.io;
-            const func = pool.task_funcs[@intFromEnum(index)];
+            const func = pool.task_funcs[@backingInt(index)];
             assert(func != .none);
-            const effective_air_bytes = pool.task_air_bytes[@intFromEnum(index)];
-            const result = pool.task_futures[@intFromEnum(index)].await(io);
+            const effective_air_bytes = pool.task_air_bytes[@backingInt(index)];
+            const result = pool.task_futures[@backingInt(index)].await(io);
 
-            pool.task_funcs[@intFromEnum(index)] = .none;
-            pool.task_air_bytes[@intFromEnum(index)] = undefined;
-            pool.task_futures[@intFromEnum(index)] = undefined;
+            pool.task_funcs[@backingInt(index)] = .none;
+            pool.task_air_bytes[@backingInt(index)] = undefined;
+            pool.task_futures[@backingInt(index)] = undefined;
 
             {
                 pool.mutex.lockUncancelable(io);

@@ -31,7 +31,7 @@ test "undefined 128 bit int" {
     @setRuntimeSafety(true);
 
     // TODO implement @setRuntimeSafety
-    if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
+    if (builtin.mode != .debug and builtin.mode != .safe) {
         return error.SkipZigTest;
     }
 
@@ -59,6 +59,7 @@ test "int128" {
     const a: i128 = -170141183460469231731687303715884105728;
     const b: i128 = -0x8000_0000_0000_0000_0000_0000_0000_0000;
     try expect(@divFloor(b, 1_000_000) == -170141183460469231731687303715885);
+    try expect(@divCeil(b, 1_000_000) == -170141183460469231731687303715884);
     try expect(a == b);
 }
 

@@ -584,7 +584,7 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                 if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
                     return s.fail(
                         maker,
-                        "zig version mismatch build runner vs compiler: '{s}' vs '{s}'",
+                        "zig version mismatch build runner vs compiler: {q} vs {q}",
                         .{ builtin.zig_version_string, body },
                     );
                 }
@@ -610,7 +610,7 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                 const conf_step = step_index.ptr(conf);
                 var it = std.mem.splitScalar(u8, body, 0);
                 while (it.next()) |prefixed_path| {
-                    const prefix_index: std.zig.Server.Message.PathPrefix = @enumFromInt(prefixed_path[0] - 1);
+                    const prefix_index: std.zig.Server.Message.PathPrefix = @fromBackingInt(@intCast(prefixed_path[0] - 1));
                     const sub_path = try arena.dupe(u8, prefixed_path[1..]);
                     const sub_path_dirname = Dir.path.dirname(sub_path) orelse "";
                     switch (prefix_index) {
@@ -654,7 +654,7 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                     }
                 }
             },
-            .time_report => if (maker.web_server) |*ws| {
+            .time_report => if (maker.web_server) |ws| {
                 const TimeReport = std.zig.Server.Message.TimeReport;
                 const tr: *align(1) const TimeReport = @ptrCast(body[0..@sizeOf(TimeReport)]);
                 ws.updateTimeReportCompile(.{
@@ -711,10 +711,10 @@ pub fn handleChildProcessTerm(s: *Step, maker: *Maker, term: std.process.Child.T
     if (!term.success()) return s.fail(maker, "process {f}", .{term});
 }
 
-/// Prefer `cacheHitAndWatch` unless you already added watch inputs
+/// Prefer `cacheHitWatched` unless you already added watch inputs
 /// separately from using the cache system.
-pub fn cacheHit(s: *Step, maker: *Maker, man: *Cache.Manifest) !bool {
-    s.result_cached = man.hit() catch |err| return failWithCacheError(s, maker, man, err);
+pub fn cacheHit(s: *Step, maker: *Maker, man: *Cache.Manifest, parent_progress_node: std.Progress.Node) !bool {
+    s.result_cached = man.hit(parent_progress_node) catch |err| return failWithCacheError(s, maker, man, err);
     return s.result_cached;
 }
 
@@ -722,8 +722,8 @@ pub fn cacheHit(s: *Step, maker: *Maker, man: *Cache.Manifest) !bool {
 /// the full set of files picked up by the cache manifest.
 ///
 /// Must be accompanied with `writeManifestAndWatch`.
-pub fn cacheHitAndWatch(s: *Step, maker: *Maker, man: *Cache.Manifest) !bool {
-    const is_hit = man.hit() catch |err| return failWithCacheError(s, maker, man, err);
+pub fn cacheHitWatched(s: *Step, maker: *Maker, man: *Cache.Manifest, parent_progress_node: std.Progress.Node) !bool {
+    const is_hit = man.hit(parent_progress_node) catch |err| return failWithCacheError(s, maker, man, err);
     s.result_cached = is_hit;
     // The above call to hit() populates the manifest with files, so in case of
     // a hit, we need to populate watch inputs.
@@ -770,7 +770,7 @@ pub fn writeManifest(s: *Step, maker: *Maker, man: *Cache.Manifest) !void {
 /// Clears previous watch inputs, if any, and then populates watch inputs from
 /// the full set of files picked up by the cache manifest.
 ///
-/// Must be accompanied with `cacheHitAndWatch`.
+/// Must be accompanied with `cacheHitWatched`.
 pub fn writeManifestAndWatch(s: *Step, maker: *Maker, man: *Cache.Manifest) !void {
     try writeManifest(s, maker, man);
     try setWatchInputsFromManifest(s, maker, man);

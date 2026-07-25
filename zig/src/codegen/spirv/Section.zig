@@ -49,8 +49,9 @@ pub fn emitRaw(
     operand_words: usize,
 ) !void {
     const word_count = 1 + operand_words;
+    if (word_count > std.math.maxInt(u16)) return error.OutOfMemory;
     try section.instructions.ensureUnusedCapacity(allocator, word_count);
-    section.writeWord((@as(Word, @intCast(word_count << 16))) | @intFromEnum(opcode));
+    section.writeWord((@as(Word, @intCast(word_count)) << 16) | @backingInt(opcode));
 }
 
 /// Write an entire instruction, including all operands
@@ -70,7 +71,8 @@ pub fn emitAssumeCapacity(
     operands: opcode.Operands(),
 ) !void {
     const word_count = instructionSize(opcode, operands);
-    section.writeWord(@as(Word, @intCast(word_count << 16)) | @intFromEnum(opcode));
+    if (word_count > std.math.maxInt(u16)) return error.OutOfMemory;
+    section.writeWord((@as(Word, @intCast(word_count)) << 16) | @backingInt(opcode));
     section.writeOperands(opcode.Operands(), operands);
 }
 
@@ -81,8 +83,9 @@ pub fn emit(
     operands: opcode.Operands(),
 ) !void {
     const word_count = instructionSize(opcode, operands);
+    if (word_count > std.math.maxInt(u16)) return error.OutOfMemory;
     try section.instructions.ensureUnusedCapacity(allocator, word_count);
-    section.writeWord(@as(Word, @intCast(word_count << 16)) | @intFromEnum(opcode));
+    section.writeWord((@as(Word, @intCast(word_count)) << 16) | @backingInt(opcode));
     section.writeOperands(opcode.Operands(), operands);
 }
 
@@ -115,16 +118,16 @@ fn writeOperands(section: *Section, comptime Operands: type, operands: Operands)
 pub fn writeOperand(section: *Section, comptime Operand: type, operand: Operand) void {
     switch (Operand) {
         spec.LiteralSpecConstantOpInteger => unreachable,
-        spec.Id => section.writeWord(@intFromEnum(operand)),
+        spec.Id => section.writeWord(@backingInt(operand)),
         spec.LiteralInteger => section.writeWord(operand),
         spec.LiteralString => section.writeString(operand),
         spec.LiteralContextDependentNumber => section.writeContextDependentNumber(operand),
         spec.LiteralExtInstInteger => section.writeWord(operand.inst),
-        spec.PairLiteralIntegerIdRef => section.writeWords(&.{ operand.value, @enumFromInt(operand.label) }),
-        spec.PairIdRefLiteralInteger => section.writeWords(&.{ @intFromEnum(operand.target), operand.member }),
-        spec.PairIdRefIdRef => section.writeWords(&.{ @intFromEnum(operand[0]), @intFromEnum(operand[1]) }),
+        spec.PairLiteralIntegerIdRef => section.writeWords(&.{ operand.value, @fromBackingInt(@intCast(operand.label)) }),
+        spec.PairIdRefLiteralInteger => section.writeWords(&.{ @backingInt(operand.target), operand.member }),
+        spec.PairIdRefIdRef => section.writeWords(&.{ @backingInt(operand[0]), @backingInt(operand[1]) }),
         else => switch (@typeInfo(Operand)) {
-            .@"enum" => section.writeWord(@intFromEnum(operand)),
+            .@"enum" => section.writeWord(@backingInt(operand)),
             .optional => |info| if (operand) |child| section.writeOperand(info.child, child),
             .pointer => |info| {
                 std.debug.assert(info.size == .slice); // Should be no other pointer types in the spec.
@@ -200,7 +203,7 @@ fn writeExtendedMask(section: *Section, comptime Operand: type, operand: Operand
 fn writeExtendedUnion(section: *Section, comptime Operand: type, operand: Operand) void {
     return switch (operand) {
         inline else => |op, tag| {
-            section.writeWord(@intFromEnum(tag));
+            section.writeWord(@backingInt(tag));
             section.writeOperands(
                 @FieldType(Operand, @tagName(tag)),
                 op,
@@ -232,7 +235,7 @@ fn operandSize(comptime Operand: type, operand: Operand) usize {
     return switch (Operand) {
         spec.LiteralSpecConstantOpInteger => unreachable,
         spec.Id, spec.LiteralInteger, spec.LiteralExtInstInteger => 1,
-        spec.LiteralString => std.math.divCeil(usize, operand.len + 1, @sizeOf(Word)) catch unreachable,
+        spec.LiteralString => @divCeil(operand.len + 1, @sizeOf(Word)),
         spec.LiteralContextDependentNumber => switch (operand) {
             .int32, .uint32, .float32 => 1,
             .int64, .uint64, .float64 => 2,

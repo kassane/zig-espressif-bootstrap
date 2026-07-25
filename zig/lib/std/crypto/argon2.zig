@@ -119,7 +119,7 @@ fn initHash(
     mem.writeInt(u32, parameters[8..12], params.m, .little);
     mem.writeInt(u32, parameters[12..16], params.t, .little);
     mem.writeInt(u32, parameters[16..20], version, .little);
-    mem.writeInt(u32, parameters[20..24], @intFromEnum(mode), .little);
+    mem.writeInt(u32, parameters[20..24], @backingInt(mode), .little);
     b2.update(&parameters);
     mem.writeInt(u32, &tmp, @as(u32, @intCast(password.len)), .little);
     b2.update(&tmp);
@@ -290,7 +290,7 @@ fn processSegment(
         in[2] = slice;
         in[3] = memory;
         in[4] = passes;
-        in[5] = @intFromEnum(mode);
+        in[5] = @backingInt(mode);
     }
     var index: u32 = 0;
     if (n == 0 and slice == 0) {
@@ -471,6 +471,18 @@ fn indexAlpha(
     return ref_lane * lanes + @as(u32, @intCast(((s + m - (p + 1)) % lanes)));
 }
 
+fn blockCount(params: Params) u32 {
+    return @max(
+        params.m / (sync_points * params.p) * (sync_points * params.p),
+        2 * sync_points * params.p,
+    );
+}
+
+/// Compute the number of bytes of scratch memory `kdf` needs for `params`.
+pub fn calcSize(params: Params) usize {
+    return blockCount(params) * @sizeOf([block_length]u64);
+}
+
 /// Derives a key from the password, salt, and argon2 parameters.
 ///
 /// Derived key has to be at least 4 bytes length.
@@ -494,10 +506,7 @@ pub fn kdf(
     if (params.m / 8 < params.p) return KdfError.WeakParameters;
 
     var h0 = initHash(password, salt, params, derived_key.len, mode);
-    const memory = @max(
-        params.m / (sync_points * params.p) * (sync_points * params.p),
-        2 * sync_points * params.p,
-    );
+    const memory = blockCount(params);
 
     var blocks = try Blocks.initCapacity(allocator, memory);
     defer blocks.deinit();
