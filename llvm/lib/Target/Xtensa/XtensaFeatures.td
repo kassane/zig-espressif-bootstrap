@@ -183,3 +183,7 @@ def FeatureHIFI3 : SubtargetFeature<"hifi3", "HasHIFI3", "true",
                                     "Enable Xtensa HIFI3 instructions">;
 def HasHIFI3 : Predicate<"Subtarget->hasHIFI3()">,
                           AssemblerPredicate<(all_of FeatureHIFI3)>;
+
+def FeatureTextSectionLiterals : SubtargetFeature<"text-section-literals", 
+                                                  "UseTextSectionLiterals", "true",
+                                                  "Place literals in text sections">;

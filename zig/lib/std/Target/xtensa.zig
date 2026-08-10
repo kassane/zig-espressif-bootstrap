@@ -46,6 +46,7 @@ pub const Feature = enum {
     timers2,
     timers3,
     windowed,
+    text_section_literals,
 };
 
 pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
@@ -270,6 +271,11 @@ pub const all_features = blk: {
     result[@backingInt(Feature.windowed)] = .{
         .llvm_name = "windowed",
         .description = "Enable Xtensa Windowed Register option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.text_section_literals)] = .{
+        .llvm_name = "text-section-literals",
+        .description = "Enable Xtensa Text Section Literals option",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);

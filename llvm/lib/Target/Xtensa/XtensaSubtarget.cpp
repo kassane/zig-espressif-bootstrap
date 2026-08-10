@@ -33,7 +33,7 @@ bool XtensaSubtarget::useTextSectionLiterals() const
   if (TLInfo.getTargetMachine().getCodeModel() == CodeModel::Large)
     return true;
 
-  return TextSectionLiterals;
+  return UseTextSectionLiterals || TextSectionLiterals;
 }
 
 XtensaSubtarget &
