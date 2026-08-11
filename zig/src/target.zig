@@ -12,7 +12,6 @@ pub const default_stack_protector_buffer_size = 4;
 
 pub fn canDynamicLink(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
-        .amdgcn,
         .bpfeb,
         .bpfel,
         .nvptx,
@@ -117,10 +116,6 @@ pub fn alwaysSingleThreaded(target: *const std.Target) bool {
 pub fn defaultSingleThreaded(target: *const std.Target) bool {
     switch (target.cpu.arch) {
         .wasm32, .wasm64 => return true,
-        else => {},
-    }
-    switch (target.os.tag) {
-        .haiku => return true,
         else => {},
     }
     return false;
@@ -437,7 +432,7 @@ pub fn canBuildLibCompilerRt(target: *const std.Target) enum { no, yes, llvm_onl
         else => {},
     }
     return switch (zigBackend(target, false)) {
-        .stage2_aarch64, .stage2_x86_64 => .yes,
+        .stage2_aarch64, .stage2_wasm, .stage2_x86_64 => .yes,
         else => .llvm_only,
     };
 }
@@ -450,7 +445,7 @@ pub fn canBuildLibUbsanRt(target: *const std.Target) enum { no, yes, llvm_only, 
         else => {},
     }
     return switch (zigBackend(target, false)) {
-        .stage2_wasm => .llvm_lld_only,
+        .stage2_wasm => .yes,
         .stage2_x86_64 => .yes,
         else => .llvm_only,
     };
@@ -681,14 +676,14 @@ pub fn isDynamicAMDGCNFeature(target: *const std.Target, feature: std.Target.Cpu
     const feature_tag: std.Target.amdgcn.Feature = @fromBackingInt(@intCast(feature.index));
 
     if (feature_tag == .sramecc) {
-        if (std.mem.indexOfScalar(
+        if (std.mem.findScalar(
             *const std.Target.Cpu.Model,
             sramecc_only ++ xnack_or_sramecc,
             target.cpu.model,
         )) |_| return true;
     }
     if (feature_tag == .xnack) {
-        if (std.mem.indexOfScalar(
+        if (std.mem.findScalar(
             *const std.Target.Cpu.Model,
             xnack_or_sramecc,
             target.cpu.model,
@@ -876,18 +871,18 @@ pub fn libcFloatSuffix(float_bits: u16) []const u8 {
         32 => "f",
         64 => "",
         80 => "x", // Non-standard
-        128 => "q", // Non-standard (mimics convention in GCC libquadmath)
+        128 => "f128",
         else => unreachable,
     };
 }
 
-pub fn compilerRtFloatAbbrev(float_bits: u16) []const u8 {
+pub fn compilerRtFloatAbbrev(target: *const std.Target, float_bits: u16) []const u8 {
     return switch (float_bits) {
         16 => "h",
         32 => "s",
         64 => "d",
         80 => "x",
-        128 => "t",
+        128 => if (target.cpu.arch.isPowerPC()) "k" else "t",
         else => unreachable,
     };
 }

@@ -1,11 +1,362 @@
+const ErrorTrace = @This();
+
+const builtin = @import("builtin");
+
+const std = @import("std");
+const Step = std.Build.Step;
+const OptimizeMode = std.lang.Optimize;
+const mem = std.mem;
+
+const tests = @import("../tests.zig");
+const error_traces_cases = @import("../error_traces.zig");
+
 b: *std.Build,
 step: *Step,
-test_filters: []const []const u8,
-targets: []const std.Build.ResolvedTarget,
-optimize_modes: []const OptimizeMode,
+options: Options,
 convert_exe: *std.Build.Step.Compile,
 
+pub const Options = struct {
+    test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
+    test_extra_targets: bool,
+    optimize_modes: []const OptimizeMode,
+    skip_non_native: bool,
+    skip_freebsd: bool,
+    skip_netbsd: bool,
+    skip_openbsd: bool,
+    skip_windows: bool,
+    skip_darwin: bool,
+    skip_linux: bool,
+    skip_llvm: bool,
+    skip_libc: bool,
+};
+
+pub const CaseParameters = struct {
+    target: std.Target.Query = .{},
+    optimize: std.builtin.OptimizeMode = .debug,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
+
+    // This is intended for targets that, for any reason, shouldn't be run as part of a normal test
+    // invocation. This could be because of a slow backend, requiring a newer LLVM version, being
+    // too niche, etc.
+    extra_target: bool = false,
+};
+
+/// See the comment in `StackTrace.zig`.
+pub const param_sets = [_]CaseParameters{
+    .{},
+
+    // FreeBSD Targets
+
+    .{
+        .target = .{
+            .cpu_arch = .arm,
+            .os_tag = .freebsd,
+            .abi = .eabihf,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .x86,
+            .os_tag = .freebsd,
+            .abi = .none,
+        },
+    },
+
+    // Linux Targets
+
+    .{
+        .target = .{
+            .cpu_arch = .aarch64,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .aarch64_be,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .arm,
+            .os_tag = .linux,
+            .abi = .eabihf,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .armeb,
+            .os_tag = .linux,
+            .abi = .eabihf,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .hexagon,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .loongarch32,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .loongarch64,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .mips,
+            .os_tag = .linux,
+            .abi = .eabihf,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .mipsel,
+            .os_tag = .linux,
+            .abi = .eabihf,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .mips64,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+    .{
+        .target = .{
+            .cpu_arch = .mips64,
+            .os_tag = .linux,
+            .abi = .abin32,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .mips64el,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+    .{
+        .target = .{
+            .cpu_arch = .mips64el,
+            .os_tag = .linux,
+            .abi = .abin32,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .powerpc,
+            .os_tag = .linux,
+            .abi = .eabihf,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .powerpc64,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .powerpc64le,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .riscv32,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .riscv64,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .s390x,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .sparc64,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .thumb,
+            .os_tag = .linux,
+            .abi = .eabihf,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .thumbeb,
+            .os_tag = .linux,
+            .abi = .eabihf,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .x86,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+    },
+    .{
+        .target = .{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+        .use_llvm = true,
+        .use_lld = true,
+    },
+    .{
+        .target = .{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .x32,
+        },
+    },
+
+    // NetBSD Targets
+
+    .{
+        .target = .{
+            .cpu_arch = .riscv32,
+            .os_tag = .netbsd,
+            .abi = .none,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .x86,
+            .os_tag = .netbsd,
+            .abi = .none,
+        },
+    },
+
+    // Windows Targets
+
+    .{
+        .target = .{
+            .cpu_arch = .aarch64,
+            .os_tag = .windows,
+            .abi = .msvc,
+        },
+    },
+    .{
+        .target = .{
+            .cpu_arch = .aarch64,
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .thumb,
+            .os_tag = .windows,
+            .abi = .msvc,
+        },
+    },
+    .{
+        .target = .{
+            .cpu_arch = .thumb,
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .x86,
+            .os_tag = .windows,
+            .abi = .msvc,
+        },
+    },
+    .{
+        .target = .{
+            .cpu_arch = .x86,
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
+    },
+
+    .{
+        .target = .{
+            .cpu_arch = .x86_64,
+            .os_tag = .windows,
+            .abi = .msvc,
+        },
+    },
+    .{
+        .target = .{
+            .cpu_arch = .x86_64,
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
+    },
+};
+
 pub const Case = struct {
+    params: *const CaseParameters,
+    target: *const std.Target,
     name: []const u8,
     source: []const u8,
     expect_error: []const u8,
@@ -22,50 +373,64 @@ pub const Case = struct {
     pub const Backend = enum { llvm, selfhosted };
 };
 
-pub fn addCase(self: *ErrorTrace, case: Case) void {
-    for (self.targets) |*target| {
-        const triple: ?[]const u8 = if (target.query.isNative()) null else t: {
-            break :t target.query.zigTriple(self.b.graph.arena) catch @panic("OOM");
-        };
-        for (self.optimize_modes) |optimize| {
-            self.addCaseConfig(case, target, triple, optimize, .llvm);
+pub fn addCases(self: *ErrorTrace) void {
+    const b = self.b;
+
+    for (&param_sets) |*params| {
+        const resolved_target = b.resolveTargetQuery(params.target);
+        const target = &resolved_target.result;
+
+        if (!self.options.test_extra_targets and params.extra_target) continue;
+
+        if (self.options.skip_non_native and !tests.isNative(&resolved_target, &b.graph.host.result)) continue;
+
+        if (self.options.skip_freebsd and target.os.tag == .freebsd) continue;
+        if (self.options.skip_netbsd and target.os.tag == .netbsd) continue;
+        if (self.options.skip_openbsd and target.os.tag == .openbsd) continue;
+        if (self.options.skip_windows and target.os.tag == .windows) continue;
+        if (self.options.skip_darwin and target.os.tag.isDarwin()) continue;
+        if (self.options.skip_linux and target.os.tag == .linux) continue;
+
+        const would_use_llvm = tests.wouldUseLlvm(params.use_llvm, params.target, params.optimize);
+        if (self.options.skip_llvm and would_use_llvm) continue;
+
+        const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
+
+        if (self.options.test_target_filters.len > 0) {
+            for (self.options.test_target_filters) |filter| {
+                if (std.mem.find(u8, triple_txt, filter) != null) break;
+            } else continue;
         }
-        if (shouldTestNonLlvm(&target.result)) {
-            for (self.optimize_modes) |optimize| {
-                self.addCaseConfig(case, target, triple, optimize, .selfhosted);
-            }
-        }
+
+        if (self.options.skip_libc and std.os.targetRequiresLibC(target))
+            continue;
+
+        for (self.options.optimize_modes) |optimize| {
+            if (optimize == params.optimize) break;
+        } else return;
+
+        error_traces_cases.addCases(self, params, &resolved_target.result);
     }
 }
 
-fn shouldTestNonLlvm(target: *const std.Target) bool {
-    if (comptime builtin.cpu.arch.endian() == .big) return false; // https://github.com/ziglang/zig/issues/25961
-    return switch (target.cpu.arch) {
-        .x86_64 => switch (target.ofmt) {
-            .elf => !target.os.tag.isBSD() and target.os.tag != .illumos,
-            else => false,
-        },
-        else => false,
-    };
-}
-
-fn addCaseConfig(
-    self: *ErrorTrace,
-    case: Case,
-    target: *const std.Build.ResolvedTarget,
-    triple: ?[]const u8,
-    optimize: OptimizeMode,
-    backend: Case.Backend,
-) void {
+/// Called from test/error_traces.zig
+pub fn addCase(self: *ErrorTrace, case: Case) void {
     const b = self.b;
+    const params = case.params;
+    const target = case.target;
+    const target_query = params.target;
+
+    const triple: ?[]const u8 = if (target_query.isNative()) null else t: {
+        break :t target_query.zigTriple(self.b.graph.arena) catch @panic("OOM");
+    };
 
     const error_tracing: bool = tracing: {
-        if (optimize == .debug) break :tracing true;
-        if (backend != .llvm) break :tracing true;
-        if (optimize == .small) break :tracing false;
+        if (params.optimize == .debug) break :tracing true;
+        if (params.use_llvm == false) break :tracing true;
+        if (params.optimize == .small) break :tracing false;
         for (case.disable_trace_optimized) |disable| {
             const d_arch, const d_os = disable;
-            if (target.result.cpu.arch == d_arch and target.result.os.tag == d_os) {
+            if (target.cpu.arch == d_arch and target.os.tag == d_os) {
                 // This particular configuration cannot do error tracing in optimized LLVM builds.
                 break :tracing false;
             }
@@ -73,16 +438,23 @@ fn addCaseConfig(
         break :tracing true;
     };
 
-    const annotated_case_name = b.fmt("check {s} ({s}{s}{s} {s})", .{
+    const backend_string = if (params.use_llvm == true)
+        "-llvm"
+    else if (params.use_llvm == false)
+        "-selfhosted"
+    else
+        "";
+
+    const annotated_case_name = b.fmt("check {s} ({s}{s}{t}{s})", .{
         case.name,
         triple orelse "",
         if (triple != null) " " else "",
-        @tagName(optimize),
-        @tagName(backend),
+        params.optimize,
+        backend_string,
     });
-    if (self.test_filters.len > 0) {
-        for (self.test_filters) |test_filter| {
-            if (mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
+    if (self.options.test_filters.len > 0) {
+        for (self.options.test_filters) |test_filter| {
+            if (mem.find(u8, annotated_case_name, test_filter)) |_| break;
         } else return;
     }
 
@@ -92,19 +464,18 @@ fn addCaseConfig(
         .name = "test",
         .root_module = b.createModule(.{
             .root_source_file = source_zig,
-            .optimize = optimize,
-            .target = target.*,
+            .optimize = params.optimize,
+            .target = .{ .result = target.*, .query = target_query },
             .error_tracing = error_tracing,
             .strip = false,
         }),
-        .use_llvm = switch (backend) {
-            .llvm => true,
-            .selfhosted => false,
-        },
+        .use_llvm = params.use_llvm,
+        .use_lld = params.use_lld,
     });
     exe.bundle_ubsan_rt = false;
 
     const run = b.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
     run.removeEnvironmentVariable("CLICOLOR_FORCE");
     run.setEnvironmentVariable("NO_COLOR", "1");
     run.expectExitCode(1);
@@ -116,16 +487,10 @@ fn addCaseConfig(
     };
 
     const check_run = b.addRunArtifact(self.convert_exe);
+    check_run.skip_foreign_checks = true;
     check_run.setName(annotated_case_name);
     check_run.addFileArg(run.captureStdErr(.{}));
     check_run.expectStdOutEqual(expected_stderr);
 
     self.step.dependOn(&check_run.step);
 }
-
-const ErrorTrace = @This();
-const std = @import("std");
-const builtin = @import("builtin");
-const Step = std.Build.Step;
-const OptimizeMode = std.builtin.OptimizeMode;
-const mem = std.mem;

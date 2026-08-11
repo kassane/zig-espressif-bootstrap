@@ -939,6 +939,8 @@ test "createDirPathOpen parent dirs do not exist" {
 }
 
 test "deleteDir" {
+    if (builtin.target.os.tag == .windows) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/35686
+
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const io = ctx.io;
@@ -2205,7 +2207,7 @@ test "'.' and '..' in absolute functions" {
 }
 
 test "chmod" {
-    if (native_os == .windows or native_os == .wasi) return;
+    if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
 
     const io = testing.io;
 
@@ -2228,8 +2230,7 @@ test "chmod" {
 }
 
 test "change ownership" {
-    if (native_os == .windows or native_os == .wasi)
-        return error.SkipZigTest;
+    if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
 
     const io = testing.io;
 

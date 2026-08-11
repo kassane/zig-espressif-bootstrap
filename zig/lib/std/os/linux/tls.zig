@@ -22,7 +22,7 @@ const page_size_min = std.heap.page_size_min;
 /// Represents an ELF TLS variant.
 ///
 /// In all variants, the TP and the TLS blocks must be aligned to the `p_align` value in the
-/// `PT_TLS` ELF program header. Everything else has natural alignment.
+/// `PT.TLS` ELF program header. Everything else has natural alignment.
 ///
 /// The location of the DTV does not actually matter. For simplicity, we put it in the TLS area, but
 /// there is no actual ABI requirement that it reside there.
@@ -261,10 +261,9 @@ pub fn setThreadPointer(addr: usize) void {
         },
         .alpha => {
             asm volatile (
-                \\ lda $16, 0(%[addr])
                 \\ wruniq
                 :
-                : [addr] "r" (addr),
+                : [addr] "{$16}" (addr),
             );
         },
         .arc, .arceb => {
@@ -282,7 +281,7 @@ pub fn setThreadPointer(addr: usize) void {
             assert(rc == 0);
         },
         .m68k => {
-            const rc = linux.syscall1(.set_thread_area, addr);
+            const rc = @call(.always_inline, linux.syscall1, .{ .set_thread_area, addr });
             assert(rc == 0);
         },
         .hexagon => {
@@ -295,9 +294,10 @@ pub fn setThreadPointer(addr: usize) void {
         .hppa => {
             asm volatile (
                 \\ ble 0xe0(%%sr2, %%r0)
+                \\  nop
                 :
-                : [addr] "={r26}" (addr),
-                : .{ .r29 = true });
+                : [addr] "{r26}" (addr),
+                : .{ .r31 = true });
         },
         .loongarch32, .loongarch64 => {
             asm volatile (
@@ -357,7 +357,7 @@ pub fn setThreadPointer(addr: usize) void {
         },
         .sh, .sheb => {
             asm volatile (
-                \\ ldc gbr, %[addr]
+                \\ ldc %[addr], gbr
                 :
                 : [addr] "r" (addr),
             );
@@ -417,7 +417,7 @@ pub fn getThreadPointer() usize {
             \\ move %[ret], $tp
             : [ret] "=r" (-> usize),
         ),
-        .m68k => linux.syscall1(.get_thread_area),
+        .m68k => linux.syscall0(.get_thread_area),
         .mips, .mipsel, .mips64, .mips64el => asm (
             \\ rdhwr %[ret], $29
             : [ret] "=r" (-> usize),
@@ -449,7 +449,7 @@ pub fn getThreadPointer() usize {
             : [ret] "=r" (-> usize),
         ),
         .sh, .sheb => asm (
-            \\ stc %[ret], gbr
+            \\ stc gbr, %[ret]
             : [ret] "=r" (-> usize),
         ),
         .sparc, .sparc64 => asm (
@@ -480,17 +480,17 @@ pub fn getThreadPointer() usize {
     };
 }
 
-fn computeAreaDesc(phdrs: []elf.Phdr) void {
+fn computeAreaDesc(phdrs: []elf.ElfN.Phdr) void {
     @setRuntimeSafety(false);
     @disableInstrumentation();
 
-    var tls_phdr: ?*elf.Phdr = null;
+    var tls_phdr: ?*elf.ElfN.Phdr = null;
     var img_base: usize = 0;
 
     for (phdrs) |*phdr| {
-        switch (phdr.p_type) {
-            elf.PT_PHDR => img_base = @intFromPtr(phdrs.ptr) - phdr.p_vaddr,
-            elf.PT_TLS => tls_phdr = phdr,
+        switch (phdr.type) {
+            .PHDR => img_base = @intFromPtr(phdrs.ptr) - phdr.vaddr,
+            .TLS => tls_phdr = phdr,
             else => {},
         }
     }
@@ -500,12 +500,12 @@ fn computeAreaDesc(phdrs: []elf.Phdr) void {
     var block_size: usize = undefined;
 
     if (tls_phdr) |phdr| {
-        align_factor = phdr.p_align;
+        align_factor = phdr.@"align";
 
-        // The effective size in memory is represented by `p_memsz`; the length of the data stored
-        // in the `PT_TLS` segment is `p_filesz` and may be less than the former.
-        block_init = @as([*]u8, @ptrFromInt(img_base + phdr.p_vaddr))[0..phdr.p_filesz];
-        block_size = phdr.p_memsz;
+        // The effective size in memory is represented by `memsz`; the length of the data stored
+        // in the `PT.TLS` segment is `filesz` and may be less than the former.
+        block_init = @as([*]u8, @ptrFromInt(img_base + phdr.vaddr))[0..phdr.filesz];
+        block_size = phdr.memsz;
     } else {
         align_factor = @alignOf(usize);
 
@@ -651,7 +651,7 @@ var main_thread_area_buffer: [0x1000]u8 align(page_size_min) = undefined;
 
 /// Computes the layout of the static TLS area, allocates the area, initializes all of its fields,
 /// and assigns the architecture-specific value to the TP register.
-pub fn initStatic(phdrs: []elf.Phdr) void {
+pub fn initStatic(phdrs: []elf.ElfN.Phdr) void {
     @setRuntimeSafety(false);
     @disableInstrumentation();
 
@@ -726,12 +726,14 @@ comptime {
         // function for the GD and LD models. This function is unlikely to actually be used, since
         // the linker should be able to relax every TLS access to the LE model and therefore
         // eliminate all calls to this function, but that isn't guaranteed.
-        _ = struct {
+        const Fns = struct {
             const TlsIndex = switch (native_arch) {
                 .x86_64 => extern struct { module: u64, offset: u64 }, // Even for x32...
                 else => extern struct { module: usize, offset: usize }, // ...but not MIPS N32!
             };
-            export fn __tls_get_addr(ti: *const TlsIndex) *anyopaque {
+            fn __tls_get_addr(ti: *const TlsIndex) callconv(.c) *anyopaque {
+                comptime assert(native_arch != .s390x);
+
                 assert(ti.module == 1); // The executable's module ID is always 1
                 const tp = getThreadPointer();
                 const block: [*]u8 = switch (current_variant) {
@@ -743,6 +745,25 @@ comptime {
                 };
                 return block[@intCast(ti.offset)..];
             }
+            fn __tls_get_offset() callconv(.naked) noreturn {
+                comptime assert(native_arch == .s390x);
+
+                // We receive the module's GOT pointer in r12 and the GOT offset in r2.
+                asm volatile (
+                    \\ la %%r1, 0(%%r12, %%r2)
+                    \\ lg %%r2, 8(%%r1)
+                    \\ lgrl %%r0, %[block_size]
+                    \\ sgr %%r2, %%r0
+                    \\ br %%r14
+                    :
+                    : [block_size] "s" (&area_desc.block.size),
+                );
+            }
         };
+
+        if (native_arch == .s390x)
+            @export(&Fns.__tls_get_offset, .{ .name = "__tls_get_offset" })
+        else
+            @export(&Fns.__tls_get_addr, .{ .name = "__tls_get_addr" });
     }
 }

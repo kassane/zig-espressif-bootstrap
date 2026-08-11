@@ -130,7 +130,7 @@ fn serveStream(
         try stream_writer.writeAll("zig> ");
         const untrimmed = try stream_reader.takeSentinel('\n');
         const cmd_and_arg = std.mem.trim(u8, untrimmed, " \t\r\n");
-        const cmd: []const u8, const arg: []const u8 = if (std.mem.indexOfScalar(u8, cmd_and_arg, ' ')) |i|
+        const cmd: []const u8, const arg: []const u8 = if (std.mem.findScalar(u8, cmd_and_arg, ' ')) |i|
             .{ cmd_and_arg[0..i], cmd_and_arg[i + 1 ..] }
         else
             .{ cmd_and_arg, "" };
@@ -244,7 +244,7 @@ fn handleCommand(zcu: *Zcu, w: *Io.Writer, cmd_str: []const u8, arg_str: []const
             const ty: Type = .fromInterned(type_ip_index);
             const ty_name = ty.containerTypeName(ip).toSlice(ip);
             const success = switch (@as(u2, @intFromBool(anchor_start)) << 1 | @intFromBool(anchor_end)) {
-                0b00 => std.mem.indexOf(u8, ty_name, query) != null,
+                0b00 => std.mem.find(u8, ty_name, query) != null,
                 0b01 => std.mem.endsWith(u8, ty_name, query),
                 0b10 => std.mem.startsWith(u8, ty_name, query),
                 0b11 => std.mem.eql(u8, ty_name, query),
@@ -265,7 +265,7 @@ fn handleCommand(zcu: *Zcu, w: *Io.Writer, cmd_str: []const u8, arg_str: []const
             const nav = ip.getNav(nav_index);
             const nav_fqn = nav.fqn.toSlice(ip);
             const success = switch (@as(u2, @intFromBool(anchor_start)) << 1 | @intFromBool(anchor_end)) {
-                0b00 => std.mem.indexOf(u8, nav_fqn, query) != null,
+                0b00 => std.mem.find(u8, nav_fqn, query) != null,
                 0b01 => std.mem.endsWith(u8, nav_fqn, query),
                 0b10 => std.mem.startsWith(u8, nav_fqn, query),
                 0b11 => std.mem.eql(u8, nav_fqn, query),
@@ -286,21 +286,34 @@ fn handleCommand(zcu: *Zcu, w: *Io.Writer, cmd_str: []const u8, arg_str: []const
             const referencer = (ref orelse break :ref "<analysis root>").referencer;
             break :ref printAnalUnit(referencer, &ref_str_buf);
         };
-        const has_err: []const u8 = err: {
-            if (zcu.failed_analysis.contains(unit)) break :err "true";
-            if (zcu.transitive_failed_analysis.contains(unit)) break :err "true (transitive)";
-            break :err "false";
-        };
         try w.print(
             \\last update generation: {d}
             \\current referencer: {s}
-            \\has error: {s}
             \\
         , .{
             unit_info.last_update_gen,
             ref_str,
-            has_err,
         });
+        if (zcu.failed_analysis.get(unit)) |err_msg| {
+            try w.print("analysis result: failure ({q})\n", .{err_msg.msg});
+        } else if (zcu.transitive_failed_analysis.get(unit)) |reason| {
+            switch (reason) {
+                .astgen_error => try w.writeAll("analysis result: transitive failure (astgen error)\n"),
+                .dependency_loop => try w.writeAll("analysis result: transitive failure (dependency loop)\n"),
+                .lost_tracking => try w.writeAll("analysis result: transitive failure (lost tracking for zir inst)\n"),
+                .failed_unit => |other_unit| {
+                    var buf: [32]u8 = undefined;
+                    try w.print("analysis result: transitive failure (failed unit: {s})\n", .{printAnalUnit(other_unit, &buf)});
+                },
+                .func_nav_val_changed => |func_index| try w.print("analysis result: transitive failure (owner nav of func '{d}' changed value)\n", .{@backingInt(func_index)}),
+            }
+        } else {
+            try w.writeAll("analysis result: success\n");
+        }
+        if (unit.unwrap() == .func) {
+            const nav_id = zcu.intern_pool.indexToKey(unit.unwrap().func).func.owner_nav;
+            try w.print("owner nav: {d}\n", .{@backingInt(nav_id)});
+        }
     } else if (std.mem.eql(u8, cmd_str, "unit_dependencies")) {
         const unit = parseAnalUnit(arg_str) orelse return w.writeAll("malformed anal unit");
         const unit_info = zcu.incremental_debug_state.units.get(unit) orelse return w.writeAll("unknown anal unit");
@@ -365,7 +378,7 @@ fn parseIndex(str: []const u8) ?u32 {
     return std.fmt.parseInt(u32, str, 10) catch null;
 }
 fn parseAnalUnit(str: []const u8) ?AnalUnit {
-    const split_idx = std.mem.indexOfScalar(u8, str, ' ') orelse return null;
+    const split_idx = std.mem.findScalar(u8, str, ' ') orelse return null;
     const kind = str[0..split_idx];
     const idx_str = str[split_idx + 1 ..];
     if (std.mem.eql(u8, kind, "comptime")) {

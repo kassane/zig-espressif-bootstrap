@@ -273,7 +273,7 @@ pub const all_features = blk: {
         .description = "Enable Xtensa Windowed Register option",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.text_section_literals)] = .{
+    result[@backingInt(Feature.text_section_literals)] = .{
         .llvm_name = "text-section-literals",
         .description = "Enable Xtensa Text Section Literals option",
         .dependencies = featureSet(&[_]Feature{}),

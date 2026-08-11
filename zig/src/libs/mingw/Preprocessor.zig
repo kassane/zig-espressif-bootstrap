@@ -15,7 +15,7 @@ const RawTokenList = std.ArrayList(Token);
 const ExpandBuf = std.ArrayList(Token);
 
 const Preprocessor = @This();
-const DefineMap = std.StringArrayHashMapUnmanaged(Macro);
+const DefineMap = std.array_hash_map.String(Macro);
 
 const GeneratedTokens = std.ArrayList(u8);
 
@@ -29,7 +29,7 @@ pub const Source = struct {
     buf: []const u8,
 };
 
-sources: std.StringArrayHashMapUnmanaged(Source) = .empty,
+sources: std.array_hash_map.String(Source) = .empty,
 
 arena: Allocator,
 io: std.Io,
@@ -91,9 +91,9 @@ fn addTokenAssumeCapacity(pp: *Preprocessor, tok: Token) void {
 
 fn defineBuiltins(pp: *Preprocessor) !void {
     var buf: [5]u8 = undefined;
-    var val = std.fmt.bufPrint(&buf, "{d}", .{pp.target.cTypeBitSize(.longdouble)}) catch unreachable;
+    var val = std.fmt.bufPrint(&buf, "{d}", .{pp.target.cTypeByteSize(.longdouble).?}) catch unreachable;
     try pp.defineBuiltinValue("__SIZEOF_LONG_DOUBLE__", val, .pp_num);
-    val = std.fmt.bufPrint(&buf, "{d}", .{pp.target.cTypeBitSize(.double)}) catch unreachable;
+    val = std.fmt.bufPrint(&buf, "{d}", .{pp.target.cTypeByteSize(.double).?}) catch unreachable;
     try pp.defineBuiltinValue("__SIZEOF_DOUBLE__", val, .pp_num);
 
     if (pp.target.abi.isGnu()) {

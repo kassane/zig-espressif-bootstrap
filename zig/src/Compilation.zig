@@ -1232,7 +1232,6 @@ pub const cache_helpers = struct {
         hh.add(mod.sanitize_thread);
         hh.add(mod.fuzz);
         hh.add(mod.unwind_tables);
-        hh.add(mod.structured_cfg);
         hh.add(mod.no_builtin);
         hh.addListOfBytes(mod.cc_argv);
     }
@@ -2134,6 +2133,9 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
         comp.config.any_fuzz = any_fuzz;
 
         if (opt_zcu) |zcu| {
+            // Finish initializing the `zcu` after the fields on `comp` have been initialized.
+            zcu.initAfterCompilation();
+
             // Populate `zcu.module_roots`.
             const active = zcu.acquire();
             defer active.release();
@@ -3673,11 +3675,11 @@ pub fn saveState(comp: *Compilation) !void {
             addBuf(&bufs, @ptrCast(wasm.object_relocations_table.values()));
             addBuf(&bufs, @ptrCast(wasm.object_comdat_symbols.items(.kind)));
             addBuf(&bufs, @ptrCast(wasm.object_comdat_symbols.items(.index)));
-            addBuf(&bufs, @ptrCast(wasm.out_relocs.items(.tag)));
-            addBuf(&bufs, @ptrCast(wasm.out_relocs.items(.offset)));
+            addBuf(&bufs, @ptrCast(wasm.zcu_relocations.items(.tag)));
+            addBuf(&bufs, @ptrCast(wasm.zcu_relocations.items(.offset)));
             // TODO handle the union safety field
-            //addBuf(&bufs, @ptrCast(wasm.out_relocs.items(.pointee)));
-            addBuf(&bufs, @ptrCast(wasm.out_relocs.items(.addend)));
+            //addBuf(&bufs, @ptrCast(wasm.zcu_relocations.items(.pointee)));
+            addBuf(&bufs, @ptrCast(wasm.zcu_relocations.items(.addend)));
             addBuf(&bufs, @ptrCast(wasm.uav_fixups.items));
             addBuf(&bufs, @ptrCast(wasm.nav_fixups.items));
             addBuf(&bufs, @ptrCast(wasm.func_table_fixups.items));
@@ -4074,7 +4076,14 @@ pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
                     ref = refs.get(r.referencer).?;
                 }
             }
-            @panic("referenced transitive analysis errors, but none actually emitted");
+            if (comp.debugIncremental()) {
+                std.debug.print("skipping compiler panic to allow incremental debug server usage", .{});
+                try bundle.addRootErrorMessage(.{
+                    .msg = try bundle.addString("compiler bug: referenced transitive analysis errors, but none actually emitted"),
+                });
+            } else {
+                @panic("referenced transitive analysis errors, but none actually emitted");
+            }
         }
     };
 
@@ -6019,26 +6028,30 @@ fn spawnZigRc(
     multi_reader.init(gpa, io, multi_reader_buffer.toStreams(), &.{ child.stdout.?, child.stderr.? });
     defer multi_reader.deinit();
 
-    const stdout = multi_reader.fileReader(0);
-    const MessageHeader = std.zig.Server.Message.Header;
+    const stdout = multi_reader.reader(0);
 
     var eos_err: error{EndOfStream}!void = {};
 
+    var client: std.zig.Client = .{
+        .in = stdout,
+        .out = undefined,
+    };
+
     while (true) {
-        const header = stdout.interface.takeStruct(MessageHeader, .little) catch |err| switch (err) {
-            error.EndOfStream => break,
-            error.ReadFailed => return stdout.err.?,
-        };
-        const body = stdout.interface.take(header.bytes_len) catch |err| switch (err) {
+        const header = client.receiveMessageWithMultiReader(&multi_reader, .none) catch |err| switch (err) {
+            error.Timeout => unreachable,
             error.EndOfStream => |e| {
+                if (client.in.bufferedLen() == 0) break;
                 // Better to report the crash with stderr below, but we set
                 // this in case the child exits successfully while violating
                 // this protocol.
                 eos_err = e;
                 break;
             },
-            error.ReadFailed => return stdout.err.?,
+            else => |e| return e,
         };
+        const body = client.in.take(header.bytes_len) catch unreachable;
+
         switch (header.tag) {
             // We expect exactly one ErrorBundle, and if any error_bundle header is
             // sent then it's a fatal error.
@@ -6654,6 +6667,8 @@ pub fn addCCArgs(
 
     // Only compiled files support these flags.
     switch (ext) {
+        .assembly,
+        .assembly_with_cpp,
         .c,
         .h,
         .cpp,
@@ -7267,7 +7282,6 @@ fn buildOutputFromZig(
             .unwind_tables = comp.root_mod.unwind_tables,
             .pic = comp.root_mod.pic,
             .optimize_mode = optimize_mode,
-            .structured_cfg = comp.root_mod.structured_cfg,
             .no_builtin = true,
             .code_model = comp.root_mod.code_model,
             .error_tracing = false,
@@ -7416,7 +7430,6 @@ pub fn build_crt_file(
             // Some CRT objects (e.g. musl's rcrt1.o and Scrt1.o) are opinionated about PIC.
             .pic = options.pic orelse comp.root_mod.pic,
             .optimize_mode = comp.compilerRtOptMode(),
-            .structured_cfg = comp.root_mod.structured_cfg,
             // Some libcs (e.g. musl) are opinionated about -fno-builtin.
             .no_builtin = options.no_builtin orelse comp.root_mod.no_builtin,
             .code_model = comp.root_mod.code_model,

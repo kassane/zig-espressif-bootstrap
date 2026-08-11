@@ -622,7 +622,7 @@ pub fn build(b: *std.Build) !void {
         .use_llvm = use_llvm,
         .use_lld = use_llvm,
         .zig_lib_dir = b.path("lib"),
-        .max_rss = 2_700_000_000,
+        .max_rss = 3_000_000_000,
     });
     if (link_libc) {
         unit_tests.root_module.link_libc = true;
@@ -660,8 +660,36 @@ pub fn build(b: *std.Build) !void {
         .skip_llvm = skip_llvm,
         .max_rss = 100_000_000,
     }));
-    test_step.dependOn(tests.addStackTraceTests(b, test_filters, skip_non_native));
-    test_step.dependOn(tests.addErrorTraceTests(b, test_filters, optimize_modes, skip_non_native));
+    test_step.dependOn(tests.addStackTraceTests(b, .{
+        .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
+        .test_extra_targets = test_extra_targets,
+        .optimize_modes = optimize_modes,
+        .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_openbsd = skip_openbsd,
+        .skip_windows = skip_windows,
+        .skip_darwin = skip_darwin,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
+        .skip_libc = skip_libc,
+    }));
+    test_step.dependOn(tests.addErrorTraceTests(b, .{
+        .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
+        .test_extra_targets = test_extra_targets,
+        .optimize_modes = optimize_modes,
+        .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_openbsd = skip_openbsd,
+        .skip_windows = skip_windows,
+        .skip_darwin = skip_darwin,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
+        .skip_libc = skip_libc,
+    }));
     test_step.dependOn(tests.addCliTests(b));
     if (tests.addDebuggerTests(b, .{
         .test_filters = test_filters,
@@ -763,9 +791,8 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
         .optimize = .ReleaseSmall,
         .target = b.resolveTargetQuery(std.Target.Query.parse(.{
             .arch_os_abi = "wasm32-wasi",
-            // * `extended_const` is not supported by the `wasm-opt` version in CI.
             // * `nontrapping_bulk_memory_len0` is supported by `wasm2c`.
-            .cpu_features = "baseline-extended_const+nontrapping_bulk_memory_len0",
+            .cpu_features = "baseline+nontrapping_bulk_memory_len0",
         }) catch unreachable),
     });
 
@@ -809,6 +836,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
         "-Oz",
         "--enable-bulk-memory",
         "--enable-mutable-globals",
+        "--enable-extended-const",
         "--enable-nontrapping-float-to-int",
         "--enable-sign-ext",
     });

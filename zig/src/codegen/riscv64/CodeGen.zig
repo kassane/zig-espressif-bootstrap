@@ -5036,7 +5036,7 @@ fn airRet(func: *Func, inst: Air.Inst.Index, safety: bool) !void {
         .register_pair,
         => {
             if (ret_ty.isVector(zcu)) {
-                const bit_size = ret_ty.totalVectorBits(zcu);
+                const bit_size = ret_ty.bitSize(zcu);
 
                 // set the vtype to hold the entire vector's contents in a single element
                 try func.setVl(.zero, 0, .{
@@ -6235,8 +6235,8 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
         next_op: for (&ops) |*op| {
             const op_str = while (!last_op) {
                 const full_str = op_it.next() orelse break :next_op;
-                const code_str = if (mem.indexOfScalar(u8, full_str, '#') orelse
-                    mem.indexOf(u8, full_str, "//")) |comment|
+                const code_str = if (mem.findScalar(u8, full_str, '#') orelse
+                    mem.find(u8, full_str, "//")) |comment|
                 code: {
                     last_op = true;
                     break :code full_str[0..comment];
@@ -6250,7 +6250,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
             } else if (std.fmt.parseInt(i12, op_str, 10)) |int| {
                 op.* = .{ .imm = Immediate.s(int) };
             } else |_| if (mem.startsWith(u8, op_str, "%[")) {
-                const mod_index = mem.indexOf(u8, op_str, "]@");
+                const mod_index = mem.find(u8, op_str, "]@");
                 const modifier = if (mod_index) |index|
                     op_str[index + "]@".len ..]
                 else
@@ -6871,7 +6871,7 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
             // size to the total size of the vector, and vmv.x.s will work then
             if (src_reg.class() == .vector) {
                 try func.setVl(.zero, 0, .{
-                    .vsew = switch (ty.totalVectorBits(zcu)) {
+                    .vsew = switch (ty.bitSize(zcu)) {
                         8 => .@"8",
                         16 => .@"16",
                         32 => .@"32",

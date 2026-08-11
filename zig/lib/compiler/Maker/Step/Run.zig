@@ -64,9 +64,9 @@ pub fn make(
         }
     }
 
-    for (conf_run.preopen_names.slice, conf_run.preopen_paths.slice) |name, path| {
-        man.hash.addBytesZ(name.slice(conf));
-        const cwd_path = try maker.resolveLazyPathIndex(arena, path, run_index);
+    for (conf_run.preopens.slice) |preopen| {
+        man.hash.addBytesZ(preopen.name.slice(conf));
+        const cwd_path = try maker.resolveLazyPathIndex(arena, preopen.path, run_index);
         man.hash.addBytes(try cwd_path.toString(arena));
     }
 
@@ -187,6 +187,11 @@ pub fn make(
                     man.hash.addListOfBytes(run_args);
                 }
             },
+            .enable_darling => thirdPartyToggle(&man.hash, &argv_list, conf, graph.enable_darling, arg.prefix.value, arg.suffix.value),
+            .enable_qemu => thirdPartyToggle(&man.hash, &argv_list, conf, graph.enable_qemu, arg.prefix.value, arg.suffix.value),
+            .enable_rosetta => thirdPartyToggle(&man.hash, &argv_list, conf, graph.enable_rosetta, arg.prefix.value, arg.suffix.value),
+            .enable_wasmtime => thirdPartyToggle(&man.hash, &argv_list, conf, graph.enable_wasmtime, arg.prefix.value, arg.suffix.value),
+            .enable_wine => thirdPartyToggle(&man.hash, &argv_list, conf, graph.enable_wine, arg.prefix.value, arg.suffix.value),
         }
     }
 
@@ -351,6 +356,29 @@ pub fn make(
     step.clearFailedCommand(gpa);
 }
 
+fn thirdPartyToggle(
+    man_hash: ?*Cache.HashHelper,
+    argv_list: *std.ArrayList([]const u8),
+    conf: *const Configuration,
+    setting: bool,
+    enable: ?Configuration.String,
+    disable: ?Configuration.String,
+) void {
+    if (setting) {
+        if (enable) |string| {
+            const slice = string.slice(conf);
+            if (man_hash) |h| h.addBytesZ(slice);
+            argv_list.appendAssumeCapacity(slice);
+        }
+    } else {
+        if (disable) |string| {
+            const slice = string.slice(conf);
+            if (man_hash) |h| h.addBytesZ(slice);
+            argv_list.appendAssumeCapacity(slice);
+        }
+    }
+}
+
 /// Reads stdout of a Zig test process until a termination condition is reached:
 /// * A write fails, indicating the child unexpectedly closed stdin
 /// * A test (or a response from the test runner) times out
@@ -384,13 +412,23 @@ fn waitZigTest(
     var sub_prog_node: ?std.Progress.Node = null;
     defer if (sub_prog_node) |n| n.end();
 
+    const stdout = multi_reader.reader(0);
+    const stderr = multi_reader.reader(1);
+
+    var stdin_writer = child.stdin.?.writerStreaming(io, &.{});
+
+    var client: std.zig.Client = .{
+        .in = stdout,
+        .out = &stdin_writer.interface,
+    };
+
     if (opt_metadata.*) |*md| {
         // Previous unit test process died or was killed; we're continuing where it left off
-        requestNextTest(io, child.stdin.?, md, &sub_prog_node) catch |err| return .{ .write_failed = err };
+        requestNextTest(&client, md, &sub_prog_node) catch |err| return .{ .write_failed = err };
     } else {
         // Running unit tests normally
         run.fuzz_tests.clearRetainingCapacity();
-        sendMessage(io, child.stdin.?, .query_test_metadata) catch |err| return .{ .write_failed = err };
+        client.serveBodylessMessage(.query_test_metadata) catch |err| return .{ .write_failed = err };
     }
 
     var active_test_index: ?u32 = null;
@@ -410,10 +448,6 @@ fn waitZigTest(
         .raw = .fromNanoseconds(ns),
     } else null;
 
-    const stdout = multi_reader.reader(0);
-    const stderr = multi_reader.reader(1);
-    const Header = std.zig.Server.Message.Header;
-
     while (true) {
         const timeout: Io.Timeout = t: {
             const opt_duration = if (active_test_index == null) response_timeout else test_timeout;
@@ -421,46 +455,20 @@ fn waitZigTest(
             break :t .{ .deadline = last_update.addDuration(duration) };
         };
 
-        // This block is exited when `stdout` contains enough bytes for a `Header`.
-        header_ready: {
-            if (stdout.buffered().len >= @sizeOf(Header)) {
-                // We already have one, no need to poll!
-                break :header_ready;
-            }
-
-            multi_reader.fill(64, timeout) catch |err| switch (err) {
-                error.Timeout => return .{ .timeout = .{
-                    .active_test_index = active_test_index,
-                    .ns_elapsed = @intCast(last_update.untilNow(io).raw.nanoseconds),
-                } },
-                error.EndOfStream => return .{ .no_poll = .{
-                    .active_test_index = active_test_index,
-                    .ns_elapsed = @intCast(last_update.untilNow(io).raw.nanoseconds),
-                } },
-                else => |e| return e,
-            };
-
-            continue;
-        }
-        // There is definitely a header available now -- read it.
-        const header = stdout.takeStruct(Header, .little) catch unreachable;
-
-        while (stdout.buffered().len < header.bytes_len) {
-            multi_reader.fill(64, timeout) catch |err| switch (err) {
-                error.Timeout => return .{ .timeout = .{
-                    .active_test_index = active_test_index,
-                    .ns_elapsed = @intCast(last_update.untilNow(io).raw.nanoseconds),
-                } },
-                error.EndOfStream => return .{ .no_poll = .{
-                    .active_test_index = active_test_index,
-                    .ns_elapsed = @intCast(last_update.untilNow(io).raw.nanoseconds),
-                } },
-                else => |e| return e,
-            };
-        }
-
-        const body = stdout.take(header.bytes_len) catch unreachable;
+        const header = client.receiveMessageWithMultiReader(multi_reader, timeout) catch |err| switch (err) {
+            error.Timeout => return .{ .timeout = .{
+                .active_test_index = active_test_index,
+                .ns_elapsed = @intCast(last_update.untilNow(io).raw.nanoseconds),
+            } },
+            error.EndOfStream => return .{ .no_poll = .{
+                .active_test_index = active_test_index,
+                .ns_elapsed = @intCast(last_update.untilNow(io).raw.nanoseconds),
+            } },
+            else => |e| return e,
+        };
+        const body = client.in.take(header.bytes_len) catch unreachable;
         var body_r: std.Io.Reader = .fixed(body);
+
         switch (header.tag) {
             .zig_version => {
                 if (!std.mem.eql(u8, builtin.zig_version_string, body)) return step.fail(
@@ -500,7 +508,7 @@ fn waitZigTest(
                 active_test_index = null;
                 last_update = .now(io, .awake);
 
-                requestNextTest(io, child.stdin.?, &opt_metadata.*.?, &sub_prog_node) catch |err| return .{ .write_failed = err };
+                requestNextTest(&client, &opt_metadata.*.?, &sub_prog_node) catch |err| return .{ .write_failed = err };
             },
             .test_started => {
                 active_test_index = opt_metadata.*.?.next_index - 1;
@@ -551,7 +559,7 @@ fn waitZigTest(
                 md.ns_per_test[tr_hdr.index] = @intCast(last_update.durationTo(now).raw.nanoseconds);
                 last_update = now;
 
-                requestNextTest(io, child.stdin.?, md, &sub_prog_node) catch |err| return .{ .write_failed = err };
+                requestNextTest(&client, md, &sub_prog_node) catch |err| return .{ .write_failed = err };
             },
             else => {}, // ignore other messages
         }
@@ -575,7 +583,7 @@ const FuzzTestRunner = struct {
 
     const Instance = struct {
         child: process.Child,
-        message: std.ArrayListAligned(u8, .@"4"),
+        message: std.array_list.Aligned(u8, .@"4"),
         broadcast_written: usize,
         stderr: std.ArrayList(u8),
         stdin_vec: [1][]u8,
@@ -697,17 +705,18 @@ const FuzzTestRunner = struct {
 
         for (0.., f.instances) |id, *instance| {
             const id32: u32 = @intCast(id);
+            var writer = instance.child.stdin.?.writerStreaming(io, &.{});
+            const client: std.zig.Client = .{
+                .in = undefined,
+                .out = &writer.interface,
+            };
             (switch (f.ctx.fuzz.mode) {
-                .forever => sendRunFuzzTestMessage(
-                    io,
-                    instance.child.stdin.?,
+                .forever => client.serveRunFuzzTestMessage(
                     run.fuzz_tests.items,
                     .forever,
                     id32,
                 ),
-                .limit => |limit| sendRunFuzzTestMessage(
-                    io,
-                    instance.child.stdin.?,
+                .limit => |limit| client.serveRunFuzzTestMessage(
                     run.fuzz_tests.items,
                     .iterations,
                     limit.amount,
@@ -1315,7 +1324,7 @@ pub const CachedTestMetadata = struct {
     }
 };
 
-fn requestNextTest(io: Io, in: Io.File, metadata: *TestMetadata, sub_prog_node: *?std.Progress.Node) !void {
+fn requestNextTest(client: *std.zig.Client, metadata: *TestMetadata, sub_prog_node: *?std.Progress.Node) !void {
     while (metadata.next_index < metadata.names.len) {
         const i = metadata.next_index;
         metadata.next_index += 1;
@@ -1326,76 +1335,11 @@ fn requestNextTest(io: Io, in: Io.File, metadata: *TestMetadata, sub_prog_node: 
         if (sub_prog_node.*) |n| n.end();
         sub_prog_node.* = metadata.prog_node.start(name, 0);
 
-        try sendRunTestMessage(io, in, .run_test, i);
+        try client.serveRunTest(i);
         return;
     } else {
         metadata.next_index = std.math.maxInt(u32); // indicate that all tests are done
-        try sendMessage(io, in, .exit);
-    }
-}
-
-fn sendMessage(io: Io, file: Io.File, tag: std.zig.Client.Message.Tag) !void {
-    const header: std.zig.Client.Message.Header = .{
-        .tag = tag,
-        .bytes_len = 0,
-    };
-    var w = file.writerStreaming(io, &.{});
-    w.interface.writeStruct(header, .little) catch |err| switch (err) {
-        error.WriteFailed => return w.err.?,
-    };
-}
-
-fn sendRunTestMessage(io: Io, file: Io.File, tag: std.zig.Client.Message.Tag, index: u32) !void {
-    const header: std.zig.Client.Message.Header = .{
-        .tag = tag,
-        .bytes_len = 4,
-    };
-    var w = file.writerStreaming(io, &.{});
-    w.interface.writeStruct(header, .little) catch |err| switch (err) {
-        error.WriteFailed => return w.err.?,
-    };
-    w.interface.writeInt(u32, index, .little) catch |err| switch (err) {
-        error.WriteFailed => return w.err.?,
-    };
-}
-
-fn sendRunFuzzTestMessage(
-    io: Io,
-    file: Io.File,
-    test_names: []const []const u8,
-    kind: std.Build.abi.fuzz.LimitKind,
-    amount_or_instance: u64,
-) !void {
-    const header: std.zig.Client.Message.Header = .{
-        .tag = .start_fuzzing,
-        .bytes_len = 1 + 8 + 4 + count: {
-            var c: u32 = @intCast(test_names.len * 4);
-            for (test_names) |name| {
-                c += @intCast(name.len);
-            }
-            break :count c;
-        },
-    };
-    var w = file.writerStreaming(io, &.{});
-    w.interface.writeStruct(header, .little) catch |err| switch (err) {
-        error.WriteFailed => return w.err.?,
-    };
-    w.interface.writeByte(@backingInt(kind)) catch |err| switch (err) {
-        error.WriteFailed => return w.err.?,
-    };
-    w.interface.writeInt(u64, amount_or_instance, .little) catch |err| switch (err) {
-        error.WriteFailed => return w.err.?,
-    };
-    w.interface.writeInt(u32, @intCast(test_names.len), .little) catch |err| switch (err) {
-        error.WriteFailed => return w.err.?,
-    };
-    for (test_names) |test_name| {
-        w.interface.writeInt(u32, @intCast(test_name.len), .little) catch |err| switch (err) {
-            error.WriteFailed => return w.err.?,
-        };
-        w.interface.writeAll(test_name) catch |err| switch (err) {
-            error.WriteFailed => return w.err.?,
-        };
+        try client.serveBodylessMessage(.exit);
     }
 }
 
@@ -1619,6 +1563,11 @@ pub fn rerunInFuzzMode(
             .output_file => unreachable,
             .output_directory => unreachable,
             .passthru => unreachable,
+            .enable_darling => thirdPartyToggle(null, &argv_list, conf, graph.enable_darling, arg.prefix.value, arg.suffix.value),
+            .enable_qemu => thirdPartyToggle(null, &argv_list, conf, graph.enable_qemu, arg.prefix.value, arg.suffix.value),
+            .enable_rosetta => thirdPartyToggle(null, &argv_list, conf, graph.enable_rosetta, arg.prefix.value, arg.suffix.value),
+            .enable_wasmtime => thirdPartyToggle(null, &argv_list, conf, graph.enable_wasmtime, arg.prefix.value, arg.suffix.value),
+            .enable_wine => thirdPartyToggle(null, &argv_list, conf, graph.enable_wine, arg.prefix.value, arg.suffix.value),
         }
     }
 
@@ -1917,14 +1866,14 @@ fn runCommand(
                     },
                     .wasmtime => |bin_name| {
                         if (graph.enable_wasmtime) {
-                            try interp_argv.ensureUnusedCapacity(arena, 3 + argv.len + conf_run.preopen_names.slice.len);
+                            try interp_argv.ensureUnusedCapacity(arena, 3 + argv.len + conf_run.preopens.slice.len);
                             interp_argv.appendAssumeCapacity(bin_name);
                             interp_argv.appendAssumeCapacity("--dir=.");
-                            for (conf_run.preopen_names.slice, conf_run.preopen_paths.slice) |name, lazy_path| {
-                                const path = try maker.resolveLazyPath(arena, lazy_path.get(conf), run_index);
+                            for (conf_run.preopens.slice) |preopen| {
+                                const path = try maker.resolveLazyPath(arena, preopen.path.get(conf), run_index);
                                 path.root_dir.handle.createDirPath(io, path.subPathOrDot()) catch |e|
                                     return step.fail(maker, "failed creating directory {f}: {t}", .{ path, e });
-                                interp_argv.appendAssumeCapacity(try arena.print("--dir={f}::{s}", .{ path, name.slice(conf) }));
+                                interp_argv.appendAssumeCapacity(try arena.print("--dir={f}::{s}", .{ path, preopen.name.slice(conf) }));
                             }
                             // Wasmtime doeesn't inherit environment variables from the parent process
                             // by default. '-S inherit-env' was added in Wasmtime version 20.
@@ -2204,7 +2153,7 @@ fn fmtSnapshotIndicatorLine(buf: []const u8, index: usize) std.fmt.Alt(
 }
 
 fn snapshotIndicatorLine(line: FmtIndicatorLine, w: *std.Io.Writer) std.Io.Writer.Error!void {
-    const line_begin_index = if (std.mem.lastIndexOfScalar(u8, line.buf[0..line.index], '\n')) |line_begin|
+    const line_begin_index = if (std.mem.findScalarLast(u8, line.buf[0..line.index], '\n')) |line_begin|
         line_begin + 1
     else
         0;
@@ -2285,24 +2234,34 @@ fn spawnChildAndCollect(
             assert(conf_run.flags.stdio != .inherit);
             break :s .pipe;
         } else switch (conf_run.flags.stdio) {
-            .infer_from_args => if (has_side_effects) .inherit else .ignore,
+            .infer_from_args => if (maker.protocol_server == null and has_side_effects) .inherit else .ignore,
             .inherit => .inherit,
             .check => .ignore,
             .zig_test => .pipe,
         },
         .stdout = if (conf_run.captured_stdout.value != null) .pipe else switch (conf_run.flags.stdio) {
-            .infer_from_args => if (has_side_effects) .inherit else .ignore,
+            .infer_from_args => if (maker.protocol_server == null and has_side_effects) .inherit else .ignore,
             .inherit => .inherit,
             .check => if (checksContainStdout(&conf_run)) .pipe else .ignore,
             .zig_test => .pipe,
         },
         .stderr = if (conf_run.captured_stderr.value != null) .pipe else switch (conf_run.flags.stdio) {
-            .infer_from_args => if (has_side_effects) .inherit else .pipe,
-            .inherit => .inherit,
+            .infer_from_args => if (maker.protocol_server == null and has_side_effects) .inherit else .pipe,
+            .inherit => if (maker.protocol_server == null) .inherit else .pipe,
             .check => .pipe,
             .zig_test => .pipe,
         },
     };
+
+    if (maker.protocol_server != null) {
+        if (spawn_options.stdin == .inherit) {
+            return step.fail(maker, "Cannot inherit stdin when running through over the build system protocol", .{});
+        }
+        if (spawn_options.stdout == .inherit) {
+            return step.fail(maker, "Cannot inherit stdout when running through over the build system protocol", .{});
+        }
+        assert(spawn_options.stderr != .inherit);
+    }
 
     if (conf_run.flags.stdio == .zig_test) {
         try setColorEnvironmentVariables(&conf_run, environ_map, graph.stderr_mode.?);

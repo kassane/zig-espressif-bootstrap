@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const mem = std.mem;
 const expectEqual = std.testing.expectEqual;
 
@@ -761,7 +760,7 @@ pub const XxHash3 = struct {
         var accumulator_copy = self.accumulator;
         var last_block_copy: [block_bytes]u8 = undefined;
 
-        // Digest the last block onthe Accumulator copy.
+        // Digest the last block on the Accumulator copy.
         return accumulator_copy.digest(self.total_len, last_block: {
             if (self.buffered >= block_bytes) {
                 const block_count = ((self.buffered - 1) / block_bytes) * block_bytes;
@@ -788,7 +787,6 @@ fn testExpect(comptime H: type, seed: anytype, input: []const u8, expected: u64)
 }
 
 test "xxhash3" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     const H = XxHash3;
     // Non-Seeded Tests
     try testExpect(H, 0, "", 0x2d06800538d394c2);
@@ -820,7 +818,6 @@ test "xxhash3" {
 }
 
 test "xxhash3 smhasher" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     const Test = struct {
         fn do() !void {
             try expectEqual(verify.smhasher(XxHash3.hash), 0x9a636405);
@@ -832,7 +829,6 @@ test "xxhash3 smhasher" {
 }
 
 test "xxhash3 iterative api" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     const Test = struct {
         fn do() !void {
             try verify.iterativeApi(XxHash3);

@@ -46,6 +46,8 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .csky, .os = .linux, .abi = .gnueabi, .os_ver = .{ .major = 4, .minor = 20, .patch = 0 }, .glibc_min = .{ .major = 2, .minor = 29, .patch = 0 }, .glibc_triple = "csky-linux-gnuabiv2-soft" },
     .{ .arch = .csky, .os = .linux, .abi = .gnueabihf, .os_ver = .{ .major = 4, .minor = 20, .patch = 0 }, .glibc_min = .{ .major = 2, .minor = 29, .patch = 0 }, .glibc_triple = "csky-linux-gnuabiv2" },
     .{ .arch = .hexagon, .os = .linux, .abi = .musl, .os_ver = .{ .major = 3, .minor = 2, .patch = 102 } },
+    .{ .arch = .loongarch32, .os = .linux, .abi = .gnu, .os_ver = .{ .major = 6, .minor = 19, .patch = 0 }, .glibc_min = .{ .major = 2, .minor = 44, .patch = 0 }, .glibc_triple = "loongarch32-linux-gnuf64" },
+    .{ .arch = .loongarch32, .os = .linux, .abi = .gnusf, .os_ver = .{ .major = 6, .minor = 19, .patch = 0 }, .glibc_min = .{ .major = 2, .minor = 44, .patch = 0 }, .glibc_triple = "loongarch32-linux-gnusf" },
     .{ .arch = .loongarch64, .os = .linux, .abi = .gnu, .os_ver = .{ .major = 5, .minor = 19, .patch = 0 }, .glibc_min = .{ .major = 2, .minor = 36, .patch = 0 }, .glibc_triple = "loongarch64-linux-gnuf64" },
     .{ .arch = .loongarch64, .os = .linux, .abi = .gnusf, .os_ver = .{ .major = 5, .minor = 19, .patch = 0 }, .glibc_min = .{ .major = 2, .minor = 36, .patch = 0 }, .glibc_triple = "loongarch64-linux-gnusf" },
     .{ .arch = .loongarch64, .os = .linux, .abi = .musl, .os_ver = .{ .major = 5, .minor = 19, .patch = 0 } },
@@ -499,32 +501,30 @@ pub fn intByteSize(target: *const std.Target, bits: u16) u16 {
 }
 
 pub fn intAlignment(target: *const std.Target, bits: u16) u16 {
-    return switch (target.cpu.arch) {
-        .x86 => switch (bits) {
-            0...8 => 1,
-            9...16 => 2,
-            17...32 => 4,
-            33...64 => switch (target.os.tag) {
-                .uefi, .windows => 8,
-                else => 4,
-            },
-            else => 16,
-        },
-        .x86_64 => switch (bits) {
-            0...8 => 1,
-            9...16 => 2,
-            17...32 => 4,
-            33...64 => 8,
-            else => 16,
-        },
-        else => switch (bits) {
-            0 => 1,
-            else => @min(
-                std.math.ceilPowerOfTwoPromote(u16, @intCast((@as(u17, bits) + 7) / 8)),
-                target.cMaxIntAlignment(),
-            ),
-        },
+    return switch (bits) {
+        0 => 1,
+        else => @min(
+            std.math.ceilPowerOfTwoPromote(u16, @intCast((@as(u17, bits) + 7) / 8)),
+            target.cMaxIntAlignment(),
+        ),
     };
+}
+
+pub fn compilerRtFloatAbi(target: *const std.Target, bits: u16) std.Target.Abi.Float {
+    if (target.cpu.has(.x86, .soft_float)) return .soft;
+    // Marks targets where clang does not even provide a usable C type.
+    const no_c_type_available = .soft;
+    switch (bits) {
+        else => unreachable,
+        16 => if (target.cpu.arch.isMIPS() or target.cpu.arch.isPowerPC()) return no_c_type_available,
+        32, 64 => {},
+        80 => if (target.cTypeBitSize(.longdouble) != 80) return no_c_type_available,
+        128 => {
+            if (target.cpu.arch.isX86()) return .hard; // if (target.abi == .msvc) __m128i else __float128
+            if (target.cTypeBitSize(.longdouble) != 128) return no_c_type_available;
+        },
+    }
+    return .hard;
 }
 
 const std = @import("std");

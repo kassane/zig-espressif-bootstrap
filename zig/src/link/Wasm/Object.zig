@@ -146,7 +146,7 @@ pub const Symbol = struct {
     pointee: Pointee,
 
     /// https://github.com/WebAssembly/tool-conventions/blob/df8d737539eb8a8f446ba5eab9dc670c40dfb81e/Linking.md#symbol-table-subsection
-    const Tag = enum(u8) {
+    pub const Tag = enum(u8) {
         function,
         data,
         global,
@@ -856,7 +856,7 @@ pub fn parse(
                 start_function = @fromBackingInt(@intCast(functions_start + index));
             },
             .element => {
-                log.warn("unimplemented: element section in {f} {?s}", .{ path, archive_member_name });
+                // element section is not needed for linking, validating it serves no purpose
                 pos = section_end;
             },
             .code => {

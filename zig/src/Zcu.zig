@@ -182,7 +182,10 @@ analysis_in_progress: std.array_hash_map.Auto(AnalUnit, ?*const DependencyReason
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
 failed_analysis: std.array_hash_map.Auto(AnalUnit, *ErrorMsg) = .empty,
 /// This `AnalUnit` failed semantic analysis because it required analysis of another `AnalUnit` which itself failed.
-transitive_failed_analysis: std.array_hash_map.Auto(AnalUnit, void) = .empty,
+transitive_failed_analysis: std.array_hash_map.Auto(
+    AnalUnit,
+    if (build_options.enable_debug_extensions) TransitiveFailureReason else void,
+) = .empty,
 /// This `Nav` succeeded analysis, but failed codegen.
 /// This may be a simple "value" `Nav`, or it may be a function.
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
@@ -351,6 +354,18 @@ pub const DependencyReason = struct {
     type_layout_reason: Sema.type_resolution.LayoutResolveReason,
 };
 
+/// These are not required for anything, but when the compiler is built with debug extensions, we
+/// store these in `Zcu.transitive_failed_analysis` and surface them in the incremental debug server
+/// (see `src/IncrementalDebugServer.zig`) because they are a useful debugging aid for bugs in
+/// incremental compilation.
+pub const TransitiveFailureReason = union(enum) {
+    astgen_error,
+    dependency_loop,
+    lost_tracking: InternPool.TrackedInst.Index,
+    failed_unit: AnalUnit,
+    func_nav_val_changed: InternPool.Index,
+};
+
 pub const IncrementalDebugState = struct {
     /// All container types in the ZCU, even dead ones.
     /// Value is the generation the type was created on.
@@ -488,6 +503,7 @@ pub const StdLangDecl = enum {
     @"panic.castToNull",
     @"panic.incorrectAlignment",
     @"panic.invalidErrorCode",
+    @"panic.unexpectedErrorCode",
     @"panic.integerOutOfBounds",
     @"panic.integerOverflow",
     @"panic.shlOverflow",
@@ -502,6 +518,7 @@ pub const StdLangDecl = enum {
     @"panic.copyLenMismatch",
     @"panic.memcpyAlias",
     @"panic.noreturnReturned",
+    @"panic.loadUninstantiableType",
 
     VaList,
 
@@ -577,6 +594,7 @@ pub const StdLangDecl = enum {
             .@"panic.castToNull",
             .@"panic.incorrectAlignment",
             .@"panic.invalidErrorCode",
+            .@"panic.unexpectedErrorCode",
             .@"panic.integerOutOfBounds",
             .@"panic.integerOverflow",
             .@"panic.shlOverflow",
@@ -591,6 +609,7 @@ pub const StdLangDecl = enum {
             .@"panic.copyLenMismatch",
             .@"panic.memcpyAlias",
             .@"panic.noreturnReturned",
+            .@"panic.loadUninstantiableType",
             => .func,
         };
     }
@@ -633,7 +652,7 @@ pub const StdLangDecl = enum {
         return switch (decl) {
             inline else => |tag| {
                 const name = @tagName(tag);
-                const split = (comptime std.mem.lastIndexOfScalar(u8, name, '.')) orelse return .{ .direct = name };
+                const split = (comptime std.mem.findScalarLast(u8, name, '.')) orelse return .{ .direct = name };
                 const parent = @field(StdLangDecl, name[0..split]);
                 comptime assert(@backingInt(parent) < @backingInt(tag)); // dependencies ordered correctly
                 return .{ .nested = .{ parent, name[split + 1 ..] } };
@@ -664,6 +683,7 @@ pub const SimplePanicId = enum {
     copy_len_mismatch,
     memcpy_alias,
     noreturn_returned,
+    load_uninstantiable_type,
 
     pub fn toStdLangDecl(id: SimplePanicId) StdLangDecl {
         return switch (id) {
@@ -687,6 +707,7 @@ pub const SimplePanicId = enum {
             .copy_len_mismatch          => .@"panic.copyLenMismatch",
             .memcpy_alias               => .@"panic.memcpyAlias",
             .noreturn_returned          => .@"panic.noreturnReturned",
+            .load_uninstantiable_type   => .@"panic.loadUninstantiableType",
             // zig fmt: on
         };
     }
@@ -2808,13 +2829,13 @@ pub const LazySrcLoc = struct {
     }
 };
 
-pub const SemaError = error{ OutOfMemory, Canceled, AnalysisFail };
+pub const SemaError = error{ OutOfMemory, Canceled, AlreadyReported };
 pub const CompileError = error{
     OutOfMemory,
     /// The compilation update is no longer desired.
     Canceled,
     /// When this is returned, the compile error for the failure has already been recorded.
-    AnalysisFail,
+    AlreadyReported,
     /// In a comptime scope, a return instruction was encountered. This error is only seen when
     /// doing a comptime function call.
     ComptimeReturn,
@@ -2825,6 +2846,11 @@ pub const CompileError = error{
 
 pub fn init(zcu: *Zcu, gpa: Allocator, io: Io, thread_count: usize) !void {
     try zcu.intern_pool.init(gpa, io, thread_count);
+}
+
+/// It is valid to not call this function before `deinit` in error paths.
+/// Requires the fields on `zcu.comp` to already be initialized.
+pub fn initAfterCompilation(zcu: *Zcu) void {
     zcu.initTracyPlots();
 }
 
@@ -4273,7 +4299,7 @@ fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.array_hash_map.Auto(Ana
                         const fqn_slice = nav.fqn.toSlice(ip);
                         if (comp.test_filters.len > 0) {
                             for (comp.test_filters) |test_filter| {
-                                if (std.mem.indexOf(u8, fqn_slice, test_filter) != null) break;
+                                if (std.mem.find(u8, fqn_slice, test_filter) != null) break;
                             } else break :a false;
                         }
                         break :a true;
@@ -4597,6 +4623,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) 
                 .x86_64_regcall_v3_sysv,
                 .x86_64_regcall_v4_win,
                 .x86_64_interrupt,
+                .x86_64_preserve_none,
                 .x86_fastcall,
                 .x86_thiscall,
                 .x86_vectorcall,
@@ -4605,6 +4632,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) 
                 .x86_interrupt,
                 .aarch64_vfabi,
                 .aarch64_vfabi_sve,
+                .aarch64_preserve_none,
                 .arm_aapcs,
                 .csky_interrupt,
                 .riscv64_lp64_v,
@@ -4612,43 +4640,26 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) 
                 .m68k_rtd,
                 .m68k_interrupt,
                 .msp430_interrupt,
-                => |opts| opts.incoming_stack_alignment == null,
-
                 .arm_aapcs_vfp,
-                => |opts| opts.incoming_stack_alignment == null,
-
                 .arc_interrupt,
-                => |opts| opts.incoming_stack_alignment == null,
-
                 .arm_interrupt,
-                => |opts| opts.incoming_stack_alignment == null,
-
                 .microblaze_interrupt,
-                => |opts| opts.incoming_stack_alignment == null,
-
                 .mips_interrupt,
                 .mips64_interrupt,
-                => |opts| opts.incoming_stack_alignment == null,
-
                 .riscv32_interrupt,
                 .riscv64_interrupt,
-                => |opts| opts.incoming_stack_alignment == null,
-
                 .sh_interrupt,
-                => |opts| opts.incoming_stack_alignment == null,
+                .avr_interrupt,
+                .avr_signal,
+                .ez80_tiflags,
+                .naked,
+                => true, // incoming stack alignment supported
 
                 .x86_sysv,
                 .x86_win,
+                .x86_mingw,
                 .x86_stdcall,
-                => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
-
-                .avr_interrupt,
-                .avr_signal,
-                => true,
-
-                .ez80_tiflags => true,
-
-                .naked => true,
+                => |opts| opts.register_params == 0, // incoming stack alignment supported
 
                 else => false,
             };
@@ -4673,6 +4684,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) 
         .stage2_x86 => switch (cc) {
             .x86_sysv,
             .x86_win,
+            .x86_mingw,
             => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
             .naked => true,
             else => false,

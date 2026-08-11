@@ -458,8 +458,6 @@ pub fn io(ev: *Evented) Io {
             .netListenUnix = netListenUnixUnavailable,
             .netConnectUnix = netConnectUnixUnavailable,
             .netSocketCreatePair = netSocketCreatePairUnavailable,
-            .netSend = netSendUnavailable,
-            .netWrite = netWriteUnavailable,
             .netWriteFile = netWriteFileUnavailable,
             .netClose = netClose,
             .netShutdown = netShutdownUnavailable,
@@ -580,6 +578,7 @@ pub fn deinit(ev: *Evented) void {
     ev.stderr_mutex.deinit();
     for (&ev.futexes) |*futex| futex.deinit();
     ev.exit_semaphore.as_object().release();
+    ev.backing_allocator_mutex.deinit();
     ev.backing_allocator.free(ev.main_loop_stack[0..main_loop_stack_size]);
     ev.queue.as_object().release();
 }
@@ -825,7 +824,7 @@ const Mutex = struct {
         sleeper: Sleeper = undefined,
         cancelable: Cancelable,
         mutex: *Mutex,
-        node: std.DoublyLinkedList.Node = undefined,
+        node: std.DoublyLinkedList.Node = .{},
 
         fn add(context: ?*anyopaque) callconv(.c) void {
             const waiter: *Waiter = @ptrCast(@alignCast(context));
@@ -1712,7 +1711,9 @@ fn operate(userdata: ?*anyopaque, operation: Io.Operation) Io.Cancelable!Io.Oper
         },
         .device_io_control => |*o| return .{ .device_io_control = try deviceIoControl(o) },
         .net_receive => @panic("TODO implement net_receive operation"),
+        .net_send => @panic("TODO implement net_send operation"),
         .net_read => @panic("TODO implement net_read operation"),
+        .net_write => @panic("TODO implement net_write operation"),
     }
 }
 
@@ -2135,6 +2136,7 @@ fn batchDrainSubmitted(
                 .device_io_control => {},
                 .net_receive => @panic("TODO implement batched net_receive"),
                 .net_read => @panic("TODO implement batched net_read"),
+                .net_write => @panic("TODO implement batched net_write"),
             };
             if (concurrency) return error.ConcurrencyUnavailable;
             break :result try operate(ev, storage.submission.operation);
@@ -2195,6 +2197,7 @@ fn batchSourceEvent(context: ?*anyopaque) callconv(.c) void {
         .device_io_control => unreachable,
         .net_receive => @panic("TODO implement batched net_receive"),
         .net_read => @panic("TODO implement batched net_read"),
+        .net_write => @panic("TODO implement batched net_write"),
     };
 
     switch (pending.node.prev) {
@@ -2781,7 +2784,7 @@ fn realPath(ev: *Evented, fd: c.fd_t, out_buffer: []u8) File.RealPathError!usize
             else => |err| return unexpectedErrno(err),
         }
     }
-    const n = std.mem.indexOfScalar(u8, &buffer, 0) orelse buffer.len;
+    const n = std.mem.findScalar(u8, &buffer, 0) orelse buffer.len;
     if (n > out_buffer.len) return error.NameTooLong;
     @memcpy(out_buffer[0..n], buffer[0..n]);
     return n;
@@ -2803,7 +2806,7 @@ fn dirRealPathFile(
         while (true) {
             if (c.realpath(sub_path_posix, out_buffer.ptr)) |redundant_pointer| {
                 assert(redundant_pointer == out_buffer.ptr);
-                return std.mem.indexOfScalar(u8, out_buffer, 0) orelse out_buffer.len;
+                return std.mem.findScalar(u8, out_buffer, 0) orelse out_buffer.len;
             }
             const err: c.E = @fromBackingInt(@intCast(c._errno().*));
             switch (err) {
@@ -3791,7 +3794,7 @@ fn fileRealPath(userdata: ?*anyopaque, file: File, out_buffer: []u8) File.RealPa
             else => |err| return unexpectedErrno(err),
         }
     }
-    const n = std.mem.indexOfScalar(u8, &buffer, 0) orelse buffer.len;
+    const n = std.mem.findScalar(u8, &buffer, 0) orelse buffer.len;
     if (n > out_buffer.len) return error.NameTooLong;
     @memcpy(out_buffer[0..n], buffer[0..n]);
     return n;
@@ -4714,7 +4717,7 @@ fn sleep(userdata: ?*anyopaque, timeout: Io.Timeout) Io.Cancelable!void {
         return ev.yield(.{ .after = ev.timeFromTimeout(timeout) });
     };
     var waiter: SleepWaiter = .{
-        .cancelable = .{ .queue = queue, .cancel = &Futex.Waiter.canceled },
+        .cancelable = .{ .queue = queue, .cancel = &SleepWaiter.canceled },
         .timer = timer,
     };
     timer.as_object().set_context(&waiter);
@@ -4865,36 +4868,6 @@ fn netSocketCreatePairUnavailable(
     return error.OperationUnsupported;
 }
 
-fn netSendUnavailable(
-    userdata: ?*anyopaque,
-    handle: net.Socket.Handle,
-    messages: []net.OutgoingMessage,
-    flags: net.SendFlags,
-) struct { ?net.Socket.SendError, usize } {
-    const ev: *Evented = @ptrCast(@alignCast(userdata));
-    _ = ev;
-    _ = handle;
-    _ = messages;
-    _ = flags;
-    return .{ error.NetworkDown, 0 };
-}
-
-fn netWriteUnavailable(
-    userdata: ?*anyopaque,
-    handle: net.Socket.Handle,
-    header: []const u8,
-    data: []const []const u8,
-    splat: usize,
-) net.Stream.Writer.Error!usize {
-    const ev: *Evented = @ptrCast(@alignCast(userdata));
-    _ = ev;
-    _ = handle;
-    _ = header;
-    _ = data;
-    _ = splat;
-    return error.NetworkDown;
-}
-
 fn netWriteFileUnavailable(
     userdata: ?*anyopaque,
     socket_handle: net.Socket.Handle,
@@ -4911,10 +4884,10 @@ fn netWriteFileUnavailable(
     return error.Unimplemented;
 }
 
-fn netClose(userdata: ?*anyopaque, handles: []const net.Socket.Handle) void {
+fn netClose(userdata: ?*anyopaque, sockets: []const net.Socket) void {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
     _ = ev;
-    for (handles) |handle| closeFd(handle);
+    for (sockets) |socket| closeFd(socket.handle);
 }
 
 fn netShutdownUnavailable(

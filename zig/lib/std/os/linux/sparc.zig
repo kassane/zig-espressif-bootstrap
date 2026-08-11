@@ -214,11 +214,11 @@ pub fn clone() callconv(.naked) u32 {
         \\
         \\ # Align, and add some extra space for the initial frame
         \\ and %%i1, -8, %%i1
-        \\ sub %%i1, 96 + 2047, %%o1
+        \\ sub %%i1, 96, %%o1
         \\
         \\ mov %%i4, %%o2
         \\ mov %%i5, %%o3
-        \\ ld [%%fp + 92 + 2047], %%o4
+        \\ ld [%%fp + 92], %%o4
         \\ t 0x10
         \\ bcs 1f
         \\  nop
@@ -260,13 +260,16 @@ pub fn clone() callconv(.naked) u32 {
 
 pub const restore = restore_rt;
 
-// Need to use C ABI here instead of naked
-// to prevent an infinite loop when calling rt_sigreturn.
-pub fn restore_rt() callconv(.c) void {
-    return asm volatile ("t 0x10"
+pub fn restore_rt() callconv(.naked) noreturn {
+    asm volatile (
+        \\ nop
+        \\ nop
+    );
+    asm volatile (
+        \\ t 0x10
         :
         : [number] "{g1}" (@backingInt(SYS.rt_sigreturn)),
-        : .{ .memory = true, .xcc = true, .o0 = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o7 = true });
+    );
 }
 
 pub const VDSO = struct {

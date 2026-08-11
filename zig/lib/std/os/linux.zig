@@ -1746,11 +1746,12 @@ pub fn close(fd: fd_t) usize {
 }
 
 pub const CLOSE_RANGE = packed struct(u32) {
+    _0: u1 = 0,
     /// Unshare the file descriptor table before closing file descriptors.
     UNSHARE: bool, // 0x00000001
     /// Set the FD_CLOEXEC bit instead of closing the file descriptor.
     CLOEXEC: bool, // 0x00000002
-    _: u30 = 0,
+    _: u29 = 0,
 };
 
 pub fn close_range(first: fd_t, last: fd_t, flags: CLOSE_RANGE) usize {
@@ -2058,8 +2059,8 @@ pub const F = struct {
         },
     };
 
-    pub const SETSIG = if (is_hppa or native_arch == .alpha) 13 else 11;
-    pub const GETSIG = if (is_hppa or native_arch == .alpha) 14 else 12;
+    pub const SETSIG = if (is_hppa) 13 else 10;
+    pub const GETSIG = if (is_hppa) 14 else 11;
 
     pub const SETOWN_EX = 15;
     pub const GETOWN_EX = 16;
@@ -8181,13 +8182,11 @@ pub const rusage = extern struct {
 
 pub const NCC = if (is_ppc) 10 else 8;
 pub const NCCS = if (is_mips)
-    32
-else if (is_ppc or native_arch == .alpha)
-    19
+    23
 else if (is_sparc)
     17
 else
-    32;
+    19;
 
 pub const speed_t = if (is_ppc) enum(c_uint) {
     B0 = 0x0000000,

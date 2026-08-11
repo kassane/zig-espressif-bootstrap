@@ -359,7 +359,6 @@ fn mainArgs(
                 .prepend_global_cache_path = true,
                 .prepend_zig_exe_path = true,
                 .prepend_seed = true,
-                .debug_env_var = .ZIG_DEBUG_MAKER,
                 .release_mode = .safe,
             });
         },
@@ -557,10 +556,6 @@ const usage_build_generic =
     \\  -fno-function-sections    All functions go into same section
     \\  -fdata-sections           Places each data in a separate section
     \\  -fno-data-sections        All data go into same section
-    \\  -fformatted-panics        Enable formatted safety panics
-    \\  -fno-formatted-panics     Disable formatted safety panics
-    \\  -fstructured-cfg          (SPIR-V) force SPIR-V kernels to use structured control flow
-    \\  -fno-structured-cfg       (SPIR-V) force SPIR-V kernels to not use structured control flow
     \\  -mexec-model=[value]      (WASI) Execution model
     \\  -municode                 (Windows) Use wmain/wWinMain as entry point
     \\  --time-report             Send timing diagnostics to '--listen' clients
@@ -1200,10 +1195,6 @@ fn buildOutputType(
                             if (mem.eql(u8, next_arg, "--")) break;
                             try extra_rcflags.append(arena, next_arg);
                         }
-                    } else if (mem.eql(u8, arg, "-fstructured-cfg")) {
-                        mod_opts.structured_cfg = true;
-                    } else if (mem.eql(u8, arg, "-fno-structured-cfg")) {
-                        mod_opts.structured_cfg = false;
                     } else if (mem.eql(u8, arg, "--color")) {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected [auto|on|off] after --color", .{});
@@ -1650,12 +1641,6 @@ fn buildOutputType(
                         create_module.opts.debug_format = .{ .dwarf = .@"32" };
                     } else if (mem.eql(u8, arg, "-gdwarf64")) {
                         create_module.opts.debug_format = .{ .dwarf = .@"64" };
-                    } else if (mem.eql(u8, arg, "-fformatted-panics")) {
-                        // Remove this after 0.15.0 is tagged.
-                        warn("-fformatted-panics is deprecated and does nothing", .{});
-                    } else if (mem.eql(u8, arg, "-fno-formatted-panics")) {
-                        // Remove this after 0.15.0 is tagged.
-                        warn("-fno-formatted-panics is deprecated and does nothing", .{});
                     } else if (mem.eql(u8, arg, "-fsingle-threaded")) {
                         mod_opts.single_threaded = true;
                     } else if (mem.eql(u8, arg, "-fno-single-threaded")) {
@@ -2162,7 +2147,7 @@ fn buildOutputType(
                                 preprocessor_arg[0] == '-' and
                                 preprocessor_arg[2] != '-')
                             {
-                                if (mem.indexOfScalar(u8, preprocessor_arg, '=')) |equals_pos| {
+                                if (mem.findScalar(u8, preprocessor_arg, '=')) |equals_pos| {
                                     const key = preprocessor_arg[0..equals_pos];
                                     const value = preprocessor_arg[equals_pos + 1 ..];
                                     try preprocessor_args.append(key);
@@ -2184,7 +2169,7 @@ fn buildOutputType(
                                 linker_arg[0] == '-' and
                                 linker_arg[2] != '-')
                             {
-                                if (mem.indexOfScalar(u8, linker_arg, '=')) |equals_pos| {
+                                if (mem.findScalar(u8, linker_arg, '=')) |equals_pos| {
                                     const key = linker_arg[0..equals_pos];
                                     const value = linker_arg[equals_pos + 1 ..];
 
@@ -2392,7 +2377,7 @@ fn buildOutputType(
                         // Handle joined args like `--dependency-file=foo.d`.
                         // Must be prefixed with 1 or 2 dashes.
                         if (it.only_arg.len >= 3 and it.only_arg[0] == '-' and it.only_arg[2] != '-') {
-                            if (mem.indexOfScalar(u8, it.only_arg, '=')) |equals_pos| {
+                            if (mem.findScalar(u8, it.only_arg, '=')) |equals_pos| {
                                 const key = it.only_arg[0..equals_pos];
                                 const value = it.only_arg[equals_pos + 1 ..];
 
@@ -3835,11 +3820,17 @@ fn buildOutputType(
 
             var prev_has_cflags = false;
             var prev_has_rcflags = false;
-            if (dirs.zig_lib.path) |zig_lib_path| {
-                try test_exec_args.appendSlice(arena, &.{ "-cflags", "-I", zig_lib_path, "--" });
-                prev_has_cflags = true;
+            {
+                if (dirs.zig_lib.path) |zig_lib_path| {
+                    try test_exec_args.appendSlice(arena, &.{ "-cflags", "-I", zig_lib_path, "--" });
+                    prev_has_cflags = true;
+                }
+                const emit_ext: Compilation.FileExt = .c;
+                const need_lang = if (comp.emit_bin) |comp_emit_bin| Compilation.classifyFileExt(comp_emit_bin) != emit_ext else true;
+                if (need_lang) try test_exec_args.appendSlice(arena, &.{ "-x", emit_ext.toLang() });
+                try test_exec_args.append(arena, null);
+                if (need_lang) try test_exec_args.appendSlice(arena, &.{ "-x", "none" });
             }
-            try test_exec_args.append(arena, null);
             for (create_module.modules.keys(), create_module.modules.values()) |mod_name, mod| {
                 for (create_module.c_source_files.items[mod.c_source_files_start..mod.c_source_files_end]) |c_source_file| {
                     const cflags_len = c_source_file.extra_flags.len + c_source_file.cache_exempt_flags.len;
@@ -4305,11 +4296,8 @@ fn serve(
     const gpa = comp.gpa;
     const io = comp.io;
 
-    var server = try Server.init(.{
-        .in = in,
-        .out = out,
-        .zig_version = build_options.version,
-    });
+    var server: Server = .{ .in = in, .out = out };
+    try server.serveStringMessage(.zig_version, build_options.version);
 
     var child_pid: ?std.process.Child.Id = null;
 
@@ -4874,7 +4862,6 @@ const JitCmdOptions = struct {
     capture: ?*[]u8 = null,
     /// Send error bundles via std.zig.Server over stdout
     server: bool = false,
-    debug_env_var: EnvVar = .ZIG_DEBUG_CMD,
     release_mode: std.lang.Optimize = .fast,
 };
 
@@ -4926,7 +4913,7 @@ fn jitCmdInner(
     const self_exe_path = process.executablePathAlloc(io, arena) catch |err|
         fatal("unable to find self exe path: {t}", .{err});
 
-    const optimize_mode: std.lang.Optimize = if (options.debug_env_var.isSet(environ_map))
+    const optimize_mode: std.lang.Optimize = if (EnvVar.ZIG_DEBUG_CMD.isSet(environ_map))
         .debug
     else
         options.release_mode;

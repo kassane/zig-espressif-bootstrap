@@ -778,8 +778,6 @@ pub fn io(ev: *Evented) Io {
             .netListenUnix = netListenUnixUnavailable,
             .netConnectUnix = netConnectUnixUnavailable,
             .netSocketCreatePair = netSocketCreatePairUnavailable,
-            .netSend = netSendUnavailable,
-            .netWrite = netWriteUnavailable,
             .netWriteFile = netWriteFileUnavailable,
             .netClose = netClose,
             .netShutdown = netShutdown,
@@ -1135,8 +1133,9 @@ fn mainIdleEntry() callconv(.naked) void {
 
 fn mainIdle(
     ev: *Evented,
-    message: *const SwitchMessage,
+    contexts: *const Io.fiber.Switch,
 ) callconv(.withStackAlign(.c, @max(@alignOf(Thread), @alignOf(Io.fiber.Context)))) noreturn {
+    const message: *const SwitchMessage = @fieldParentPtr("contexts", contexts);
     message.handle(ev);
     ev.idle(&ev.threads.allocated[0]);
     ev.yield(@ptrCast(&ev.main_fiber_buffer), .nothing);
@@ -1414,8 +1413,9 @@ const AsyncClosure = struct {
 
     fn call(
         closure: *AsyncClosure,
-        message: *const SwitchMessage,
+        contexts: *const Io.fiber.Switch,
     ) callconv(.withStackAlign(.c, @alignOf(AsyncClosure))) noreturn {
+        const message: *const SwitchMessage = @fieldParentPtr("contexts", contexts);
         const ev = closure.evented;
         const fiber = closure.fiber;
         message.handle(ev);
@@ -1779,8 +1779,9 @@ const Group = struct {
 
         fn call(
             closure: *Group.AsyncClosure,
-            message: *const SwitchMessage,
+            contexts: *const Io.fiber.Switch,
         ) callconv(.withStackAlign(.c, @alignOf(Group.AsyncClosure))) noreturn {
+            const message: *const SwitchMessage = @fieldParentPtr("contexts", contexts);
             const ev = closure.evented;
             const fiber = closure.fiber;
             message.handle(ev);
@@ -2104,12 +2105,19 @@ fn operate(userdata: ?*anyopaque, operation: Io.Operation) Io.Cancelable!Io.Oper
                 };
             },
         },
+        .net_send => |o| .{
+            .net_send = r: {
+                _ = o;
+                break :r .{ error.NetworkDown, 0 }; // TODO
+            },
+        },
         .net_read => |o| .{
             .net_read = r: {
                 _ = o;
                 break :r error.NetworkDown; // TODO
             },
         },
+        .net_write => @panic("TODO implement net_write operation"),
     };
 }
 
@@ -2397,9 +2405,17 @@ fn batchDrainSubmitted(
                 _ = o;
                 @panic("TODO implement batchDrainSubmitted for net_receive");
             },
+            .net_send => |o| {
+                _ = o;
+                @panic("TODO implement batchDrainSubmitted for net_send");
+            },
             .net_read => |o| {
                 _ = o;
                 @panic("TODO implement batchDrainSubmitted for net_read");
+            },
+            .net_write => |o| {
+                _ = o;
+                @panic("TODO implement batchDrainSubmitted for net_write");
             },
         })) |result| {
             switch (batch.completed.tail) {
@@ -2502,7 +2518,9 @@ fn batchDrainReady(batch: *Io.Batch) Io.Timeout.Error!void {
                 },
                 .device_io_control => unreachable,
                 .net_receive => @panic("TODO"),
+                .net_send => @panic("TODO"),
                 .net_read => @panic("TODO"),
+                .net_write => @panic("TODO"),
             })) |result| {
                 switch (batch.completed.tail) {
                     .none => batch.completed.head = index,
@@ -3558,7 +3576,7 @@ fn dirHardLink(
         old_sub_path_posix,
         new_dir.handle,
         new_sub_path_posix,
-        if (options.follow_symlinks) 0 else linux.AT.SYMLINK_NOFOLLOW,
+        if (options.follow_symlinks) linux.AT.SYMLINK_FOLLOW else 0,
     );
 }
 
@@ -3990,7 +4008,7 @@ fn fileHardLink(
         "",
         new_dir.handle,
         new_sub_path_posix,
-        linux.AT.EMPTY_PATH | @as(u32, if (options.follow_symlinks) 0 else linux.AT.SYMLINK_NOFOLLOW),
+        linux.AT.EMPTY_PATH | @as(u32, if (options.follow_symlinks) linux.AT.SYMLINK_FOLLOW else 0),
     );
 }
 
@@ -5051,20 +5069,6 @@ fn netSocketCreatePairUnavailable(
     return error.OperationUnsupported;
 }
 
-fn netSendUnavailable(
-    userdata: ?*anyopaque,
-    handle: net.Socket.Handle,
-    messages: []net.OutgoingMessage,
-    flags: net.SendFlags,
-) struct { ?net.Socket.SendError, usize } {
-    const ev: *Evented = @ptrCast(@alignCast(userdata));
-    _ = ev;
-    _ = handle;
-    _ = messages;
-    _ = flags;
-    return .{ error.NetworkDown, 0 };
-}
-
 fn netReceive(
     ev: *Evented,
     cancel_region: *CancelRegion,
@@ -5154,22 +5158,6 @@ fn netReceive(
     }
 }
 
-fn netWriteUnavailable(
-    userdata: ?*anyopaque,
-    handle: net.Socket.Handle,
-    header: []const u8,
-    data: []const []const u8,
-    splat: usize,
-) net.Stream.Writer.Error!usize {
-    const ev: *Evented = @ptrCast(@alignCast(userdata));
-    _ = ev;
-    _ = handle;
-    _ = header;
-    _ = data;
-    _ = splat;
-    return error.NetworkDown;
-}
-
 fn netWriteFileUnavailable(
     userdata: ?*anyopaque,
     socket_handle: net.Socket.Handle,
@@ -5186,9 +5174,9 @@ fn netWriteFileUnavailable(
     return error.Unimplemented;
 }
 
-fn netClose(userdata: ?*anyopaque, handles: []const net.Socket.Handle) void {
+fn netClose(userdata: ?*anyopaque, sockets: []const net.Socket) void {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
-    for (handles) |handle| ev.close(handle);
+    for (sockets) |sock| ev.close(sock.handle);
 }
 
 fn netShutdown(
@@ -5295,6 +5283,7 @@ fn bind(
         switch (cancel_region.errno()) {
             .SUCCESS => return,
             .INTR, .CANCELED => {},
+            .ACCES => return error.AccessDenied,
             .ADDRINUSE => return error.AddressInUse,
             .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .INVAL => |err| return errnoBug(err), // invalid parameters
@@ -5542,6 +5531,8 @@ fn linkat(
     new_path: [*:0]const u8,
     flags: u32,
 ) File.HardLinkError!void {
+    // allowed flags: https://man7.org/linux/man-pages/man2/linkat.2.html
+    assert(flags & ~(@as(u32, linux.AT.SYMLINK_FOLLOW | linux.AT.EMPTY_PATH)) == 0);
     while (true) {
         const thread = try cancel_region.awaitIoUring();
         thread.enqueue().* = .{

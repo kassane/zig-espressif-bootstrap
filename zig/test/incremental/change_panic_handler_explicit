@@ -23,6 +23,7 @@ pub const panic = struct {
     pub const castToNull = no_panic.castToNull;
     pub const incorrectAlignment = no_panic.incorrectAlignment;
     pub const invalidErrorCode = no_panic.invalidErrorCode;
+    pub const unexpectedErrorCode = no_panic.unexpectedErrorCode;
     pub const integerOutOfBounds = no_panic.integerOutOfBounds;
     pub const shlOverflow = no_panic.shlOverflow;
     pub const shrOverflow = no_panic.shrOverflow;
@@ -36,6 +37,7 @@ pub const panic = struct {
     pub const copyLenMismatch = no_panic.copyLenMismatch;
     pub const memcpyAlias = no_panic.memcpyAlias;
     pub const noreturnReturned = no_panic.noreturnReturned;
+    pub const loadUninstantiableType = no_panic.loadUninstantiableType;
 };
 fn myPanic(msg: []const u8, _: ?usize) noreturn {
     var stdout_writer = std.Io.File.stdout().writerStreaming(io, &.{});
@@ -71,6 +73,7 @@ pub const panic = struct {
     pub const castToNull = no_panic.castToNull;
     pub const incorrectAlignment = no_panic.incorrectAlignment;
     pub const invalidErrorCode = no_panic.invalidErrorCode;
+    pub const unexpectedErrorCode = no_panic.unexpectedErrorCode;
     pub const integerOutOfBounds = no_panic.integerOutOfBounds;
     pub const shlOverflow = no_panic.shlOverflow;
     pub const shrOverflow = no_panic.shrOverflow;
@@ -84,6 +87,7 @@ pub const panic = struct {
     pub const copyLenMismatch = no_panic.copyLenMismatch;
     pub const memcpyAlias = no_panic.memcpyAlias;
     pub const noreturnReturned = no_panic.noreturnReturned;
+    pub const loadUninstantiableType = no_panic.loadUninstantiableType;
 };
 fn myPanic(msg: []const u8, _: ?usize) noreturn {
     var stdout_writer = std.Io.File.stdout().writerStreaming(io, &.{});
@@ -119,6 +123,7 @@ pub const panic = struct {
     pub const castToNull = no_panic.castToNull;
     pub const incorrectAlignment = no_panic.incorrectAlignment;
     pub const invalidErrorCode = no_panic.invalidErrorCode;
+    pub const unexpectedErrorCode = no_panic.unexpectedErrorCode;
     pub const integerOutOfBounds = no_panic.integerOutOfBounds;
     pub const shlOverflow = no_panic.shlOverflow;
     pub const shrOverflow = no_panic.shrOverflow;
@@ -132,6 +137,7 @@ pub const panic = struct {
     pub const copyLenMismatch = no_panic.copyLenMismatch;
     pub const memcpyAlias = no_panic.memcpyAlias;
     pub const noreturnReturned = no_panic.noreturnReturned;
+    pub const loadUninstantiableType = no_panic.loadUninstantiableType;
 };
 fn myPanicNew(msg: []const u8, _: ?usize) noreturn {
     var stdout_writer = std.Io.File.stdout().writerStreaming(io, &.{});

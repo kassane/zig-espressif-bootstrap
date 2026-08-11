@@ -306,8 +306,8 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) link.Error!void {
 
     try object_files.ensureUnusedCapacity(arena, comp.link_inputs.len);
     for (comp.link_inputs) |input| switch (input) {
-        .res, .dso, .dso_exact => {}, // shared libraries should not be included in static archives
-        .object, .archive => {
+        .dso, .dso_exact, .archive => {}, // static archives should not contain shared libraries or other static archives
+        .res, .object => {
             const path = try input.path().?.toStringZ(arena);
             object_files.appendAssumeCapacity(path);
         },
@@ -394,7 +394,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
     const target = &comp.root_mod.resolved_target.result;
     const optimize_mode = comp.root_mod.optimize_mode;
     const entry_name: ?[]const u8 = switch (coff.entry) {
-        // This logic isn't quite right for disabled or enabled. No point in fixing it
+        // This logic isn't quite right for default or enabled. No point in fixing it
         // when the goal is to eliminate dependency on LLD anyway.
         // https://github.com/ziglang/zig/issues/17751
         .disabled, .default, .enabled => null,
@@ -503,6 +503,8 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
 
         if (entry_name) |name| {
             try argv.append(try arena.print("-ENTRY:{s}", .{name}));
+        } else if (coff.entry == .disabled) {
+            try argv.append("-NOENTRY");
         }
 
         if (coff.repro) {
@@ -1021,8 +1023,8 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
         }
 
         if (is_exe_or_dyn_lib and target.os.tag == .netbsd) {
-            // Add options to produce shared objects with only 2 PT_LOAD segments.
-            // NetBSD expects 2 PT_LOAD segments in a shared object, otherwise
+            // Add options to produce shared objects with only 2 PT.LOAD segments.
+            // NetBSD expects 2 PT.LOAD segments in a shared object, otherwise
             // ld.elf_so fails loading dynamic libraries with "not found" error.
             // See https://github.com/ziglang/zig/issues/9109 .
             try argv.append("--no-rosegment");

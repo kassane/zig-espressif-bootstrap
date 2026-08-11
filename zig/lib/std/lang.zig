@@ -210,10 +210,12 @@ pub const CallingConvention = union(enum(u8)) {
     x86_64_regcall_v4_win: CommonOptions,
     x86_64_vectorcall: CommonOptions,
     x86_64_interrupt: CommonOptions,
+    x86_64_preserve_none: CommonOptions,
 
     // Calling conventions for the `x86` architecture.
     x86_sysv: X86RegparmOptions,
     x86_win: X86RegparmOptions,
+    x86_mingw: X86RegparmOptions,
     x86_stdcall: X86RegparmOptions,
     x86_fastcall: CommonOptions,
     x86_thiscall: CommonOptions,
@@ -236,6 +238,7 @@ pub const CallingConvention = union(enum(u8)) {
     aarch64_aapcs_win: CommonOptions,
     aarch64_vfabi: CommonOptions,
     aarch64_vfabi_sve: CommonOptions,
+    aarch64_preserve_none: CommonOptions,
 
     /// The standard `alpha` calling convention.
     alpha_osf: CommonOptions,

@@ -175,6 +175,8 @@ pub const GeneralNameTag = enum(u5) {
     _,
 };
 
+const net = @import("../Io/net.zig");
+
 pub const Parsed = struct {
     certificate: Certificate,
     issuer_slice: Slice,
@@ -315,6 +317,7 @@ pub const Parsed = struct {
         // what to check. Otherwise, only the common name is checked.
         const subject_alt_name = parsed_subject.subjectAltName();
         if (subject_alt_name.len == 0) {
+            // note: checkIpAddress is intentionally omitted, as it is not permitted in the common name field anyway.
             if (checkHostName(host_name, parsed_subject.commonName())) {
                 return;
             } else {
@@ -331,6 +334,10 @@ pub const Parsed = struct {
                 .dNSName => {
                     const dns_name = subject_alt_name[general_name.slice.start..general_name.slice.end];
                     if (checkHostName(host_name, dns_name)) return;
+                },
+                .iPAddress => {
+                    const ip_address = subject_alt_name[general_name.slice.start..general_name.slice.end];
+                    if (checkIpAddress(host_name, ip_address)) return;
                 },
                 else => {},
             }
@@ -376,6 +383,22 @@ pub const Parsed = struct {
 
         return false;
     }
+
+    // Check IP address according to RFC 5280 §4.2.1.6.
+    fn checkIpAddress(host_name: []const u8, ip_address: []const u8) bool {
+        switch (ip_address.len) {
+            4 => {
+                // port is irrelevant to SAN matching, so 0 is a harmless placeholder.
+                const address = net.Ip4Address.parse(host_name, 0) catch return false;
+                return mem.eql(u8, &address.bytes, ip_address);
+            },
+            16 => {
+                const address = net.Ip6Address.parse(host_name, 0) catch return false;
+                return mem.eql(u8, &address.bytes, ip_address);
+            },
+            else => return false, // a malformed certificate, neither 4 nor 16 octets
+        }
+    }
 };
 
 test "Parsed.checkHostName RFC 6125 compliance" {
@@ -415,6 +438,39 @@ test "Parsed.checkHostName RFC 6125 compliance" {
     try expectEqual(false, Parsed.checkHostName("", "*.example.com"));
     try expectEqual(false, Parsed.checkHostName("example.com", "*"));
     try expectEqual(false, Parsed.checkHostName("example.com", "*."));
+}
+
+test "Parsed.checkIpAddress RFC 5280 4.2.1.6 compliance" {
+    const expectEqual = std.testing.expectEqual;
+
+    // Exact match positive tests
+    try expectEqual(true, Parsed.checkIpAddress("127.0.0.1", &[4]u8{ 127, 0, 0, 1 }));
+    try expectEqual(true, Parsed.checkIpAddress("0:0:0:0:0:0:0:1", &[16]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }));
+
+    // Mismatches should not pass
+    try expectEqual(false, Parsed.checkIpAddress("1.2.3.4", &[4]u8{ 5, 6, 7, 8 }));
+    try expectEqual(false, Parsed.checkIpAddress("0:0:0:0:0:0:0:1", &[16]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2 }));
+
+    // IPv6: the hostname may be in short-form and should match the exact 16 octets specified in the SAN
+    try expectEqual(true, Parsed.checkIpAddress("::1", &[16]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }));
+
+    // IPv6: do not match when using DNS64 / NAT64 (i.e. 64:ff9b::/96)
+    // the RFC requires exact octet matches, so this is likely surprising and wrong. The decision here is to fail-safe out of an abundance of caution.
+    // The test assertions are included not to harden on this behavior, but to show that this use-case was considered.
+    // This check may become more lenient in the future if a valid use-case is found.
+    try expectEqual(false, Parsed.checkIpAddress("64:ff9b::192.0.2.10", &[4]u8{ 192, 0, 2, 10 }));
+    try expectEqual(false, Parsed.checkIpAddress("::ffff:127.0.0.1", &[4]u8{ 127, 0, 0, 1 }));
+
+    // Malformed SAN lengths (not 4 or 16 octets) never match.
+    try expectEqual(false, Parsed.checkIpAddress("127.0.0", &[_]u8{ 127, 0, 0 }));
+    try expectEqual(false, Parsed.checkIpAddress("127.0.0.1.0", &[_]u8{ 127, 0, 0, 1, 0 }));
+
+    // A non-parseable host_name never matches.
+    try expectEqual(false, Parsed.checkIpAddress("not-an-ip", &[4]u8{ 127, 0, 0, 1 }));
+
+    // Edge cases - empty strings
+    try expectEqual(false, Parsed.checkIpAddress("", ""));
+    try expectEqual(false, Parsed.checkIpAddress("127.0.0.1", ""));
 }
 
 pub const ParseError = der.Element.ParseError || ParseVersionError || ParseTimeError || ParseEnumError || ParseBitStringError;
@@ -793,7 +849,7 @@ fn verifyRsa(
         inline 128, 256, 384, 512 => |modulus_len| {
             const public_key = rsa.PublicKey.fromBytes(exponent, modulus) catch
                 return error.CertificateSignatureInvalid;
-            rsa.PKCS1v1_5Signature.verify(modulus_len, sig[0..modulus_len].*, msg, public_key, Hash) catch
+            rsa.PKCS1v1_5Signature.verify(modulus_len, sig[0..modulus_len], msg, public_key, Hash) catch
                 return error.CertificateSignatureInvalid;
         },
         else => return error.CertificateSignatureUnsupportedBitCount,
@@ -983,7 +1039,7 @@ pub const rsa = struct {
 
         pub fn concatVerify(
             comptime modulus_len: usize,
-            sig: [modulus_len]u8,
+            sig: *const [modulus_len]u8,
             msg: []const []const u8,
             public_key: PublicKey,
             comptime Hash: type,
@@ -1092,9 +1148,9 @@ pub const rsa = struct {
             }
             var m_p_buf: [8 + Hash.digest_length + Hash.digest_length]u8 = undefined;
             var m_p = m_p_buf[0 .. 8 + Hash.digest_length + sLen];
-            std.mem.copyForwards(u8, m_p, @as(*const [8]u8, &@splat(0)));
-            std.mem.copyForwards(u8, m_p[8..], &mHash);
-            std.mem.copyForwards(u8, m_p[(8 + Hash.digest_length)..], salt);
+            @memmove(m_p[0..8], @as(*const [8]u8, &@splat(0)));
+            @memmove(m_p[8..][0..Hash.digest_length], &mHash);
+            @memmove(m_p[(8 + Hash.digest_length)..], salt);
 
             // 13.  Let H' = Hash(M'), an octet string of length hLen.
             var h_p: [Hash.digest_length]u8 = undefined;
@@ -1136,7 +1192,7 @@ pub const rsa = struct {
 
         pub fn verify(
             comptime modulus_len: usize,
-            sig: [modulus_len]u8,
+            sig: *const [modulus_len]u8,
             msg: []const u8,
             public_key: PublicKey,
             comptime Hash: type,
@@ -1146,7 +1202,7 @@ pub const rsa = struct {
 
         pub fn concatVerify(
             comptime modulus_len: usize,
-            sig: [modulus_len]u8,
+            sig: *const [modulus_len]u8,
             msg: []const []const u8,
             public_key: PublicKey,
             comptime Hash: type,
@@ -1187,6 +1243,11 @@ pub const rsa = struct {
             //    DigestInfo value (see the notes below) and let tLen be the length
             //    in octets of T.
             const hash_der: []const u8 = &switch (Hash) {
+                crypto.hash.Md5 => .{
+                    0x30, 0x20, 0x30, 0x0C, 0x06, 0x08, 0x2A, 0x86,
+                    0x48, 0x86, 0xF7, 0x0D, 0x02, 0x05, 0x05, 0x00,
+                    0x04, 0x10,
+                },
                 crypto.hash.Sha1 => .{
                     0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e,
                     0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14,
@@ -1211,7 +1272,17 @@ pub const rsa = struct {
                     0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05,
                     0x00, 0x04, 0x40,
                 },
-                else => @compileError("unreachable"),
+                crypto.hash.sha3.Sha3_256 => .{
+                    0x30, 0x31, 0x30, 0x0D, 0x06, 0x09, 0x60, 0x86,
+                    0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x08, 0x05,
+                    0x00, 0x04, 0x20,
+                },
+                crypto.hash.sha3.Sha3_512 => .{
+                    0x30, 0x51, 0x30, 0x0D, 0x06, 0x09, 0x60, 0x86,
+                    0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x0a, 0x05,
+                    0x00, 0x04, 0x40,
+                },
+                else => comptime unreachable,
             };
             em_index -= hash_der.len;
             @memcpy(em[em_index..][0..hash_der.len], hash_der);
@@ -1292,8 +1363,8 @@ pub const rsa = struct {
 
     const EncryptError = error{MessageTooLong};
 
-    fn encrypt(comptime modulus_len: usize, msg: [modulus_len]u8, public_key: PublicKey) EncryptError![modulus_len]u8 {
-        const m = Fe.fromBytes(public_key.n, &msg, .big) catch return error.MessageTooLong;
+    fn encrypt(comptime modulus_len: usize, msg: *const [modulus_len]u8, public_key: PublicKey) EncryptError![modulus_len]u8 {
+        const m = Fe.fromBytes(public_key.n, msg, .big) catch return error.MessageTooLong;
         const e = public_key.n.powPublic(m, public_key.e) catch unreachable;
         var res: [modulus_len]u8 = undefined;
         e.toBytes(&res, .big) catch unreachable;
