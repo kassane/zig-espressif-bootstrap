@@ -194,7 +194,8 @@ pub const Feature = enum {
     xespdsp,
     xesploop,
     xespv,
-    xespv1v,
+    xespv2p1,
+    xespv2p2,
     xmipscbop,
     xmipscmov,
     xmipsexectl,
@@ -1638,11 +1639,18 @@ pub const all_features = blk: {
     result[@backingInt(Feature.xespv)] = .{
         .llvm_name = "xespv",
         .description = "'Xespv' ('Espressif ESPV 2.2')",
+        .dependencies = featureSet(&[_]Feature{
+            .xespv2p2,
+        }),
+    };
+    result[@backingInt(Feature.xespv2p1)] = .{
+        .llvm_name = "xespv2p1",
+        .description = "'Espressif ESPV 2.1'",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@backingInt(Feature.xespv1v)] = .{
-        .llvm_name = "xespv1v",
-        .description = "'Xespv1v' ('Espressif ESPV 2.1')",
+    result[@backingInt(Feature.xespv2p2)] = .{
+        .llvm_name = "xespv2p2",
+        .description = "'Espressif ESPV 2.2'",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@backingInt(Feature.xmipscbop)] = .{
@@ -3031,7 +3039,7 @@ pub const cpu = struct {
             .i,
             .m,
             .xesploop,
-            .xespv1v,
+            .xespv2p1,
             .zcb,
             .zcmt,
             .zifencei,

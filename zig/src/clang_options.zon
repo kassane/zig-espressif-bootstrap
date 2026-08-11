@@ -3036,7 +3036,7 @@
 .{ .name = "msvr4-struct-return" },
 .{ .name = "mtail-call", .ze = .m },
 .{ .name = "mtbm", .ze = .m },
-.{ .name = "mtext-section-literals" },
+.{ .name = "mtext-section-literals", .ze = .m },
 .{ .name = "mtgsplit", .ze = .m },
 .{ .name = "mthread-model", .syntax = .separate },
 .{ .name = "mthumb" },

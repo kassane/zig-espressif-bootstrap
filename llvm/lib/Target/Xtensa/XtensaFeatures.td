@@ -186,4 +186,4 @@ def HasHIFI3 : Predicate<"Subtarget->hasHIFI3()">,
 
 def FeatureTextSectionLiterals : SubtargetFeature<"text-section-literals", 
                                                   "UseTextSectionLiterals", "true",
-                                                  "Place literals in text sections">;
+                                                  "Enable Xtensa Text Section Literals option">;

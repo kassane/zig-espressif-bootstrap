@@ -2450,7 +2450,7 @@ fn processOneTargetInner(io: Io, job: Job) !void {
     for (all_features.items) |feature| {
         if (feature.llvm_name) |llvm_name| {
             try w.print(
-                \\    result[@intFromEnum(Feature.{f})] = .{{
+                \\    result[@backingInt(Feature.{f})] = .{{
                 \\        .llvm_name = "{f}",
                 \\        .description = "{f}",
                 \\        .dependencies = featureSet(&[_]Feature{{
@@ -2463,7 +2463,7 @@ fn processOneTargetInner(io: Io, job: Job) !void {
             );
         } else {
             try w.print(
-                \\    result[@intFromEnum(Feature.{f})] = .{{
+                \\    result[@backingInt(Feature.{f})] = .{{
                 \\        .llvm_name = null,
                 \\        .description = "{f}",
                 \\        .dependencies = featureSet(&[_]Feature{{
@@ -2622,6 +2622,11 @@ fn llvmFeatureNameToZigNameOmit(
     target: ArchTarget,
     llvm_name: []const u8,
 ) !?[]const u8 {
+    // Features with an empty Name are never added to `features_table`
+    // (see the `llvm_name.len == 0` skip in the collate loop), so they
+    // must not resolve to dependencies either. Espressif's RISCV td uses
+    // one (`FeatureVendorXespvEnable`) to chain versioned Xespv features.
+    if (llvm_name.len == 0) return null;
     for (target.feature_overrides) |feature_override| {
         if (mem.eql(u8, feature_override.llvm_name, llvm_name)) {
             if (feature_override.omit) return null;
