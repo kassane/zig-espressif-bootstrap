@@ -9678,7 +9678,7 @@ def ESP_SUBX4: EspVInst<(outs GPRPIE:$rd), (ins GPRPIE:$rs1, GPRPIE:$rs2),
 
 def ESP_ANDQ: EspVInst<(outs QR:$qz), (ins QR:$qx, QR:$qy),
                    "esp.andq\t $qz, $qx, $qy", 
-                   [(set QR:$qz, (int_riscv_esp_andq_m QR:$qx, QR:$qy))]> 
+                   [(set QR:$qz, (int_riscv_esp_andq QR:$qx, QR:$qy))]> 
 {
   bits<3> qx;
   bits<3> qy;
@@ -9715,14 +9715,9 @@ def ESP_ANDQ: EspVInst<(outs QR:$qz), (ins QR:$qx, QR:$qy),
   let Inst{0} = 1;
 }
 
-let usesCustomInserter = 1 in 
-def ESP_ANDQ_P : PseudoEsp<(outs), (ins imm8:$qx, imm8:$qy, imm8:$qz),
-				"!esp_andq_p $qz, $qx, $qy",
-			[(int_riscv_esp_andq timm:$qx, timm:$qy, timm:$qz)]>;
-
 def ESP_NOTQ: EspVInst<(outs QR:$qz), (ins QR:$qx),
                    "esp.notq\t $qz, $qx", 
-                   [(set QR:$qz, (int_riscv_esp_notq_m QR:$qx))]> 
+                   [(set QR:$qz, (int_riscv_esp_notq QR:$qx))]> 
 {
   bits<3> qx;
   bits<3> qz;
@@ -9760,14 +9755,9 @@ def ESP_NOTQ: EspVInst<(outs QR:$qz), (ins QR:$qx),
   let Inst{0} = 1;
 }
 
-let usesCustomInserter = 1 in 
-def ESP_NOTQ_P : PseudoEsp<(outs), (ins imm8:$qx, imm8:$qz),
-				"!esp_notq_p $qz, $qx",
-			[(int_riscv_esp_notq timm:$qx, timm:$qz)]>;
-
 def ESP_ORQ: EspVInst<(outs QR:$qz), (ins QR:$qx, QR:$qy),
                    "esp.orq\t $qz, $qx, $qy", 
-                   [(set QR:$qz, (int_riscv_esp_orq_m QR:$qx, QR:$qy))]> 
+                   [(set QR:$qz, (int_riscv_esp_orq QR:$qx, QR:$qy))]> 
 {
   bits<3> qx;
   bits<3> qy;
@@ -9804,14 +9794,9 @@ def ESP_ORQ: EspVInst<(outs QR:$qz), (ins QR:$qx, QR:$qy),
   let Inst{0} = 1;
 }
 
-let usesCustomInserter = 1 in 
-def ESP_ORQ_P : PseudoEsp<(outs), (ins imm8:$qx, imm8:$qy, imm8:$qz),
-				"!esp_orq_p $qz, $qx, $qy",
-			[(int_riscv_esp_orq timm:$qx, timm:$qy, timm:$qz)]>;
-
 def ESP_XORQ: EspVInst<(outs QR:$qz), (ins QR:$qx, QR:$qy),
                    "esp.xorq\t $qz, $qx, $qy", 
-                   [(set QR:$qz, (int_riscv_esp_xorq_m QR:$qx, QR:$qy))]> 
+                   [(set QR:$qz, (int_riscv_esp_xorq QR:$qx, QR:$qy))]> 
 {
   bits<3> qx;
   bits<3> qy;
@@ -9847,11 +9832,6 @@ def ESP_XORQ: EspVInst<(outs QR:$qz), (ins QR:$qx, QR:$qy),
   let Inst{1} = 1;
   let Inst{0} = 1;
 }
-
-let usesCustomInserter = 1 in 
-def ESP_XORQ_P : PseudoEsp<(outs), (ins imm8:$qx, imm8:$qy, imm8:$qz),
-				"!esp_xorq_p $qz, $qx, $qy",
-			[(int_riscv_esp_xorq timm:$qx, timm:$qy, timm:$qz)]>;
 
 def ESP_VCMP_EQ_S16: EspVInst<(outs QR:$qz), (ins QR:$qx, QR:$qy),
                    "esp.vcmp.eq.s16\t $qz, $qx, $qy", 
@@ -26128,7 +26108,8 @@ def ESP_SUBX4_2P2_P : PseudoEsp<(outs), (ins GPRPIE:$rs1, GPRPIE:$rs2, GPRPIE:$r
 			[(int_riscv_esp_subx4_2p2 GPRPIE:$rs1, GPRPIE:$rs2, GPRPIE:$rd)]>;
 
 def ESP_ANDQ_2P2: Esp32V2P2Inst<(outs QR:$qz), (ins QR:$qx, QR:$qy),
-                   "esp.andq\t $qz, $qx, $qy", []> 
+                   "esp.andq\t $qz, $qx, $qy",
+                   [(set QR:$qz, (int_riscv_esp_andq QR:$qx, QR:$qy))]> 
 {
   bits<3> qx;
   bits<3> qy;
@@ -26165,13 +26146,9 @@ def ESP_ANDQ_2P2: Esp32V2P2Inst<(outs QR:$qz), (ins QR:$qx, QR:$qy),
   let Inst{0} = 1;
 }
 
-let usesCustomInserter = 1 in 
-def ESP_ANDQ_2P2_P : PseudoEsp<(outs), (ins imm8:$qx, imm8:$qy, imm8:$qz),
-				"!esp_andq_2p2_p $qz, $qx, $qy",
-			[(int_riscv_esp_andq_2p2 timm:$qx, timm:$qy, timm:$qz)]>;
-
 def ESP_NOTQ_2P2: Esp32V2P2Inst<(outs QR:$qz), (ins QR:$qx),
-                   "esp.notq\t $qz, $qx", []> 
+                   "esp.notq\t $qz, $qx",
+                   [(set QR:$qz, (int_riscv_esp_notq QR:$qx))]> 
 {
   bits<3> qx;
   bits<3> qz;
@@ -26209,13 +26186,9 @@ def ESP_NOTQ_2P2: Esp32V2P2Inst<(outs QR:$qz), (ins QR:$qx),
   let Inst{0} = 1;
 }
 
-let usesCustomInserter = 1 in 
-def ESP_NOTQ_2P2_P : PseudoEsp<(outs), (ins imm8:$qx, imm8:$qz),
-				"!esp_notq_2p2_p $qz, $qx",
-			[(int_riscv_esp_notq_2p2 timm:$qx, timm:$qz)]>;
-
 def ESP_ORQ_2P2: Esp32V2P2Inst<(outs QR:$qz), (ins QR:$qx, QR:$qy),
-                   "esp.orq\t $qz, $qx, $qy", []> 
+                   "esp.orq\t $qz, $qx, $qy",
+                   [(set QR:$qz, (int_riscv_esp_orq QR:$qx, QR:$qy))]> 
 {
   bits<3> qx;
   bits<3> qy;
@@ -26252,13 +26225,9 @@ def ESP_ORQ_2P2: Esp32V2P2Inst<(outs QR:$qz), (ins QR:$qx, QR:$qy),
   let Inst{0} = 1;
 }
 
-let usesCustomInserter = 1 in 
-def ESP_ORQ_2P2_P : PseudoEsp<(outs), (ins imm8:$qx, imm8:$qy, imm8:$qz),
-				"!esp_orq_2p2_p $qz, $qx, $qy",
-			[(int_riscv_esp_orq_2p2 timm:$qx, timm:$qy, timm:$qz)]>;
-
 def ESP_XORQ_2P2: Esp32V2P2Inst<(outs QR:$qz), (ins QR:$qx, QR:$qy),
-                   "esp.xorq\t $qz, $qx, $qy", []> 
+                   "esp.xorq\t $qz, $qx, $qy",
+                   [(set QR:$qz, (int_riscv_esp_xorq QR:$qx, QR:$qy))]> 
 {
   bits<3> qx;
   bits<3> qy;
@@ -26294,11 +26263,6 @@ def ESP_XORQ_2P2: Esp32V2P2Inst<(outs QR:$qz), (ins QR:$qx, QR:$qy),
   let Inst{1} = 1;
   let Inst{0} = 1;
 }
-
-let usesCustomInserter = 1 in 
-def ESP_XORQ_2P2_P : PseudoEsp<(outs), (ins imm8:$qx, imm8:$qy, imm8:$qz),
-				"!esp_xorq_2p2_p $qz, $qx, $qy",
-			[(int_riscv_esp_xorq_2p2 timm:$qx, timm:$qy, timm:$qz)]>;
 
 def ESP_VCMP_EQ_S16_2P2: Esp32V2P2Inst<(outs QR:$qz), (ins QR:$qx, QR:$qy),
                    "esp.vcmp.eq.s16\t $qz, $qx, $qy", []> 
@@ -33067,10 +33031,10 @@ def ESP_ST_U_XACC_IP_2P2_P : PseudoEsp<(outs GPRPIE:$rs1r), (ins GPRPIE:$rs1, of
 // Returns qz (shifted result)
 // Input: SAR_BYTES (explicit, 32-bit, only low 4 bits used, range 0-15), qy, qw
 def : Pat<(int_riscv_esp_src_q_m i32:$sar_bytes, v16i8:$qy, v16i8:$qw),
-          (ESP_SRC_Q SAR_BYTESReg:$sar_bytes, QR:$qy, QR:$qw)>, Requires<[HasVendorXespv]>;
+          (ESP_SRC_Q SAR_BYTESReg:$sar_bytes, QR:$qy, QR:$qw)>, Requires<[HasVendorXespv2p2]>;
 
 // SRC.Q.qup - Match intrinsic directly to instruction
 // Returns: qz (new), qw (updated)
 // Input: SAR_BYTES (explicit, 32-bit, only low 4 bits used, range 0-15), qy, qw
 def : Pat<(int_riscv_esp_src_q_qup_m i32:$sar_bytes, v16i8:$qy, v16i8:$qw),
-          (ESP_SRC_Q_QUP SAR_BYTESReg:$sar_bytes, QR:$qy, QR:$qw)>, Requires<[HasVendorXespv]>;
+          (ESP_SRC_Q_QUP SAR_BYTESReg:$sar_bytes, QR:$qy, QR:$qw)>, Requires<[HasVendorXespv2p2]>;

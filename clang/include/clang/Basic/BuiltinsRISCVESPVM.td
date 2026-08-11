@@ -1,5 +1,5 @@
 
-let Features = "xespv", Attributes = [NoThrow, RequiredVectorWidth<128>] in
+let Features = "xespv2p1|xespv", Attributes = [NoThrow, RequiredVectorWidth<128>] in
 {
   // ESP.VCMULAS.S16.QACC.H (_m version)
   // Explicit state passing: Input QACC_H (2x128-bit), Output QACC_H (2x128-bit) via pointers
@@ -784,19 +784,19 @@ let Features = "xespv", Attributes = [NoThrow, RequiredVectorWidth<128>] in
 
   // ANDQ function - Bitwise AND operation
   // Performs bitwise AND operation on 128-bit vector
-  def esp_andq_m : RISCVBuiltin<"_Vector<16, char>(_Vector<16, char>, _Vector<16, char>)">;
+  def esp_andq : RISCVBuiltin<"_Vector<16, char>(_Vector<16, char>, _Vector<16, char>)">;
 
   // NOTQ function - Bitwise NOT operation
   // Performs bitwise NOT operation on 128-bit vector
-  def esp_notq_m : RISCVBuiltin<"_Vector<16, char>(_Vector<16, char>)">;
+  def esp_notq : RISCVBuiltin<"_Vector<16, char>(_Vector<16, char>)">;
 
   // ORQ function - Bitwise OR operation
   // Performs bitwise OR operation on 128-bit vector
-  def esp_orq_m : RISCVBuiltin<"_Vector<16, char>(_Vector<16, char>, _Vector<16, char>)">;
+  def esp_orq : RISCVBuiltin<"_Vector<16, char>(_Vector<16, char>, _Vector<16, char>)">;
 
   // XORQ function - Bitwise XOR operation
   // Performs bitwise XOR operation on 128-bit vector
-  def esp_xorq_m : RISCVBuiltin<"_Vector<16, char>(_Vector<16, char>, _Vector<16, char>)">;
+  def esp_xorq : RISCVBuiltin<"_Vector<16, char>(_Vector<16, char>, _Vector<16, char>)">;
 
   // VCMP.EQ function - Equality comparison
   def esp_vcmp_eq_s16_m : RISCVBuiltin<"_Vector<8, short>(_Vector<8, short>, _Vector<8, short>)">;
@@ -1417,7 +1417,7 @@ let Features = "xespv", Attributes = [NoThrow, RequiredVectorWidth<128>] in
 }
 
 // GPR ALU (.m): SSA result = op(rs1, rs2); lowers to esp.{addx2,addx4,subx2,subx4}.
-let Features = "xespv", Attributes = [NoThrow] in {
+let Features = "xespv2p1|xespv", Attributes = [NoThrow] in {
   def esp_addx2_m : RISCVBuiltin<"unsigned int(unsigned int, unsigned int)">;
   def esp_addx4_m : RISCVBuiltin<"unsigned int(unsigned int, unsigned int)">;
   def esp_subx2_m : RISCVBuiltin<"unsigned int(unsigned int, unsigned int)">;
@@ -1427,7 +1427,7 @@ let Features = "xespv", Attributes = [NoThrow] in {
 
 // MOVX - Read/Write implicit registers (_m version)
 // These are scalar instructions, so they don't need RequiredVectorWidth<128>
-let Features = "xespv", Attributes = [NoThrow] in {
+let Features = "xespv2p1|xespv", Attributes = [NoThrow] in {
   // ZERO.XACC - Zero XACC accumulator
   // Returns: i64 (XACC value, low 40 bits are zero)
   // ESP.ZERO.XACC (_m version) - Mixed model: XACC as {unsigned int low, unsigned int high}
