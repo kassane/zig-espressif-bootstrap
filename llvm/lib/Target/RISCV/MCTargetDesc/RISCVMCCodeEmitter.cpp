@@ -193,6 +193,8 @@ static void addFixup(SmallVectorImpl<MCFixup> &Fixups, uint32_t Offset,
   case RISCV::fixup_riscv_qc_e_branch:
   case RISCV::fixup_riscv_qc_e_call_plt:
   case RISCV::fixup_riscv_nds_branch_10:
+  case RISCV::fixup_riscv_esp_lp_offset_9:
+  case RISCV::fixup_riscv_esp_lp_offset_12:
     PCRel = true;
   }
   Fixups.push_back(MCFixup::create(Offset, Value, Kind, PCRel));
@@ -831,7 +833,7 @@ uint32_t RISCVMCCodeEmitter::getImm8OpValue(const MCInst &MI, unsigned OpNo,
                                             SmallVectorImpl<MCFixup> &Fixups,
                                             const MCSubtargetInfo &STI) const {
   const MCOperand &MO = MI.getOperand(OpNo);
-  int32_t Res = MO.getImm();
+  int64_t Res = MO.getImm();
 
   assert(((Res >= -128) && (Res <= 127)) && "Unexpected operand value!");
 
@@ -843,11 +845,11 @@ RISCVMCCodeEmitter::getSelect_2OpValue(const MCInst &MI, unsigned OpNo,
                                        SmallVectorImpl<MCFixup> &Fixups,
                                        const MCSubtargetInfo &STI) const {
   const MCOperand &MO = MI.getOperand(OpNo);
-  uint8_t Res = static_cast<uint8_t>(MO.getImm());
+  int64_t Res = MO.getImm();
 
   assert(((Res >= 0) && (Res <= 1)) && "Unexpected operand value!");
 
-  return Res;
+  return static_cast<uint8_t>(Res);
 }
 
 uint8_t
@@ -855,11 +857,11 @@ RISCVMCCodeEmitter::getSelect_4OpValue(const MCInst &MI, unsigned OpNo,
                                        SmallVectorImpl<MCFixup> &Fixups,
                                        const MCSubtargetInfo &STI) const {
   const MCOperand &MO = MI.getOperand(OpNo);
-  uint8_t Res = static_cast<uint8_t>(MO.getImm());
+  int64_t Res = MO.getImm();
 
   assert(((Res >= 0) && (Res <= 3)) && "Unexpected operand value!");
 
-  return Res;
+  return static_cast<uint8_t>(Res);
 }
 
 uint8_t
@@ -867,11 +869,11 @@ RISCVMCCodeEmitter::getSelect_8OpValue(const MCInst &MI, unsigned OpNo,
                                        SmallVectorImpl<MCFixup> &Fixups,
                                        const MCSubtargetInfo &STI) const {
   const MCOperand &MO = MI.getOperand(OpNo);
-  uint8_t Res = static_cast<uint8_t>(MO.getImm());
+  int64_t Res = MO.getImm();
 
   assert(((Res >= 0) && (Res <= 7)) && "Unexpected operand value!");
 
-  return Res;
+  return static_cast<uint8_t>(Res);
 }
 
 uint8_t
@@ -879,11 +881,11 @@ RISCVMCCodeEmitter::getSelect_16OpValue(const MCInst &MI, unsigned OpNo,
                                         SmallVectorImpl<MCFixup> &Fixups,
                                         const MCSubtargetInfo &STI) const {
   const MCOperand &MO = MI.getOperand(OpNo);
-  uint8_t Res = static_cast<uint8_t>(MO.getImm());
+  int64_t Res = MO.getImm();
 
   assert(((Res >= 0) && (Res <= 15)) && "Unexpected operand value!");
 
-  return Res;
+  return static_cast<uint8_t>(Res);
 }
 
 int8_t
@@ -891,12 +893,12 @@ RISCVMCCodeEmitter::getOffset_16_16OpValue(const MCInst &MI, unsigned OpNo,
                                            SmallVectorImpl<MCFixup> &Fixups,
                                            const MCSubtargetInfo &STI) const {
   const MCOperand &MO = MI.getOperand(OpNo);
-  int8_t Res = static_cast<int8_t>(MO.getImm());
+  int64_t Res = MO.getImm();
 
   assert(((Res >= -128) && (Res <= 112) && ((Res & 0xf) == 0)) &&
          "Unexpected operand value!");
 
-  return Res / 16;
+  return static_cast<int8_t>(Res / 16);
 }
 
 int16_t
@@ -904,12 +906,12 @@ RISCVMCCodeEmitter::getOffset_256_8OpValue(const MCInst &MI, unsigned OpNo,
                                            SmallVectorImpl<MCFixup> &Fixups,
                                            const MCSubtargetInfo &STI) const {
  const MCOperand &MO = MI.getOperand(OpNo);
-  int16_t Res = static_cast<int16_t>(MO.getImm());
+ int64_t Res = MO.getImm();
 
-  assert(((Res >= -1024) && (Res <= 1016) && ((Res & 0x7) == 0)) &&
-         "Unexpected operand value!");
+ assert(((Res >= -1024) && (Res <= 1016) && ((Res & 0x7) == 0)) &&
+        "Unexpected operand value!");
 
-  return Res / 8;
+ return static_cast<int16_t>(Res / 8);
 }
 
 int16_t
@@ -917,12 +919,12 @@ RISCVMCCodeEmitter::getOffset_256_16OpValue(const MCInst &MI, unsigned OpNo,
                                             SmallVectorImpl<MCFixup> &Fixups,
                                             const MCSubtargetInfo &STI) const {
   const MCOperand &MO = MI.getOperand(OpNo);
-  int16_t Res = static_cast<int16_t>(MO.getImm());
+  int64_t Res = MO.getImm();
 
   assert(((Res >= -2048) && (Res <= 2032) && ((Res & 0xf) == 0)) &&
          "Unexpected operand value!");
 
-  return Res / 16;
+  return static_cast<int16_t>(Res / 16);
 }
 
 int16_t
@@ -930,12 +932,12 @@ RISCVMCCodeEmitter::getOffset_256_2OpValue(const MCInst &MI, unsigned OpNo,
                                            SmallVectorImpl<MCFixup> &Fixups,
                                            const MCSubtargetInfo &STI) const {
   const MCOperand &MO = MI.getOperand(OpNo);
-  int16_t Res = static_cast<int16_t>(MO.getImm());
+  int64_t Res = MO.getImm();
 
   assert(((Res >= -256) && (Res <= 254) && ((Res & 0x1) == 0)) &&
          "Unexpected operand value!");
 
-  return Res / 2;
+  return static_cast<int16_t>(Res / 2);
 }
 
 int16_t
@@ -943,12 +945,12 @@ RISCVMCCodeEmitter::getOffset_256_4OpValue(const MCInst &MI, unsigned OpNo,
                                            SmallVectorImpl<MCFixup> &Fixups,
                                            const MCSubtargetInfo &STI) const {
   const MCOperand &MO = MI.getOperand(OpNo);
-  int16_t Res = static_cast<int16_t>(MO.getImm());
+  int64_t Res = MO.getImm();
 
   assert(((Res >= -512) && (Res <= 508) && ((Res & 0x3) == 0)) &&
          "Unexpected operand value!");
 
-  return Res / 4;
+  return static_cast<int16_t>(Res / 4);
 }
 
 uint16_t
@@ -961,7 +963,11 @@ RISCVMCCodeEmitter::getUImm10_Step4Operand(const MCInst &MI, unsigned OpNo,
     assert((isUInt<10>(Res) && ((Res & 0x1) == 0)) && "Unexpected operand value!");
     return Res / 2;
   }
-  return getImmOpValue(MI, OpNo, Fixups, STI);
+  // A symbolic loop-body offset needs the ESP loop fixup, not the generic
+  // branch fixup (whose B-type bit layout corrupts esp.lp.setupi).
+  addFixup(Fixups, 0, MO.getExpr(), RISCV::fixup_riscv_esp_lp_offset_9);
+  ++MCNumFixups;
+  return 0;
 }
 
 uint16_t
@@ -974,7 +980,11 @@ RISCVMCCodeEmitter::getUImm13_Step4Operand(const MCInst &MI, unsigned OpNo,
     assert((isUInt<13>(Res) && ((Res & 0x1) == 0)) && "Unexpected operand value!");
     return Res / 2;
   }
-  return getImmOpValue(MI, OpNo, Fixups, STI);
+  // A symbolic loop-body offset needs the ESP loop fixup, not the generic
+  // branch fixup (whose B-type bit layout corrupts esp.lp.setup/starti/endi).
+  addFixup(Fixups, 0, MO.getExpr(), RISCV::fixup_riscv_esp_lp_offset_12);
+  ++MCNumFixups;
+  return 0;
 }
 
 #include "RISCVGenMCCodeEmitter.inc"

@@ -758,6 +758,31 @@ public:
       IsValid = isUInt<10>(Imm);
     return IsValid && VK == RISCV::S_None;
   }
+  // Espressif hardware-loop byte offsets: a bare symbol, or an even constant in
+  // range. esp.lp.setupi uses [0, 1022] (uimm10_step4);
+  // esp.lp.setup/starti/endi use [0, 8190] (uimm13_step4). The encoded field is
+  // offset/2. Dedicated from isUImm10/isUImm13 (which are shared with Xqci and
+  // allow odd values).
+  bool isUImm10Step2() const {
+    int64_t Imm;
+    if (!isExpr())
+      return false;
+    RISCV::Specifier VK = RISCV::S_None;
+    if (!evaluateConstantExpr(getExpr(), Imm))
+      return RISCVAsmParser::classifySymbolRef(getExpr(), VK) &&
+             VK == RISCV::S_None;
+    return isUInt<10>(Imm) && ((Imm & 1) == 0);
+  }
+  bool isUImm13Step2() const {
+    int64_t Imm;
+    if (!isExpr())
+      return false;
+    RISCV::Specifier VK = RISCV::S_None;
+    if (!evaluateConstantExpr(getExpr(), Imm))
+      return RISCVAsmParser::classifySymbolRef(getExpr(), VK) &&
+             VK == RISCV::S_None;
+    return isUInt<13>(Imm) && ((Imm & 1) == 0);
+  }
   bool isUImm11() const { return isUImm<11>(); }
   bool isUImm16() const { return isUImm<16>(); }
   bool isUImm20() const { return isUImm<20>(); }
@@ -895,9 +920,8 @@ public:
   }
 
   bool isImm8() const {
-    return isSImmPred([](int64_t Imm) {
-      return (Imm >= (-32768 - 128)) && (Imm <= (32512 + 127));
-    });
+    return isSImmPred(
+        [](int64_t Imm) { return (Imm >= -128) && (Imm <= 127); });
   }
 
   bool isSelect_2() const {
@@ -919,9 +943,7 @@ public:
   }
 
   bool isSelect_16() const {
-    return isSImmPred([](int64_t Imm) {
-      return ((Imm >= 0) && (Imm <= 16));
-    });
+    return isSImmPred([](int64_t Imm) { return ((Imm >= 0) && (Imm <= 15)); });
   }
 
   bool isOffset_16_16() const {
@@ -1667,6 +1689,9 @@ bool RISCVAsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     return generateImmOutOfRangeError(
         Operands, ErrorInfo, 0, (1 << 9) - 8,
         "immediate must be a multiple of 8 bytes in the range");
+  case Match_InvalidSImm8:
+    return generateImmOutOfRangeError(Operands, ErrorInfo, -(1 << 7),
+                                      (1 << 7) - 1);
   case Match_InvalidSImm8Unsigned:
     return generateImmOutOfRangeError(Operands, ErrorInfo, -(1 << 7),
                                       (1 << 8) - 1);
@@ -1693,6 +1718,48 @@ bool RISCVAsmParser::matchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
         "immediate must be a multiple of 2 bytes in the range");
   case Match_InvalidUImm10:
     return generateImmOutOfRangeError(Operands, ErrorInfo, 0, (1 << 10) - 1);
+  case Match_InvalidUImm10Step2:
+    // esp.lp.setupi loop byte offset: even value in [0, 1022] (uimm10_step4).
+    return generateImmOutOfRangeError(
+        Operands, ErrorInfo, 0, (1 << 10) - 2,
+        "immediate must be a multiple of 2 bytes in the range");
+  case Match_InvalidUImm13Step2:
+    // esp.lp.setup/starti/endi loop byte offset: even value in [0, 8190]
+    // (uimm13_step4). Without a registered diagnostic an out-of-range constant
+    // reaches the llvm_unreachable fallback and crashes the assembler.
+    return generateImmOutOfRangeError(
+        Operands, ErrorInfo, 0, (1 << 13) - 2,
+        "immediate must be a multiple of 2 bytes in the range");
+  case Match_InvalidImm8:
+    return generateImmOutOfRangeError(Operands, ErrorInfo, -128, 127);
+  case Match_InvalidSelect_2:
+    return generateImmOutOfRangeError(Operands, ErrorInfo, 0, 1);
+  case Match_InvalidSelect_4:
+    return generateImmOutOfRangeError(Operands, ErrorInfo, 0, 3);
+  case Match_InvalidSelect_8:
+    return generateImmOutOfRangeError(Operands, ErrorInfo, 0, 7);
+  case Match_InvalidSelect_16:
+    return generateImmOutOfRangeError(Operands, ErrorInfo, 0, 15);
+  case Match_InvalidOffset_16_16:
+    return generateImmOutOfRangeError(
+        Operands, ErrorInfo, -128, 112,
+        "immediate must be a multiple of 16 in the range");
+  case Match_InvalidOffset_256_2:
+    return generateImmOutOfRangeError(
+        Operands, ErrorInfo, -256, 254,
+        "immediate must be a multiple of 2 in the range");
+  case Match_InvalidOffset_256_4:
+    return generateImmOutOfRangeError(
+        Operands, ErrorInfo, -512, 508,
+        "immediate must be a multiple of 4 in the range");
+  case Match_InvalidOffset_256_8:
+    return generateImmOutOfRangeError(
+        Operands, ErrorInfo, -1024, 1016,
+        "immediate must be a multiple of 8 in the range");
+  case Match_InvalidOffset_256_16:
+    return generateImmOutOfRangeError(
+        Operands, ErrorInfo, -2048, 2032,
+        "immediate must be a multiple of 16 in the range");
   case Match_InvalidUImm11:
     return generateImmOutOfRangeError(Operands, ErrorInfo, 0, (1 << 11) - 1);
   case Match_InvalidUImm14Lsb00:
@@ -2782,15 +2849,19 @@ ParseStatus RISCVAsmParser::parseSATArg(OperandVector &Operands) {
   }
 
   if (getLexer().is(AsmToken::Identifier)) {
+    // 'sat' is an optional operand and may be preceded by another optional
+    // operand (e.g. 'rm') that the matcher tries first. Returning NoMatch
+    // (rather than a hard error) lets the matcher fall through to the other
+    // optional operand or to the default value instead of aborting parsing.
     if (!parseESPSATMode(getLexer().getTok().getIdentifier(), Imm))
-      return TokError("operand must be 'sat' or 'trunc'");
+      return ParseStatus::NoMatch;
     Operands.push_back(RISCVOperand::createExpr(
         MCConstantExpr::create(Imm, getContext()), S, getLoc(), isRV64()));
     Lex();
     return ParseStatus::Success;
   }
 
-  return TokError("operand must be 'sat' or 'trunc'");
+  return ParseStatus::NoMatch;
 }
 
 ParseStatus RISCVAsmParser::parseRMArg(OperandVector &Operands) {
@@ -2808,15 +2879,19 @@ ParseStatus RISCVAsmParser::parseRMArg(OperandVector &Operands) {
   }
 
   if (getLexer().is(AsmToken::Identifier)) {
+    // 'rm' is an optional operand; the matcher may try it before another
+    // optional operand (e.g. 'sat'). Returning NoMatch (rather than a hard
+    // error) on a non-rounding-mode token lets the matcher fall through to the
+    // other optional operand or to the default value instead of aborting.
     if (!parseESPRoundingMode(getLexer().getTok().getIdentifier(), Imm))
-      return TokError("operand must be a valid rounding mode mnemonic");
+      return ParseStatus::NoMatch;
     Operands.push_back(RISCVOperand::createExpr(
         MCConstantExpr::create(Imm, getContext()), S, getLoc(), isRV64()));
     Lex();
     return ParseStatus::Success;
   }
 
-  return TokError("operand must be a valid rounding mode mnemonic");
+  return ParseStatus::NoMatch;
 }
 
 ParseStatus RISCVAsmParser::parseFenceArg(OperandVector &Operands) {

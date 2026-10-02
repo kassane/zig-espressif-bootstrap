@@ -95,6 +95,11 @@ MCFixupKindInfo RISCVAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
 
       // Andes fixups
       {"fixup_riscv_nds_branch_10", 0, 32, 0},
+
+      // Espressif hardware-loop offset fixups (value scattered across the
+      // instruction word, so offset 0 / size 32).
+      {"fixup_riscv_esp_lp_offset_9", 0, 32, 0},
+      {"fixup_riscv_esp_lp_offset_12", 0, 32, 0},
   };
   static_assert((std::size(Infos)) == RISCV::NumTargetFixupKinds,
                 "Not all fixup kinds added to Infos array");
@@ -563,6 +568,25 @@ static uint64_t adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
     Value = (Sbit << 31) | (Mid6 << 25) | (Lo4 << 8) | (Hi1 << 7);
     return Value;
   }
+  case RISCV::fixup_riscv_esp_lp_offset_9: {
+    // esp.lp.setupi loop offset: even byte offset. The encoded field is
+    // offset/2, split as field[4:0] -> Inst{19-15} and field[8:5] ->
+    // Inst{11-8}.
+    if (!isUInt<10>(Value) || (Value & 0x1))
+      Ctx.reportError(Fixup.getLoc(),
+                      "loop offset must be even in range [0, 1022]");
+    uint64_t Field = Value >> 1;
+    return ((Field & 0x1f) << 15) | (((Field >> 5) & 0xf) << 8);
+  }
+  case RISCV::fixup_riscv_esp_lp_offset_12: {
+    // esp.lp.setup/starti/endi loop offset: even byte offset. The encoded field
+    // is offset/2, placed contiguously as field[11:0] -> Inst{31-20}.
+    if (!isUInt<13>(Value) || (Value & 0x1))
+      Ctx.reportError(Fixup.getLoc(),
+                      "loop offset must be even in range [0, 8190]");
+    uint64_t Field = Value >> 1;
+    return (Field & 0xfff) << 20;
+  }
   case RISCV::fixup_riscv_call:
   case RISCV::fixup_riscv_call_plt: {
     // Jalr will add UpperImm with the sign-extended 12-bit LowerImm,
@@ -792,6 +816,10 @@ void RISCVAsmBackend::maybeAddVendorReloc(const MCFragment &F,
   case RISCV::fixup_riscv_nds_branch_10:
     VendorIdentifier = "ANDES";
     break;
+  case RISCV::fixup_riscv_esp_lp_offset_9:
+  case RISCV::fixup_riscv_esp_lp_offset_12:
+    VendorIdentifier = "esp";
+    break;
   }
 
   // Create a local symbol for the vendor relocation to reference. It's fine if
@@ -889,6 +917,37 @@ bool RISCVAsmBackend::addReloc(const MCFragment &F, const MCFixup &Fixup,
 
   if (IsResolved && Fixup.isPCRel())
     IsResolved = isPCRelFixupResolved(Target.getAddSym(), F);
+
+  // Espressif hardware-loop offsets. A loop body is contiguous code, so the
+  // target must be in the same section; a cross-section target is invalid.
+  // Match the GNU assembler: keep the assembly-time offset in the instruction
+  // (a non-relaxing link relies on it) *and* emit the relocation so the linker
+  // can re-scatter the offset if the loop body is relaxed.
+  if (Fixup.getKind() == RISCV::fixup_riscv_esp_lp_offset_9 ||
+      Fixup.getKind() == RISCV::fixup_riscv_esp_lp_offset_12) {
+    // A fixup can also be unresolved when the target is in the same section,
+    // e.g. when the loop body contains an instruction that may be relaxed (a
+    // branch between the setup and its target). The final-layout offset is
+    // still known, so keep it in the instruction and emit the relocation
+    // (matching GNU as); only a genuinely cross-section target is an error.
+    const MCSymbol *SymA = Target.getAddSym();
+    if (!IsResolved && (!SymA || SymA->isUndefined() || SymA->isAbsolute() ||
+                        !SymA->getFragment() ||
+                        SymA->getFragment()->getParent() != F.getParent())) {
+      Asm->getContext().reportError(
+          Fixup.getLoc(),
+          "hardware-loop offset target must be in the same section");
+      return true;
+    }
+    // The Espressif binutils fork expects each R_RISCV_ESP_LP_OFFSET_* to be
+    // immediately preceded by an R_RISCV_VENDOR relocation against a local
+    // symbol named "esp".
+    maybeAddVendorReloc(F, Fixup);
+    uint64_t PreFill = FixedValue;
+    Asm->getWriter().recordRelocation(F, Fixup, Target, FixedValue);
+    FixedValue = PreFill;
+    return false;
+  }
 
   if (!IsResolved) {
     // Some Fixups require a VENDOR relocation, record it (directly) before we

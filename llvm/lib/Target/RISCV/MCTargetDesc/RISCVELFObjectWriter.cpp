@@ -18,6 +18,18 @@
 
 using namespace llvm;
 
+// Espressif vendor relocations for hardware-loop body offsets (esp.lp.setupi
+// and esp.lp.setup/starti/endi). These numbers are assigned by the Espressif
+// binutils fork: they live in the vendor-specific range (192..255) and, per
+// the RISC-V psABI extension, must be preceded by an R_RISCV_VENDOR (191)
+// relocation against a local symbol named "esp" (see maybeAddVendorReloc in
+// RISCVAsmBackend.cpp). The Espressif linker resolves them correctly by
+// scattering offset/2 into the instruction's split fields.
+enum {
+  R_RISCV_ESP_LP_OFFSET_9 = 192,
+  R_RISCV_ESP_LP_OFFSET_12 = 193,
+};
+
 namespace {
 class RISCVELFObjectWriter : public MCELFObjectTargetWriter {
 public:
@@ -105,6 +117,10 @@ unsigned RISCVELFObjectWriter::getRelocType(const MCFixup &Fixup,
       return ELF::R_RISCV_QC_E_CALL_PLT;
     case RISCV::fixup_riscv_nds_branch_10:
       return ELF::R_RISCV_NDS_BRANCH_10;
+    case RISCV::fixup_riscv_esp_lp_offset_9:
+      return R_RISCV_ESP_LP_OFFSET_9;
+    case RISCV::fixup_riscv_esp_lp_offset_12:
+      return R_RISCV_ESP_LP_OFFSET_12;
     }
   }
 
