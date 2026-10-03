@@ -85,6 +85,8 @@ csprng: Csprng = .uninitialized,
 
 system_basic_information: SystemBasicInformation = .{},
 
+process_spawn_mutex: if (is_windows) Io.Mutex else void = if (is_windows) .init else {},
+
 const SystemBasicInformation = if (!is_windows) struct {} else struct {
     buffer: windows.SYSTEM.BASIC_INFORMATION = undefined,
     initialized: std.atomic.Value(bool) = .{ .raw = false },
@@ -1706,7 +1708,7 @@ var global_single_threaded_instance: Threaded = .init_single_threaded;
 pub const global_single_threaded: *Threaded = &global_single_threaded_instance;
 
 pub fn setAsyncLimit(t: *Threaded, new_limit: Io.Limit) void {
-    mutexLock(&t.mutex);
+    mutexLockUncancelable(&t.mutex);
     defer mutexUnlock(&t.mutex);
     t.async_limit = new_limit;
 }
@@ -1727,7 +1729,7 @@ pub fn deinit(t: *Threaded) void {
 fn join(t: *Threaded) void {
     if (builtin.single_threaded) return;
     {
-        mutexLock(&t.mutex);
+        mutexLockUncancelable(&t.mutex);
         defer mutexUnlock(&t.mutex);
         t.join_requested = true;
     }
@@ -1789,7 +1791,7 @@ fn worker(t: *Threaded) void {
 
     defer t.wait_group.finish();
 
-    mutexLock(&t.mutex);
+    mutexLockUncancelable(&t.mutex);
     defer mutexUnlock(&t.mutex);
 
     while (true) {
@@ -1798,7 +1800,7 @@ fn worker(t: *Threaded) void {
             thread.cancel_protection = .unblocked;
             const runnable: *Runnable = @fieldParentPtr("node", runnable_node);
             runnable.startFn(runnable, &thread, t);
-            mutexLock(&t.mutex);
+            mutexLockUncancelable(&t.mutex);
             t.busy_count -= 1;
         }
         if (t.join_requested) break;
@@ -1901,13 +1903,13 @@ pub fn io(t: *Threaded) Io {
             .processSetCurrentDir = processSetCurrentDir,
             .processSetCurrentPath = processSetCurrentPath,
             .processReplace = processReplace,
-            .processReplacePath = processReplacePath,
             .processSpawn = processSpawn,
-            .processSpawnPath = processSpawnPath,
             .childWait = childWait,
             .childKill = childKill,
 
             .progressParentFile = progressParentFile,
+            .inheritParentDir = inheritParentDir,
+            .inheritParentFile = inheritParentFile,
 
             .now = now,
             .clockResolution = clockResolution,
@@ -1973,6 +1975,10 @@ const have_sig_pipe = posix.SIG != void and @hasField(posix.SIG, "PIPE");
 const have_sendfile = if (builtin.link_libc) @TypeOf(std.c.sendfile) != void else native_os == .linux;
 const have_copy_file_range = switch (native_os) {
     .linux, .freebsd => true,
+    else => false,
+};
+const have_fcntl = switch (native_os) {
+    .linux, .dragonfly, .freebsd, .netbsd, .openbsd, .illumos, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => true,
     else => false,
 };
 const have_fcopyfile = is_darwin;
@@ -2084,7 +2090,7 @@ fn async(
         },
     };
 
-    mutexLock(&t.mutex);
+    mutexLockUncancelable(&t.mutex);
 
     const busy_count = t.busy_count;
 
@@ -2136,7 +2142,7 @@ fn concurrent(
     };
     errdefer future.destroy(gpa);
 
-    mutexLock(&t.mutex);
+    mutexLockUncancelable(&t.mutex);
     defer mutexUnlock(&t.mutex);
 
     const busy_count = t.busy_count;
@@ -2181,7 +2187,7 @@ fn groupAsync(
         error.OutOfMemory => return groupAsyncEager(start, context.ptr),
     };
 
-    mutexLock(&t.mutex);
+    mutexLockUncancelable(&t.mutex);
 
     const busy_count = t.busy_count;
 
@@ -2244,7 +2250,7 @@ fn groupConcurrent(
     };
     errdefer task.destroy(gpa);
 
-    mutexLock(&t.mutex);
+    mutexLockUncancelable(&t.mutex);
     defer mutexUnlock(&t.mutex);
 
     const busy_count = t.busy_count;
@@ -2577,16 +2583,16 @@ fn operate(userdata: ?*anyopaque, operation: Io.Operation) Io.Cancelable!Io.Oper
             },
         },
         .net_read => |o| return .{
-            .net_read = netRead(o.socket_handle, o.data) catch |err| switch (err) {
+            .net_read = netRead(o.socket_handle, o.data, o.control) catch |err| switch (err) {
                 error.Canceled => |e| return e,
                 else => |e| e,
             },
         },
         .net_write => |o| return .{
             .net_write = (if (is_windows)
-                netWriteWindows(o.socket_handle, o.header, o.data, o.splat)
+                netWriteWindows(o.socket_handle, o.header, o.data, o.splat, o.control)
             else
-                netWritePosix(o.socket_handle, o.header, o.data, o.splat)) catch |err| switch (err) {
+                netWritePosix(o.socket_handle, o.header, o.data, o.splat, o.control)) catch |err| switch (err) {
                 error.Canceled => |e| return e,
                 else => |e| e,
             },
@@ -2618,7 +2624,6 @@ fn batchAwaitAsync(userdata: ?*anyopaque, b: *Io.Batch) Io.Cancelable!void {
                         poll_buffer[poll_len] = .{
                             .fd = o.file.handle,
                             .events = posix.POLL.IN | posix.POLL.ERR,
-                            .revents = 0,
                         };
                         poll_len += 1;
                     },
@@ -2626,7 +2631,6 @@ fn batchAwaitAsync(userdata: ?*anyopaque, b: *Io.Batch) Io.Cancelable!void {
                         poll_buffer[poll_len] = .{
                             .fd = o.file.handle,
                             .events = posix.POLL.OUT | posix.POLL.ERR,
-                            .revents = 0,
                         };
                         poll_len += 1;
                     },
@@ -2634,7 +2638,6 @@ fn batchAwaitAsync(userdata: ?*anyopaque, b: *Io.Batch) Io.Cancelable!void {
                         poll_buffer[poll_len] = .{
                             .fd = o.file.handle,
                             .events = posix.POLL.OUT | posix.POLL.IN | posix.POLL.ERR,
-                            .revents = 0,
                         };
                         poll_len += 1;
                     },
@@ -2642,7 +2645,6 @@ fn batchAwaitAsync(userdata: ?*anyopaque, b: *Io.Batch) Io.Cancelable!void {
                         poll_buffer[poll_len] = .{
                             .fd = o.socket_handle,
                             .events = posix.POLL.IN | posix.POLL.ERR,
-                            .revents = 0,
                         };
                         poll_len += 1;
                     },
@@ -2650,7 +2652,6 @@ fn batchAwaitAsync(userdata: ?*anyopaque, b: *Io.Batch) Io.Cancelable!void {
                         poll_buffer[poll_len] = .{
                             .fd = o.socket_handle,
                             .events = posix.POLL.OUT | posix.POLL.ERR,
-                            .revents = 0,
                         };
                         poll_len += 1;
                     },
@@ -2658,7 +2659,6 @@ fn batchAwaitAsync(userdata: ?*anyopaque, b: *Io.Batch) Io.Cancelable!void {
                         poll_buffer[poll_len] = .{
                             .fd = o.socket_handle,
                             .events = posix.POLL.IN | posix.POLL.ERR,
-                            .revents = 0,
                         };
                         poll_len += 1;
                     },
@@ -2666,7 +2666,6 @@ fn batchAwaitAsync(userdata: ?*anyopaque, b: *Io.Batch) Io.Cancelable!void {
                         poll_buffer[poll_len] = .{
                             .fd = o.socket_handle,
                             .events = posix.POLL.OUT | posix.POLL.ERR,
-                            .revents = 0,
                         };
                         poll_len += 1;
                     },
@@ -2811,7 +2810,6 @@ fn batchAwaitConcurrent(userdata: ?*anyopaque, b: *Io.Batch, timeout: Io.Timeout
             storage.slice[len] = .{
                 .fd = fd,
                 .events = events,
-                .revents = 0,
             };
             storage.len = len + 1;
         }
@@ -3295,7 +3293,7 @@ fn batchDrainSubmittedWindows(t: *Threaded, b: *Io.Batch, concurrency: bool) (Io
                 // TODO integrate with overlapped I/O or equivalent to avoid this error
                 if (concurrency) return error.ConcurrencyUnavailable;
                 batchCompleteBlockingWindows(b, operation_userdata, .{
-                    .net_read = netRead(o.socket_handle, o.data) catch |err| switch (err) {
+                    .net_read = netRead(o.socket_handle, o.data, o.control) catch |err| switch (err) {
                         error.Canceled => |e| return e,
                         else => |e| e,
                     },
@@ -3305,7 +3303,7 @@ fn batchDrainSubmittedWindows(t: *Threaded, b: *Io.Batch, concurrency: bool) (Io
                 // TODO integrate with overlapped I/O or equivalent to avoid this error
                 if (concurrency) return error.ConcurrencyUnavailable;
                 batchCompleteBlockingWindows(b, operation_userdata, .{
-                    .net_write = netWriteWindows(o.socket_handle, o.header, o.data, o.splat) catch |err| switch (err) {
+                    .net_write = netWriteWindows(o.socket_handle, o.header, o.data, o.splat, o.control) catch |err| switch (err) {
                         error.Canceled => |e| return e,
                         else => |e| e,
                     },
@@ -4122,7 +4120,7 @@ fn fileStatWindows(userdata: ?*anyopaque, file: File) File.StatError!File.Stat {
 
 fn systemBasicInformation(t: *Threaded) ?*const windows.SYSTEM.BASIC_INFORMATION {
     if (!t.system_basic_information.initialized.load(.acquire)) {
-        mutexLock(&t.mutex);
+        mutexLockUncancelable(&t.mutex);
         defer mutexUnlock(&t.mutex);
 
         switch (windows.ntdll.NtQuerySystemInformation(
@@ -4470,7 +4468,7 @@ fn dirCreateFilePosix(
         var fl_flags: usize = fl: {
             const syscall: Syscall = try .start();
             while (true) {
-                const rc = posix.system.fcntl(fd, posix.F.GETFL, @as(usize, 0));
+                const rc = posix.system.fcntl(fd, posix.F.GETFL, @as(u32, 0));
                 switch (posix.errno(rc)) {
                     .SUCCESS => {
                         syscall.finish();
@@ -5066,7 +5064,7 @@ fn dirOpenFilePosix(
         var fl_flags: usize = fl: {
             const syscall: Syscall = try .start();
             while (true) {
-                const rc = posix.system.fcntl(fd, posix.F.GETFL, @as(usize, 0));
+                const rc = posix.system.fcntl(fd, posix.F.GETFL, @as(u32, 0));
                 switch (posix.errno(rc)) {
                     .SUCCESS => {
                         syscall.finish();
@@ -7038,6 +7036,11 @@ fn fileRealPathPosix(userdata: ?*anyopaque, file: File, out_buffer: []u8) File.R
 }
 
 fn realPathPosix(fd: posix.fd_t, out_buffer: []u8) File.RealPathError!usize {
+    if (fd == posix.AT.FDCWD) return processCurrentPathPosix(out_buffer) catch |err| switch (err) {
+        else => |e| return e,
+        error.CurrentDirUnlinked => return error.FileNotFound,
+        error.PathExceedsLimit => return error.NameTooLong,
+    };
     switch (native_os) {
         .dragonfly, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             var sufficient_buffer: [posix.PATH_MAX]u8 = undefined;
@@ -7075,7 +7078,7 @@ fn realPathPosix(fd: posix.fd_t, out_buffer: []u8) File.RealPathError!usize {
         .linux, .serenity, .illumos => {
             var procfs_buf: ["/proc/self/path/-2147483648\x00".len]u8 = undefined;
             const template = if (native_os == .illumos) "/proc/self/path/{d}" else "/proc/self/fd/{d}";
-            const proc_path = std.fmt.bufPrintSentinel(&procfs_buf, template, .{fd}, 0) catch unreachable;
+            const proc_path = std.mem.printSentinel(&procfs_buf, template, .{fd}, 0) catch unreachable;
             const syscall: Syscall = try .start();
             while (true) {
                 const rc = posix.system.readlink(proc_path, out_buffer.ptr, out_buffer.len);
@@ -7163,7 +7166,7 @@ fn fileHardLink(
         error.FileNotFound => {
             if (options.follow_symlinks) return error.FileNotFound;
             var proc_buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
-            const proc_path = std.fmt.bufPrintSentinel(&proc_buf, "/proc/self/fd/{d}", .{file.handle}, 0) catch
+            const proc_path = std.mem.printSentinel(&proc_buf, "/proc/self/fd/{d}", .{file.handle}, 0) catch
                 unreachable;
             return linkat(posix.AT.FDCWD, proc_path, new_dir.handle, new_sub_path_posix, posix.AT.SYMLINK_FOLLOW);
         },
@@ -7682,6 +7685,8 @@ fn dirRenameWindowsInner(
     defer w.CloseHandle(src_fd);
 
     var rc: w.NTSTATUS = undefined;
+    var attempt: u5 = 0;
+
     // FileRenameInformationEx has varying levels of support:
     // - FILE_RENAME_INFORMATION_EX requires >= win10_rs1
     //   (INVALID_INFO_CLASS is returned if not supported)
@@ -7705,24 +7710,43 @@ fn dirRenameWindowsInner(
         });
         var io_status_block: w.IO_STATUS_BLOCK = undefined;
         const rename_info_buf = rename_info.toBuffer();
-        rc = w.ntdll.NtSetInformationFile(
-            src_fd,
-            &io_status_block,
-            rename_info_buf.ptr,
-            @intCast(rename_info_buf.len),
-            .RenameEx,
-        );
-        switch (rc) {
-            .SUCCESS => return,
-            // The filesystem does not support FileDispositionInformationEx
-            .INVALID_PARAMETER,
-            // The operating system does not support FileDispositionInformationEx
-            .INVALID_INFO_CLASS,
-            // The operating system does not support one of the flags
-            .NOT_SUPPORTED,
-            => break :need_fallback true,
-            // For all other statuses, fall down to the switch below to handle them.
-            else => break :need_fallback false,
+        var syscall: Syscall = try .start();
+        while (true) {
+            rc = w.ntdll.NtSetInformationFile(
+                src_fd,
+                &io_status_block,
+                rename_info_buf.ptr,
+                @intCast(rename_info_buf.len),
+                .RenameEx,
+            );
+            switch (rc) {
+                // For all other statuses, fall down to the switch below to handle them.
+                else => {
+                    syscall.finish();
+                    break :need_fallback false;
+                },
+                .CANCELLED => try syscall.checkCancel(),
+                // The filesystem does not support FileDispositionInformationEx
+                .INVALID_PARAMETER,
+                // The operating system does not support FileDispositionInformationEx
+                .INVALID_INFO_CLASS,
+                // The operating system does not support one of the flags
+                .NOT_SUPPORTED,
+                => {
+                    syscall.finish();
+                    break :need_fallback true;
+                },
+                .ACCESS_DENIED => {
+                    syscall.finish();
+                    if (max_windows_kernel_bug_retries - attempt == 0) break :need_fallback false;
+                    try parking_sleep.sleep(.{ .duration = .{
+                        .raw = .fromMilliseconds((@as(u32, 1) << attempt) >> 1),
+                        .clock = .awake,
+                    } });
+                    attempt += 1;
+                    syscall = try .start();
+                },
+            }
         }
     };
 
@@ -7734,13 +7758,33 @@ fn dirRenameWindowsInner(
         });
         var io_status_block: w.IO_STATUS_BLOCK = undefined;
         const rename_info_buf = rename_info.toBuffer();
-        rc = w.ntdll.NtSetInformationFile(
-            src_fd,
-            &io_status_block,
-            rename_info_buf.ptr,
-            @intCast(rename_info_buf.len),
-            .Rename,
-        );
+        var syscall: Syscall = try .start();
+        while (true) {
+            rc = w.ntdll.NtSetInformationFile(
+                src_fd,
+                &io_status_block,
+                rename_info_buf.ptr,
+                @intCast(rename_info_buf.len),
+                .Rename,
+            );
+            switch (rc) {
+                else => {
+                    syscall.finish();
+                    break;
+                },
+                .CANCELLED => try syscall.checkCancel(),
+                .ACCESS_DENIED => {
+                    syscall.finish();
+                    if (max_windows_kernel_bug_retries - attempt == 0) break;
+                    try parking_sleep.sleep(.{ .duration = .{
+                        .raw = .fromMilliseconds((@as(u32, 1) << attempt) >> 1),
+                        .clock = .awake,
+                    } });
+                    attempt += 1;
+                    syscall = try .start();
+                },
+            }
+        }
     }
 
     switch (rc) {
@@ -8641,7 +8685,7 @@ fn fchmodatFallback(
         return error.OperationUnsupported;
 
     var procfs_buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
-    const proc_path = std.fmt.bufPrintSentinel(&procfs_buf, "/proc/self/fd/{d}", .{path_fd}, 0) catch unreachable;
+    const proc_path = std.mem.printSentinel(&procfs_buf, "/proc/self/fd/{d}", .{path_fd}, 0) catch unreachable;
     const syscall: Syscall = try .start();
     while (true) {
         switch (posix.errno(posix.system.chmod(proc_path, mode))) {
@@ -10010,7 +10054,7 @@ fn ntReadFileResult(io_status_block: *const windows.IO_STATUS_BLOCK) !usize {
         .PENDING => unreachable,
         .CANCELLED => unreachable,
         .SUCCESS => return io_status_block.Information,
-        .END_OF_FILE, .PIPE_BROKEN => return error.EndOfStream,
+        .END_OF_FILE, .PIPE_BROKEN, .PIPE_CLOSING => return error.EndOfStream,
         .INVALID_HANDLE => return error.NotOpenForReading,
         .INVALID_DEVICE_REQUEST => return error.IsDir,
         .FILE_LOCK_CONFLICT => return error.LockViolation,
@@ -10027,7 +10071,7 @@ fn ntWriteFileResult(io_status_block: *const windows.IO_STATUS_BLOCK) !usize {
         .INVALID_USER_BUFFER => return error.SystemResources,
         .NO_MEMORY => return error.SystemResources,
         .QUOTA_EXCEEDED => return error.SystemResources,
-        .PIPE_BROKEN => return error.BrokenPipe,
+        .PIPE_BROKEN, .PIPE_CLOSING => return error.BrokenPipe,
         .INVALID_HANDLE => return error.NotOpenForWriting,
         .FILE_LOCK_CONFLICT => return error.LockViolation,
         .ACCESS_DENIED => return error.AccessDenied,
@@ -10641,7 +10685,7 @@ fn processExecutablePath(userdata: ?*anyopaque, out_buffer: []u8) process.Execut
                 var it = std.mem.tokenizeScalar(u8, PATH, ':');
                 it: while (it.next()) |dir| {
                     var resolved_path_buf: [std.c.PATH_MAX]u8 = undefined;
-                    const resolved_path = std.fmt.bufPrintSentinel(&resolved_path_buf, "{s}/{s}", .{
+                    const resolved_path = std.mem.printSentinel(&resolved_path_buf, "{s}/{s}", .{
                         dir, argv0,
                     }, 0) catch continue;
 
@@ -12839,14 +12883,14 @@ fn deferAcceptAfd(t: *Threaded, listen_handle: net.Socket.Handle, info: windows.
     }
 }
 
-fn netRead(socket_handle: net.Socket.Handle, data: [][]u8) net.Stream.Reader.Error!usize {
+fn netRead(socket_handle: net.Socket.Handle, data: [][]u8, control: []u8) net.Stream.Reader.Error!net.Stream.ReadResult {
     if (!have_networking) return error.NetworkDown;
 
-    if (is_windows) return netReadWindows(socket_handle, data);
-    return netReadPosix(socket_handle, data);
+    if (is_windows) return .{ .data_len = try netReadWindows(socket_handle, data) };
+    return netReadPosix(socket_handle, data, control);
 }
 
-fn netReadPosix(fd: net.Socket.Handle, data: [][]u8) net.Stream.Reader.Error!usize {
+fn netReadPosix(fd: net.Socket.Handle, data: [][]u8, control: []u8) net.Stream.Reader.Error!net.Stream.ReadResult {
     var iovecs_buffer: [max_iovecs_len]posix.iovec = undefined;
     var i: usize = 0;
     for (data) |buf| {
@@ -12883,6 +12927,7 @@ fn netReadPosix(fd: net.Socket.Handle, data: [][]u8) net.Stream.Reader.Error!usi
                         .NOMEM => return error.SystemResources,
                         .NOTCONN => return error.SocketUnconnected,
                         .CONNRESET => return error.ConnectionResetByPeer,
+                        .TIMEDOUT => return error.ConnectionTimedOut,
                         .NOTCAPABLE => return error.AccessDenied,
                         else => |err| return posix.unexpectedErrno(err),
                     }
@@ -12891,13 +12936,31 @@ fn netReadPosix(fd: net.Socket.Handle, data: [][]u8) net.Stream.Reader.Error!usi
         }
     }
 
+    var msg: posix.msghdr = .{
+        .name = null,
+        .namelen = 0,
+        .iov = dest.ptr,
+        .iovlen = @intCast(dest.len),
+        .control = control.ptr,
+        .controllen = @intCast(control.len),
+        .flags = 0,
+    };
+
+    const flags: u32 =
+        @as(u32, if (@hasDecl(posix.MSG, "CMSG_CLOEXEC")) posix.MSG.CMSG_CLOEXEC else 0);
+
     const syscall: Syscall = try .start();
     while (true) {
-        const rc = posix.system.readv(fd, dest.ptr, @intCast(dest.len));
+        const rc = posix.system.recvmsg(fd, &msg, flags);
+        const rc_control = msg.controllen;
         switch (posix.errno(rc)) {
             .SUCCESS => {
                 syscall.finish();
-                return @intCast(rc);
+                return .{
+                    .data_len = @intCast(rc),
+                    .control_len = @intCast(rc_control),
+                    .control_truncated = (msg.flags & posix.MSG.CTRUNC) != 0,
+                };
             },
             .INTR => {
                 try syscall.checkCancel();
@@ -12914,6 +12977,7 @@ fn netReadPosix(fd: net.Socket.Handle, data: [][]u8) net.Stream.Reader.Error!usi
                     .NOMEM => return error.SystemResources,
                     .NOTCONN => return error.SocketUnconnected,
                     .CONNRESET => return error.ConnectionResetByPeer,
+                    .TIMEDOUT => return error.ConnectionTimedOut,
                     .PIPE => return error.SocketUnconnected,
                     .NETDOWN => return error.NetworkDown,
                     else => |err| return posix.unexpectedErrno(err),
@@ -12945,7 +13009,8 @@ fn netReadWindows(socket_handle: net.Socket.Handle, data: [][]u8) net.Stream.Rea
         .SUCCESS => return iosb.Information,
         .CANCELLED => unreachable,
         .INSUFFICIENT_RESOURCES => return error.SystemResources,
-        .CONNECTION_RESET => return error.ConnectionResetByPeer,
+        .CONNECTION_RESET, .REMOTE_DISCONNECT => return error.ConnectionResetByPeer,
+        .IO_TIMEOUT => return error.ConnectionTimedOut,
         else => |status| return windows.unexpectedStatus(status),
     }
 }
@@ -13077,6 +13142,7 @@ fn netSendOnePosix(
             .HOSTUNREACH => return syscall.fail(error.HostUnreachable),
             .NETUNREACH => return syscall.fail(error.NetworkUnreachable),
             .NOTCONN => return syscall.fail(error.SocketUnconnected),
+            .TIMEDOUT => return syscall.fail(error.ConnectionTimedOut),
             .NETDOWN => return syscall.fail(error.NetworkDown),
             .BADF => |err| return syscall.errnoBug(err), // File descriptor used after closed.
             .DESTADDRREQ => |err| return syscall.errnoBug(err),
@@ -13148,6 +13214,7 @@ fn netSendManyPosix(
             .HOSTUNREACH => return syscall.fail(error.HostUnreachable),
             .NETUNREACH => return syscall.fail(error.NetworkUnreachable),
             .NOTCONN => return syscall.fail(error.SocketUnconnected),
+            .TIMEDOUT => return syscall.fail(error.ConnectionTimedOut),
             .NETDOWN => return syscall.fail(error.NetworkDown),
 
             .BADF => |err| return syscall.errnoBug(err), // File descriptor used after closed.
@@ -13180,7 +13247,6 @@ fn netReceivePosix(
         @as(u32, if (flags.oob) posix.MSG.OOB else 0) |
         @as(u32, if (flags.peek) posix.MSG.PEEK else 0) |
         @as(u32, if (flags.trunc) posix.MSG.TRUNC else 0) |
-        posix.MSG.NOSIGNAL |
         @as(u32, if (nonblocking) posix.MSG.DONTWAIT else 0);
 
     var storage: PosixAddress = undefined;
@@ -13192,7 +13258,7 @@ fn netReceivePosix(
         .iovlen = 1,
         .control = message.control.ptr,
         .controllen = @intCast(message.control.len),
-        .flags = undefined,
+        .flags = 0,
     };
 
     const syscall = try Syscall.start();
@@ -13228,6 +13294,7 @@ fn netReceivePosix(
             .MSGSIZE => return syscall.fail(error.MessageOversize),
             .PIPE => return syscall.fail(error.SocketUnconnected),
             .CONNRESET => return syscall.fail(error.ConnectionResetByPeer),
+            .TIMEDOUT => return syscall.fail(error.ConnectionTimedOut),
             .NETDOWN => return syscall.fail(error.NetworkDown),
             .AGAIN => return syscall.fail(error.WouldBlock),
             .BADF => |err| return syscall.errnoBug(err),
@@ -13312,6 +13379,7 @@ fn netWritePosix(
     header: []const u8,
     data: []const []const u8,
     splat: usize,
+    control: []const u8,
 ) net.Stream.Writer.Error!usize {
     if (!have_networking) return error.NetworkDown;
 
@@ -13321,8 +13389,8 @@ fn netWritePosix(
         .namelen = 0,
         .iov = &iovecs,
         .iovlen = 0,
-        .control = null,
-        .controllen = 0,
+        .control = if (control.len == 0) null else @constCast(control.ptr),
+        .controllen = @intCast(control.len),
         .flags = 0,
     };
     addBuf(&iovecs, &msg.iovlen, header);
@@ -13390,6 +13458,7 @@ fn netWritePosix(
                     .HOSTUNREACH => return error.HostUnreachable,
                     .NETUNREACH => return error.NetworkUnreachable,
                     .NOTCONN => return error.SocketUnconnected,
+                    .TIMEDOUT => return error.ConnectionTimedOut,
                     .NETDOWN => return error.NetworkDown,
                     else => |err| return posix.unexpectedErrno(err),
                 }
@@ -13403,8 +13472,12 @@ fn netWriteWindows(
     header: []const u8,
     data: []const []const u8,
     splat: usize,
+    control: []const u8,
 ) net.Stream.Writer.Error!usize {
     if (!have_networking) return error.NetworkDown;
+
+    // Windows doesn't have the concept of control/ancillary data.
+    _ = control;
 
     var iovecs: [max_iovecs_len]windows.AFD.WSABUF(.@"const") = undefined;
     var len: u32 = 0;
@@ -13450,7 +13523,8 @@ fn netWriteWindows(
         .SUCCESS => return iosb.Information,
         .CANCELLED => unreachable,
         .INSUFFICIENT_RESOURCES => return error.SystemResources,
-        .CONNECTION_RESET => return error.ConnectionResetByPeer,
+        .CONNECTION_RESET, .REMOTE_DISCONNECT => return error.ConnectionResetByPeer,
+        .IO_TIMEOUT => return error.ConnectionTimedOut,
         else => |status| return windows.unexpectedStatus(status),
     }
 }
@@ -13976,6 +14050,7 @@ fn netLookupFallible(
             .DNS_ERROR_INVALID_NAME_CHAR,
             .DNS_ERROR_RECORD_DOES_NOT_EXIST,
             => return error.UnknownHostName,
+            .TIMEOUT => return error.NameServerFailure,
             else => |err| return windows.unexpectedError(err),
         }
     }
@@ -14001,7 +14076,7 @@ fn netLookupFallible(
         const name_c = name_buffer[0..name.len :0];
 
         var port_buffer: [8]u8 = undefined;
-        const port_c = std.fmt.bufPrintSentinel(&port_buffer, "{d}", .{options.port}, 0) catch unreachable;
+        const port_c = std.mem.printSentinel(&port_buffer, "{d}", .{options.port}, 0) catch unreachable;
 
         const family: i32 = if (options.family) |f| switch (f) {
             .ip4 => posix.AF.INET,
@@ -14081,7 +14156,7 @@ fn lockStderr(userdata: ?*anyopaque, terminal_mode: ?Io.Terminal.Mode) Io.Cancel
     const current_thread_id = Thread.currentId();
 
     if (@atomicLoad(std.Thread.Id, &t.stderr_mutex_locker, .unordered) != current_thread_id) {
-        mutexLock(&t.stderr_mutex);
+        try mutexLock(&t.stderr_mutex);
         assert(t.stderr_mutex_lock_count == 0);
         @atomicStore(std.Thread.Id, &t.stderr_mutex_locker, current_thread_id, .unordered);
     }
@@ -14144,6 +14219,7 @@ fn unlockStderr(userdata: ?*anyopaque) void {
 fn processCurrentPath(userdata: ?*anyopaque, buffer: []u8) process.CurrentPathError!usize {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     _ = t;
+
     if (is_windows) {
         var wtf16le_buf: [windows.PATH_MAX_WIDE:0]u16 = undefined;
         const n = windows.ntdll.RtlGetCurrentDirectory_U(wtf16le_buf.len * 2 + 2, &wtf16le_buf) / 2;
@@ -14159,12 +14235,18 @@ fn processCurrentPath(userdata: ?*anyopaque, buffer: []u8) process.CurrentPathEr
             end_index += std.unicode.wtf8Encode(codepoint, buffer[end_index..]) catch unreachable;
         }
         return end_index;
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    }
+
+    if (native_os == .wasi and !builtin.link_libc) {
         if (buffer.len == 0) return error.NameTooLong;
         buffer[0] = '.';
         return 1;
     }
 
+    return processCurrentPathPosix(buffer);
+}
+
+fn processCurrentPathPosix(buffer: []u8) process.CurrentPathError!usize {
     const err: posix.E = if (builtin.link_libc) err: {
         const c_err = if (std.c.getcwd(buffer.ptr, buffer.len)) |_| 0 else std.c._errno().*;
         break :err @fromBackingInt(@intCast(c_err));
@@ -14175,6 +14257,16 @@ fn processCurrentPath(userdata: ?*anyopaque, buffer: []u8) process.CurrentPathEr
         .SUCCESS => return std.mem.findScalar(u8, buffer, 0).?,
         .NOENT => return error.CurrentDirUnlinked,
         .RANGE => return error.NameTooLong,
+        // On Linux, this indicates that the buffer may have been large enough, but the path
+        // is too long for the syscall to handle since it exceeds PATH_MAX.
+        // https://github.com/torvalds/linux/blob/e4b275531887fef7f7d8a7284bfc32f0fbbd4208/fs/d_path.c#L406-L407
+        //
+        // This is returned as a distinct error to differentiate it from RANGE, since
+        // this NAMETOOLONG return is never recoverable by increasing the buffer size.
+        // The way to recover from it would be to reconstruct the cwd piece-by-piece by e.g.
+        // walking the filesystem backwards starting from "." (many libc implementations
+        // of `getcwd` do this fallback-to-filesystem-walking automatically).
+        .NAMETOOLONG => return error.PathExceedsLimit,
         .FAULT => |e| return errnoBug(e),
         .INVAL => |e| return errnoBug(e),
         else => return posix.unexpectedErrno(err),
@@ -15090,7 +15182,7 @@ const WindowsEnvironStrings = struct {
 };
 
 fn scanEnviron(t: *Threaded) void {
-    mutexLock(&t.mutex);
+    mutexLockUncancelable(&t.mutex);
     defer mutexUnlock(&t.mutex);
     if (t.environ_initialized) return;
     t.environ.scan(t.allocator);
@@ -15122,28 +15214,54 @@ fn processReplace(userdata: ?*anyopaque, options: process.ReplaceOptions) proces
         });
     };
 
-    return posixExecv(options.expand_arg0, argv_buf.ptr[0].?, argv_buf.ptr, env_block, PATH);
-}
-
-fn processReplacePath(userdata: ?*anyopaque, dir: Dir, options: process.ReplaceOptions) process.ReplaceError {
-    if (!process.can_replace) return error.OperationUnsupported;
-    _ = userdata;
-    _ = dir;
-    _ = options;
-    @panic("TODO processReplacePath");
-}
-
-fn processSpawnPath(userdata: ?*anyopaque, dir: Dir, options: process.SpawnOptions) process.SpawnError!process.Child {
-    if (!process.can_spawn) return error.OperationUnsupported;
-    _ = userdata;
-    _ = dir;
-    _ = options;
-    @panic("TODO processSpawnPath");
+    if (is_darwin) if (t.spawnDarwin(
+        .replace,
+        options.exe,
+        argv_buf.ptr,
+        options.cwd,
+        env_block,
+        options.expand_arg0,
+        .none,
+        .inherit,
+        .inherit,
+        .inherit,
+        options.inherit_dirs,
+        options.inherit_files,
+        null,
+        options.start_suspended,
+        PATH,
+    )) |_| unreachable else |err| switch (err) {
+        else => |e| return e,
+        error.WouldBlock => return error.SystemResources,
+        error.FileTooBig,
+        error.NoSpaceLeft,
+        error.PathAlreadyExists,
+        error.SymLinkLoop,
+        error.NetworkNotFound,
+        error.PipeBusy,
+        error.AntivirusInterference,
+        => return error.FileNotFound,
+        error.DeviceBusy,
+        error.NoDevice,
+        error.UnrecognizedVolume,
+        error.ReadOnlyFileSystem,
+        => return error.FileSystem,
+        error.ResourceLimitReached => return error.SystemResources,
+        error.FileLocksUnsupported => unreachable, // lock not requested
+        error.InvalidWtf8 => unreachable, // windows only
+        error.InvalidBatchScriptArg => unreachable, // windows only
+        error.InvalidUserId => unreachable, // not supported
+        error.InvalidProcessGroupId => unreachable, // passed null
+        error.InvalidName => unreachable, // windows only
+        error.ProcessAlreadyExec => unreachable, // linux only
+    };
+    return posixExec(options.exe, argv_buf.ptr, options.expand_arg0, env_block, PATH);
 }
 
 const processSpawn = switch (native_os) {
     .wasi, .emscripten, .ios, .tvos, .visionos, .watchos => processSpawnUnsupported,
     .windows => processSpawnWindows,
+    .driverkit, .maccatalyst, .macos => processSpawnDarwin,
     else => processSpawnPosix,
 };
 
@@ -15219,16 +15337,12 @@ fn spawnPosix(t: *Threaded, options: process.SpawnOptions) process.SpawnError!Sp
     const argv_buf = try arena.allocSentinel(?[*:0]const u8, options.argv.len, null);
     for (options.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeSentinel(u8, arg, 0)).ptr;
 
-    const prog_fileno = 3;
-    comptime assert(@max(posix.STDIN_FILENO, posix.STDOUT_FILENO, posix.STDERR_FILENO) + 1 == prog_fileno);
-
     const env_block = env_block: {
-        const prog_fd: i32 = if (prog_pipe[1] == -1) -1 else prog_fileno;
         if (options.environ_map) |environ_map| break :env_block try environ_map.createPosixBlock(arena, .{
-            .zig_progress_fd = prog_fd,
+            .zig_progress_fd = prog_pipe[1],
         });
         break :env_block try t.environ.process_environ.createPosixBlock(arena, .{
-            .zig_progress_fd = prog_fd,
+            .zig_progress_fd = prog_pipe[1],
         });
     };
 
@@ -15256,23 +15370,42 @@ fn spawnPosix(t: *Threaded, options: process.SpawnOptions) process.SpawnError!Sp
         if (Thread.current) |current_thread| current_thread.cancel_protection = .blocked;
         const ep1 = err_pipe[1];
 
-        setUpChildIo(options.stdin, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch |err| forkBail(ep1, err);
-        setUpChildIo(options.stdout, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch |err| forkBail(ep1, err);
-        setUpChildIo(options.stderr, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) catch |err| forkBail(ep1, err);
-
+        // Must happen before clobbering fds below.
         switch (options.cwd) {
             .inherit => {},
-            .dir => |cwd| {
-                fchdir(cwd.handle) catch |err| forkBail(ep1, err);
-            },
-            .path => |cwd| {
-                chdir(cwd) catch |err| forkBail(ep1, err);
-            },
+            .dir => |cwd| fchdir(cwd.handle) catch |err| forkBail(ep1, err),
+            .path => |cwd| chdir(cwd) catch |err| forkBail(ep1, err),
         }
 
-        // Must happen after fchdir above, the cwd file descriptor might be
-        // equal to prog_fileno and be clobbered by this dup2 call.
-        if (prog_pipe[1] != -1) dup2(prog_pipe[1], prog_fileno) catch |err| forkBail(ep1, err);
+        for (options.inherit_dirs) |inherit_dir| switch (posix.errno(
+            posix.system.fcntl(inherit_dir.handle, posix.F.SETFD, @as(u32, 0)),
+        )) {
+            .SUCCESS => {},
+            else => |err| forkBail(ep1, posix.unexpectedErrno(err)),
+        };
+        for (options.inherit_files) |file| switch (posix.errno(
+            posix.system.fcntl(file.handle, posix.F.SETFD, @as(u32, 0)),
+        )) {
+            .SUCCESS => {},
+            else => |err| forkBail(ep1, posix.unexpectedErrno(err)),
+        };
+        if (prog_pipe[1] != -1) switch (posix.errno(
+            posix.system.fcntl(prog_pipe[1], posix.F.SETFD, @as(u32, 0)),
+        )) {
+            .SUCCESS => {},
+            else => |err| forkBail(ep1, posix.unexpectedErrno(err)),
+        };
+        for (
+            [_]process.SpawnOptions.StdIo{ options.stdin, options.stdout, options.stderr },
+            [_]posix.fd_t{ stdin_pipe[0], stdout_pipe[1], stderr_pipe[1] },
+            [_]posix.fd_t{ posix.STDIN_FILENO, posix.STDOUT_FILENO, posix.STDERR_FILENO },
+        ) |stdio, pipe_fd, std_fd| switch (stdio) {
+            .pipe => dup2(pipe_fd, std_fd) catch |err| forkBail(ep1, err),
+            .close => closeFd(std_fd),
+            .inherit => {},
+            .ignore => dup2(dev_null_fd, std_fd) catch |err| forkBail(ep1, err),
+            .file => |file| dup2(file.handle, std_fd) catch |err| forkBail(ep1, err),
+        };
 
         if (options.gid) |gid| {
             switch (posix.errno(posix.system.setregid(gid, gid))) {
@@ -15305,14 +15438,14 @@ fn spawnPosix(t: *Threaded, options: process.SpawnOptions) process.SpawnError!Sp
         }
 
         if (options.start_suspended) {
-            switch (posix.errno(posix.system.kill(0, .STOP))) {
+            switch (posix.errno(posix.system.kill(posix.system.getpid(), .STOP))) {
                 .SUCCESS => {},
                 .PERM => forkBail(ep1, error.PermissionDenied),
                 else => forkBail(ep1, error.Unexpected),
             }
         }
 
-        const err = posixExecv(options.expand_arg0, argv_buf.ptr[0].?, argv_buf.ptr, env_block, PATH);
+        const err = posixExec(options.exe, argv_buf.ptr, options.expand_arg0, env_block, PATH);
         forkBail(ep1, err);
     }
 
@@ -15348,7 +15481,7 @@ fn spawnPosix(t: *Threaded, options: process.SpawnOptions) process.SpawnError!Sp
 
 fn getDevNullFd(t: *Threaded) !posix.fd_t {
     {
-        mutexLock(&t.mutex);
+        try mutexLock(&t.mutex);
         defer mutexUnlock(&t.mutex);
         if (t.null_file.fd != -1) return t.null_file.fd;
     }
@@ -15360,7 +15493,7 @@ fn getDevNullFd(t: *Threaded) !posix.fd_t {
             .SUCCESS => {
                 syscall.finish();
                 const fresh_fd: posix.fd_t = @intCast(rc);
-                mutexLock(&t.mutex); // Another thread might have won the race.
+                mutexLockUncancelable(&t.mutex); // Another thread might have won the race.
                 defer mutexUnlock(&t.mutex);
                 if (t.null_file.fd != -1) {
                     closeFd(fresh_fd);
@@ -15735,18 +15868,136 @@ fn destroyPipe(pipe: [2]posix.fd_t) void {
     if (pipe[0] != pipe[1]) closeFd(pipe[1]);
 }
 
-fn setUpChildIo(stdio: process.SpawnOptions.StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) !void {
-    switch (stdio) {
-        .pipe => try dup2(pipe_fd, std_fileno),
-        .close => closeFd(std_fileno),
-        .inherit => {},
-        .ignore => try dup2(dev_null_fd, std_fileno),
-        .file => |file| try dup2(file.handle, std_fileno),
-    }
+fn processSpawnDarwin(userdata: ?*anyopaque, options: process.SpawnOptions) process.SpawnError!process.Child {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+
+    t.scanEnviron(); // for PATH
+    const PATH = t.environ.string.PATH orelse default_PATH;
+
+    var arena_allocator = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    const argv_buf = try arena.allocSentinel(?[*:0]const u8, options.argv.len, null);
+    for (options.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeSentinel(u8, arg, 0)).ptr;
+
+    const env_block = env_block: {
+        const prog_fd: i32 = -1;
+        if (options.environ_map) |environ_map| break :env_block try environ_map.createPosixBlock(arena, .{
+            .zig_progress_fd = prog_fd,
+        });
+        break :env_block try t.environ.process_environ.createPosixBlock(arena, .{
+            .zig_progress_fd = prog_fd,
+        });
+    };
+
+    const spawned = try t.spawnDarwin(
+        .spawn,
+        options.exe,
+        argv_buf.ptr,
+        options.cwd,
+        env_block,
+        options.expand_arg0,
+        options.progress_node,
+        options.stdin,
+        options.stdout,
+        options.stderr,
+        options.inherit_dirs,
+        options.inherit_files,
+        options.pgid,
+        options.start_suspended,
+        PATH,
+    );
+    return .{
+        .id = spawned.pid,
+        .thread_handle = {},
+        .stdin = spawned.stdin,
+        .stdout = spawned.stdout,
+        .stderr = spawned.stderr,
+        .request_resource_usage_statistics = options.request_resource_usage_statistics,
+    };
 }
 
 fn processSpawnWindows(userdata: ?*anyopaque, options: process.SpawnOptions) process.SpawnError!process.Child {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
+
+    var arena_allocator = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    const cwd_w = cwd_w: {
+        switch (options.cwd) {
+            .inherit => break :cwd_w null,
+            .dir => |cwd_dir| {
+                var dir_path_buffer = try arena.alloc(u16, windows.PATH_MAX_WIDE + 1);
+                const dir_path = try GetFinalPathNameByHandle(
+                    cwd_dir.handle,
+                    .{},
+                    dir_path_buffer[0..windows.PATH_MAX_WIDE],
+                );
+                dir_path_buffer[dir_path.len] = 0;
+                // Shrink the allocation down to just the path buffer + sentinel
+                dir_path_buffer = try arena.realloc(dir_path_buffer, dir_path.len + 1);
+                break :cwd_w dir_path_buffer[0..dir_path.len :0];
+            },
+            .path => |cwd| {
+                break :cwd_w try std.unicode.wtf8ToWtf16LeAllocZ(arena, cwd);
+            },
+        }
+    };
+    const cwd_w_ptr = if (cwd_w) |cwd| cwd.ptr else null;
+
+    // If the app name has more than just a filename, then we need to separate
+    // that into the basename and dirname and use the dirname as an addition to
+    // the cwd path. This is because NtQueryDirectoryFile cannot accept
+    // FileName params with path separators.
+    var app_w_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
+    // If the app name is absolute, then the cwd will already have the app's dirname in it,
+    // so only populate app_dir if app name is a relative path with > 0 path separators.
+    const app_path_w, const app_dir_w, const app_name_w = app: {
+        const path = switch (options.exe) {
+            .detect, .search, .path => options.argv[0],
+            .file => |file| {
+                const path_w = try GetFinalPathNameByHandle(file.handle, .{}, &app_w_buf);
+                var path_it: Dir.path.ComponentIterator(.windows, u16) = .init(path_w);
+                const base = path_it.last().?;
+                break :app .{
+                    null,
+                    if (path_it.previous()) |dir| dir.path else path_it.root(),
+                    base.name,
+                };
+            },
+            .explicit => |explicit| explicit.path,
+        };
+        break :app .{
+            if (Dir.path.isAbsolute(path)) null else switch (options.exe) {
+                // The cwd provided by options is in effect when choosing the executable
+                // path to match POSIX semantics.
+                .detect, .search => cwd_w,
+                .path => |dir| try GetFinalPathNameByHandle(dir.handle, .{}, &app_w_buf),
+                .file => unreachable,
+                .explicit => |explicit| try GetFinalPathNameByHandle(
+                    explicit.dir.handle,
+                    .{},
+                    &app_w_buf,
+                ),
+            },
+            if (Dir.path.dirname(path)) |app_dir|
+                try std.unicode.wtf8ToWtf16LeAllocZ(arena, app_dir)
+            else
+                null,
+            try std.unicode.wtf8ToWtf16LeAllocZ(arena, Dir.path.basename(path)),
+        };
+    };
+
+    const flags: windows.CreateProcessFlags = .{
+        .create_suspended = options.start_suspended,
+        .create_unicode_environment = true,
+        .create_no_window = options.create_no_window,
+    };
+
+    try mutexLock(&t.process_spawn_mutex);
+    defer mutexUnlock(&t.process_spawn_mutex);
 
     const any_ignore =
         options.stdin == .ignore or
@@ -15788,6 +16039,43 @@ fn processSpawnWindows(userdata: ?*anyopaque, options: process.SpawnOptions) pro
         .quota = std.Progress.max_packet_len * 2,
     }) else undefined;
     errdefer if (options.progress_node.index != .none) for (prog_pipe) |handle| windows.CloseHandle(handle);
+
+    defer for (options.inherit_dirs) |inherit_dir| switch (windows.ntdll.NtSetInformationObject(
+        inherit_dir.handle,
+        .HandleFlag,
+        &windows.OBJECT.HANDLE_FLAG{ .INHERIT = false },
+        @sizeOf(windows.OBJECT.HANDLE_FLAG),
+    )) {
+        .SUCCESS => {},
+        else => |status| windows.unexpectedStatus(status) catch {},
+    };
+    for (options.inherit_dirs) |inherit_dir| switch (windows.ntdll.NtSetInformationObject(
+        inherit_dir.handle,
+        .HandleFlag,
+        &windows.OBJECT.HANDLE_FLAG{ .INHERIT = true },
+        @sizeOf(windows.OBJECT.HANDLE_FLAG),
+    )) {
+        .SUCCESS => {},
+        else => |status| return windows.unexpectedStatus(status),
+    };
+    defer for (options.inherit_files) |inherit_file| switch (windows.ntdll.NtSetInformationObject(
+        inherit_file.handle,
+        .HandleFlag,
+        &windows.OBJECT.HANDLE_FLAG{ .INHERIT = false },
+        @sizeOf(windows.OBJECT.HANDLE_FLAG),
+    )) {
+        .SUCCESS => {},
+        else => |status| windows.unexpectedStatus(status) catch {},
+    };
+    for (options.inherit_files) |inherit_file| switch (windows.ntdll.NtSetInformationObject(
+        inherit_file.handle,
+        .HandleFlag,
+        &windows.OBJECT.HANDLE_FLAG{ .INHERIT = true },
+        @sizeOf(windows.OBJECT.HANDLE_FLAG),
+    )) {
+        .SUCCESS => {},
+        else => |status| return windows.unexpectedStatus(status),
+    };
 
     var siStartInfo: windows.STARTUPINFOW = .{
         .cb = @sizeOf(windows.STARTUPINFOW),
@@ -15866,32 +16154,6 @@ fn processSpawnWindows(userdata: ?*anyopaque, options: process.SpawnOptions) pro
     };
     var piProcInfo: windows.PROCESS.INFORMATION = undefined;
 
-    var arena_allocator = std.heap.ArenaAllocator.init(t.allocator);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
-
-    const cwd_w = cwd_w: {
-        switch (options.cwd) {
-            .inherit => break :cwd_w null,
-            .dir => |cwd_dir| {
-                var dir_path_buffer = try arena.alloc(u16, windows.PATH_MAX_WIDE + 1);
-                const dir_path = try GetFinalPathNameByHandle(
-                    cwd_dir.handle,
-                    .{},
-                    dir_path_buffer[0..windows.PATH_MAX_WIDE],
-                );
-                dir_path_buffer[dir_path.len] = 0;
-                // Shrink the allocation down to just the path buffer + sentinel
-                dir_path_buffer = try arena.realloc(dir_path_buffer, dir_path.len + 1);
-                break :cwd_w dir_path_buffer[0..dir_path.len :0];
-            },
-            .path => |cwd| {
-                break :cwd_w try std.unicode.wtf8ToWtf16LeAllocZ(arena, cwd);
-            },
-        }
-    };
-    const cwd_w_ptr = if (cwd_w) |cwd| cwd.ptr else null;
-
     const env_block = env_block: {
         const prog_handle = if (options.progress_node.index != .none)
             prog_pipe[1]
@@ -15903,45 +16165,6 @@ fn processSpawnWindows(userdata: ?*anyopaque, options: process.SpawnOptions) pro
         break :env_block try t.environ.process_environ.createWindowsBlock(arena, .{
             .zig_progress_handle = if (options.progress_node.index != .none) prog_pipe[1] else windows.INVALID_HANDLE_VALUE,
         });
-    };
-
-    const app_name_wtf8 = options.argv[0];
-    const app_name_is_absolute = Dir.path.isAbsolute(app_name_wtf8);
-
-    // The cwd provided by options is in effect when choosing the executable
-    // path to match POSIX semantics.
-    const cwd_path_w = x: {
-        // If the app name is absolute, then we need to use its dirname as the cwd
-        if (app_name_is_absolute) {
-            const dir = Dir.path.dirname(app_name_wtf8).?;
-            break :x try std.unicode.wtf8ToWtf16LeAllocZ(arena, dir);
-        } else if (cwd_w) |cwd| {
-            break :x cwd;
-        } else {
-            break :x &[_:0]u16{}; // empty for cwd
-        }
-    };
-
-    // If the app name has more than just a filename, then we need to separate
-    // that into the basename and dirname and use the dirname as an addition to
-    // the cwd path. This is because NtQueryDirectoryFile cannot accept
-    // FileName params with path separators.
-    const app_basename_wtf8 = Dir.path.basename(app_name_wtf8);
-    // If the app name is absolute, then the cwd will already have the app's dirname in it,
-    // so only populate app_dirname if app name is a relative path with > 0 path separators.
-    const maybe_app_dirname_wtf8 = if (!app_name_is_absolute) Dir.path.dirname(app_name_wtf8) else null;
-    const app_dirname_w: ?[:0]u16 = x: {
-        if (maybe_app_dirname_wtf8) |app_dirname_wtf8| {
-            break :x try std.unicode.wtf8ToWtf16LeAllocZ(arena, app_dirname_wtf8);
-        }
-        break :x null;
-    };
-    const app_name_w = try std.unicode.wtf8ToWtf16LeAllocZ(arena, app_basename_wtf8);
-
-    const flags: windows.CreateProcessFlags = .{
-        .create_suspended = options.start_suspended,
-        .create_unicode_environment = true,
-        .create_no_window = options.create_no_window,
     };
 
     run: {
@@ -15964,10 +16187,8 @@ fn processSpawnWindows(userdata: ?*anyopaque, options: process.SpawnOptions) pro
 
         var dir_buf: std.ArrayList(u16) = .empty;
 
-        if (cwd_path_w.len > 0) {
-            try dir_buf.appendSlice(arena, cwd_path_w);
-        }
-        if (app_dirname_w) |app_dir| {
+        if (app_path_w) |app_path| try dir_buf.appendSlice(arena, app_path);
+        if (app_dir_w) |app_dir| {
             if (dir_buf.items.len > 0) try dir_buf.append(arena, Dir.path.sep);
             try dir_buf.appendSlice(arena, app_dir);
         }
@@ -15992,15 +16213,18 @@ fn processSpawnWindows(userdata: ?*anyopaque, options: process.SpawnOptions) pro
                 else => |e| return e,
             };
 
-            // If the app name had path separators, that disallows PATH searching,
-            // and there's no need to search the PATH if the app name is absolute.
             // We still search the path if the cwd is absolute because of the
             // "cwd provided by options is in effect when choosing the executable path
             // to match posix semantics" behavior--we don't want to skip searching
             // the PATH just because we were trying to set the cwd of the child process.
-            if (app_dirname_w != null or app_name_is_absolute) {
-                return original_err;
-            }
+            if (switch (options.exe) {
+                // If the app name had path separators, that disallows PATH searching.
+                .detect => app_dir_w != null,
+                // There's no need to search the PATH if the app name is absolute.
+                .search => app_path_w == null,
+                // PATH searching is disallowed.
+                .path, .file, .explicit => true,
+            }) return original_err;
 
             var it = std.mem.tokenizeScalar(u16, PATH, ';');
             while (it.next()) |search_path| {
@@ -16078,11 +16302,9 @@ fn processSpawnWindows(userdata: ?*anyopaque, options: process.SpawnOptions) pro
     };
 }
 
-fn inheritFile() windows.HANDLE {}
-
 fn getCngDevice(t: *Threaded) Io.RandomSecureError!windows.HANDLE {
     {
-        mutexLock(&t.mutex);
+        try mutexLock(&t.mutex);
         defer mutexUnlock(&t.mutex);
         if (t.random_file.handle) |handle| return handle;
     }
@@ -16105,7 +16327,7 @@ fn getCngDevice(t: *Threaded) Io.RandomSecureError!windows.HANDLE {
     )) {
         .SUCCESS => {
             syscall.finish();
-            mutexLock(&t.mutex); // Another thread might have won the race.
+            mutexLockUncancelable(&t.mutex); // Another thread might have won the race.
             defer mutexUnlock(&t.mutex);
             if (t.random_file.handle) |prev_handle| {
                 windows.CloseHandle(fresh_handle);
@@ -16126,7 +16348,7 @@ fn getCngDevice(t: *Threaded) Io.RandomSecureError!windows.HANDLE {
 
 fn getNulDevice(t: *Threaded) !windows.HANDLE {
     {
-        mutexLock(&t.mutex);
+        try mutexLock(&t.mutex);
         defer mutexUnlock(&t.mutex);
         if (t.null_file.handle) |handle| return handle;
     }
@@ -16152,7 +16374,7 @@ fn getNulDevice(t: *Threaded) !windows.HANDLE {
     )) {
         .SUCCESS => {
             syscall.finish();
-            mutexLock(&t.mutex); // Another thread might have won the race.
+            mutexLockUncancelable(&t.mutex); // Another thread might have won the race.
             defer mutexUnlock(&t.mutex);
             if (t.null_file.handle) |prev_handle| {
                 windows.CloseHandle(fresh_handle);
@@ -16185,7 +16407,7 @@ fn getNulDevice(t: *Threaded) !windows.HANDLE {
 
 fn getNamedPipeDevice(t: *Threaded) !windows.HANDLE {
     {
-        mutexLock(&t.mutex);
+        try mutexLock(&t.mutex);
         defer mutexUnlock(&t.mutex);
         if (t.pipe_file.handle) |handle| return handle;
     }
@@ -16207,7 +16429,7 @@ fn getNamedPipeDevice(t: *Threaded) !windows.HANDLE {
     )) {
         .SUCCESS => {
             syscall.finish();
-            mutexLock(&t.mutex); // Another thread might have won the race.
+            mutexLockUncancelable(&t.mutex); // Another thread might have won the race.
             defer mutexUnlock(&t.mutex);
             if (t.pipe_file.handle) |prev_handle| {
                 windows.CloseHandle(fresh_handle);
@@ -16492,7 +16714,15 @@ fn windowsCreateProcessPathExt(
         else
             full_app_name;
 
-        if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, env_block, cwd_ptr, flags, lpStartupInfo, lpProcessInformation)) |_| {
+        if (windowsCreateProcess(
+            app_name_w.ptr,
+            cmd_line_w.ptr,
+            env_block,
+            cwd_ptr,
+            flags,
+            lpStartupInfo,
+            lpProcessInformation,
+        )) |_| {
             return;
         } else |err| switch (err) {
             error.FileNotFound => continue,
@@ -16973,7 +17203,7 @@ test argvToCommandLineWindows {
         ,
         \\-O
         ,
-        \\ReleaseSafe
+        \\safe
         ,
         \\--
         ,
@@ -16982,7 +17212,7 @@ test argvToCommandLineWindows {
         \\--eval=new Regex("Dwayne \"The Rock\" Johnson")
         ,
     },
-        \\"C:\Program Files\zig\zig.exe" run .\src\main.zig -target x86_64-windows-gnu -O ReleaseSafe -- --emoji=🗿 "--eval=new Regex(\"Dwayne \\\"The Rock\\\" Johnson\")"
+        \\"C:\Program Files\zig\zig.exe" run .\src\main.zig -target x86_64-windows-gnu -O safe -- --emoji=🗿 "--eval=new Regex(\"Dwayne \\\"The Rock\\\" Johnson\")"
     );
 
     try t(&.{}, "");
@@ -17026,61 +17256,112 @@ fn testArgvToCommandLineWindows(argv: []const []const u8, expected_cmd_line: []c
     try std.testing.expectEqualStrings(expected_cmd_line, cmd_line);
 }
 
-fn posixExecv(
-    arg0_expand: process.ArgExpansion,
-    file: [*:0]const u8,
-    child_argv: [*:null]?[*:0]const u8,
+fn posixExec(
+    exe: process.ReplaceOptions.Exe,
+    argv: [*:null]?[*:0]const u8,
+    expand_arg0: process.ArgExpansion,
     env_block: process.Environ.PosixBlock,
     PATH: []const u8,
 ) process.ReplaceError {
-    const file_slice = std.mem.sliceTo(file, 0);
-    if (std.mem.findScalar(u8, file_slice, '/') != null) return posixExecvPath(file, child_argv, env_block);
+    const arg0_slice = std.mem.span(argv[0].?);
+    exe: switch (exe) {
+        .detect => continue :exe if (std.mem.findScalar(u8, arg0_slice, '/')) |_| .{
+            .path = .cwd(),
+        } else .search,
+        .search => {
+            if (Dir.path.isAbsolute(arg0_slice)) continue :exe .{ .path = .cwd() };
+            // Use of PATH_MAX here is valid as the path_buf will be passed
+            // directly to the operating system in posixExecveat.
+            var path_buf: [posix.PATH_MAX]u8 = undefined;
+            var it = std.mem.tokenizeScalar(u8, PATH, ':');
+            var err: error{ AccessDenied, FileNotFound, NotDir } = error.FileNotFound;
 
-    // Use of PATH_MAX here is valid as the path_buf will be passed
-    // directly to the operating system in posixExecvPath.
-    var path_buf: [posix.PATH_MAX]u8 = undefined;
-    var it = std.mem.tokenizeScalar(u8, PATH, ':');
-    var seen_eacces = false;
-    var err: process.ReplaceError = error.FileNotFound;
-
-    // In case of expanding arg0 we must put it back if we return with an error.
-    const prev_arg0 = child_argv[0];
-    defer switch (arg0_expand) {
-        .expand => child_argv[0] = prev_arg0,
-        .no_expand => {},
-    };
-
-    while (it.next()) |search_path| {
-        const path_len = search_path.len + file_slice.len + 1;
-        if (path_buf.len < path_len + 1) return error.NameTooLong;
-        @memcpy(path_buf[0..search_path.len], search_path);
-        path_buf[search_path.len] = '/';
-        @memcpy(path_buf[search_path.len + 1 ..][0..file_slice.len], file_slice);
-        path_buf[path_len] = 0;
-        const full_path = path_buf[0..path_len :0].ptr;
-        switch (arg0_expand) {
-            .expand => child_argv[0] = full_path,
-            .no_expand => {},
-        }
-        err = posixExecvPath(full_path, child_argv, env_block);
-        switch (err) {
-            error.AccessDenied => seen_eacces = true,
-            error.FileNotFound, error.NotDir => {},
-            else => |e| return e,
-        }
+            while (it.next()) |search_path| {
+                const path_len = search_path.len + arg0_slice.len + 1;
+                if (path_buf.len < path_len + 1) return error.NameTooLong;
+                @memcpy(path_buf[0..search_path.len], search_path);
+                path_buf[search_path.len] = Dir.path.sep;
+                @memcpy(path_buf[search_path.len + 1 ..][0..arg0_slice.len], arg0_slice);
+                path_buf[path_len] = 0;
+                const full_path = path_buf[0..path_len :0].ptr;
+                switch (expand_arg0) {
+                    .expand => argv[0] = full_path,
+                    .no_expand => {},
+                }
+                switch (posixExecveat(posix.AT.FDCWD, full_path, argv, env_block)) {
+                    error.AccessDenied, error.FileNotFound, error.NotDir => |e| switch (err) {
+                        error.AccessDenied => {},
+                        error.FileNotFound, error.NotDir => err = e,
+                    },
+                    else => |e| return e,
+                }
+            }
+            return err;
+        },
+        .path => |path| return posixExecveat(path.handle, arg0_slice, argv, env_block),
+        .file => |file| return posixExecveat(file.handle, null, argv, env_block),
+        .explicit => |explicit| {
+            var path_buffer: [posix.PATH_MAX]u8 = undefined;
+            const path_posix = try pathToPosix(explicit.path, &path_buffer);
+            return posixExecveat(explicit.dir.handle, path_posix, argv, env_block);
+        },
     }
-    if (seen_eacces) return error.AccessDenied;
-    return err;
 }
 
 /// This function ignores PATH environment variable.
-pub fn posixExecvPath(
-    path: [*:0]const u8,
-    child_argv: [*:null]const ?[*:0]const u8,
+pub fn posixExecveat(
+    dir: posix.fd_t,
+    path: ?[*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
     env_block: process.Environ.PosixBlock,
 ) process.ReplaceError {
     try Thread.checkCancel();
-    switch (posix.errno(posix.system.execve(path, child_argv, env_block.slice.ptr))) {
+    switch (err: {
+        if (path) |p| if (dir == posix.AT.FDCWD or Dir.path.isAbsoluteZ(p)) {
+            break :err posix.errno(posix.system.execve(p, argv, env_block.slice.ptr));
+        };
+        if (comptime native_os == .linux and (!builtin.link_libc or
+            (builtin.target.isGnuLibC() and builtin.target.os.version_range.linux.glibc.order(
+                .{ .major = 2, .minor = 34, .patch = 0 },
+            ).compare(.gte))))
+        {
+            switch (posix.errno(posix.system.execveat(dir, path orelse "", argv, env_block.slice.ptr, .{
+                .EMPTY_PATH = path == null,
+                .SYMLINK_NOFOLLOW = false,
+            }))) {
+                else => |err| break :err err,
+                .NOSYS => {},
+            }
+        }
+        var path_buffer: [posix.PATH_MAX]u8 = undefined;
+        var path_len = realPathPosix(dir, &path_buffer) catch |err| switch (err) {
+            else => |e| return e,
+            error.InputOutput,
+            error.FileTooBig,
+            error.NoSpaceLeft,
+            error.PathAlreadyExists,
+            error.SymLinkLoop,
+            error.NetworkNotFound,
+            error.PipeBusy,
+            error.AntivirusInterference,
+            => return error.FileNotFound,
+            error.DeviceBusy,
+            error.NoDevice,
+            error.UnrecognizedVolume,
+            => return error.FileSystem,
+        };
+        if (path) |p| {
+            const path_slice = std.mem.span(p);
+            path_buffer[path_len] = Dir.path.sep;
+            path_len += 1;
+            @memcpy(path_buffer[path_len..][0..path_slice.len], path_slice);
+            path_len += path_slice.len;
+        }
+        path_buffer[path_len] = 0;
+        break :err posix.errno(
+            posix.system.execve(path_buffer[0..path_len :0], argv, env_block.slice.ptr),
+        );
+    }) {
         .FAULT => |err| return errnoBug(err), // Bad pointer parameter.
         .@"2BIG" => return error.SystemResources,
         .MFILE => return error.ProcessFdQuotaExceeded,
@@ -17110,6 +17391,334 @@ pub fn posixExecvPath(
             else => return posix.unexpectedErrno(err),
         },
     }
+}
+
+fn spawnDarwin(
+    t: *Threaded,
+    mode: enum { spawn, replace },
+    exe: process.ReplaceOptions.Exe,
+    argv: [*:null]?[*:0]const u8,
+    cwd: process.Child.Cwd,
+    env_block: process.Environ.PosixBlock,
+    expand_arg0: process.ArgExpansion,
+    progress_node: std.Progress.Node,
+    stdin: process.SpawnOptions.StdIo,
+    stdout: process.SpawnOptions.StdIo,
+    stderr: process.SpawnOptions.StdIo,
+    inherit_dirs: []const Dir,
+    inherit_files: []const File,
+    pgid: ?posix.pid_t,
+    start_suspended: bool,
+    PATH: []const u8,
+) (process.SpawnError || process.ReplaceError)!Spawned {
+    var fa: std.c.posix_spawn_file_actions_t = undefined;
+    switch (@as(std.c.E, @fromBackingInt(@intCast(std.c.posix_spawn_file_actions_init(&fa))))) {
+        .SUCCESS => {},
+        .NOMEM => return error.SystemResources,
+        else => |err| return posix.unexpectedErrno(err),
+    }
+    defer switch (@as(std.c.E, @fromBackingInt(@intCast(
+        std.c.posix_spawn_file_actions_destroy(&fa),
+    )))) {
+        .SUCCESS => {},
+        .INVAL => recoverableOsBugDetected(),
+        else => recoverableOsBugDetected(),
+    };
+
+    var attr: std.c.posix_spawnattr_t = undefined;
+    switch (@as(std.c.E, @fromBackingInt(@intCast(std.c.posix_spawnattr_init(&attr))))) {
+        .SUCCESS => {},
+        .NOMEM => return error.SystemResources,
+        else => |err| return posix.unexpectedErrno(err),
+    }
+    defer switch (@as(std.c.E, @fromBackingInt(@intCast(std.c.posix_spawnattr_destroy(&attr))))) {
+        .SUCCESS => {},
+        .INVAL => recoverableOsBugDetected(),
+        else => recoverableOsBugDetected(),
+    };
+
+    // The child process does need to access (one end of) these pipes. However,
+    // we must initially set CLOEXEC to avoid a race condition. If another thread
+    // is racing to spawn a different child process, we don't want it to inherit
+    // these FDs in any scenario; that would mean that, for instance, calls to
+    // `poll` from the parent would not report the child's stdout as closing when
+    // expected, since the other child may retain a reference to the write end of
+    // the pipe. So, we create the pipes with CLOEXEC initially. After fork, we
+    // need to do something in the new child to make sure we preserve the reference
+    // we want. We could use `fcntl` to remove CLOEXEC from the FD, but as it
+    // turns out, we `dup2` everything anyway, so there's no need!
+    const pipe_flags: posix.O = .{ .CLOEXEC = true };
+
+    const stdin_pipe = if (stdin == .pipe) try pipe2(pipe_flags) else undefined;
+    errdefer if (stdin == .pipe) {
+        destroyPipe(stdin_pipe);
+    };
+
+    const stdout_pipe = if (stdout == .pipe) try pipe2(pipe_flags) else undefined;
+    errdefer if (stdout == .pipe) {
+        destroyPipe(stdout_pipe);
+    };
+
+    const stderr_pipe = if (stderr == .pipe) try pipe2(pipe_flags) else undefined;
+    errdefer if (stderr == .pipe) {
+        destroyPipe(stderr_pipe);
+    };
+
+    const any_ignore = (stdin == .ignore or stdout == .ignore or stderr == .ignore);
+    const dev_null_fd = if (any_ignore) try t.getDevNullFd() else undefined;
+
+    const prog_pipe: [2]posix.fd_t = if (progress_node.index != .none) pipe: {
+        // We use CLOEXEC for the same reason as in `pipe_flags`.
+        break :pipe try pipe2(.{ .NONBLOCK = true, .CLOEXEC = true });
+    } else .{ -1, -1 };
+    errdefer destroyPipe(prog_pipe);
+
+    var cwd_buffer: [posix.PATH_MAX]u8 = undefined;
+    switch (cwd) {
+        .inherit => {},
+        .dir => |dir| switch (@as(std.c.E, @fromBackingInt(@intCast(
+            std.c.posix_spawn_file_actions_addfchdir_np(&fa, dir.handle),
+        )))) {
+            .SUCCESS => {},
+            .BADF => |err| return errnoBug(err),
+            .INVAL => |err| return errnoBug(err),
+            .NOMEM => return error.SystemResources,
+            else => |err| return posix.unexpectedErrno(err),
+        },
+        .path => |path| switch (@as(std.c.E, @fromBackingInt(@intCast(
+            std.c.posix_spawn_file_actions_addchdir_np(&fa, try pathToPosix(path, &cwd_buffer)),
+        )))) {
+            .SUCCESS => {},
+            .BADF => |err| return errnoBug(err),
+            .INVAL => |err| return errnoBug(err),
+            .NAMETOOLONG => return error.NameTooLong,
+            .NOMEM => return error.SystemResources,
+            else => |err| return posix.unexpectedErrno(err),
+        },
+    }
+
+    for (inherit_dirs) |inherit_dir| switch (@as(std.c.E, @fromBackingInt(@intCast(
+        std.c.posix_spawn_file_actions_addinherit_np(&fa, inherit_dir.handle),
+    )))) {
+        .SUCCESS => {},
+        .BADF => |err| return errnoBug(err),
+        .INVAL => |err| return errnoBug(err),
+        .NOMEM => return error.SystemResources,
+        else => |err| return posix.unexpectedErrno(err),
+    };
+    for (inherit_files) |inherit_file| switch (@as(std.c.E, @fromBackingInt(@intCast(
+        std.c.posix_spawn_file_actions_addinherit_np(&fa, inherit_file.handle),
+    )))) {
+        .SUCCESS => {},
+        .BADF => |err| return errnoBug(err),
+        .INVAL => |err| return errnoBug(err),
+        .NOMEM => return error.SystemResources,
+        else => |err| return posix.unexpectedErrno(err),
+    };
+    if (prog_pipe[1] != -1) switch (@as(std.c.E, @fromBackingInt(@intCast(
+        std.c.posix_spawn_file_actions_addinherit_np(&fa, prog_pipe[1]),
+    )))) {
+        .SUCCESS => {},
+        .BADF => |err| return errnoBug(err),
+        .INVAL => |err| return errnoBug(err),
+        .NOMEM => return error.SystemResources,
+        else => |err| return posix.unexpectedErrno(err),
+    };
+    for (
+        [_]process.SpawnOptions.StdIo{ stdin, stdout, stderr },
+        [_]posix.fd_t{ stdin_pipe[0], stdout_pipe[1], stderr_pipe[1] },
+        [_]posix.fd_t{ posix.STDIN_FILENO, posix.STDOUT_FILENO, posix.STDERR_FILENO },
+    ) |stdio, pipe_fd, std_fd| switch (@as(std.c.E, @fromBackingInt(@intCast(switch (stdio) {
+        .pipe => std.c.posix_spawn_file_actions_adddup2(&fa, pipe_fd, std_fd),
+        .close => std.c.posix_spawn_file_actions_addclose(&fa, std_fd),
+        .inherit => std.c.posix_spawn_file_actions_addinherit_np(&fa, std_fd),
+        .ignore => std.c.posix_spawn_file_actions_adddup2(&fa, dev_null_fd, std_fd),
+        .file => |file| std.c.posix_spawn_file_actions_adddup2(&fa, file.handle, std_fd),
+    })))) {
+        .SUCCESS => {},
+        .BADF => |err| return errnoBug(err),
+        .INVAL => |err| return errnoBug(err),
+        .NOMEM => return error.SystemResources,
+        else => |err| return posix.unexpectedErrno(err),
+    };
+
+    if (pgid) |pid| switch (@as(std.c.E, @fromBackingInt(@intCast(
+        std.c.posix_spawnattr_setpgroup(&attr, pid),
+    )))) {
+        .SUCCESS => {},
+        .INVAL => return error.InvalidProcessGroupId,
+        else => |err| return posix.unexpectedErrno(err),
+    };
+
+    switch (@as(std.c.E, @fromBackingInt(@intCast(std.c.posix_spawnattr_setflags(&attr, .{
+        .SETPGROUP = pgid != null,
+        .SETEXEC = switch (mode) {
+            .spawn => false,
+            .replace => true,
+        },
+        .START_SUSPENDED = start_suspended,
+    }))))) {
+        .SUCCESS => {},
+        .INVAL => |err| return errnoBug(err),
+        else => |err| return posix.unexpectedErrno(err),
+    }
+
+    var pid: posix.pid_t = undefined;
+    const arg0_slice = std.mem.span(argv[0].?);
+    var path_buffer: [posix.PATH_MAX]u8 = undefined;
+    switch (err: {
+        break :err @as(std.c.E, @fromBackingInt(@intCast(exe: switch (exe) {
+            .detect => if (std.mem.findScalar(u8, arg0_slice, '/')) |_|
+                std.c.posix_spawn(&pid, arg0_slice, &fa, &attr, argv, env_block.slice.ptr)
+            else
+                continue :exe .search,
+            .search => if (!Dir.path.isAbsolute(arg0_slice)) {
+                // Use of PATH_MAX here is valid as the path_buf will be passed
+                // directly to the operating system in posixExecveat.
+                var path_buf: [posix.PATH_MAX]u8 = undefined;
+                var it = std.mem.tokenizeScalar(u8, PATH, ':');
+                var err: error{ AccessDenied, FileNotFound, NotDir } = error.FileNotFound;
+
+                while (it.next()) |search_path| {
+                    const path_len = search_path.len + arg0_slice.len + 1;
+                    if (path_buf.len < path_len + 1) return error.NameTooLong;
+                    @memcpy(path_buf[0..search_path.len], search_path);
+                    path_buf[search_path.len] = Dir.path.sep;
+                    @memcpy(path_buf[search_path.len + 1 ..][0..arg0_slice.len], arg0_slice);
+                    path_buf[path_len] = 0;
+                    const full_path = path_buf[0..path_len :0].ptr;
+                    switch (expand_arg0) {
+                        .expand => argv[0] = full_path,
+                        .no_expand => {},
+                    }
+                    switch (@as(std.c.E, @fromBackingInt(@intCast(
+                        std.c.posix_spawn(&pid, full_path, &fa, &attr, argv, env_block.slice.ptr),
+                    )))) {
+                        else => |e| break :err e,
+                        .ACCES, .NOENT, .NOTDIR => |e| switch (err) {
+                            error.AccessDenied => {},
+                            error.FileNotFound, error.NotDir => err = switch (e) {
+                                else => unreachable,
+                                .ACCES => error.AccessDenied,
+                                .NOENT => error.FileNotFound,
+                                .NOTDIR => error.NotDir,
+                            },
+                        },
+                    }
+                }
+                return err;
+            } else std.c.posix_spawn(&pid, arg0_slice, &fa, &attr, argv, env_block.slice.ptr),
+            .path => |path| if (path.handle != posix.AT.FDCWD and !Dir.path.isAbsolute(arg0_slice)) {
+                var path_len = realPathPosix(path.handle, &path_buffer) catch |err| switch (err) {
+                    else => |e| return e,
+                    error.InputOutput => return error.FileNotFound,
+                };
+                path_buffer[path_len] = Dir.path.sep;
+                path_len += 1;
+                @memcpy(path_buffer[path_len..][0..arg0_slice.len], arg0_slice);
+                path_len += arg0_slice.len;
+                path_buffer[path_len] = 0;
+                break :exe std.c.posix_spawn(
+                    &pid,
+                    path_buffer[0..path_len :0],
+                    &fa,
+                    &attr,
+                    argv,
+                    env_block.slice.ptr,
+                );
+            } else std.c.posix_spawn(&pid, arg0_slice, &fa, &attr, argv, env_block.slice.ptr),
+            .file => |file| {
+                const path_len = realPathPosix(file.handle, &path_buffer) catch |err| switch (err) {
+                    else => |e| return e,
+                    error.InputOutput => return error.FileNotFound,
+                };
+                path_buffer[path_len] = 0;
+                break :exe std.c.posix_spawn(
+                    &pid,
+                    path_buffer[0..path_len :0],
+                    &fa,
+                    &attr,
+                    argv,
+                    env_block.slice.ptr,
+                );
+            },
+            .explicit => |explicit| if (explicit.dir.handle != posix.AT.FDCWD and
+                !Dir.path.isAbsolute(explicit.path))
+            {
+                var path_len = realPathPosix(
+                    explicit.dir.handle,
+                    &path_buffer,
+                ) catch |err| switch (err) {
+                    else => |e| return e,
+                    error.InputOutput => return error.FileNotFound,
+                };
+                path_buffer[path_len] = Dir.path.sep;
+                path_len += 1;
+                @memcpy(path_buffer[path_len..][0..explicit.path.len], explicit.path);
+                path_len += explicit.path.len;
+                path_buffer[path_len] = 0;
+                break :exe std.c.posix_spawn(
+                    &pid,
+                    path_buffer[0..path_len :0],
+                    &fa,
+                    &attr,
+                    argv,
+                    env_block.slice.ptr,
+                );
+            } else std.c.posix_spawn(
+                &pid,
+                try pathToPosix(explicit.path, &path_buffer),
+                &fa,
+                &attr,
+                argv,
+                env_block.slice.ptr,
+            ),
+        })));
+    }) {
+        .SUCCESS => {},
+        .AGAIN => return error.SystemResources,
+        .INVAL => |err| return errnoBug(err),
+        .@"2BIG" => return error.SystemResources,
+        .ACCES => return error.AccessDenied,
+        .FAULT => |err| return errnoBug(err),
+        .IO => return error.FileSystem,
+        .LOOP => return error.FileSystem,
+        .NAMETOOLONG => return error.NameTooLong,
+        .NOENT => return error.FileNotFound,
+        .NOEXEC => return error.InvalidExe,
+        .NOMEM => return error.SystemResources,
+        .NOTDIR => return error.NotDir,
+        .TXTBSY => return error.FileBusy,
+        .BADARCH => return error.InvalidExe,
+        .BADF => |err| return errnoBug(err),
+        else => |err| return posix.unexpectedErrno(err),
+    }
+
+    errdefer comptime unreachable; // The child is spawned; we must not error from now on
+
+    if (stdin == .pipe) closeFd(stdin_pipe[0]);
+    if (stdout == .pipe) closeFd(stdout_pipe[1]);
+    if (stderr == .pipe) closeFd(stderr_pipe[1]);
+
+    if (prog_pipe[1] != -1) closeFd(prog_pipe[1]);
+    progress_node.setIpcFile(t, .{ .handle = prog_pipe[0], .flags = .{ .nonblocking = true } });
+
+    return .{
+        .pid = pid,
+        .err_fd = -1,
+        .stdin = switch (stdin) {
+            .pipe => .{ .handle = stdin_pipe[1], .flags = .{ .nonblocking = false } },
+            else => null,
+        },
+        .stdout = switch (stdout) {
+            .pipe => .{ .handle = stdout_pipe[0], .flags = .{ .nonblocking = false } },
+            else => null,
+        },
+        .stderr = switch (stderr) {
+            .pipe => .{ .handle = stderr_pipe[0], .flags = .{ .nonblocking = false } },
+            else => null,
+        },
+    };
 }
 
 pub const CreatePipeOptions = struct {
@@ -17213,6 +17822,53 @@ fn progressParentFile(userdata: ?*anyopaque) std.Progress.ParentFileError!File {
     return t.environ.zig_progress_file;
 }
 
+fn inheritParentHandle(handle: posix.fd_t) Io.InheritParentHandleError!void {
+    switch (native_os) {
+        .linux,
+        .dragonfly,
+        .freebsd,
+        .netbsd,
+        .openbsd,
+        .illumos,
+        .driverkit,
+        .ios,
+        .maccatalyst,
+        .macos,
+        .tvos,
+        .visionos,
+        .watchos,
+        => return setCloexec(handle),
+        .windows => switch (windows.ntdll.NtSetInformationObject(
+            handle,
+            .HandleFlag,
+            &windows.OBJECT.HANDLE_FLAG{ .INHERIT = false },
+            @sizeOf(windows.OBJECT.HANDLE_FLAG),
+        )) {
+            .SUCCESS => return,
+            else => |status| return windows.unexpectedStatus(status),
+        },
+        else => return error.UnsupportedOperation,
+    }
+}
+
+fn inheritParentDir(userdata: ?*anyopaque, handle: Dir.Handle) Io.InheritParentHandleError!Dir {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    _ = t;
+    try inheritParentHandle(handle);
+    return .{ .handle = handle };
+}
+
+fn inheritParentFile(
+    userdata: ?*anyopaque,
+    handle: File.Handle,
+    flags: File.Flags,
+) Io.InheritParentHandleError!File {
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+    _ = t;
+    try inheritParentHandle(handle);
+    return .{ .handle = handle, .flags = flags };
+}
+
 pub fn environString(t: *Threaded, comptime name: []const u8) ?[:0]const u8 {
     t.scanEnviron();
     return @field(t.environ.string, name);
@@ -17231,7 +17887,7 @@ fn random(userdata: ?*anyopaque, buffer: []u8) void {
 }
 
 fn randomMainThread(t: *Threaded, buffer: []u8) void {
-    mutexLock(&t.mutex);
+    mutexLockUncancelable(&t.mutex);
     defer mutexUnlock(&t.mutex);
 
     if (!t.csprng.isInitialized()) {
@@ -17239,7 +17895,7 @@ fn randomMainThread(t: *Threaded, buffer: []u8) void {
         var seed: [Csprng.seed_len]u8 = undefined;
         {
             mutexUnlock(&t.mutex);
-            defer mutexLock(&t.mutex);
+            defer mutexLockUncancelable(&t.mutex);
 
             const prev = swapCancelProtection(t, .blocked);
             defer _ = swapCancelProtection(t, prev);
@@ -17426,7 +18082,7 @@ fn randomSecure(userdata: ?*anyopaque, buffer: []u8) Io.RandomSecureError!void {
 
 fn getRandomFd(t: *Threaded) Io.RandomSecureError!posix.fd_t {
     {
-        mutexLock(&t.mutex);
+        try mutexLock(&t.mutex);
         defer mutexUnlock(&t.mutex);
 
         if (t.random_file.fd == -2) return error.EntropyUnavailable;
@@ -17467,7 +18123,7 @@ fn getRandomFd(t: *Threaded) Io.RandomSecureError!posix.fd_t {
                     .SUCCESS => {
                         syscall.finish();
                         if (!statx.mask.TYPE) return error.EntropyUnavailable;
-                        mutexLock(&t.mutex); // Another thread might have won the race.
+                        mutexLockUncancelable(&t.mutex); // Another thread might have won the race.
                         defer mutexUnlock(&t.mutex);
                         if (t.random_file.fd >= 0) {
                             closeFd(fd);
@@ -17495,7 +18151,7 @@ fn getRandomFd(t: *Threaded) Io.RandomSecureError!posix.fd_t {
                 switch (posix.errno(fstat_sym(fd, &stat))) {
                     .SUCCESS => {
                         syscall.finish();
-                        mutexLock(&t.mutex); // Another thread might have won the race.
+                        mutexLockUncancelable(&t.mutex); // Another thread might have won the race.
                         defer mutexUnlock(&t.mutex);
                         if (t.random_file.fd >= 0) {
                             closeFd(fd);
@@ -18423,7 +19079,7 @@ const CreateFileMapError = error{
 
 fn createFileMap(
     file: File,
-    protection: std.process.MemoryProtection,
+    protection: process.MemoryProtection,
     offset: u64,
     populate: bool,
     len: usize,
@@ -18449,7 +19105,13 @@ fn createFileMap(
             null,
             &section_size,
             page,
-            .{ .COMMIT = populate },
+            .{
+                // Required when calling NtCreateSection with a file handle, otherwise
+                // this call will fail with INVALID_PARAMETER_6. The higher level
+                // `CreateFileMapping` function will set this bit for you when it
+                // calls NtCreateSection.
+                .COMMIT = true,
+            },
             file.handle,
         )) {
             .SUCCESS => {},
@@ -18484,6 +19146,36 @@ fn createFileMap(
             const page_size = std.heap.pageSize();
             const alignment: Alignment = .fromByteUnits(page_size);
             assert(contents_len == alignment.forward(len));
+        }
+        if (populate) {
+            const addresses = [_]windows.MEMORY_RANGE_ENTRY{
+                .{ .VirtualAddress = contents_ptr.?, .NumberOfBytes = len },
+            };
+            var info: windows.VIRTUAL_MEMORY.MEMORY_PREFETCH_INFORMATION = .{
+                .Flags = .{
+                    // This flag requires Windows 11 >= 24H4. On earlier versions, this being set
+                    // will cause NtSetInformationVirtualMemory to fail with INVALID_PARAMETER_5.
+                    .TO_WORKING_SET = false,
+                },
+            };
+            // There has been some doubt about the efficacy of this function:
+            // https://github.com/microsoft/Windows-Dev-Performance/issues/108
+            //
+            // However, through testing it has been shown that, if the mapped file is not
+            // in the cache, calling this function can turn what might otherwise be hard
+            // faults into soft faults. Either way, it's still good to call it in order to
+            // accurately reflect our intent.
+            switch (windows.ntdll.NtSetInformationVirtualMemory(
+                windows.current_process,
+                .Prefetch,
+                1,
+                &addresses,
+                &info,
+                @sizeOf(windows.VIRTUAL_MEMORY.MEMORY_PREFETCH_INFORMATION),
+            )) {
+                .SUCCESS => {},
+                else => |status| return windows.unexpectedStatus(status),
+            }
         }
         return .{
             .file = file,
@@ -19051,7 +19743,7 @@ fn condWait(cond: *Io.Condition, mutex: *Io.Mutex) void {
     }
 
     mutexUnlock(mutex);
-    defer mutexLock(mutex);
+    defer mutexLockUncancelable(mutex);
 
     while (true) {
         Thread.futexWaitUncancelable(&cond.epoch.raw, epoch, null);
@@ -19071,8 +19763,27 @@ fn condWait(cond: *Io.Condition, mutex: *Io.Mutex) void {
     }
 }
 
+/// Same as `Io.Mutex.lock` but avoids the VTable.
+pub fn mutexLock(m: *Io.Mutex) Io.Cancelable!void {
+    const initial_state = m.state.cmpxchgStrong(
+        .unlocked,
+        .locked_once,
+        .acquire,
+        .monotonic,
+    ) orelse {
+        @branchHint(.likely);
+        return;
+    };
+    if (initial_state == .contended) {
+        try Thread.futexWait(@ptrCast(&m.state.raw), @backingInt(Io.Mutex.State.contended), null);
+    }
+    while (m.state.swap(.contended, .acquire) != .unlocked) {
+        try Thread.futexWait(@ptrCast(&m.state.raw), @backingInt(Io.Mutex.State.contended), null);
+    }
+}
+
 /// Same as `Io.Mutex.lockUncancelable` but avoids the VTable.
-pub fn mutexLock(m: *Io.Mutex) void {
+pub fn mutexLockUncancelable(m: *Io.Mutex) void {
     const initial_state = m.state.cmpxchgStrong(
         .unlocked,
         .locked_once,

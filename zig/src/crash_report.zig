@@ -86,21 +86,20 @@ pub const CodegenFunc = if (enabled) struct {
 
 pub const LinkerOp = if (enabled) struct {
     lf: *link.File,
-    tid: Zcu.PerThread.Id,
     threadlocal var current: ?LinkerOp = null;
-    pub fn start(lf: *link.File, tid: Zcu.PerThread.Id) void {
+    pub fn start(lf: *link.File) void {
         std.debug.assert(current == null);
-        current = .{ .lf = lf, .tid = tid };
+        current = .{ .lf = lf };
     }
-    pub fn stop(lf: *link.File, tid: Zcu.PerThread.Id) void {
-        std.debug.assert(current.?.lf == lf and current.?.tid == tid);
+    pub fn stop(lf: *link.File) void {
+        std.debug.assert(current.?.lf == lf);
         current = null;
     }
 } else struct {
     const current: ?noreturn = null;
     // Dummy implementation
-    pub fn start(_: *link.File, _: Zcu.PerThread.Id) void {}
-    pub fn stop(_: *link.File, _: Zcu.PerThread.Id) void {}
+    pub fn start(_: *link.File) void {}
+    pub fn stop(_: *link.File) void {}
 };
 
 fn dumpCrashContext() Io.Writer.Error!void {
@@ -132,7 +131,7 @@ fn dumpCrashContext() Io.Writer.Error!void {
         try dumpCrashContextSema(anal, w, &S.crash_heap);
     } else if (LinkerOp.current) |linker_op| {
         try w.writeAll("Linker snapshot:\n");
-        switch (try linker_op.lf.dump(w, linker_op.tid)) {
+        switch (try linker_op.lf.dump(w)) {
             .unimplemented => try w.writeAll("(backend does not support link snapshots)"),
             .needs_extensions => try w.writeAll("(build with -Ddebug-extensions to dump linker state)"),
             .disabled => try w.writeAll("(run with --debug-link-snapshot to dump linker state)"),
@@ -150,11 +149,12 @@ fn dumpCrashContextSema(anal: *AnalyzeBody, stderr: *Io.Writer, crash_heap: []u8
 
     var fba: std.heap.FixedBufferAllocator = .init(crash_heap);
 
-    const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu) orelse {
-        const file = zcu.fileByIndex(block.src_base_inst.resolveFile(&zcu.intern_pool));
+    const file_index, const src_base_node = block.src_baseline.resolve(zcu) orelse {
+        const file = zcu.fileByIndex(block.src_baseline.inst.resolveFile(&zcu.intern_pool));
         try stderr.print("Analyzing lost instruction in file '{f}'. This should not happen!\n\n", .{file.path.fmt(comp)});
         return;
     };
+    const file = zcu.fileByIndex(file_index);
 
     try stderr.print("Analyzing '{f}'\n", .{file.path.fmt(comp)});
 
@@ -180,9 +180,9 @@ fn dumpCrashContextSema(anal: *AnalyzeBody, stderr: *Io.Writer, crash_heap: []u8
     var parent = anal.parent;
     while (parent) |curr| {
         fba.reset();
-        const cur_block_file = zcu.fileByIndex(curr.block.src_base_inst.resolveFile(&zcu.intern_pool));
+        const cur_block_file = zcu.fileByIndex(curr.block.src_baseline.inst.resolveFile(&zcu.intern_pool));
         try stderr.print("  in {f}\n", .{cur_block_file.path.fmt(comp)});
-        _, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu) orelse {
+        _, const cur_block_src_base_node = curr.block.src_baseline.resolve(zcu) orelse {
             try stderr.writeAll("    > [lost instruction; this should not happen]\n");
             parent = curr.parent;
             continue;
@@ -215,7 +215,6 @@ const Sema = @import("Sema.zig");
 const Zcu = @import("Zcu.zig");
 const link = @import("link.zig");
 const InternPool = @import("InternPool.zig");
-const dev = @import("dev.zig");
 const print_zir = @import("print_zir.zig");
 
 const build_options = @import("build_options");

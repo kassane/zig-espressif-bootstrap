@@ -22,7 +22,8 @@ sys_include_dir: ?[]const u8 = null,
 crt_dir: ?[]const u8 = null,
 msvc_lib_dir: ?[]const u8 = null,
 kernel32_lib_dir: ?[]const u8 = null,
-gcc_dir: ?[]const u8 = null,
+cc_dir: ?[]const u8 = null,
+darwin_sdk_dir: ?[]const u8 = null,
 
 pub const FindError = error{
     OutOfMemory,
@@ -67,7 +68,10 @@ pub fn parse(allocator: Allocator, io: Io, libc_file: []const u8, target: *const
         const name = line_it.first();
         const value = line_it.rest();
         inline for (field_names, 0..) |field_name, i| {
-            if (std.mem.eql(u8, name, field_name)) {
+            // Allow `gcc_dir` as an alias for `cc_dir` for compatibility with older files.
+            if (std.mem.eql(u8, name, field_name) or
+                (std.mem.eql(u8, name, "gcc_dir") and std.mem.eql(u8, field_name, "cc_dir")))
+            {
                 found_keys[i].found = true;
                 if (value.len == 0) {
                     @field(self, field_name) = null;
@@ -93,13 +97,17 @@ pub fn parse(allocator: Allocator, io: Io, libc_file: []const u8, target: *const
         log.err("sys_include_dir may not be empty", .{});
         return error.ParseError;
     }
-
-    const os_tag = target.os.tag;
-    if (self.crt_dir == null and !target.os.tag.isDarwin()) {
-        log.err("crt_dir may not be empty for {s}", .{@tagName(os_tag)});
+    if (self.crt_dir == null) {
+        log.err("crt_dir may not be empty", .{});
         return error.ParseError;
     }
 
+    const os_tag = target.os.tag;
+
+    if (self.cc_dir == null and (os_tag == .haiku or os_tag == .serenity or os_tag == .linux)) {
+        log.err("cc_dir may not be empty for {s}", .{@tagName(os_tag)});
+        return error.ParseError;
+    }
     if (self.msvc_lib_dir == null and os_tag == .windows and (target.abi == .msvc or target.abi == .itanium)) {
         log.err("msvc_lib_dir may not be empty for {s}-{s}", .{
             @tagName(os_tag),
@@ -114,9 +122,8 @@ pub fn parse(allocator: Allocator, io: Io, libc_file: []const u8, target: *const
         });
         return error.ParseError;
     }
-
-    if (self.gcc_dir == null and (os_tag == .haiku or os_tag == .serenity)) {
-        log.err("gcc_dir may not be empty for {s}", .{@tagName(os_tag)});
+    if (self.darwin_sdk_dir == null and os_tag.isDarwin()) {
+        log.err("darwin_sdk_dir may not be empty for {t}", .{os_tag});
         return error.ParseError;
     }
 
@@ -125,26 +132,23 @@ pub fn parse(allocator: Allocator, io: Io, libc_file: []const u8, target: *const
 
 pub fn render(self: LibCInstallation, out: *std.Io.Writer) !void {
     @setEvalBranchQuota(4000);
-    const include_dir = self.include_dir orelse "";
-    const sys_include_dir = self.sys_include_dir orelse "";
-    const crt_dir = self.crt_dir orelse "";
-    const msvc_lib_dir = self.msvc_lib_dir orelse "";
-    const kernel32_lib_dir = self.kernel32_lib_dir orelse "";
-    const gcc_dir = self.gcc_dir orelse "";
-
     try out.print(
         \\# The directory that contains `stdlib.h`.
-        \\# On POSIX-like systems, include directories be found with: `cc -E -Wp,-v -xc /dev/null`
+        \\# On POSIX, can be found with: `cc -E -Wp,-v -xc /dev/null`
         \\include_dir={s}
         \\
         \\# The system-specific include directory. May be the same as `include_dir`.
-        \\# On Windows it's the directory that includes `vcruntime.h`.
-        \\# On POSIX it's the directory that includes `sys/errno.h`.
+        \\# On Windows, it's the directory that includes `vcruntime.h`.
+        \\# On POSIX, it's the directory that includes `sys/errno.h`.
         \\sys_include_dir={s}
+        \\
+        \\# The directory that contains `crtbegin.o` and `crtend.o`. May be the same as `crt_dir`.
+        \\# On POSIX, can be found with `cc -print-file-name=crtbegin.o`.
+        \\# Only needed when targeting Haiku, Linux, or SerenityOS.
+        \\cc_dir={s}
         \\
         \\# The directory that contains `crt1.o` or `crt2.o`.
         \\# On POSIX, can be found with `cc -print-file-name=crt1.o`.
-        \\# Not needed when targeting MacOS.
         \\crt_dir={s}
         \\
         \\# The directory that contains `vcruntime.lib`.
@@ -155,17 +159,18 @@ pub fn render(self: LibCInstallation, out: *std.Io.Writer) !void {
         \\# Only needed when targeting MSVC on Windows.
         \\kernel32_lib_dir={s}
         \\
-        \\# The directory that contains `crtbeginS.o` and `crtendS.o`
-        \\# Only needed when targeting Haiku.
-        \\gcc_dir={s}
+        \\# The directory that contains `SDKSettings.json`
+        \\# Only needed when targeting Darwin.
+        \\darwin_sdk_dir={s}
         \\
     , .{
-        include_dir,
-        sys_include_dir,
-        crt_dir,
-        msvc_lib_dir,
-        kernel32_lib_dir,
-        gcc_dir,
+        self.include_dir orelse "",
+        self.sys_include_dir orelse "",
+        self.cc_dir orelse "",
+        self.crt_dir orelse "",
+        self.msvc_lib_dir orelse "",
+        self.kernel32_lib_dir orelse "",
+        self.darwin_sdk_dir orelse "",
     });
 }
 
@@ -184,16 +189,13 @@ pub fn findNative(gpa: Allocator, io: Io, args: FindNativeOptions) FindError!Lib
     if (is_darwin and args.target.os.tag.isDarwin()) {
         if (!std.zig.system.darwin.isSdkInstalled(gpa, io))
             return error.DarwinSdkNotFound;
-        const sdk = std.zig.system.darwin.getSdk(gpa, io, args.target) orelse
+        self.darwin_sdk_dir = std.zig.system.darwin.getSdk(gpa, io, args.target) orelse
             return error.DarwinSdkNotFound;
-        defer gpa.free(sdk);
 
-        self.include_dir = try fs.path.join(gpa, &.{
-            sdk, "usr/include",
-        });
-        self.sys_include_dir = try fs.path.join(gpa, &.{
-            sdk, "usr/include",
-        });
+        const sdk = self.darwin_sdk_dir.?;
+        self.include_dir = try fs.path.join(gpa, &.{ sdk, "usr/include" });
+        self.sys_include_dir = try fs.path.join(gpa, &.{ sdk, "usr/include" });
+        self.crt_dir = try fs.path.join(gpa, &.{ sdk, "usr/lib" });
         return self;
     } else if (is_windows) {
         const sdk = std.zig.WindowsSdk.find(gpa, io, args.target.cpu.arch, args.environ_map) catch |err| switch (err) {
@@ -225,7 +227,10 @@ pub fn findNative(gpa: Allocator, io: Io, args: FindNativeOptions) FindError!Lib
         try self.findNativeIncludeDirPosix(gpa, io, args);
         switch (builtin.target.os.tag) {
             .freebsd, .netbsd, .openbsd, .dragonfly => self.crt_dir = try gpa.dupe(u8, "/usr/lib"),
-            .linux => try self.findNativeCrtDirPosix(gpa, io, args),
+            .linux => {
+                try self.findNativeCrtDirPosix(gpa, io, args);
+                try self.findNativeGccDirPosix(gpa, io, args);
+            },
             else => {},
         }
     } else {
@@ -464,7 +469,7 @@ fn findNativeCrtDirPosix(self: *LibCInstallation, gpa: Allocator, io: Io, args: 
 }
 
 fn findNativeGccDirPosix(self: *LibCInstallation, gpa: Allocator, io: Io, args: FindNativeOptions) FindError!void {
-    self.gcc_dir = try ccPrintFileName(gpa, io, .{
+    self.cc_dir = try ccPrintFileName(gpa, io, .{
         .environ_map = args.environ_map,
         .search_basename = "crtbeginS.o",
         .want_dirname = .only_dir,
@@ -760,26 +765,36 @@ pub const CrtBasenames = struct {
             .linux => switch (mode) {
                 .dynamic_lib => .{
                     .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
                     .crtn = "crtn.o",
                 },
                 .dynamic_exe => .{
                     .crt0 = "crt1.o",
                     .crti = "crti.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
                     .crtn = "crtn.o",
                 },
                 .dynamic_pie => .{
                     .crt0 = "Scrt1.o",
                     .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
                     .crtn = "crtn.o",
                 },
                 .static_exe => .{
                     .crt0 = "crt1.o",
                     .crti = "crti.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
                     .crtn = "crtn.o",
                 },
                 .static_pie => .{
                     .crt0 = "rcrt1.o",
                     .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
                     .crtn = "crtn.o",
                 },
             },
@@ -989,11 +1004,12 @@ pub fn resolveCrtPaths(
     arena: Allocator,
     crt_basenames: CrtBasenames,
     target: *const std.Target,
-) error{ OutOfMemory, LibCInstallationMissingCrtDir }!CrtPaths {
+) error{ OutOfMemory, LibCInstallationMissingCcDir, LibCInstallationMissingCrtDir }!CrtPaths {
     const crt_dir_path: Path = .{
         .root_dir = Cache.Directory.cwd(),
         .sub_path = lci.crt_dir orelse return error.LibCInstallationMissingCrtDir,
     };
+
     switch (target.os.tag) {
         .dragonfly => {
             const gccv: []const u8 = if (target.os.version_range.semver.isAtLeast(.{
@@ -1015,16 +1031,16 @@ pub fn resolveCrtPaths(
                 .crtn = if (crt_basenames.crtn) |basename| try crt_dir_path.join(arena, basename) else null,
             };
         },
-        .haiku, .serenity => {
-            const gcc_dir_path: Path = .{
+        .haiku, .serenity, .linux => {
+            const cc_dir_path: Path = .{
                 .root_dir = Cache.Directory.cwd(),
-                .sub_path = lci.gcc_dir orelse return error.LibCInstallationMissingCrtDir,
+                .sub_path = lci.cc_dir orelse return error.LibCInstallationMissingCcDir,
             };
             return .{
                 .crt0 = if (crt_basenames.crt0) |basename| try crt_dir_path.join(arena, basename) else null,
                 .crti = if (crt_basenames.crti) |basename| try crt_dir_path.join(arena, basename) else null,
-                .crtbegin = if (crt_basenames.crtbegin) |basename| try gcc_dir_path.join(arena, basename) else null,
-                .crtend = if (crt_basenames.crtend) |basename| try gcc_dir_path.join(arena, basename) else null,
+                .crtbegin = if (crt_basenames.crtbegin) |basename| try cc_dir_path.join(arena, basename) else null,
+                .crtend = if (crt_basenames.crtend) |basename| try cc_dir_path.join(arena, basename) else null,
                 .crtn = if (crt_basenames.crtn) |basename| try crt_dir_path.join(arena, basename) else null,
             };
         },

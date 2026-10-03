@@ -44,8 +44,18 @@ gpa: Allocator,
 graph: *Graph,
 install_paths: InstallPaths,
 scanned_config: *const ScannedConfig,
+/// Includes an extra auto-generated placeholder Step at the end that indicates
+/// configure must be rerun. It is done this way so that the hot path of file
+/// system watching does not need to make any special cases, and to avoid more
+/// OS-specific logic in file system watching implementation.
 steps: []Step,
-generated_files: []Path,
+/// Reserved space for all the file paths that are determined at runtime when the associated Step logic runs.
+/// Each element is individually allocated so that steps can access the data without synchronization, and so
+/// that steps can be arbitrarily re-run independently from each other.
+/// Each element is optional because a step might populate any number of generated file paths before ultimately
+/// failing. An element being non-null does not imply that the generated file was successfully generated. Only
+/// the Step success state indicates that information.
+generated_files: []GeneratedFile,
 run_args: ?[]const []const u8,
 
 available_rss: u64,
@@ -59,9 +69,9 @@ protocol_server_mutex: Io.Mutex,
 web_server: ?*AvoidableWebServer,
 /// Allocated into `gpa`.
 memory_blocked_steps: std.ArrayList(Configuration.Step.Index),
-/// Allocated into `gpa`.
+/// Allocated into `gpa` during `prepare`.
 initial_steps: std.array_hash_map.Auto(Configuration.Step.Index, void),
-/// Allocated into `gpa`.
+/// Allocated into `gpa` during `prepare`.
 step_stack: std.array_hash_map.Auto(Configuration.Step.Index, void),
 pkg_config: PkgConfig,
 
@@ -117,6 +127,38 @@ const MultilineErrors = enum { indent, newline, none };
 const Summary = enum { all, new, failures, line, none };
 const PrintConfiguration = enum { none, zon, path };
 
+const GeneratedFile = struct {
+    data: ?[]const u8,
+
+    const Unpacked = struct {
+        prefix: Server.Message.PathPrefix,
+        sub_path: []const u8,
+    };
+
+    fn unpack(gf: GeneratedFile) ?Unpacked {
+        const slice = gf.data orelse return null;
+        return .{
+            .prefix = @fromBackingInt(slice[0]),
+            .sub_path = slice[1..],
+        };
+    }
+
+    fn toPath(gf: GeneratedFile, graph: *const Graph) ?Path {
+        const unpacked = unpack(gf) orelse return null;
+        return .{
+            .root_dir = prefixToDirectory(graph, unpacked.prefix),
+            .sub_path = unpacked.sub_path,
+        };
+    }
+
+    fn clear(gf: *GeneratedFile, gpa: Allocator) void {
+        if (gf.data) |data| {
+            gpa.free(data);
+            gf.data = null;
+        }
+    }
+};
+
 /// Used to build the -M flags to pass to build-exe.
 pub const CliModule = struct {
     name: []const u8,
@@ -159,7 +201,6 @@ pub fn main(init: process.Init.Minimal) !void {
 
     var arena_instance: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena_instance.deinit();
-    defer if (debugMakerLeaks()) log.debug("used {Bi} of arena", .{arena_instance.queryCapacity()});
     const arena = arena_instance.allocator();
 
     const args = try init.args.toSlice(arena);
@@ -195,12 +236,13 @@ pub fn main(init: process.Init.Minimal) !void {
         .random_seed = parseRandomSeed(seed_arg),
     };
 
-    const cmd = stringToEnum(enum { libc, init, fetch, build }, cmd_name) orelse
+    const cmd = stringToEnum(enum { libc, init, fetch, build, @"cache-cat" }, cmd_name) orelse
         fatal("bad command name: {q}", .{cmd_name});
     switch (cmd) {
         .libc => return cmdLibC(gpa, &graph, args[arg_i..]),
         .init => return cmdInit(gpa, &graph, args[arg_i..]),
         .fetch => return cmdFetch(gpa, &graph, args[arg_i..]),
+        .@"cache-cat" => return cmdCacheCat(gpa, &graph, args[arg_i..]),
         .build => {},
     }
 
@@ -221,7 +263,7 @@ pub fn main(init: process.Init.Minimal) !void {
     var skip_oom_steps = false;
     var test_timeout_ns: ?u64 = null;
     var color: Color = .settingFromEnvironment(&graph.environ_map);
-    var watch = false;
+    var watch_flag = false;
     var fuzz: ?Fuzz.Mode = null;
     var debounce_interval_ms: u16 = 50;
     var listen: bool = false;
@@ -288,9 +330,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 try cached_passthru_configure.append(arena, @intCast(configure_argv.items.len));
                 configure_argv.appendAssumeCapacity(arg);
             } else if (mem.eql(u8, arg, "--color")) {
-                const next_arg = nextArgOrFatal(args, &arg_i);
-                color = stringToEnum(Color, next_arg) orelse
-                    fatalWithHint("expected [auto|on|off] found {q}", .{next_arg});
+                color = nextEnumArg(args, &arg_i, Color);
 
                 try cached_passthru_configure.append(arena, @intCast(configure_argv.items.len));
                 configure_argv.appendAssumeCapacity(try arena.print("--color={t}", .{color}));
@@ -397,25 +437,11 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.eql(u8, arg, "--libc")) {
                 graph.libc_file = nextArgOrFatal(args, &arg_i);
             } else if (mem.eql(u8, arg, "--error-style")) {
-                const next_arg = nextArg(args, &arg_i) orelse
-                    fatalWithHint("expected style after {q}", .{arg});
-                error_style = stringToEnum(ErrorStyle, next_arg) orelse {
-                    fatalWithHint("expected style after {q}, found {q}", .{ arg, next_arg });
-                };
+                error_style = nextEnumArg(args, &arg_i, ErrorStyle);
             } else if (mem.eql(u8, arg, "--multiline-errors")) {
-                const next_arg = nextArg(args, &arg_i) orelse
-                    fatalWithHint("expected style after {q}", .{arg});
-                multiline_errors = stringToEnum(MultilineErrors, next_arg) orelse {
-                    fatalWithHint("expected style after {q}, found {q}", .{ arg, next_arg });
-                };
+                multiline_errors = nextEnumArg(args, &arg_i, MultilineErrors);
             } else if (mem.eql(u8, arg, "--summary")) {
-                const next_arg = nextArg(args, &arg_i) orelse
-                    fatalWithHint("expected [all|new|failures|line|none] after {q}", .{arg});
-                summary = stringToEnum(Summary, next_arg) orelse {
-                    fatalWithHint("expected [all|new|failures|line|none] after {q}, found {q}", .{
-                        arg, next_arg,
-                    });
-                };
+                summary = nextEnumArg(args, &arg_i, Summary);
             } else if (mem.cutPrefix(u8, arg, "--seed=")) |rest| {
                 graph.random_seed = parseRandomSeed(rest);
             } else if (mem.eql(u8, arg, "--build-id")) {
@@ -452,12 +478,10 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.eql(u8, arg, "--debug-pkg-config")) {
                 debug_pkg_config = true;
             } else if (mem.eql(u8, arg, "--debug-rt")) {
-                graph.debug_compiler_runtime_libs = .Debug;
+                graph.debug_compiler_runtime_libs = .debug;
             } else if (mem.cutPrefix(u8, arg, "--debug-rt=")) |rest| {
-                graph.debug_compiler_runtime_libs = stringToEnum(std.lang.OptimizeMode, rest) orelse
+                graph.debug_compiler_runtime_libs = stringToEnum(std.lang.Optimize, rest) orelse
                     fatal("unrecognized optimization mode: {s}", .{rest});
-            } else if (is_debug_mode and mem.eql(u8, arg, "--debug-maker-leaks")) {
-                debug_maker_leaks = true;
             } else if (mem.eql(u8, arg, "--libc-runtimes") or mem.eql(u8, arg, "--glibc-runtimes")) {
                 // --glibc-runtimes was the old name of the flag; kept for compatibility for now.
                 graph.libc_runtimes_dir = nextArgOrFatal(args, &arg_i);
@@ -470,7 +494,7 @@ pub fn main(init: process.Init.Minimal) !void {
             } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
                 graph.verbose_llvm_ir = true;
             } else if (mem.eql(u8, arg, "--watch")) {
-                watch = true;
+                watch_flag = true;
             } else if (mem.eql(u8, arg, "--time-report")) {
                 graph.time_report = true;
                 if (webui_listen == null) webui_listen = .{ .ip6 = .loopback(0) };
@@ -570,7 +594,7 @@ pub fn main(init: process.Init.Minimal) !void {
     }
 
     const early_exit_mode = fetch_only or help_menu or steps_menu or print_configuration != .none;
-    const server_mode = !early_exit_mode and (watch or webui_listen != null or fuzz != null or listen);
+    const server_mode = !early_exit_mode and (watch_flag or webui_listen != null or fuzz != null or listen);
 
     process.raiseFileDescriptorLimit();
 
@@ -610,6 +634,8 @@ pub fn main(init: process.Init.Minimal) !void {
     comptime assert(1 == @backingInt(std.zig.Server.Message.PathPrefix.zig_lib));
     comptime assert(2 == @backingInt(std.zig.Server.Message.PathPrefix.local_cache));
     comptime assert(3 == @backingInt(std.zig.Server.Message.PathPrefix.global_cache));
+    comptime assert(4 == @backingInt(std.zig.Server.Message.PathPrefix.build_root));
+    comptime assert(@typeInfo(std.zig.Server.Message.PathPrefix).@"enum".field_names.len == 5);
 
     graph.cache.hash.addBytes(builtin.zig_version_string);
 
@@ -678,6 +704,7 @@ pub fn main(init: process.Init.Minimal) !void {
 
     var web_server_allocation: AvoidableWebServer = undefined;
     const web_server: ?*AvoidableWebServer = if (webui_listen) |listen_address| ws: {
+        if (watch_flag) fatal("using '--webui' and '--watch' together is not yet supported; consider omitting '--watch' in favour of the web UI \"Rebuild\" button", .{});
         if (builtin.single_threaded) fatal("--webui is not yet supported on single-threaded hosts", .{});
         web_server_allocation = .init(.{
             .graph = &graph,
@@ -690,25 +717,32 @@ pub fn main(init: process.Init.Minimal) !void {
     } else null;
 
     var stdin_buffer: [256]u8 = undefined;
-    var stdout_buffer: [256]u8 = undefined;
     var stdin_reader = Io.File.stdin().reader(io, &stdin_buffer);
-    var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
+    const stdout_writer = initStdoutWriter(io);
 
     var protocol_server_allocation: AvoidableServer = undefined;
     const protocol_server: ?*AvoidableServer = if (listen) s: {
         if (builtin.single_threaded) fatal("--listen is not yet supported on single-threaded hosts", .{});
-        if (watch) fatal("using '--watch' and '--listen' together is not supported", .{});
+        if (watch_flag) fatal("using '--watch' and '--listen' together is not supported", .{});
         if (fuzz != null) fatal("using '--fuzz' and '--listen' together is not supported", .{});
         if (step_names.items.len > 0) fatal("build steps must be provided over the protocol instead of using CLI arguments", .{});
         protocol_server_allocation = .{
             .in = &stdin_reader.interface,
-            .out = &stdout_writer.interface,
+            .out = stdout_writer,
         };
-        try serveBSPHandshake(&protocol_server_allocation);
+        try serveBspHandshake(&protocol_server_allocation);
         break :s &protocol_server_allocation;
     } else null;
 
-    while (true) {
+    configure: while (true) {
+        // Set of files that, if modified, imply that recompiling and rerunning
+        // configurer is needed.
+        var configure_source_files: Cache.Manifest.SelfContainedFiles = .empty;
+        defer configure_source_files.deinit(gpa);
+
+        var configure_error_bundle: std.zig.ErrorBundle = .empty;
+        defer configure_error_bundle.deinit(gpa);
+
         // If this fails, we can still start the server and wait for user
         // to request a rebuild. If it returns error.FailedButCacheIntact
         // we can even still do file system watching and automatically
@@ -730,6 +764,8 @@ pub fn main(init: process.Init.Minimal) !void {
             .fetch_only = fetch_only,
             .print_configuration = print_configuration,
             .forks = forks.items,
+            .src_files = &configure_source_files,
+            .error_bundle = if (protocol_server != null) &configure_error_bundle else null,
         })) |scanned_config| {
             if (help_menu) {
                 scanned_config.printUsage(&graph, initStdoutWriter(io)) catch |err| switch (err) {
@@ -766,8 +802,8 @@ pub fn main(init: process.Init.Minimal) !void {
                     .include = install_include_path,
                 },
 
-                .steps = try arena.alloc(Step, scanned_config.configuration.steps.len),
-                .generated_files = try arena.alloc(Path, scanned_config.configuration.generated_files_len),
+                .steps = &.{},
+                .generated_files = &.{},
                 .run_args = run_args,
 
                 .available_rss = max_rss,
@@ -776,7 +812,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 .skip_oom_steps = skip_oom_steps,
                 .unit_test_timeout_ns = test_timeout_ns,
 
-                .watch = watch,
+                .watch = watch_flag,
                 .web_server = web_server,
                 .protocol_server = protocol_server,
                 .protocol_server_mutex = .init,
@@ -789,16 +825,12 @@ pub fn main(init: process.Init.Minimal) !void {
                 .multiline_errors = multiline_errors,
                 .summary = summary orelse if (listen)
                     .none
-                else if (watch or webui_listen != null)
+                else if (watch_flag or webui_listen != null)
                     .new
                 else
                     .failures,
             };
-            defer {
-                maker.memory_blocked_steps.deinit(gpa);
-                maker.initial_steps.deinit(gpa);
-                maker.step_stack.deinit(gpa);
-            }
+            defer maker.deinit();
 
             if (maker.available_rss == 0) {
                 maker.available_rss = process.totalSystemMemory() catch std.math.maxInt(u64);
@@ -808,7 +840,8 @@ pub fn main(init: process.Init.Minimal) !void {
             if (protocol_server) |s| {
                 try s.serveStringMessage(.bsp_configuration, try arena.print("{f}", .{scanned_config.path}));
 
-                var w: ?Watch = null;
+                var watch: ?Watch = null;
+                defer if (watch) |*w| w.deinit();
 
                 const Event = union(enum) {
                     message: Reader.Error!Client.Message.Header,
@@ -819,6 +852,11 @@ pub fn main(init: process.Init.Minimal) !void {
                 var select: Io.Select(Event) = .init(io, &select_buffer);
                 defer select.cancelDiscard();
 
+                // File watching cannot be canceled without blocking
+                // https://codeberg.org/ziglang/zig/issues/31693
+                var is_fs_watching = false;
+                defer if (is_fs_watching) @panic("(zig build system) TODO file watching cannot be canceled without blocking");
+
                 try select.concurrent(.message, Server.receiveMessage, .{s});
 
                 var in_debounce = false;
@@ -827,10 +865,13 @@ pub fn main(init: process.Init.Minimal) !void {
                         const header: Client.Message.Header = try payload;
                         switch (header.tag) {
                             .exit => {
-                                cleanExit(io, &scanned_config);
-                                process.exit(0);
+                                // exit early until file watching supports cancelation without blocking
+                                if (is_fs_watching) std.process.exit(0);
+                                return cleanExit(io, &scanned_config);
                             },
                             .bsp_build_steps => {
+                                if (is_fs_watching) @panic("(zig build system) TODO file watching cannot be canceled without blocking");
+
                                 // Cancel existing file watching
                                 select.cancelDiscard();
                                 in_debounce = false;
@@ -843,7 +884,7 @@ pub fn main(init: process.Init.Minimal) !void {
                                 try select.concurrent(.message, Server.receiveMessage, .{s});
 
                                 maker.watch = body.flags.watch;
-                                maker.prepare(steps) catch |err| switch (err) {
+                                maker.prepare(steps, &configure_source_files) catch |err| switch (err) {
                                     error.DependencyLoopDetected, error.InsufficientMemory => {
                                         // TODO handle DependencyLoopDetected as error.FailedButCacheIntact
                                         // and handle InsufficientMemory as error.AlreadyReported
@@ -857,10 +898,17 @@ pub fn main(init: process.Init.Minimal) !void {
 
                                 if (body.flags.watch) {
                                     if (!Watch.have_impl) unreachable;
-                                    if (w == null) w = try .init(&maker);
+                                    if (watch == null) watch = try .init(&maker);
 
-                                    try w.?.update(maker.step_stack.keys());
-                                    try select.concurrent(.fs_event, Watch.wait, .{ &w.?, if (in_debounce) .{ .ms = debounce_interval_ms } else .none });
+                                    try updateWatch(&maker, &watch.?);
+                                    try select.concurrent(.fs_event, Watch.wait, .{
+                                        &watch.?,
+                                        if (in_debounce) .{ .ms = debounce_interval_ms } else .none,
+                                    });
+                                    is_fs_watching = true;
+                                } else if (watch) |*w| {
+                                    w.deinit();
+                                    watch = null;
                                 }
 
                                 continue :loop try select.await();
@@ -869,8 +917,15 @@ pub fn main(init: process.Init.Minimal) !void {
                         }
                     },
                     .fs_event => |payload| {
+                        is_fs_watching = false;
                         if (!Watch.have_impl) unreachable;
-                        switch (try payload) {
+                        switch (payload catch |err| switch (err) {
+                            error.MustReconfigure => {
+                                try io.sleep(.fromMilliseconds(debounce_interval_ms), .awake);
+                                continue :configure;
+                            },
+                            else => |e| fatal("file watching failed: {t}", .{e}),
+                        }) {
                             .timeout => {
                                 assert(in_debounce);
                                 markFailedStepsDirty(&maker);
@@ -880,7 +935,11 @@ pub fn main(init: process.Init.Minimal) !void {
                             .dirty => in_debounce = true,
                             .clean => {},
                         }
-                        try select.concurrent(.fs_event, Watch.wait, .{ &w.?, if (in_debounce) .{ .ms = debounce_interval_ms } else .none });
+                        try select.concurrent(.fs_event, Watch.wait, .{
+                            &watch.?,
+                            if (in_debounce) .{ .ms = debounce_interval_ms } else .none,
+                        });
+                        is_fs_watching = true;
                         continue :loop try select.await();
                     },
                 }
@@ -889,7 +948,7 @@ pub fn main(init: process.Init.Minimal) !void {
             const initial_steps = try maker.resolveTopLevelSteps(step_names.items);
             defer gpa.free(initial_steps);
 
-            maker.prepare(initial_steps) catch |err| switch (err) {
+            maker.prepare(initial_steps, &configure_source_files) catch |err| switch (err) {
                 error.DependencyLoopDetected, error.InsufficientMemory => {
                     // TODO handle DependencyLoopDetected as error.FailedButCacheIntact
                     // and handle InsufficientMemory as error.AlreadyReported
@@ -900,10 +959,11 @@ pub fn main(init: process.Init.Minimal) !void {
             };
 
             var w: Watch = w: {
-                if (!watch) break :w undefined;
+                if (!watch_flag) break :w undefined;
                 if (!Watch.have_impl) fatal("--watch not yet implemented for {t}", .{native_os});
                 break :w try .init(&maker);
             };
+            defer if (watch_flag) w.deinit();
 
             if (web_server) |ws| try ws.updateConfiguration(&maker);
 
@@ -918,7 +978,7 @@ pub fn main(init: process.Init.Minimal) !void {
 
                 if (web_server) |ws| {
                     const c = &scanned_config.configuration;
-                    assert(!watch); // fatal error after CLI parsing
+                    assert(!watch_flag); // fatal error after CLI parsing
                     while (true) switch (try ws.wait()) {
                         .rebuild => {
                             for (maker.step_stack.keys()) |step_index| {
@@ -938,7 +998,7 @@ pub fn main(init: process.Init.Minimal) !void {
                 // Comptime-known guard to prevent including the logic below when `!Watch.have_impl`.
                 if (!Watch.have_impl) unreachable;
 
-                try w.update(maker.step_stack.keys());
+                try updateWatch(&maker, &w);
 
                 // Wait until a file system notification arrives. Read all such events
                 // until the buffer is empty. Then wait for a debounce interval, resetting
@@ -946,25 +1006,38 @@ pub fn main(init: process.Init.Minimal) !void {
                 // trigger a rebuild on all steps with modified inputs, as well as their
                 // recursive dependants.
                 var caption_buf: [std.Progress.Node.max_name_len]u8 = undefined;
-                const caption = std.fmt.bufPrint(&caption_buf, "watching {d} directories, {d} processes", .{
+                const caption = std.mem.print(&caption_buf, "watching {d} directories, {d} processes", .{
                     w.dir_count, countSubProcesses(&maker),
                 }) catch &caption_buf;
                 var debouncing_node = main_progress_node.start(caption, 0);
+                defer debouncing_node.end();
                 var in_debounce = false;
-                while (true) switch (try w.wait(if (in_debounce) .{ .ms = debounce_interval_ms } else .none)) {
-                    .timeout => {
-                        assert(in_debounce);
-                        debouncing_node.end();
-                        markFailedStepsDirty(&maker);
-                        continue :rebuild;
-                    },
-                    .dirty => if (!in_debounce) {
-                        in_debounce = true;
-                        debouncing_node.end();
-                        debouncing_node = main_progress_node.start("Debouncing (Change Detected)", 0);
-                    },
-                    .clean => {},
-                };
+                while (true) {
+                    const timeout: Watch.Timeout = if (in_debounce) .{ .ms = debounce_interval_ms } else .none;
+                    switch (w.wait(timeout) catch |err| switch (err) {
+                        error.MustReconfigure => {
+                            debouncing_node.end();
+                            debouncing_node = main_progress_node.start("Debouncing (Change Detected)", 0);
+                            try io.sleep(.fromMilliseconds(debounce_interval_ms), .awake);
+                            continue :configure;
+                        },
+                        else => |e| fatal("file watching failed: {t}", .{e}),
+                    }) {
+                        .timeout => {
+                            assert(in_debounce);
+                            debouncing_node.end();
+                            debouncing_node = .none;
+                            markFailedStepsDirty(&maker);
+                            continue :rebuild;
+                        },
+                        .dirty => if (!in_debounce) {
+                            in_debounce = true;
+                            debouncing_node.end();
+                            debouncing_node = main_progress_node.start("Debouncing (Change Detected)", 0);
+                        },
+                        .clean => {},
+                    }
+                }
             }
         } else |err| {
             const can_fs_watch = switch (err) {
@@ -979,16 +1052,25 @@ pub fn main(init: process.Init.Minimal) !void {
                 _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
                 process.exit(1);
             }
-            if (protocol_server != null) {
-                fatal("(zig build system) TODO send error messages to client when build.zig compilation fails", .{});
+            if (protocol_server) |s| {
+                try s.serveErrorBundle(.bsp_configuration_failed, configure_error_bundle);
             }
-            if (watch and can_fs_watch) {
+            if (watch_flag and can_fs_watch) {
                 fatal("(zig build system) TODO set up fs watching even when build.zig compilation fails", .{});
             } else {
                 fatal("(zig build system) TODO stay running and wait for user to request rebuild even when build.zig compilation fails", .{});
             }
         }
     }
+}
+
+/// Temporarily adds the reconfigure pseudostep to step_stack, calls
+/// `Watch.update`, and then pops it again.
+fn updateWatch(maker: *Maker, watch: *Watch) !void {
+    const step_stack = &maker.step_stack;
+    try step_stack.putNoClobber(maker.gpa, @fromBackingInt(@intCast(maker.steps.len - 1)), {});
+    defer _ = step_stack.pop().?;
+    try watch.update(step_stack.keys());
 }
 
 const ConfigureOptions = struct {
@@ -1008,6 +1090,8 @@ const ConfigureOptions = struct {
     fetch_only: bool,
     print_configuration: PrintConfiguration,
     forks: []Fork,
+    src_files: *Cache.Manifest.SelfContainedFiles,
+    error_bundle: ?*std.zig.ErrorBundle = null,
 };
 
 fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
@@ -1068,6 +1152,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
         graph.zig_exe, "build-exe", //
         "--cache-dir", graph.local_cache_root.path orelse ".", //
         "--global-cache-dir", graph.global_cache_root.path orelse ".", //
+        "--build-root", graph.build_root_directory.path orelse ".", //
         "--zig-lib-dir", graph.zig_lib_directory.path orelse ".", //
         "--name", configurer_exe_name, //
         "-fsingle-threaded", //
@@ -1312,11 +1397,15 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
                         f.cli_module = m;
                     }
 
-                    // Each build.zig module needs access to each of its
-                    // dependencies' build.zig modules by name.
+                    // Each build.zig module needs access to each of its dependencies' build.zig modules by
+                    // name. Also, ensure build.zig.zon files are added to the configuration cache manifest.
                     for (fetches) |f| {
-                        const mod = f.cli_module orelse continue;
                         if (!f.have_manifest) continue;
+                        if (config_man) |man| {
+                            const manifest_path = try f.package_root.join(arena, Package.Manifest.basename);
+                            _ = try man.addInputPath(manifest_path, .{});
+                        }
+                        const mod = f.cli_module orelse continue;
                         const man = &f.manifest;
                         const dep_names = man.dependencies.keys();
                         try mod.deps.ensureUnusedCapacity(arena, @intCast(dep_names.len));
@@ -1361,17 +1450,23 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
             defer compile_prog_node.end();
 
             if (config_man) |man| {
-                if (try man.hit(compile_prog_node)) {
-                    const digest = man.final();
-                    break :cp .{
-                        .{
-                            .root_dir = graph.local_cache_root,
-                            .sub_path = try arena.print("c/{s}", .{&digest}),
-                        },
-                        man.toOwnedLock(),
+                var diagnostic: Cache.Manifest.CheckDiagnostic = undefined;
+                const status = man.check(&diagnostic, compile_prog_node) catch |err| switch (err) {
+                    error.Canceled, error.OutOfMemory => |e| return e,
+                    error.CacheCheckFailed => fatal("checking cache failed: {f}", .{diagnostic.fmt(man)}),
+                };
+                log.debug("configuration cache {f}", .{status.fmt(man)});
+                if (status == .hit) {
+                    const digest = man.hitDigestHex();
+                    const path: Path = .{
+                        .root_dir = graph.local_cache_root,
+                        .sub_path = try arena.print("c/{s}", .{&digest}),
                     };
+                    options.src_files.* = man.takeFiles();
+                    break :cp .{ path, man.toOwnedLock() };
                 }
             }
+            try graph.handleVerbose(null, null, build_configurer_argv.items);
             const configure_exe_path: Path = if (std.zig.buildExeSubprocess(gpa, io, .{
                 .argv = build_configurer_argv.items,
                 .cache_root = graph.local_cache_root,
@@ -1381,6 +1476,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
                 .arch_os_abi = target_arch_os_abi,
                 .progress_node = compile_prog_node,
                 .skip_log_cmdline_on_compile_errors = !graph.verbose,
+                .error_bundle = options.error_bundle,
             })) |r| r.path else |err| return err;
             defer gpa.free(configure_exe_path.sub_path);
 
@@ -1460,11 +1556,12 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
         }
 
         if (config_man) |man| for (configuration.path_deps) |path_dep| {
-            switch (path_dep.flags.mode) {
-                .directory => {}, // TODO
-                .contents => try man.addPathPost(try confPathDepToCachePath(arena, graph, &configuration, path_dep)),
-                .metadata => {}, // TODO
-            }
+            const path = try confPathDepToCachePath(arena, graph, &configuration, path_dep);
+            try man.addDiscoveredPath(.{
+                .discovered_path = .{ .unresolved = path },
+                .handle = if (path_dep.flags.is_directory) .{ .dir = null } else .{ .file = null },
+                .metadata_only = path_dep.flags.metadata_only,
+            });
         };
 
         // If it is poisoned, there is no point in moving it to cached
@@ -1473,7 +1570,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
             break :cp .{ config_tmp_path, null };
         } else {
             const man = config_man.?;
-            const digest = man.final();
+            const digest = man.missDigestHex();
             const final_path: Path = .{
                 .root_dir = graph.local_cache_root,
                 .sub_path = try arena.print("c/{s}", .{&digest}),
@@ -1504,7 +1601,8 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
                     config_tmp_path, final_path, e,
                 });
             };
-            man.writeManifest() catch |err| log.warn("failed to write cache manifest: {t}", .{err});
+            man.finalize() catch |err| log.warn("failed to write cache manifest: {t}", .{err});
+            options.src_files.* = man.takeFiles();
             break :cp .{ final_path, man.toOwnedLock() };
         }
     };
@@ -1525,10 +1623,10 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
 
     const configuration = c: {
         var file = configuration_path.root_dir.handle.openFile(io, configuration_path.sub_path, .{}) catch |err|
-            fatal("failed to open configuration file {f}: {t}", .{ configuration_path, err });
+            fatal("failed to open configuration file {qf}: {t}", .{ configuration_path, err });
         defer file.close(io);
         break :c Configuration.loadFile(arena, io, file) catch |err|
-            fatal("failed to load configuration file {f}: {t}", .{ configuration_path, err });
+            fatal("failed to load configuration file {qf}: {t}", .{ configuration_path, err });
     };
     // Technically if the configuration is marked as poisoned, we could
     // already delete the file now, but we leave it around in case the
@@ -1667,7 +1765,7 @@ fn cmdFetch(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
         .name_tok = 0,
         .lazy_status = .eager,
         .remote_package_root = undefined,
-        .parent_package_root = undefined,
+        .parent_package_root = if (build_root_initialized) .{ .root_dir = build_root.directory } else .cwd(),
         .parent_manifest_ast = null,
         .prog_node = root_prog_node,
         .job_queue = &job_queue,
@@ -1841,6 +1939,101 @@ fn cmdFetch(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
     return process.cleanExit(io);
 }
 
+fn cmdCacheCat(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
+    const io = graph.io;
+
+    var arg_i: usize = 0;
+    var contents: std.ArrayList(u8) = .empty;
+    defer contents.deinit(gpa);
+
+    while (nextArg(args, &arg_i)) |arg| {
+        if (mem.startsWith(u8, arg, "-")) {
+            if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
+                try Io.File.stdout().writeStreamingAll(io, usage_cache_cat);
+                return process.cleanExit(io);
+            } else {
+                fatal("unrecognized parameter: {q}", .{arg});
+            }
+        } else {
+            var file = Dir.cwd().openFile(io, arg, .{}) catch |err| fatal("opening {q} failed: {t}", .{ arg, err });
+            defer file.close(io);
+
+            var manifest_reader = file.reader(io, &.{}); // Reads positionally from zero.
+            contents.clearRetainingCapacity();
+            manifest_reader.interface.appendRemainingUnlimited(gpa, &contents) catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
+                error.ReadFailed => switch (manifest_reader.err.?) {
+                    error.Canceled => |e| return e,
+                    else => |e| fatal("reading from {q} failed: {t}", .{ arg, e }),
+                },
+            };
+            const hex_digest = Dir.path.basename(arg);
+            cacheCatOne(hex_digest, contents.items, initStdoutWriter(io)) catch |err| switch (err) {
+                error.WriteFailed => fatal("writing to stdout failed: {t}", .{stdout_writer_allocation.err.?}),
+                else => |e| fatal("parsing {q} failed: {t}", .{ arg, e }),
+            };
+            try stdout_writer_allocation.flush();
+        }
+    }
+}
+
+fn cacheCatOne(input_hex_digest: []const u8, contents: []const u8, writer: *Io.Writer) !void {
+    var bin_digest: Cache.BinDigest = undefined;
+    _ = try fmt.hexToBytes(&bin_digest, input_hex_digest);
+
+    var hh: Cache.HashHelper = .{};
+    hh.hasher.update(&bin_digest);
+
+    var serializer: std.zon.Serializer = .{ .writer = writer };
+    var top_level = try serializer.beginStruct(.{});
+    try top_level.field("input_hash", input_hex_digest, .{});
+    var files_tuple = try top_level.beginTupleField("files", .{});
+    var off: usize = 0;
+    while (off + 1 < contents.len) {
+        const file_off: Cache.Manifest.File.Offset = @fromBackingInt(@intCast(off));
+        const file = try file_off.getFallibleConst(contents);
+        const path = try file_off.pathFallible(contents);
+        if (path.len == 0) return error.InvalidFormat;
+
+        var file_obj = try files_tuple.beginStructField(.{ .whitespace_style = .{ .wrap = false } });
+        try file_obj.field("size", file.size, .{});
+        try file_obj.field("inode", file.inode, .{});
+        try file_obj.field("mtime", file.mtime, .{});
+        const hex_digest = Cache.binToHex(file.digest);
+        try file_obj.field("digest", @as([]const u8, &hex_digest), .{});
+        if (file.flags.is_directory) try file_obj.field("directory", true, .{});
+        if (file.flags.metadata_only) try file_obj.field("metadata", true, .{});
+        try file_obj.field("prefix", file.flags.prefix, .{});
+        try file_obj.field("path", path, .{});
+        try file_obj.end();
+
+        hh.hasher.update(&file.digest);
+
+        off += Cache.Manifest.File.sizeOf(path.len);
+    }
+
+    try files_tuple.end();
+
+    var discovered_bin_digest: Cache.BinDigest = undefined;
+    hh.hasher.final(&discovered_bin_digest);
+    const discovered_hex_digest = Cache.binToHex(discovered_bin_digest);
+    try top_level.field("discovered_hash", @as([]const u8, &discovered_hex_digest), .{});
+
+    try top_level.end();
+    try writer.writeByte('\n');
+}
+
+const usage_cache_cat =
+    \\Usage: zig cache-cat <paths>
+    \\
+    \\   Prints .zig-cache/h/* manifest files in text form.
+    \\
+    \\Options:
+    \\  -h, --help             Print this help and exit
+    \\
+    \\
+;
+
 const usage_fetch =
     \\Usage: zig fetch [options] <url>
     \\Usage: zig fetch [options] <path>
@@ -1966,7 +2159,7 @@ fn cmdInit(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
             return process.cleanExit(io);
         },
         .minimal => {
-            Templates.writeSimpleFile(io, Package.Manifest.basename,
+            Templates.writeSimpleFile(io, Io.Dir.cwd(), Package.Manifest.basename,
                 \\.{{
                 \\    .name = .{s},
                 \\    .version = "0.0.1",
@@ -1983,7 +2176,7 @@ fn cmdInit(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
                 else => fatal("failed to create {q}: {t}", .{ Package.Manifest.basename, err }),
                 error.PathAlreadyExists => fatal("refusing to overwrite {q}", .{Package.Manifest.basename}),
             };
-            Templates.writeSimpleFile(io, default_build_zig_basename,
+            Templates.writeSimpleFile(io, Io.Dir.cwd(), default_build_zig_basename,
                 \\const std = @import("std");
                 \\
                 \\pub fn build(b: *std.Build) void {{
@@ -2119,7 +2312,13 @@ fn markFailedStepsDirty(maker: *Maker) void {
     for (all_steps) |step_index| {
         const step = maker.stepByIndex(step_index);
         switch (step.state) {
-            .dependency_failure, .dependency_skipped, .failure, .skipped => _ = maker.invalidateResult(step),
+            .dependency_failure,
+            .dependency_skipped,
+            .failure,
+            .skipped,
+            => _ = maker.invalidateResult(step) catch |err| switch (err) {
+                error.MustReconfigure => unreachable,
+            },
             else => continue,
         }
     }
@@ -2173,7 +2372,11 @@ fn resolveTopLevelSteps(maker: *Maker, step_names: []const []const u8) ![]const 
     return try gpa.dupe(Configuration.Step.Index, result.keys());
 }
 
-fn prepare(maker: *Maker, step_indices: []const Configuration.Step.Index) !void {
+fn prepare(
+    maker: *Maker,
+    step_indices: []const Configuration.Step.Index,
+    configure_source_files: *const Cache.Manifest.SelfContainedFiles,
+) !void {
     const gpa = maker.gpa;
     const graph = maker.graph;
     const arena = graph.arena;
@@ -2182,9 +2385,22 @@ fn prepare(maker: *Maker, step_indices: []const Configuration.Step.Index) !void 
     const step_stack = &maker.step_stack;
     const c = &maker.scanned_config.configuration;
 
-    for (maker.steps, 0..) |*step, step_index_usize| {
+    // Extra step at the end which is the autogenerated placeholder
+    // step which indicates that we need to reconfigure.
+    maker.steps = try arena.alloc(Step, c.steps.len + 1);
+    maker.generated_files = try arena.alloc(GeneratedFile, c.generated_files_len);
+    @memset(maker.generated_files, .{ .data = null });
+
+    // The last element is a reserved special pseudostep which contains the
+    // watch inputs for the configurer executable.
+    for (maker.steps[0 .. maker.steps.len - 1], 0..) |*step, step_index_usize| {
         const step_index: Configuration.Step.Index = @fromBackingInt(@intCast(step_index_usize));
         step.* = .{ .extended = .init(step_index.ptr(c).flags(c).tag) };
+    }
+    {
+        const last_step = &maker.steps[maker.steps.len - 1];
+        last_step.* = .{ .extended = .init(.top_level) };
+        try last_step.setWatchInputsFromManifestFiles(maker, configure_source_files, graph.cache.prefixes());
     }
 
     try initial_steps.ensureUnusedCapacity(gpa, step_indices.len);
@@ -2494,8 +2710,7 @@ fn makeSteps(
         break :code 2; // failure; do not print build command
     };
     if (code == 0) {
-        removePoisonedConfiguration(io, maker.scanned_config);
-        if (debugMakerLeaks()) return deinit(maker);
+        return cleanExit(io, maker.scanned_config);
     }
     cleanup_task.await(io); // There is a defer above but an exit below.
     _ = io.lockStderr(&.{}, graph.stderr_mode) catch {};
@@ -2504,12 +2719,12 @@ fn makeSteps(
 
 fn deinit(maker: *Maker) void {
     const gpa = maker.gpa;
-    for (maker.steps) |*step| {
-        step.clearResultStderr(gpa);
-        step.clearFailedCommand(gpa);
-        step.clearErrorBundle(gpa);
-        step.inputs.deinit(gpa);
-    }
+    const io = maker.graph.io;
+    for (maker.steps) |*step| step.deinit(gpa, io);
+    for (maker.generated_files) |*gf| gf.clear(gpa);
+    maker.memory_blocked_steps.deinit(gpa);
+    maker.initial_steps.deinit(gpa);
+    maker.step_stack.deinit(gpa);
 }
 
 fn stepReady(
@@ -2618,7 +2833,8 @@ fn makeStep(
         if (maker.web_server) |ws| {
             ws.updateStepStatus(step_index, if (success) .success else .failure);
         }
-        if (maker.protocol_server != null) {
+        if (maker.protocol_server) |s| {
+            // https://codeberg.org/ziglang/zig/issues/36938
             maker.protocol_server_mutex.lockUncancelable(io);
             defer maker.protocol_server_mutex.unlock(io);
 
@@ -2631,20 +2847,18 @@ fn makeStep(
                 .dependency_skipped, .skipped => .skipped,
                 .skipped_oom => .skipped_oom,
             };
-            serveBuildStepCompleted(
-                maker,
-                step_index,
-                status,
-            ) catch |err| std.debug.panic("TODO propagate error when failing to send protocol message: {t}", .{err});
+            serveBuildStepCompleted(maker, step_index, status, s) catch |err|
+                std.debug.panic("TODO propagate error when failing to send protocol message: {t}", .{err});
         }
 
         if (!success) std.Progress.setStatus(.failure_working);
     }
 
     // No matter the result, we want to display error/warning messages.
-    if (make_step.result_error_bundle.errorMessageCount() > 0 or
-        make_step.result_error_msgs.items.len > 0 or
-        make_step.result_stderr.len > 0)
+    if (maker.protocol_server == null and
+        (make_step.result_error_bundle.errorMessageCount() > 0 or
+            make_step.result_error_msgs.items.len > 0 or
+            make_step.result_stderr.len > 0))
     {
         const stderr = try io.lockStderr(&stdio_buffer_allocation, graph.stderr_mode);
         defer io.unlockStderr();
@@ -2675,6 +2889,7 @@ fn makeStep(
                 const candidate_max_rss = candidate_index.ptr(c).max_rss.toBytes();
                 if (maker.available_rss < candidate_max_rss) break;
                 assert(maker.memory_blocked_steps.pop() == candidate_index);
+                maker.available_rss -= candidate_max_rss;
                 dispatch_set.appendAssumeCapacity(candidate_index);
             }
         }
@@ -3045,14 +3260,15 @@ fn constructGraphAndCheckForDependencyLoop(
 /// When file watching, prepares the step for being re-evaluated. Returns
 /// `true` if the step was newly invalidated, `false` if it was already
 /// invalidated.
-pub fn invalidateResult(maker: *Maker, step: *Step) bool {
+pub fn invalidateResult(maker: *Maker, step: *Step) error{MustReconfigure}!bool {
+    if (step == &maker.steps[maker.steps.len - 1]) return error.MustReconfigure;
     if (step.state == .precheck_done) return false;
     assert(step.pending_deps == 0);
     step.state = .precheck_done;
     step.reset(maker);
     for (step.dependants.items) |dependant_index| {
         const dependant = maker.stepByIndex(dependant_index);
-        _ = invalidateResult(maker, dependant);
+        _ = try invalidateResult(maker, dependant);
         dependant.pending_deps += 1;
     }
     return true;
@@ -3194,13 +3410,13 @@ fn cleanTmpFiles(maker: *Maker, steps: []const Configuration.Step.Index) void {
         if (wf.flags.mode != .tmp) continue;
         const step = maker.stepByIndex(step_index);
         if (step.state != .success) continue;
-        const tmp_path = generatedPath(maker, wf.generated_directory).*;
+        const tmp_path = generatedPath(maker, wf.generated_directory);
         tmp_path.root_dir.handle.deleteTree(io, tmp_path.subPathOrDot()) catch |err|
             log.warn("failed to delete temporary path {f}: {t}", .{ tmp_path, err });
     }
 }
 
-fn serveBSPHandshake(s: *const std.zig.Server) !void {
+fn serveBspHandshake(s: *const std.zig.Server) !void {
     const handshake_header: Server.Message.Handshake = .{
         .version = Server.build_system_version,
         .flags = .{
@@ -3219,10 +3435,12 @@ fn serveBuildStepCompleted(
     maker: *Maker,
     step_index: Configuration.Step.Index,
     status: Server.Message.BuildStepCompleted.Status,
+    s: *Server,
 ) !void {
-    const s: *Server = maker.protocol_server.?;
     const step = maker.stepByIndex(step_index);
     const error_bundle = step.result_error_bundle;
+
+    const gf_size = countGeneratedFiles(maker.generated_files, step_index, &maker.scanned_config.configuration);
 
     const body: Server.Message.BuildStepCompleted = .{
         .step_index = step_index,
@@ -3231,17 +3449,170 @@ fn serveBuildStepCompleted(
             .extra_len = @intCast(error_bundle.extra.len),
             .string_bytes_len = @intCast(error_bundle.string_bytes.len),
         },
+        .generated_files_len = gf_size.count,
     };
     const eb_bytes_len = @sizeOf(u32) * error_bundle.extra.len + error_bundle.string_bytes.len;
-    const bytes_len = @sizeOf(Server.Message.BuildStepCompleted) + eb_bytes_len;
+    const bytes_len = @sizeOf(Server.Message.BuildStepCompleted) + eb_bytes_len +
+        (gf_size.count * @sizeOf(Server.Message.GeneratedFile)) + gf_size.size;
     try s.serveMessageHeader(.{
         .tag = .bsp_step_completed,
         .bytes_len = @intCast(bytes_len),
     });
     try s.out.writeStruct(body, .little);
+
     try s.out.writeSliceEndian(u32, error_bundle.extra, .little);
     try s.out.writeAll(error_bundle.string_bytes);
+
+    try writeGeneratedFiles(maker.generated_files, step_index, &maker.scanned_config.configuration, s.out);
+    try writeGeneratedFilesData(maker.generated_files, step_index, &maker.scanned_config.configuration, s.out);
+
     try s.out.flush();
+}
+
+fn walkGeneratedFiles(
+    step_index: Configuration.Step.Index,
+    conf: *const Configuration,
+    comptime Context: type,
+    context: Context,
+) void {
+    const conf_step = step_index.ptr(conf);
+    switch (conf_step.extended.get(conf.extra)) {
+        .check_file,
+        .fail,
+        .fmt,
+        .install_artifact,
+        .install_dir,
+        .install_file,
+        .top_level,
+        .update_source_files,
+        => {},
+
+        .compile => |compile| {
+            walkGeneratedFilesOne(context, compile.emit_directory.value);
+            walkGeneratedFilesOne(context, compile.generated_docs.value);
+            walkGeneratedFilesOne(context, compile.generated_asm.value);
+            walkGeneratedFilesOne(context, compile.generated_bin.value);
+            walkGeneratedFilesOne(context, compile.generated_pdb.value);
+            walkGeneratedFilesOne(context, compile.generated_implib.value);
+            walkGeneratedFilesOne(context, compile.generated_llvm_bc.value);
+            walkGeneratedFilesOne(context, compile.generated_llvm_ir.value);
+            walkGeneratedFilesOne(context, compile.generated_h.value);
+        },
+        .config_header => |config_header| {
+            walkGeneratedFilesOne(context, config_header.generated_dir);
+        },
+        .find_program => |find_program| {
+            walkGeneratedFilesOne(context, find_program.found_path);
+        },
+        .obj_copy => |obj_copy| {
+            walkGeneratedFilesOne(context, obj_copy.output_file);
+            walkGeneratedFilesOne(context, obj_copy.debug_file.value);
+        },
+        .options => |options| {
+            walkGeneratedFilesOne(context, options.generated_file);
+        },
+        .run => |run| {
+            if (run.captured_stdout.value) |v| walkGeneratedFilesOne(context, v.generated_file);
+            if (run.captured_stderr.value) |v| walkGeneratedFilesOne(context, v.generated_file);
+            for (run.args.slice) |arg|
+                walkGeneratedFilesOne(context, arg.get(conf).generated.value);
+        },
+        .translate_c => |translate_c| {
+            walkGeneratedFilesOne(context, translate_c.output_file);
+        },
+        .write_file => |write_file| {
+            walkGeneratedFilesOne(context, write_file.generated_directory);
+        },
+    }
+}
+
+fn walkGeneratedFilesOne(
+    context: anytype,
+    opt: ?Configuration.GeneratedFileIndex,
+) void {
+    context.visit(opt orelse return);
+}
+
+fn countGeneratedFiles(
+    generated_files: []const GeneratedFile,
+    step_index: Configuration.Step.Index,
+    conf: *const Configuration,
+) struct { count: u32, size: u32 } {
+    const Visitor = struct {
+        generated_files: []const GeneratedFile,
+        count: u32,
+        size: u32,
+
+        fn visit(this: *@This(), i: Configuration.GeneratedFileIndex) void {
+            const data = this.generated_files[@backingInt(i)].data orelse return;
+            this.count += 1;
+            this.size = @intCast(this.size + data.len);
+        }
+    };
+    var v: Visitor = .{
+        .generated_files = generated_files,
+        .count = 0,
+        .size = 0,
+    };
+    walkGeneratedFiles(step_index, conf, *Visitor, &v);
+    return .{
+        .count = v.count,
+        .size = v.size,
+    };
+}
+
+fn writeGeneratedFiles(
+    generated_files: []const GeneratedFile,
+    step_index: Configuration.Step.Index,
+    conf: *const Configuration,
+    writer: *Io.Writer,
+) Io.Writer.Error!void {
+    const Visitor = struct {
+        generated_files: []const GeneratedFile,
+        writer: *Io.Writer,
+        result: Io.Writer.Error!void,
+
+        fn visit(this: *@This(), i: Configuration.GeneratedFileIndex) void {
+            const unpacked = this.generated_files[@backingInt(i)].unpack() orelse return;
+            const payload: Server.Message.GeneratedFile = .{
+                .index = i,
+                .path_len = @intCast(unpacked.sub_path.len),
+            };
+            this.result = this.writer.writeAll(@ptrCast((&payload)[0..1]));
+        }
+    };
+    var v: Visitor = .{
+        .generated_files = generated_files,
+        .writer = writer,
+        .result = {},
+    };
+    walkGeneratedFiles(step_index, conf, *Visitor, &v);
+    return v.result;
+}
+
+fn writeGeneratedFilesData(
+    generated_files: []const GeneratedFile,
+    step_index: Configuration.Step.Index,
+    conf: *const Configuration,
+    writer: *Io.Writer,
+) Io.Writer.Error!void {
+    const Visitor = struct {
+        generated_files: []const GeneratedFile,
+        writer: *Io.Writer,
+        result: Io.Writer.Error!void,
+
+        fn visit(this: *@This(), i: Configuration.GeneratedFileIndex) void {
+            const data = this.generated_files[@backingInt(i)].data orelse return;
+            this.result = this.writer.writeAll(data);
+        }
+    };
+    var v: Visitor = .{
+        .generated_files = generated_files,
+        .writer = writer,
+        .result = {},
+    };
+    walkGeneratedFiles(step_index, conf, *Visitor, &v);
+    return v.result;
 }
 
 fn initStdoutWriter(io: Io) *Writer {
@@ -3260,9 +3631,9 @@ pub fn resolveLazyPath(
     const c = &maker.scanned_config.configuration;
     return switch (lazy_path) {
         .source_path => |sp| try packagePath(maker, arena, sp.owner, sp.sub_path.slice(c)),
-        .relative => |relative| relativePath(maker, arena, relative),
+        .relative => |relative| try relativePath(maker, arena, relative, stepByIndex(maker, asking_step_index)),
         .generated => |gen| {
-            const base = generatedPath(maker, gen.index).*;
+            const base = generatedPath(maker, gen.index);
             var file_path = base;
             for (0..gen.flags.up) |_| {
                 file_path.sub_path = Dir.path.dirname(file_path.sub_path) orelse {
@@ -3313,8 +3684,65 @@ pub fn resolveLazyPathIndexAbs(
     return resolveLazyPathAbs(maker, arena, lazy_path_index.get(c), asking_step_index);
 }
 
-pub fn generatedPath(maker: *const Maker, index: Configuration.GeneratedFileIndex) *Path {
+pub fn generatedFile(maker: *const Maker, index: Configuration.GeneratedFileIndex) *GeneratedFile {
     return &maker.generated_files[@backingInt(index)];
+}
+
+pub fn generatedPath(maker: *const Maker, index: Configuration.GeneratedFileIndex) Path {
+    return generatedFile(maker, index).toPath(maker.graph).?;
+}
+
+pub fn setGeneratedPath(
+    maker: *Maker,
+    index: Configuration.GeneratedFileIndex,
+    prefix: Server.Message.PathPrefix,
+    sub_paths: []const []const u8,
+) Allocator.Error!Path {
+    const gpa = maker.gpa;
+    const graph = maker.graph;
+    assert(sub_paths.len != 0);
+
+    var buffer: std.ArrayList(u8) = .empty;
+    defer buffer.deinit(gpa);
+    try buffer.append(gpa, @backingInt(prefix));
+    for (sub_paths) |sub_path| {
+        try buffer.ensureUnusedCapacity(gpa, sub_path.len + 1);
+        buffer.appendSliceAssumeCapacity(sub_path);
+        while (Dir.path.isSep(buffer.items[buffer.items.len - 1]))
+            buffer.items.len -= 1;
+        buffer.appendAssumeCapacity(Dir.path.sep);
+    }
+    assert(buffer.pop().? == Dir.path.sep);
+    try buffer.shrinkToLen(gpa);
+
+    const sub_path = buffer.toOwnedSliceAssert();
+    const ptr = generatedFile(maker, index);
+    ptr.clear(gpa);
+    ptr.* = .{ .data = sub_path };
+    return .{
+        .root_dir = prefixToDirectory(graph, prefix),
+        .sub_path = sub_path[1..],
+    };
+}
+
+/// Prefer to use `setGeneratedPath` where possible to keep parent directory information intact.
+pub fn setGeneratedPathPath(
+    maker: *Maker,
+    index: Configuration.GeneratedFileIndex,
+    path: Path,
+) Allocator.Error!Path {
+    const graph = maker.graph;
+    if (path.root_dir.eql(graph.local_cache_root)) {
+        return setGeneratedPath(maker, index, .local_cache, &.{path.sub_path});
+    } else if (path.root_dir.eql(graph.global_cache_root)) {
+        return setGeneratedPath(maker, index, .global_cache, &.{path.sub_path});
+    } else if (path.root_dir.eql(graph.zig_lib_directory)) {
+        return setGeneratedPath(maker, index, .zig_lib, &.{path.sub_path});
+    } else if (path.root_dir.eql(graph.build_root_directory)) {
+        return setGeneratedPath(maker, index, .build_root, &.{path.sub_path});
+    } else {
+        return setGeneratedPath(maker, index, .cwd, &.{path.sub_path});
+    }
 }
 
 pub fn packagePath(
@@ -3325,8 +3753,7 @@ pub fn packagePath(
 ) Allocator.Error!Path {
     const c = &maker.scanned_config.configuration;
     const graph = maker.graph;
-
-    if (package_index == .root) return .{
+    const package = package_index.get(c) orelse return .{
         .root_dir = graph.build_root_directory,
         .sub_path = sub_path,
     };
@@ -3337,11 +3764,16 @@ pub fn packagePath(
     // construct a cwd relative path here.
     return .{
         .root_dir = .cwd(),
-        .sub_path = try Dir.path.join(arena, &.{ package_index.ptr(c).root_path.slice(c), sub_path }),
+        .sub_path = try Dir.path.join(arena, &.{ package.root_path.slice(c), sub_path }),
     };
 }
 
-pub fn relativePath(maker: *const Maker, arena: Allocator, relative: Configuration.LazyPath.Relative) Allocator.Error!Path {
+pub fn relativePath(
+    maker: *const Maker,
+    arena: Allocator,
+    relative: Configuration.LazyPath.Relative,
+    asking_step: *Step,
+) error{ OutOfMemory, MakeFailed }!Path {
     const graph = maker.graph;
     const c = &maker.scanned_config.configuration;
     const sub_path = relative.sub_path.slice(c);
@@ -3362,12 +3794,12 @@ pub fn relativePath(maker: *const Maker, arena: Allocator, relative: Configurati
             .root_dir = graph.build_root_directory,
             .sub_path = sub_path,
         },
-        .zig_exe => .{
-            .root_dir = .cwd(),
-            .sub_path = if (sub_path.len == 0)
-                graph.zig_exe
-            else
-                try Io.Dir.path.join(arena, &.{ graph.zig_exe, sub_path }),
+        .zig_exe => {
+            assert(sub_path.len == 0);
+            return .{
+                .root_dir = .cwd(),
+                .sub_path = graph.zig_exe,
+            };
         },
         .zig_lib => .{
             .root_dir = graph.zig_lib_directory,
@@ -3377,6 +3809,10 @@ pub fn relativePath(maker: *const Maker, arena: Allocator, relative: Configurati
         .install_lib => try maker.install_paths.lib.join(arena, sub_path),
         .install_bin => try maker.install_paths.bin.join(arena, sub_path),
         .install_include => try maker.install_paths.include.join(arena, sub_path),
+        .libc_runtimes => if (maker.graph.libc_runtimes_dir) |libc_runtimes_dir| .{
+            .root_dir = .cwd(),
+            .sub_path = try Dir.path.join(arena, &.{ libc_runtimes_dir, sub_path }),
+        } else asking_step.fail(maker, "unknown LazyPath: \"--libc-runtimes\" not specified", .{}),
     };
 }
 
@@ -3429,7 +3865,7 @@ pub fn installGenerated(
     dest_dir: Configuration.InstallDestDir,
     asking_step_index: Configuration.Step.Index,
 ) !Dir.PrevStatus {
-    const src_path = generatedPath(maker, source).*;
+    const src_path = generatedPath(maker, source);
     const dest_dir_path = try resolveInstallDir(maker, arena, dest_dir);
     const dest_path = try dest_dir_path.join(arena, src_path.basename());
     return installPath(maker, arena, src_path, dest_path, asking_step_index);
@@ -3585,11 +4021,6 @@ fn removePoisonedConfiguration(io: Io, scanned_config: *const ScannedConfig) voi
     }
 }
 
-inline fn debugMakerLeaks() bool {
-    if (!is_debug_mode) return false;
-    return debug_maker_leaks;
-}
-
 const BuildRoot = struct {
     directory: Cache.Directory,
     close_directory: bool,
@@ -3703,8 +4134,7 @@ const Fork = struct {
         fork.arena_allocator = .init(gpa);
         const arena = fork.arena_allocator.allocator();
 
-        var error_bundle: std.zig.ErrorBundle.Wip = undefined;
-        try error_bundle.init(gpa);
+        var error_bundle: std.zig.ErrorBundle.Wip = try .init(gpa);
         defer error_bundle.deinit();
 
         const manifest_path = try fork.path.join(arena, Package.Manifest.basename);
@@ -3772,10 +4202,11 @@ fn loadManifest(
             0,
         ) catch |err| switch (err) {
             error.FileNotFound => {
-                Templates.writeSimpleFile(io, Package.Manifest.basename,
+                Templates.writeSimpleFile(io, options.dir, Package.Manifest.basename,
                     \\.{{
                     \\    .name = .{s},
-                    \\    .version = "{s}",
+                    \\    .version = "0.0.1",
+                    \\    .minimum_zig_version = "{s}",
                     \\    .paths = .{{""}},
                     \\    .fingerprint = 0x{x},
                     \\}}
@@ -3804,8 +4235,7 @@ fn loadManifest(
     errdefer manifest.deinit(gpa);
 
     if (manifest.errors.len > 0) {
-        var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-        try wip_errors.init(gpa);
+        var wip_errors: std.zig.ErrorBundle.Wip = try .init(gpa);
         defer wip_errors.deinit();
 
         const src_path = try wip_errors.addString(Package.Manifest.basename);
@@ -3933,8 +4363,8 @@ const Templates = struct {
         };
     }
 
-    fn writeSimpleFile(io: Io, file_name: []const u8, comptime format: []const u8, args: anytype) !void {
-        const f = try Io.Dir.cwd().createFile(io, file_name, .{ .exclusive = true });
+    fn writeSimpleFile(io: Io, dir: Io.Dir, file_name: []const u8, comptime format: []const u8, args: anytype) !void {
+        const f = try dir.createFile(io, file_name, .{ .exclusive = true });
         defer f.close(io);
         var buf: [4096]u8 = undefined;
         var fw = f.writer(io, &buf);
@@ -3967,17 +4397,56 @@ fn confPathDepToCachePath(
             .root_dir = graph.build_root_directory,
             .sub_path = switch (path_dep.pkg.unwrap().?) {
                 .root => sub_path,
-                else => |index| try Dir.path.join(arena, &.{ index.ptr(c).root_path.slice(c), sub_path }),
+                else => |index| try Dir.path.join(arena, &.{ index.get(c).?.root_path.slice(c), sub_path }),
             },
+        },
+        .zig_exe => {
+            assert(sub_path.len == 0);
+            return .{
+                .root_dir = .cwd(),
+                .sub_path = graph.zig_exe,
+            };
         },
         .zig_lib => .{
             .root_dir = graph.zig_lib_directory,
             .sub_path = sub_path,
         },
-        .zig_exe => @panic("TODO"),
         .install_prefix => @panic("TODO"),
         .install_lib => @panic("TODO"),
         .install_bin => @panic("TODO"),
         .install_include => @panic("TODO"),
+        .libc_runtimes => @panic("TODO"),
+    };
+}
+
+fn fatalEnumHint(comptime E: type, arg: []const u8, param: ?[]const u8) noreturn {
+    var buf: [100]u8 = undefined;
+    var w: Io.Writer = .fixed(&buf);
+    for (@typeInfo(E).@"enum".field_names) |field_name| {
+        w.writeAll(field_name) catch unreachable;
+        w.writeByte('|') catch unreachable;
+    }
+    const buffered = w.buffered();
+    const enum_options_text = buffered[0 .. buffered.len - 1];
+    if (param) |p| {
+        fatalWithHint("expected [{s}] after {q}; found {q}", .{ enum_options_text, arg, p });
+    } else {
+        fatalWithHint("expected [{s}] after {q}", .{ enum_options_text, arg });
+    }
+}
+
+fn nextEnumArg(args: []const []const u8, i: *usize, comptime E: type) E {
+    const arg = args[i.* - 1];
+    const next_arg = nextArg(args, i) orelse fatalEnumHint(E, arg, null);
+    return stringToEnum(E, next_arg) orelse fatalEnumHint(E, arg, next_arg);
+}
+
+fn prefixToDirectory(graph: *const Graph, prefix: Server.Message.PathPrefix) Cache.Directory {
+    return switch (prefix) {
+        .cwd => .cwd(),
+        .zig_lib => graph.zig_lib_directory,
+        .local_cache => graph.local_cache_root,
+        .global_cache => graph.global_cache_root,
+        .build_root => graph.build_root_directory,
     };
 }

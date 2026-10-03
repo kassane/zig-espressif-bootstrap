@@ -504,6 +504,7 @@ fn genBody(self: *FuncGen, body: []const Air.Inst.Index, coverage_point: Air.Cov
             .int_from_float_optimized_safe => unreachable, // handled by `legalizeFeatures`
 
             .array_to_slice => try self.airArrayToSlice(inst),
+            .array_to_vector => try self.airArrayToVector(inst),
             .float_from_int => try self.airFloatFromInt(inst),
             .cmpxchg_weak   => try self.airCmpxchg(inst, .weak),
             .cmpxchg_strong => try self.airCmpxchg(inst, .strong),
@@ -1163,7 +1164,7 @@ fn airRetLoad(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!void {
 fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
     const ty_op = self.air.instructions.items(.data)[@backingInt(inst)].ty_op;
     const list = try self.resolveInst(ty_op.operand);
-    const arg_ty = ty_op.ty.toType();
+    const arg_ty = ty_op.ty;
     const llvm_arg_ty = try self.object.lowerType(arg_ty, .as_value);
 
     return self.wip.vaArg(list, llvm_arg_ty, "");
@@ -1174,7 +1175,7 @@ fn airCVaCopy(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Valu
     const zcu = o.zcu;
     const ty_op = self.air.instructions.items(.data)[@backingInt(inst)].ty_op;
     const src_list = try self.resolveInst(ty_op.operand);
-    const va_list_ty = ty_op.ty.toType();
+    const va_list_ty = ty_op.ty;
 
     const dest_list = try self.buildZigAlloca(va_list_ty, .none);
 
@@ -2027,6 +2028,48 @@ fn airArrayToSlice(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder
     return self.wip.buildAggregate(slice_llvm_ty, &.{ operand, len }, "");
 }
 
+fn airArrayToVector(fg: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
+    const o = fg.object;
+    const zcu = o.zcu;
+    const ty_op = fg.air.instructions.items(.data)[@backingInt(inst)].ty_op;
+    const array_ty = fg.typeOf(ty_op.operand);
+    const vector_ty = fg.typeOfIndex(inst);
+    const elem_ty = vector_ty.childType(zcu);
+    const operand = try fg.resolveInst(ty_op.operand);
+
+    assert(array_ty.arrayLen(zcu) == vector_ty.vectorLen(zcu));
+    assert(array_ty.childType(zcu).toIntern() == elem_ty.toIntern());
+    assert(isByRef(array_ty, zcu)); // the operand is runtime-known, so the array has runtime bits
+
+    // A by-ref vector is lowered as `[n x T]` with the same element representation as the array,
+    // so the operand is already the result.
+    if (isByRef(vector_ty, zcu)) return operand;
+
+    // LLVM lays `<n x T>` out as `n` consecutive `T`s, just like `[n]T`, so long as `T` is
+    // accessed as the same type it is used as; then this is one load.
+    if ((try o.lowerType(elem_ty, .memory_access)) == (try o.lowerType(elem_ty, .as_value)) and
+        // f80 has an unusual in-memory representation with padding bytes, so is
+        // not eligible for this optimization
+        !(elem_ty.isRuntimeFloat() and elem_ty.floatBits(zcu.getTarget()) == 80))
+    {
+        return fg.load(operand, array_ty.abiAlignment(zcu), vector_ty, .normal);
+    }
+
+    const llvm_usize = try o.lowerType(.usize, .as_value);
+    const elem_size = elem_ty.abiSize(zcu);
+    var vector = try o.builder.poisonValue(try o.lowerType(vector_ty, .as_value));
+    for (0..@intCast(vector_ty.vectorLen(zcu))) |elem_index| {
+        const elem_ptr = try fg.ptraddScaled(
+            operand,
+            try o.builder.intValue(llvm_usize, elem_index),
+            elem_size,
+        );
+        const elem = try fg.load(elem_ptr, .none, elem_ty, .normal);
+        vector = try fg.wip.insertElement(vector, elem, try o.builder.intValue(.i32, elem_index), "");
+    }
+    return vector;
+}
+
 fn airFloatFromInt(fg: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
     const o = fg.object;
     const zcu = o.zcu;
@@ -2350,11 +2393,11 @@ fn airFieldParentPtr(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Build
 
     const field_ptr = try self.resolveInst(extra.field_ptr);
 
-    const parent_ty = ty_pl.ty.toType().childType(zcu);
+    const parent_ty = ty_pl.ty.childType(zcu);
     const field_offset = parent_ty.structFieldOffset(extra.field_index, zcu);
     if (field_offset == 0) return field_ptr;
 
-    const res_ty = try o.lowerType(ty_pl.ty.toType(), .as_value);
+    const res_ty = try o.lowerType(ty_pl.ty, .as_value);
     const llvm_usize = try o.lowerType(.usize, .as_value);
 
     const field_ptr_int = try self.wip.cast(.ptrtoint, field_ptr, llvm_usize, "");
@@ -3148,7 +3191,7 @@ fn airSaveErrReturnTraceIndex(self: *FuncGen, inst: Air.Inst.Index) Allocator.Er
     const zcu = self.object.zcu;
 
     const ty_pl = self.air.instructions.items(.data)[@backingInt(inst)].ty_pl;
-    const struct_ty = ty_pl.ty.toType();
+    const struct_ty = ty_pl.ty;
     const field_index = ty_pl.payload;
 
     assert(self.err_ret_trace != .none);
@@ -5177,7 +5220,7 @@ fn airLoad(fg: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
     const backing_int_ty = try fg.pt.intType(.unsigned, @intCast(ptr_info.packed_offset.host_size * 8));
     const llvm_backing_int_ty = try o.lowerType(backing_int_ty, .as_value);
 
-    const backing_int_val = try fg.load(ptr, ptr_align, backing_int_ty, .normal);
+    const backing_int_val = try fg.load(ptr, ptr_align, backing_int_ty, access_kind);
 
     const elem_bits = ptr_ty.childType(zcu).bitSize(zcu);
     const shift_amt = try o.builder.intValue(llvm_backing_int_ty, ptr_info.packed_offset.bit_offset);
@@ -5547,8 +5590,36 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
         .slice => null,
         .many, .c => unreachable,
     });
+    const len_bytes = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
 
-    if (allow_byte_memset) if (bin_op.rhs.toInterned()) |elem_ip_index| {
+    try self.lowerMemset(
+        dest_ptr,
+        dest_ptr_align,
+        bin_op.rhs,
+        elem_ty,
+        len_bytes,
+        access_kind,
+        safety,
+        allow_byte_memset,
+    );
+    return .none;
+}
+
+fn lowerMemset(
+    self: *FuncGen,
+    dest_ptr: Builder.Value,
+    dest_ptr_align: InternPool.Alignment,
+    elem_ref: Air.Inst.Ref,
+    elem_ty: Type,
+    len_bytes: Builder.Value,
+    access_kind: Builder.MemoryAccessKind,
+    safety: bool,
+    allow_byte_memset: bool,
+) Allocator.Error!void {
+    const o = self.object;
+    const zcu = o.zcu;
+
+    if (allow_byte_memset) if (elem_ref.toInterned()) |elem_ip_index| {
         const elem_val: Value = .fromInterned(elem_ip_index);
         if (elem_val.isUndef(zcu)) {
             // Even if safety is disabled, we still emit a memset to undefined since it conveys
@@ -5558,20 +5629,19 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
                 try o.builder.intValue(.i8, 0xaa)
             else
                 try o.builder.undefValue(.i8);
-            const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
             _ = try self.wip.callMemSet(
                 dest_ptr,
                 dest_ptr_align.toLlvm(),
                 fill_byte,
-                len,
+                len_bytes,
                 access_kind,
                 self.disable_intrinsics,
             );
             const owner_mod = self.ownerModule();
             if (safety and owner_mod.valgrind) {
-                try self.valgrindMarkUndef(dest_ptr, len);
+                try self.valgrindMarkUndef(dest_ptr, len_bytes);
             }
-            return .none;
+            return;
         }
 
         // Test if the element value is compile-time known to be a
@@ -5580,20 +5650,19 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
         // intrinsic can be used.
         if (try elem_val.hasRepeatedByteRepr(zcu)) |byte_val| {
             const fill_byte = try o.builder.intValue(.i8, byte_val);
-            const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
             _ = try self.wip.callMemSet(
                 dest_ptr,
                 dest_ptr_align.toLlvm(),
                 fill_byte,
-                len,
+                len_bytes,
                 access_kind,
                 self.disable_intrinsics,
             );
-            return .none;
+            return;
         }
     };
 
-    const value = try self.resolveInst(bin_op.rhs);
+    const value = try self.resolveInst(elem_ref);
     const elem_abi_size = elem_ty.abiSize(zcu);
 
     intrinsic: {
@@ -5617,16 +5686,15 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
             break :intrinsic;
         };
         // Great, we can use the intrinsic!
-        const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
         _ = try self.wip.callMemSet(
             dest_ptr,
             dest_ptr_align.toLlvm(),
             fill_byte,
-            len,
+            len_bytes,
             access_kind,
             self.disable_intrinsics,
         );
-        return .none;
+        return;
     }
 
     // non-byte-sized element. lower with a loop. something like this:
@@ -5650,15 +5718,7 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
     const body_block = try self.wip.block(1, "InlineMemsetBody");
     const end_block = try self.wip.block(1, "InlineMemsetEnd");
 
-    const end_ptr = switch (ptr_ty.ptrSize(zcu)) {
-        .slice => try self.ptraddScaled(
-            dest_ptr,
-            try self.wip.extractValue(dest_slice, &.{1}, ""),
-            elem_abi_size,
-        ),
-        .one => try self.ptraddConst(dest_ptr, ptr_ty.childType(zcu).abiSize(zcu)),
-        .many, .c => unreachable,
-    };
+    const end_ptr = try self.ptraddScaled(dest_ptr, len_bytes, 1);
     _ = try self.wip.br(loop_block);
 
     self.wip.cursor = .{ .block = loop_block };
@@ -5675,7 +5735,7 @@ fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) Allocator.Error
 
     self.wip.cursor = .{ .block = end_block };
     it_ptr.finish(&.{ next_ptr, dest_ptr }, &.{ body_block, entry_block }, &self.wip);
-    return .none;
+    return;
 }
 
 fn airMemcpy(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
@@ -5859,7 +5919,7 @@ fn airErrorSetHasValue(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Bui
     const ip = &zcu.intern_pool;
     const ty_op = self.air.instructions.items(.data)[@backingInt(inst)].ty_op;
     const operand = try self.resolveInst(ty_op.operand);
-    const error_set_ty = ty_op.ty.toType();
+    const error_set_ty = ty_op.ty;
 
     const names = error_set_ty.errorSetNames(zcu);
     const valid_block = try self.wip.block(@intCast(names.len), "Valid");
@@ -5937,10 +5997,45 @@ fn airErrorName(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Va
 }
 
 fn airSplat(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
+    const o = self.object;
+    const zcu = o.zcu;
     const ty_op = self.air.instructions.items(.data)[@backingInt(inst)].ty_op;
-    const scalar = try self.resolveInst(ty_op.operand);
-    const vector_ty = self.typeOfIndex(inst);
-    return self.wip.splatVector(try self.object.lowerType(vector_ty, .as_value), scalar, "");
+    const result_ty = self.typeOfIndex(inst);
+    switch (result_ty.zigTypeTag(zcu)) {
+        .vector => {
+            const scalar = try self.resolveInst(ty_op.operand);
+            return self.wip.splatVector(try o.lowerType(result_ty, .as_value), scalar, "");
+        },
+        .array => {
+            assert(isByRef(result_ty, zcu));
+
+            const result_ptr = try self.buildZigAlloca(result_ty, .none);
+            const array_info = result_ty.arrayInfo(zcu);
+            const elem_size = array_info.elem_type.abiSize(zcu);
+            const len_bytes = array_info.len * elem_size;
+            const len_bytes_llvm = try o.builder.intValue(try o.lowerType(.usize, .as_value), len_bytes);
+
+            try self.lowerMemset(
+                result_ptr,
+                result_ty.abiAlignment(zcu),
+                ty_op.operand,
+                array_info.elem_type,
+                len_bytes_llvm,
+                .normal,
+                false,
+                !self.needMemsetWorkaround(len_bytes),
+            );
+
+            if (array_info.sentinel) |sent_val| {
+                const sent_ptr = try self.ptraddConst(result_ptr, len_bytes);
+                const sent_elem = try self.resolveValue(sent_val);
+                try self.store(sent_ptr, .none, sent_elem.toValue(), array_info.elem_type, .normal);
+            }
+
+            return result_ptr;
+        },
+        else => unreachable,
+    }
 }
 
 fn airSelect(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
@@ -6544,7 +6639,8 @@ fn airWorkGroupSize(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builde
             // Load the work_group_* member from the struct as u16.
             // Just treat the dispatch pointer as an array of u16 to keep things simple.
             const workgroup_size_ptr = try self.ptraddConst(dispatch_ptr, (2 + dimension) * 2);
-            return self.load(workgroup_size_ptr, .@"2", .u16, .normal);
+            const workgroup_size = try self.load(workgroup_size_ptr, .@"2", .u16, .normal);
+            return try self.wip.cast(.zext, workgroup_size, .i32, "");
         },
         .nvptx, .nvptx64 => {
             return self.workIntrinsic(dimension, 1, "nvvm.read.ptx.sreg.ntid");
@@ -7997,14 +8093,14 @@ fn appendConstraints(
 fn intrinsicsAllowed(kind: enum { compiler_rt, libc }, scalar_ty: Type, target: *const std.Target) bool {
     if (!scalar_ty.isRuntimeFloat()) return true;
     const bits = scalar_ty.floatBits(target);
-    // Since upstream musl/msvc do not actually define the *f128 functions, llvm decides
-    // that it is a much better idea to just emit a call to the entirely wrong function as
-    // a fallback.  We wouldn't want any linker errors when trying to perform an operation
-    // that isn't actually implemented anywhere, now would we!
-    if (bits == 128 and target.cpu.arch.isX86() and !target.abi.isGnu()) return switch (kind) {
-        .compiler_rt => true,
-        .libc => false,
-    };
+    switch (kind) {
+        .compiler_rt => {},
+        // Since upstream musl/msvc do not actually define the *f128 functions, llvm decides
+        // that it is a much better idea to just emit a call to the entirely wrong function as
+        // a fallback.  We wouldn't want any linker errors when trying to perform an operation
+        // that isn't actually implemented anywhere, now would we!
+        .libc => if (bits == 128 and target.cpu.arch.isX86() and !target.abi.isGnu()) return false,
+    }
     return switch (std.zig.target.compilerRtFloatAbi(target, bits)) {
         .hard => true,
         .soft => false,

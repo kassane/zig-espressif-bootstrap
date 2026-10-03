@@ -43,6 +43,9 @@ pub const Edwards25519 = struct {
             return error.InvalidEncoding;
         }
         x.cMov(x.mul(Fe.sqrtm1), 1 - @intFromBool(has_m_root));
+        if (x.isZero() and (s[31] >> 7) != 0) {
+            return error.InvalidEncoding;
+        }
         x.cMov(x.neg(), @intFromBool(x.isNegative()) ^ (s[31] >> 7));
         const t = x.mul(y);
         return Edwards25519{ .x = x, .y = y, .z = z, .t = t };
@@ -543,7 +546,7 @@ test "packing/unpacking" {
     var b = Edwards25519.basePoint;
     const pk = try b.mul(s);
     var buf: [128]u8 = undefined;
-    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&pk.toBytes()}), "074BC7E0FCBD587FDBC0969444245FADC562809C8F6E97E949AF62484B5B81A6");
+    try std.testing.expectEqualStrings(try std.mem.print(&buf, "{X}", .{&pk.toBytes()}), "074BC7E0FCBD587FDBC0969444245FADC562809C8F6E97E949AF62484B5B81A6");
 
     const small_order_ss: [7][32]u8 = .{
         .{

@@ -10,7 +10,6 @@ const build_options = @import("build_options");
 const Air = @import("../Air.zig");
 const codegen = @import("../codegen.zig");
 const Compilation = @import("../Compilation.zig");
-const dev = @import("../dev.zig");
 const InternPool = @import("../InternPool.zig");
 const link = @import("../link.zig");
 const Module = @import("../Module.zig");
@@ -31,313 +30,19 @@ const bindings = if (build_options.have_llvm)
 else
     @compileError("LLVM unavailable");
 
-pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
-    return comptime &.initMany(&.{
-        .expand_int_from_float_safe,
-        .expand_int_from_float_optimized_safe,
+pub fn legalizeFeatures(target: *const std.Target) ?*const Air.Legalize.Features {
+    return switch (target.cpu.arch.endian()) {
+        inline else => |endian| comptime &.init(.{
+            .expand_int_from_float_safe = true,
+            .expand_int_from_float_optimized_safe = true,
 
-        .scalarize_bit_cast_array,
-        // Needed because LLVM's `bitcast` on vectors is endian-specific unless the source and dest
-        // types are vectors with equal length (hence also with equal bits-per-element).
-        .scalarize_bit_cast_vector_non_elementwise,
-    });
-}
-
-fn subArchName(target: *const std.Target, comptime family: std.Target.Cpu.Arch.Family, mappings: anytype) ?[]const u8 {
-    inline for (mappings) |mapping| {
-        if (target.cpu.has(family, mapping[0])) return mapping[1];
-    }
-
-    return null;
-}
-
-pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8 {
-    var llvm_triple = std.array_list.Managed(u8).init(allocator);
-    defer llvm_triple.deinit();
-
-    const llvm_arch = switch (target.cpu.arch) {
-        .arm => "arm",
-        .armeb => "armeb",
-        .aarch64 => if (target.abi == .ilp32) "aarch64_32" else "aarch64",
-        .aarch64_be => "aarch64_be",
-        .arc => "arc",
-        .avr => "avr",
-        .bpfel => "bpfel",
-        .bpfeb => "bpfeb",
-        .csky => "csky",
-        .hexagon => "hexagon",
-        .loongarch32 => "loongarch32",
-        .loongarch64 => "loongarch64",
-        .m68k => "m68k",
-        // MIPS sub-architectures are a bit irregular, so we handle them manually here.
-        .mips => if (target.cpu.has(.mips, .mips32r6)) "mipsisa32r6" else "mips",
-        .mipsel => if (target.cpu.has(.mips, .mips32r6)) "mipsisa32r6el" else "mipsel",
-        .mips64 => if (target.cpu.has(.mips, .mips64r6)) "mipsisa64r6" else "mips64",
-        .mips64el => if (target.cpu.has(.mips, .mips64r6)) "mipsisa64r6el" else "mips64el",
-        .msp430 => "msp430",
-        .powerpc => "powerpc",
-        .powerpcle => "powerpcle",
-        .powerpc64 => "powerpc64",
-        .powerpc64le => "powerpc64le",
-        .amdgcn => "amdgcn",
-        .riscv32 => "riscv32",
-        .riscv32be => "riscv32be",
-        .riscv64 => "riscv64",
-        .riscv64be => "riscv64be",
-        .sparc => "sparc",
-        .sparc64 => "sparc64",
-        .s390x => "s390x",
-        .thumb => "thumb",
-        .thumbeb => "thumbeb",
-        .x86 => "i386",
-        .x86_64 => "x86_64",
-        .xcore => "xcore",
-        .xtensa => "xtensa",
-        .nvptx => "nvptx",
-        .nvptx64 => "nvptx64",
-        .spirv32 => switch (target.os.tag) {
-            .vulkan, .opengl => "spirv",
-            else => "spirv32",
-        },
-        .spirv64 => "spirv64",
-        .lanai => "lanai",
-        .wasm32 => "wasm32",
-        .wasm64 => "wasm64",
-        .ve => "ve",
-
-        .alpha,
-        .arceb,
-        .ez80,
-        .hppa,
-        .hppa64,
-        .kalimba,
-        .kvx,
-        .m88k,
-        .microblaze,
-        .microblazeel,
-        .or1k,
-        .propeller,
-        .sh,
-        .sheb,
-        .x86_16,
-        .xtensaeb,
-        => unreachable, // Gated by hasLlvmSupport().
-    };
-
-    try llvm_triple.appendSlice(llvm_arch);
-
-    const llvm_sub_arch: ?[]const u8 = switch (target.cpu.arch) {
-        .arm, .armeb, .thumb, .thumbeb => subArchName(target, .arm, .{
-            .{ .v4t, "v4t" },
-            .{ .v5t, "v5t" },
-            .{ .v5te, "v5te" },
-            .{ .v5tej, "v5tej" },
-            .{ .v6, "v6" },
-            .{ .v6k, "v6k" },
-            .{ .v6kz, "v6kz" },
-            .{ .v6m, "v6m" },
-            .{ .v6t2, "v6t2" },
-            .{ .v7a, "v7a" },
-            .{ .v7em, "v7em" },
-            .{ .v7m, "v7m" },
-            .{ .v7r, "v7r" },
-            .{ .v7ve, "v7ve" },
-            .{ .v8a, "v8a" },
-            .{ .v8_1a, "v8.1a" },
-            .{ .v8_2a, "v8.2a" },
-            .{ .v8_3a, "v8.3a" },
-            .{ .v8_4a, "v8.4a" },
-            .{ .v8_5a, "v8.5a" },
-            .{ .v8_6a, "v8.6a" },
-            .{ .v8_7a, "v8.7a" },
-            .{ .v8_8a, "v8.8a" },
-            .{ .v8_9a, "v8.9a" },
-            .{ .v8m, "v8m.base" },
-            .{ .v8m_main, "v8m.main" },
-            .{ .v8_1m_main, "v8.1m.main" },
-            .{ .v8r, "v8r" },
-            .{ .v9a, "v9a" },
-            .{ .v9_1a, "v9.1a" },
-            .{ .v9_2a, "v9.2a" },
-            .{ .v9_3a, "v9.3a" },
-            .{ .v9_4a, "v9.4a" },
-            .{ .v9_5a, "v9.5a" },
-            .{ .v9_6a, "v9.6a" },
-            .{ .v9_7a, "v9.7a" },
+            .scalarize_bit_cast_array = true,
+            // LLVM's `bitcast` on vectors places element 0 in the least significant bits on
+            // little-endian targets, which matches our semantics; but it does the opposite on
+            // big-endian targets, so in that case we need to scalarize.
+            .scalarize_bit_cast_vector_non_elementwise = endian != .little,
         }),
-        .powerpc => subArchName(target, .powerpc, .{
-            .{ .spe, "spe" },
-        }),
-        .spirv32, .spirv64 => subArchName(target, .spirv, .{
-            .{ .v1_6, "1.6" },
-            .{ .v1_5, "1.5" },
-            .{ .v1_4, "1.4" },
-            .{ .v1_3, "1.3" },
-            .{ .v1_2, "1.2" },
-            .{ .v1_1, "1.1" },
-        }),
-        else => null,
     };
-
-    if (llvm_sub_arch) |sub| try llvm_triple.appendSlice(sub);
-    try llvm_triple.append('-');
-
-    try llvm_triple.appendSlice(switch (target.os.tag) {
-        .driverkit,
-        .ios,
-        .maccatalyst,
-        .macos,
-        .tvos,
-        .visionos,
-        .watchos,
-        => "apple",
-        .ps4,
-        .ps5,
-        => "scei",
-        .amdhsa,
-        .amdpal,
-        => "amd",
-        .cuda,
-        .nvcl,
-        => "nvidia",
-        .mesa3d,
-        => "mesa",
-        else => "unknown",
-    });
-    try llvm_triple.append('-');
-
-    const llvm_os = switch (target.os.tag) {
-        .dragonfly => "dragonfly",
-        .freebsd => "freebsd",
-        .fuchsia => "fuchsia",
-        .linux => "linux",
-        .netbsd => "netbsd",
-        .openbsd => "openbsd",
-        .illumos => "solaris",
-        .windows, .uefi => "windows",
-        .haiku => "haiku",
-        .rtems => "rtems",
-        .cuda => "cuda",
-        .nvcl => "nvcl",
-        .amdhsa => "amdhsa",
-        .ps3 => "lv2",
-        .ps4 => "ps4",
-        .ps5 => "ps5",
-        .mesa3d => "mesa3d",
-        .amdpal => "amdpal",
-        .hermit => "hermit",
-        .hurd => "hurd",
-        .wasi => "wasi",
-        .emscripten => "emscripten",
-        .macos => "macosx",
-        .ios, .maccatalyst => "ios",
-        .tvos => "tvos",
-        .watchos => "watchos",
-        .driverkit => "driverkit",
-        .visionos => "xros",
-        .serenity => "serenity",
-        .vulkan => "vulkan",
-        .managarm => "managarm",
-
-        .contiki,
-        .freestanding,
-        .opencl, // https://llvm.org/docs/SPIRVUsage.html#target-triples
-        .opengl,
-        .other,
-        .plan9,
-        .psx,
-        .psp,
-        .vita,
-        .tios,
-        .@"3ds",
-        .wiiu,
-        .@"switch",
-        .ashetos,
-        => "unknown",
-        
-        .esp32, .esp32s2, .esp32s3, .esp8266,
-        .esp32c2, .esp32c3, .esp32c5, .esp32c6, .esp32c61,
-        .esp32h2, .esp32h21, .esp32h4, .esp32p4, .esp32s31,
-        => "espidf",
-    };
-    try llvm_triple.appendSlice(llvm_os);
-
-    switch (target.os.versionRange()) {
-        .none,
-        .windows,
-        => {},
-        .semver => |ver| if (target.os.tag == .wasi and ver.min.major == 0) {
-            try llvm_triple.print("p{d}", .{ver.min.minor});
-        } else if (target.os.tag != .amdhsa) {
-            try llvm_triple.print("{d}.{d}.{d}", .{
-                ver.min.major,
-                ver.min.minor,
-                ver.min.patch,
-            });
-        },
-        inline .linux, .hurd => |ver| try llvm_triple.print("{d}.{d}.{d}", .{
-            ver.range.min.major,
-            ver.range.min.minor,
-            ver.range.min.patch,
-        }),
-    }
-    try llvm_triple.append('-');
-
-    const llvm_abi = switch (target.abi) {
-        .none => if (target.os.tag == .maccatalyst) "macabi" else "unknown",
-        .gnu => "gnu",
-        .gnuabin32 => "gnuabin32",
-        .gnuabi64 => "gnuabi64",
-        .gnueabi => "gnueabi",
-        .gnueabihf => "gnueabihf",
-        .gnuf32 => "gnuf32",
-        .gnusf => "gnusf",
-        .gnux32 => "gnux32",
-        .ilp32 => "unknown",
-        .eabi => "eabi",
-        .eabihf => "eabihf",
-        .abin32 => "unknown",
-        .x32 => "muslx32", // https://github.com/ziglang/zig/issues/25649
-        .android => "android",
-        .androideabi => "androideabi",
-        .musl => switch (target.os.tag) {
-            // For WASI/Emscripten, "musl" refers to the libc, not really the ABI.
-            // "unknown" provides better compatibility with LLVM-based tooling for these targets.
-            .wasi, .emscripten => "unknown",
-            else => "musl",
-        },
-        .muslabin32 => "muslabin32",
-        .muslabi64 => "muslabi64",
-        .musleabi => "musleabi",
-        .musleabihf => "musleabihf",
-        .muslf32 => "muslf32",
-        .muslsf => "muslsf",
-        .muslx32 => "muslx32",
-        .msvc => "msvc",
-        .itanium => "itanium",
-        .simulator => "simulator",
-        .ohos, .ohoseabi => "ohos",
-        .call0 => "unknown",
-    };
-    try llvm_triple.appendSlice(llvm_abi);
-
-    switch (target.os.versionRange()) {
-        .none,
-        .semver,
-        .windows,
-        => {},
-        inline .hurd, .linux => |ver| if (target.abi.isGnu()) {
-            try llvm_triple.print("{d}.{d}.{d}", .{
-                ver.glibc.major,
-                ver.glibc.minor,
-                ver.glibc.patch,
-            });
-        } else if (@TypeOf(ver) == std.Target.Os.LinuxVersionRange and target.abi.isAndroid()) {
-            try llvm_triple.print("{d}", .{ver.android});
-        },
-    }
-
-    return llvm_triple.toOwnedSlice();
 }
 
 pub fn supportsTailCall(target: *const std.Target) bool {
@@ -449,23 +154,20 @@ pub const Object = struct {
     /// Values for `@llvm.used`.
     used: std.ArrayList(Builder.Constant),
 
-    pub const Ptr = if (dev.env.supports(.llvm_backend)) *Object else noreturn;
+    pub const Ptr = if (@import("../dev.zig").env.supports(.llvm_backend)) *Object else noreturn;
 
     const TypeMap = std.AutoHashMapUnmanaged(InternPool.Index, Builder.Type);
 
     pub fn create(arena: Allocator, zcu: *Zcu) !Ptr {
-        dev.check(.llvm_backend);
         const comp = zcu.comp;
         const gpa = comp.gpa;
         const target = zcu.getTarget();
-        const llvm_target_triple = try targetTriple(arena, target);
 
         var builder = try Builder.init(.{
             .allocator = gpa,
             .strip = comp.config.debug_format == .strip,
             .name = comp.root_name,
             .target = target,
-            .triple = llvm_target_triple,
         });
         errdefer builder.deinit();
 
@@ -483,7 +185,7 @@ pub const Object = struct {
                 // way already, but here we throw all that sweet information
                 // into the garbage can by converting into absolute paths. What
                 // a terrible tragedy.
-                const compile_unit_dir = try zcu.main_mod.root.toAbsolute(comp.dirs, arena);
+                const compile_unit_dir = try zcu.main_mod.root.toAbsolute(&comp.dirs, arena);
 
                 const debug_file = try builder.debugFile(
                     try builder.metadataString(comp.root_name),
@@ -644,7 +346,7 @@ pub const Object = struct {
         lto: std.zig.LtoMode,
     };
 
-    pub fn emit(o: *Object, pt: Zcu.PerThread, options: EmitOptions) error{ AlreadyReported, OutOfMemory }!void {
+    pub fn emit(o: *Object, pt: Zcu.PerThread, options: EmitOptions) link.Error!void {
         const zcu = o.zcu;
         const comp = zcu.comp;
         const io = comp.io;
@@ -693,7 +395,7 @@ pub const Object = struct {
         }
 
         {
-            var module_flags = try std.array_list.Managed(Builder.Metadata).initCapacity(o.gpa, 8);
+            var module_flags = try std.array_list.Managed(Builder.Metadata).initCapacity(o.gpa, 11);
             defer module_flags.deinit();
 
             const behavior_error = try o.builder.metadataConstant(try o.builder.intConst(.i32, 1));
@@ -790,6 +492,20 @@ pub const Object = struct {
                 }));
             }
 
+            // The frontend should eventually offer options to control these.
+            if (target.cpu.arch.isAarch64() and (target.os.tag == .openbsd or target.abi.isAndroid())) {
+                module_flags.appendAssumeCapacity(try o.builder.metadataTuple(&.{
+                    behavior_min,
+                    (try o.builder.metadataString("branch-target-enforcement")).toMetadata(),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, 2)),
+                }));
+                module_flags.appendAssumeCapacity(try o.builder.metadataTuple(&.{
+                    behavior_min,
+                    (try o.builder.metadataString("sign-return-address")).toMetadata(),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, 2)),
+                }));
+            }
+
             try o.builder.addNamedMetadata(try o.builder.string("llvm.module.flags"), module_flags.items);
         }
 
@@ -849,7 +565,7 @@ pub const Object = struct {
                 return diags.fail("emitting without libllvm not implemented", .{});
             }
 
-            initializeLLVMTarget(comp.root_mod.resolved_target.result.cpu.arch);
+            initializeLLVMTarget(io, comp.root_mod.resolved_target.result.cpu.arch);
 
             const context: *bindings.Context = .create();
             errdefer context.dispose();
@@ -1361,10 +1077,8 @@ pub const Object = struct {
                 false => .default,
             };
             llvm_global.ptr(&o.builder).linkage = switch (@"extern".linkage) {
-                .internal => if (o.builder.strip and !workaroundPrivateSymbolBugs(zcu.getTarget(), &resolved)) .private else .internal,
                 .strong => .external,
                 .weak => .extern_weak,
-                .link_once => unreachable,
             };
             llvm_global.ptr(&o.builder).visibility = .fromSymbolVisibility(@"extern".visibility);
         } else {
@@ -1437,48 +1151,51 @@ pub const Object = struct {
         }
     }
 
-    fn flushTypePool(o: *Object, pt: Zcu.PerThread) Allocator.Error!void {
+    fn flushTypePool(o: *Object, pt: Zcu.PerThread) link.Error!void {
         try o.type_pool.flushPending(pt, .{ .llvm = o });
     }
 
     pub fn updateExports(
         o: *Object,
-        exported: Zcu.Exported,
         export_indices: []const Zcu.Export.Index,
     ) link.Error!void {
         const zcu = o.zcu;
         const ip = &zcu.intern_pool;
-        const ty: Type, const llvm_ptr: Builder.Constant = switch (exported) {
-            .nav => |nav| exp: {
-                const nav_ty: Type = .fromInterned(ip.getNav(nav).resolved.?.type);
-                const nav_ref = try o.lowerNavRef(nav);
-                break :exp .{ nav_ty, nav_ref };
-            },
-            .uav => |uav| exp: {
-                const uav_ty = Value.fromInterned(uav).typeOf(zcu);
-                const uav_ref = try o.lowerUavRef(
-                    uav,
-                    uav_ty.abiAlignment(zcu).toLlvm(),
-                    target_util.defaultAddressSpace(zcu.getTarget(), .global_constant),
-                );
-                break :exp .{ uav_ty, uav_ref };
-            },
-        };
-        switch (llvm_ptr.unwrap()) {
-            .global => |global| return o.updateExportedGlobal(global, ty, export_indices),
-            .constant => @panic("LLVM TODO: export zero-bit value"),
+        for (export_indices) |export_index| {
+            const ty: Type, const llvm_ptr: Builder.Constant = switch (export_index.ptr(zcu).exported) {
+                .nav => |nav| exp: {
+                    const nav_ty: Type = .fromInterned(ip.getNav(nav).resolved.?.type);
+                    const nav_ref = try o.lowerNavRef(nav);
+                    break :exp .{ nav_ty, nav_ref };
+                },
+                .uav => |uav| exp: {
+                    const uav_ty = Value.fromInterned(uav).typeOf(zcu);
+                    const uav_ref = try o.lowerUavRef(
+                        uav,
+                        uav_ty.abiAlignment(zcu).toLlvm(),
+                        target_util.defaultAddressSpace(zcu.getTarget(), .global_constant),
+                    );
+                    break :exp .{ uav_ty, uav_ref };
+                },
+            };
+            switch (llvm_ptr.unwrap()) {
+                .global => |global| try o.addGlobalExport(global, ty, export_index),
+                .constant => @panic("LLVM TODO: export zero-bit value"),
+            }
         }
     }
 
-    fn updateExportedGlobal(
+    fn addGlobalExport(
         o: *Object,
         llvm_global: Builder.Global.Index,
         ty: Type,
-        export_indices: []const Zcu.Export.Index,
+        export_index: Zcu.Export.Index,
     ) link.Error!void {
         const zcu = o.zcu;
         const comp = zcu.comp;
         const ip = &zcu.intern_pool;
+
+        const exp = export_index.ptr(zcu);
 
         // If we're on COFF and linking with LLD, the linker cares about our exports to determine the subsystem in use.
         coff_export_flags: {
@@ -1490,23 +1207,20 @@ pub const Object = struct {
             };
             if (ty.zigTypeTag(zcu) != .@"fn") break :coff_export_flags;
             const flags = &coff.lld_export_flags;
-            for (export_indices) |export_index| {
-                const name = export_index.ptr(zcu).opts.name;
-                if (name.eqlSlice("main", ip)) flags.c_main = true;
-                if (name.eqlSlice("WinMain", ip)) flags.winmain = true;
-                if (name.eqlSlice("wWinMain", ip)) flags.wwinmain = true;
-                if (name.eqlSlice("WinMainCRTStartup", ip)) flags.winmain_crt_startup = true;
-                if (name.eqlSlice("wWinMainCRTStartup", ip)) flags.wwinmain_crt_startup = true;
-                if (name.eqlSlice("DllMainCRTStartup", ip)) flags.dllmain_crt_startup = true;
-                if (name.eqlSlice("_DllMainCRTStartup", ip)) flags.dllmain_crt_startup = true;
-            }
+            if (exp.opts.name.eqlSlice("main", ip)) flags.c_main = true;
+            if (exp.opts.name.eqlSlice("WinMain", ip)) flags.winmain = true;
+            if (exp.opts.name.eqlSlice("wWinMain", ip)) flags.wwinmain = true;
+            if (exp.opts.name.eqlSlice("WinMainCRTStartup", ip)) flags.winmain_crt_startup = true;
+            if (exp.opts.name.eqlSlice("wWinMainCRTStartup", ip)) flags.wwinmain_crt_startup = true;
+            if (exp.opts.name.eqlSlice("DllMainCRTStartup", ip)) flags.dllmain_crt_startup = true;
+            if (exp.opts.name.eqlSlice("_DllMainCRTStartup", ip)) flags.dllmain_crt_startup = true;
         }
 
-        // If the first export specifies a linksection, set the exported variable's section to that
-        // one. This is kind of a hack because `std.lang.ExportOptions.section` doesn't actually
-        // make much sense: the linksection should be associated with the declaration itself rather
-        // than some particular symbol it is exported as!
-        if (export_indices[0].ptr(zcu).opts.section.toSlice(ip)) |section_slice| {
+        // If the export specifies a linksection, set the exported variable's section to that one.
+        // This is kind of a hack because `std.lang.ExportOptions.section` doesn't actually make
+        // much sense: the linksection should be associated with the declaration itself rather than
+        // some particular symbol it is exported as!
+        if (exp.opts.section.toSlice(ip)) |section_slice| {
             const variable = &llvm_global.ptrConst(&o.builder).kind.variable;
             variable.setSection(try o.builder.string(section_slice), &o.builder);
         }
@@ -1521,29 +1235,54 @@ pub const Object = struct {
         // TODO: we currently do not delete old exports. To do that we'll need to track which
         // globals actually *are* exports.
 
-        for (export_indices, 0..) |export_idx, export_i| {
-            const exp = export_idx.ptr(zcu);
-            const exp_name = try o.builder.strtabString(exp.opts.name.toSlice(ip));
+        const exp_name = try o.builder.strtabString(exp.opts.name.toSlice(ip));
 
-            // Our goal is to make an alias with the name `exp_name`, but if that name is already
-            // taken by some existing global, we need to figure out what to do with that existing
-            // global.
-            //
-            // The name, aliasee, and type will be set within this block. Other properties of the
-            // alias will be set below.
-            const alias_global: Builder.Global.Index = global: {
+        // Our goal is to make an alias with the name `exp_name`, but if that name is already
+        // taken by some existing global, we need to figure out what to do with that existing
+        // global.
+        //
+        // The name, aliasee, and type will be set within this block. Other properties of the
+        // alias will be set below.
+        const alias_global: Builder.Global.Index = global: {
 
-                // WORKAROUND (see https://github.com/llvm/llvm-project/issues/213504, https://github.com/llvm/llvm-project/issues/214835)
-                // For NVPTX, LLVM throws "NVPTX aliasee must be a non-kernel function definition" if we try to alias a kernel
-                // On AMDGCN, LLVM does not generate an alias for the kernel descriptor symbol on associated functions
-                // To solve these, we rename the global
-                if (workaround_alias_bugs and export_i == 0) {
-                    try llvm_global.rename(exp_name, &o.builder);
-                    break :global llvm_global;
-                }
+            // WORKAROUND (see https://github.com/llvm/llvm-project/issues/213504, https://github.com/llvm/llvm-project/issues/214835)
+            // For NVPTX, LLVM throws "NVPTX aliasee must be a non-kernel function definition" if we try to alias a kernel
+            // On AMDGCN, LLVM does not generate an alias for the kernel descriptor symbol on associated functions
+            // To solve these, we rename the global
+            if (workaround_alias_bugs) {
+                try llvm_global.rename(exp_name, &o.builder);
+                break :global llvm_global;
+            }
 
-                const existing_global = o.builder.getGlobal(exp_name) orelse {
-                    // There is no existing global with this name, so make a new alias.
+            const existing_global = o.builder.getGlobal(exp_name) orelse {
+                // There is no existing global with this name, so make a new alias.
+                const alias = try o.builder.addAlias(
+                    exp_name,
+                    llvm_global_ty,
+                    llvm_global.ptrConst(&o.builder).addr_space,
+                    llvm_global.toConst(),
+                );
+                break :global alias.ptrConst(&o.builder).global;
+            };
+            // There is an existing global with this name, so we can't just create an alias. We
+            // need to figure out what to do with the existing global instead.
+            switch (existing_global.ptrConst(&o.builder).kind) {
+                .alias => |alias| {
+                    // We can just repurpose the existing alias.
+                    alias.setAliasee(llvm_global.toConst(), &o.builder);
+                    alias.ptrConst(&o.builder).global.ptr(&o.builder).type = llvm_global.typeOf(&o.builder);
+                    alias.ptrConst(&o.builder).global.ptr(&o.builder).addr_space = llvm_global.ptrConst(&o.builder).addr_space;
+                    break :global existing_global;
+                },
+                .variable, .function => {
+                    // This must be an extern, which is no good to us---we need an alias. The
+                    // extern should refer to the value we're exporting, so replace it with the
+                    // exported value. That will free up the name for us to create a new alias.
+                    // We need to make a new global which is an alias. Replace this existing one
+                    // with the target global, making the name available and fixing references
+                    // to this global to point to the target.
+                    try existing_global.replace(llvm_global, &o.builder);
+                    // The name is now free, so create an alias.
                     const alias = try o.builder.addAlias(
                         exp_name,
                         llvm_global_ty,
@@ -1551,61 +1290,29 @@ pub const Object = struct {
                         llvm_global.toConst(),
                     );
                     break :global alias.ptrConst(&o.builder).global;
-                };
-                // There is an existing global with this name, so we can't just create an alias. We
-                // need to figure out what to do with the existing global instead.
-                switch (existing_global.ptrConst(&o.builder).kind) {
-                    .alias => |alias| {
-                        // We can just repurpose the existing alias.
-                        alias.setAliasee(llvm_global.toConst(), &o.builder);
-                        alias.ptrConst(&o.builder).global.ptr(&o.builder).type = llvm_global.typeOf(&o.builder);
-                        alias.ptrConst(&o.builder).global.ptr(&o.builder).addr_space = llvm_global.ptrConst(&o.builder).addr_space;
-                        break :global existing_global;
-                    },
-                    .variable, .function => {
-                        // This must be an extern, which is no good to us---we need an alias. The
-                        // extern should refer to the value we're exporting, so replace it with the
-                        // exported value. That will free up the name for us to create a new alias.
-                        // We need to make a new global which is an alias. Replace this existing one
-                        // with the target global, making the name available and fixing references
-                        // to this global to point to the target.
-                        try existing_global.replace(llvm_global, &o.builder);
-                        // The name is now free, so create an alias.
-                        const alias = try o.builder.addAlias(
-                            exp_name,
-                            llvm_global_ty,
-                            llvm_global.ptrConst(&o.builder).addr_space,
-                            llvm_global.toConst(),
-                        );
-                        break :global alias.ptrConst(&o.builder).global;
-                    },
-                    .replaced => unreachable, // a replaced global would have lost the name `exp_name`
-                }
-            };
+                },
+                .replaced => unreachable, // a replaced global would have lost the name `exp_name`
+            }
+        };
 
-            // Now for a bit of setup which
+        // We need the alias to *not* be `unnamed_addr` to ensure that the alias address equals
+        // the address of the original global.
+        alias_global.setUnnamedAddr(.default, &o.builder);
 
-            // We need the alias to *not* be `unnamed_addr` to ensure that the alias address equals
-            // the address of the original global.
-            alias_global.setUnnamedAddr(.default, &o.builder);
-
-            if (comp.config.dll_export_fns and exp.opts.visibility != .hidden)
-                alias_global.setDllStorageClass(.dllexport, &o.builder);
-            alias_global.setLinkage(switch (exp.opts.linkage) {
-                .internal => if (o.builder.strip) .private else .internal, // we still did useful work in replacing an existing symbol if there was one
-                .strong => .external,
-                .weak => .weak_odr,
-                .link_once => .linkonce_odr,
-            }, &o.builder);
-            alias_global.setVisibility(switch (exp.opts.visibility) {
-                .default => .default,
-                .hidden => .hidden,
-                .protected => .protected,
-            }, &o.builder);
-        }
+        if (comp.config.dll_export_fns and exp.opts.visibility != .hidden)
+            alias_global.setDllStorageClass(.dllexport, &o.builder);
+        alias_global.setLinkage(switch (exp.opts.linkage) {
+            .strong => .external,
+            .weak => .weak_odr,
+        }, &o.builder);
+        alias_global.setVisibility(switch (exp.opts.visibility) {
+            .default => .default,
+            .hidden => .hidden,
+            .protected => .protected,
+        }, &o.builder);
     }
 
-    pub fn updateContainerType(o: *Object, pt: Zcu.PerThread, ty: InternPool.Index, success: bool) Allocator.Error!void {
+    pub fn updateContainerType(o: *Object, pt: Zcu.PerThread, ty: InternPool.Index, success: bool) link.Error!void {
         _ = o.type_map.remove(ty);
         try o.type_pool.updateContainerType(pt, .{ .llvm = o }, ty, success);
         if (o.named_enum_map.get(ty)) |llvm_function| {
@@ -1647,6 +1354,7 @@ pub const Object = struct {
     ///
     /// `val` is always a type because `o.type_pool` only contains types.
     pub fn updateConstIncomplete(o: *Object, pt: Zcu.PerThread, index: link.ConstPool.Index, val: InternPool.Index) Allocator.Error!void {
+        _ = pt;
         const zcu = o.zcu;
         assert(zcu.intern_pool.typeOf(val) == .type_type);
 
@@ -1660,7 +1368,7 @@ pub const Object = struct {
         if (!o.builder.strip) {
             assert(val != .anyerror_type);
             const fwd_ref = o.debug_types.items[@backingInt(index)];
-            const name_str = try o.builder.metadataStringFmt("{f}", .{ty.fmt(pt)});
+            const name_str = try o.builder.metadataStringFmt("{f}", .{ty.fmt(zcu)});
             // If `ty` is a function, use a dummy *function* type to prevent existing debug
             // subprograms from becoming ill-formed.
             const debug_incomplete_type = switch (ty.zigTypeTag(zcu)) {
@@ -1708,6 +1416,7 @@ pub const Object = struct {
             .zig_lib => dirs.zig_lib.path,
             .global_cache => dirs.global_cache.path,
             .local_cache => dirs.local_cache.path,
+            .build_root => dirs.build_root.path,
             .none => null,
         };
 
@@ -1731,7 +1440,7 @@ pub const Object = struct {
 
     pub fn getDebugType(o: *Object, pt: Zcu.PerThread, ty: Type) Allocator.Error!Builder.Metadata {
         assert(!o.builder.strip);
-        const index = try o.type_pool.get(pt, .{ .llvm = o }, ty.toIntern());
+        const index = o.type_pool.get(pt, .{ .llvm = o }, ty.toIntern()) catch |err| return @errorCast(err);
         return o.debug_types.items[@backingInt(index)];
     }
 
@@ -1750,7 +1459,7 @@ pub const Object = struct {
         const target = zcu.getTarget();
         const ip = &zcu.intern_pool;
 
-        const name = try o.builder.metadataStringFmt("{f}", .{ty.fmt(pt)});
+        const name = try o.builder.metadataStringFmt("{f}", .{ty.fmt(zcu)});
 
         // lldb cannot handle non-byte-sized types, so in the logic below, bit sizes are padded up.
         // For instance, `bool` is considered to be 8 bits, and `u60` is considered to be 64 bits.
@@ -2259,7 +1968,7 @@ pub const Object = struct {
                 const debug_payload_type = try o.builder.debugUnionType(
                     payload_name: {
                         if (layout.tag_size == 0) break :payload_name name;
-                        break :payload_name try o.builder.metadataStringFmt("{f}:Payload", .{ty.fmt(pt)});
+                        break :payload_name try o.builder.metadataStringFmt("{f}:Payload", .{ty.fmt(zcu)});
                     },
                     file,
                     scope,
@@ -2506,6 +2215,15 @@ pub const Object = struct {
                 .value = try o.builder.string(std.mem.span(s)),
             } }, &o.builder);
         }
+
+        if (owner_mod.patchable_function_entry > 0) {
+            const count = owner_mod.patchable_function_entry;
+            try attributes.addFnAttr(.{ .string = .{
+                .kind = try o.builder.string("patchable-function-entry"),
+                .value = try o.builder.fmt("{d}", .{count}),
+            } }, &o.builder);
+        }
+
         if (target.abi.float() == .soft) {
             // `use-soft-float` means "use software routines for floating point computations". In
             // other words, it configures how LLVM lowers basic float instructions like `fcmp`,
@@ -2529,6 +2247,22 @@ pub const Object = struct {
             // This prevents LLVM from using FPU/SIMD code for things like `memcpy`. As for the
             // above, this should be revisited if `softfp` support is added.
             try attributes.addFnAttr(.noimplicitfloat, &o.builder);
+        }
+
+        // The frontend should eventually offer options to control these.
+        if (target.cpu.arch.isAarch64() and (target.os.tag == .openbsd or target.abi.isAndroid())) {
+            try attributes.addFnAttr(.{ .string = .{
+                .kind = try o.builder.string("branch-target-enforcement"),
+                .value = try o.builder.string(""),
+            } }, &o.builder);
+            try attributes.addFnAttr(.{ .string = .{
+                .kind = try o.builder.string("sign-return-address"),
+                .value = try o.builder.string("non-leaf"),
+            } }, &o.builder);
+            try attributes.addFnAttr(.{ .string = .{
+                .kind = try o.builder.string("sign-return-address-key"),
+                .value = try o.builder.string("a_key"),
+            } }, &o.builder);
         }
     }
 
@@ -3193,7 +2927,7 @@ pub const Object = struct {
                         }
                     }
 
-                    const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).toSlice(ip)));
+                    const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).fqn.toSlice(ip)));
                     try o.type_map.put(o.gpa, t.toIntern(), ty);
 
                     o.builder.namedTypeSetBody(
@@ -3283,7 +3017,7 @@ pub const Object = struct {
                     };
 
                     if (layout.tag_size == 0) {
-                        const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).toSlice(ip)));
+                        const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).fqn.toSlice(ip)));
                         try o.type_map.put(o.gpa, t.toIntern(), ty);
 
                         o.builder.namedTypeSetBody(
@@ -3311,7 +3045,7 @@ pub const Object = struct {
                         llvm_fields_len += 1;
                     }
 
-                    const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).toSlice(ip)));
+                    const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).fqn.toSlice(ip)));
                     try o.type_map.put(o.gpa, t.toIntern(), ty);
 
                     o.builder.namedTypeSetBody(
@@ -4326,7 +4060,7 @@ pub const Object = struct {
             // Dummy function type; `updateEnumTagNameFunction` will replace it with the correct type.
             // TODO: change the builder API so we don't need to do this.
             try o.builder.fnType(.void, &.{}, .normal),
-            try o.builder.strtabStringFmt("__zig_tag_name_{f}", .{enum_ty.containerTypeName(ip).fmt(ip)}),
+            try o.builder.strtabStringFmt("__zig_tag_name_{f}", .{enum_ty.containerTypeName(ip).fqn.fmt(ip)}),
             toLlvmAddressSpace(.generic, zcu.getTarget()),
         );
         gop.value_ptr.* = llvm_function;
@@ -4408,7 +4142,7 @@ pub const Object = struct {
     }
 
     pub fn lazyAbiAlignment(o: *Object, pt: Zcu.PerThread, ty: Type) Allocator.Error!Builder.Alignment.Lazy {
-        const index = try o.type_pool.get(pt, .{ .llvm = o }, ty.toIntern());
+        const index = o.type_pool.get(pt, .{ .llvm = o }, ty.toIntern()) catch |err| return @errorCast(err);
         return o.lazy_abi_aligns.items[@backingInt(index)];
     }
 
@@ -4423,7 +4157,7 @@ pub const Object = struct {
             // Dummy function type; `updateIsNamedEnumValue` will replace it with the correct type.
             // TODO: change the builder API so we don't need to do this.
             try o.builder.fnType(.void, &.{}, .normal),
-            try o.builder.strtabStringFmt("__zig_is_named_enum_value_{f}", .{enum_ty.containerTypeName(ip).fmt(ip)}),
+            try o.builder.strtabStringFmt("__zig_is_named_enum_value_{f}", .{enum_ty.containerTypeName(ip).fqn.fmt(ip)}),
             toLlvmAddressSpace(.generic, zcu.getTarget()),
         );
         gop.value_ptr.* = llvm_function;
@@ -4693,6 +4427,7 @@ pub fn toLlvmCallConvTag(cc_tag: std.lang.CallingConvention.Tag, target: *const 
         .spirv_vertex,
         .spirv_task,
         .spirv_mesh,
+        .spork8,
         => null,
     };
 }
@@ -4818,7 +4553,14 @@ const struct_layout_version = 2;
 //       https://github.com/llvm/llvm-project/issues/56585/ is fixed
 pub const optional_layout_version = 3;
 
-pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
+var target_registry_mutex: std.Io.Mutex = .init;
+
+pub fn initializeLLVMTarget(io: Io, arch: std.Target.Cpu.Arch) void {
+    // Repeated initialization is safe, as targets which have already been registered will be skipped.
+    // It is however the client's responsibility to synchronize registry access.
+    target_registry_mutex.lockUncancelable(io);
+    defer target_registry_mutex.unlock(io);
+
     switch (arch) {
         .aarch64, .aarch64_be => {
             bindings.LLVMInitializeAArch64Target();
@@ -5013,6 +4755,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .propeller,
         .sh,
         .sheb,
+        .spork8,
         .x86_16,
         .xtensaeb,
         => unreachable,

@@ -57,7 +57,7 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("lib/std/std.zig"),
             .target = target,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const install_std_docs = b.addInstallDirectory(.{
@@ -125,7 +125,6 @@ pub fn build(b: *std.Build) !void {
     const skip_darwin = b.option(bool, "skip-darwin", "Main test suite skips targets with darwin OSs") orelse false;
     const skip_linux = b.option(bool, "skip-linux", "Main test suite skips targets with linux OS") orelse false;
     const skip_llvm = b.option(bool, "skip-llvm", "Main test suite skips targets that use LLVM backend") orelse false;
-    const skip_test_incremental = b.option(bool, "skip-test-incremental", "Main test step omits dependency on test-incremental step") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
@@ -263,8 +262,8 @@ pub fn build(b: *std.Build) !void {
     const opt_version_string = b.option([]const u8, "version-string", "Override Zig version string. Default is to find out with git.");
     const version_slice = if (opt_version_string) |version| version else v: {
         if (!std.process.can_spawn) {
-            std.debug.print("error: version info cannot be retrieved from git. Zig version must be provided using -Dversion-string\n", .{});
-            std.process.exit(1);
+            std.log.info("version info can be provided explicitly via \"-Dversion-string\"", .{});
+            std.process.fatal("version info cannot be retrieved from git", .{});
         }
 
         // Ensure git version changes get picked up.
@@ -272,12 +271,13 @@ pub fn build(b: *std.Build) !void {
             const io = b.graph.io;
             const git_file = b.root.openFile(io, ".git", .{ .allow_directory = false }) catch |err| switch (err) {
                 error.IsDir => {
-                    b.dependOnFileContents(b.path(".git/logs/HEAD"));
+                    b.dependOnFileMetadata(b.path(".git/logs/HEAD"));
                     break :git;
                 },
                 else => |e| return e,
             };
             defer git_file.close(io);
+            b.dependOnFileContents(b.path(".git"));
             var line_buffer: ["gitdir: ".len + std.Io.Dir.max_path_bytes + 1]u8 = undefined;
             var git_file_reader = git_file.reader(io, &line_buffer);
             if (std.mem.cutPrefix(u8, std.mem.trimEnd(u8, try git_file_reader.interface.allocRemaining(
@@ -285,7 +285,7 @@ pub fn build(b: *std.Build) !void {
                 .limited("gitdir: ".len + std.Io.Dir.max_path_bytes + "\r\n".len),
             ), "\r\n"), "gitdir: ")) |git_dir| {
                 const head_file = b.pathJoin(&.{ git_dir, "logs", "HEAD" });
-                b.dependOnFileContents(if (std.Io.Dir.path.isAbsolute(head_file))
+                b.dependOnFileMetadata(if (std.Io.Dir.path.isAbsolute(head_file))
                     b.graph.cwdRelativePath(head_file)
                 else
                     b.path(head_file));
@@ -310,8 +310,9 @@ pub fn build(b: *std.Build) !void {
             0 => {
                 // Tagged release version (e.g. 0.10.0).
                 if (!mem.eql(u8, git_describe, version_string)) {
-                    std.debug.print("Zig version '{s}' does not match Git tag '{s}'\n", .{ version_string, git_describe });
-                    std.process.exit(1);
+                    std.process.fatal("zig version {q} does not match Git tag {q}", .{
+                        version_string, git_describe,
+                    });
                 }
                 break :v version_string;
             },
@@ -324,13 +325,14 @@ pub fn build(b: *std.Build) !void {
 
                 const ancestor_ver = try std.SemanticVersion.parse(tagged_ancestor);
                 if (zig_version.order(ancestor_ver) != .gt) {
-                    std.debug.print("Zig version '{f}' must be greater than tagged ancestor '{f}'\n", .{ zig_version, ancestor_ver });
-                    std.process.exit(1);
+                    std.process.fatal("zig version {f} must be greater than tagged ancestor {qf}", .{
+                        zig_version, ancestor_ver,
+                    });
                 }
 
                 // Check that the commit hash is prefixed with a 'g' (a Git convention).
                 if (commit_id.len < 1 or commit_id[0] != 'g') {
-                    std.debug.print("Unexpected `git describe` output: {s}\n", .{git_describe});
+                    std.log.warn("unexpected \"git describe\" output: {s}", .{git_describe});
                     break :v version_string;
                 }
 
@@ -338,7 +340,7 @@ pub fn build(b: *std.Build) !void {
                 break :v b.fmt("{s}-dev.{s}+{s}", .{ version_string, commit_height, commit_id[1..] });
             },
             else => {
-                std.debug.print("Unexpected `git describe` output: {s}\n", .{git_describe});
+                std.log.warn("unexpected \"git describe\" output: {s}", .{git_describe});
                 break :v version_string;
             },
         }
@@ -354,7 +356,8 @@ pub fn build(b: *std.Build) !void {
                 const file_contents = cwd.readFileAlloc(io, config_h_path, arena, .limited(max_config_h_bytes)) catch unreachable;
                 break :blk parseConfigH(b, file_contents);
             } else {
-                std.log.warn("config.h could not be located automatically. Consider providing it explicitly via \"-Dconfig_h\"", .{});
+                std.log.warn("config.h could not be located automatically", .{});
+                std.log.info("config.h can be provided explicitly via \"-Dconfig_h\"", .{});
                 break :blk null;
             }
         };
@@ -431,7 +434,7 @@ pub fn build(b: *std.Build) !void {
     const test_target_filters = b.option([]const []const u8, "test-target-filter", "Skip tests whose target triple do not match any filter") orelse &[0][]const u8{};
     const test_extra_targets = b.option(bool, "test-extra-targets", "Enable running module tests for additional targets") orelse false;
 
-    var chosen_opt_modes_buf: [4]std.lang.OptimizeMode = undefined;
+    var chosen_opt_modes_buf: [4]std.lang.Optimize = undefined;
     var chosen_mode_index: usize = 0;
     if (!skip_debug) {
         chosen_opt_modes_buf[chosen_mode_index] = .debug;
@@ -578,7 +581,7 @@ pub fn build(b: *std.Build) !void {
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-        .max_rss = 9_300_000_000,
+        .max_rss = 9_600_000_000,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
@@ -649,15 +652,21 @@ pub fn build(b: *std.Build) !void {
         .skip_darwin = skip_darwin,
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
-        .max_rss = 3_300_000_000,
+        .max_rss = 4_300_000_000,
     }));
     test_step.dependOn(tests.addLinkTests(b, .{
         .test_target_filters = test_target_filters,
         .test_filters = test_filters,
         .optimize_modes = optimize_modes,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_openbsd = skip_openbsd,
         .skip_windows = skip_windows,
+        .skip_darwin = skip_darwin,
+        .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
+        .skip_libc = skip_libc,
         .max_rss = 100_000_000,
     }));
     test_step.dependOn(tests.addStackTraceTests(b, .{
@@ -771,24 +780,41 @@ pub fn build(b: *std.Build) !void {
         test_step.dependOn(check_oracle_step);
     }
 
-    const test_incremental_step = b.step("test-incremental", "Run the incremental compilation test cases");
-    try tests.addIncrementalTests(b, test_incremental_step, test_filters);
-    if (!skip_test_incremental) test_step.dependOn(test_incremental_step);
-
     if (tests.addLibcTestNszTests(b, .{
         .optimize_modes = optimize_modes,
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
         .skip_wasm = skip_wasm,
-        .max_rss = 3_500_000_000,
+        .max_rss = 4_300_000_000,
     })) |test_libc_nsz_step| test_step.dependOn(test_libc_nsz_step);
+
+    const runner = b.addExecutable(.{
+        .name = "runner",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/src/Runner.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    test_step.dependOn(try tests.addIncrementalTests(b, runner, .{
+        .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
+        .skip_non_native = skip_non_native,
+        .skip_wasm = skip_wasm,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_openbsd = skip_openbsd,
+        .skip_windows = skip_windows,
+        .skip_darwin = skip_darwin,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
+    }));
 }
 
 fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     const semver = try std.SemanticVersion.parse(version);
 
     const exe = addCompilerStep(b, .{
-        .optimize = .ReleaseSmall,
+        .optimize = .small,
         .target = b.resolveTargetQuery(std.Target.Query.parse(.{
             .arch_os_abi = "wasm32-wasi",
             // * `nontrapping_bulk_memory_len0` is supported by `wasm2c`.
@@ -853,7 +879,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
 }
 
 const AddCompilerModOptions = struct {
-    optimize: std.lang.OptimizeMode,
+    optimize: std.lang.Optimize,
     target: std.Build.ResolvedTarget,
     strip: ?bool = null,
     valgrind: ?bool = null,
@@ -1606,7 +1632,7 @@ fn generateLangRef(b: *std.Build) !std.Build.LazyPath {
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/doctest.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
 
@@ -1649,7 +1675,7 @@ fn generateLangRef(b: *std.Build) !std.Build.LazyPath {
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/docgen.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
 

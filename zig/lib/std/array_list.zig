@@ -26,13 +26,16 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         ///
         /// Pointers to elements in this slice are invalidated by various
         /// functions of this ArrayList in accordance with the respective
-        /// documentation. In all cases, "invalidated" means that the memory
-        /// has been passed to this allocator's resize or free function.
+        /// documentation.
+        ///  An invalidated pointer may point either to valid or freed memory.
         items: Slice,
         /// How many T values this list can hold without allocating
         /// additional memory.
         capacity: usize,
         allocator: Allocator,
+
+        /// Used to detect memory safety violations.
+        pointer_stability: debug.SafetyLock,
 
         pub const Slice = if (alignment) |a| ([]align(a.toByteUnits()) T) else []T;
 
@@ -46,6 +49,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
                 .items = &[_]T{},
                 .capacity = 0,
                 .allocator = gpa,
+                .pointer_stability = .{},
             };
         }
 
@@ -60,9 +64,28 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
 
         /// Release all allocated memory.
         pub fn deinit(self: Self) void {
+            self.pointer_stability.assertUnlocked();
             if (@sizeOf(T) > 0) {
                 self.allocator.free(self.allocatedSlice());
             }
+        }
+
+        /// Puts the array list into a state where any method call that would
+        /// cause an existing value pointer to become invalidated will
+        /// instead trigger an assertion.
+        ///
+        /// `lockPointers` may be called multiple times. This allows multiple
+        /// independent users of the list to keep it locked simultaneously.
+        ///
+        /// `unlockPointers` restores the list to its previous state when
+        /// called the same number of times as `lockPointers`.
+        pub fn lockPointers(self: *Self) void {
+            self.pointer_stability.lockShared();
+        }
+
+        /// Undoes one call to `lockPointers`.
+        pub fn unlockPointers(self: *Self) void {
+            self.pointer_stability.unlockShared();
         }
 
         /// ArrayList takes ownership of the passed in slice. The slice must have been
@@ -73,6 +96,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
                 .items = slice,
                 .capacity = slice.len,
                 .allocator = gpa,
+                .pointer_stability = .{},
             };
         }
 
@@ -84,6 +108,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
                 .items = slice,
                 .capacity = slice.len + 1,
                 .allocator = gpa,
+                .pointer_stability = .{},
             };
         }
 
@@ -91,14 +116,20 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         /// of this ArrayList. Empties this ArrayList.
         pub fn moveToUnmanaged(self: *Self) Aligned(T, alignment) {
             const allocator = self.allocator;
-            const result: Aligned(T, alignment) = .{ .items = self.items, .capacity = self.capacity };
+            const result: Aligned(T, alignment) = .{
+                .items = self.items,
+                .capacity = self.capacity,
+                .pointer_stability = self.pointer_stability,
+            };
             self.* = init(allocator);
             return result;
         }
 
         /// The caller owns the returned memory. Empties this ArrayList.
         /// Its capacity is cleared, making `deinit` safe but unnecessary to call.
+        /// May invalidate element pointers if remapping memory cannot be done in place.
         pub fn toOwnedSlice(self: *Self) Allocator.Error!Slice {
+            self.pointer_stability.assertUnlocked();
             const allocator = self.allocator;
 
             const old_memory = self.allocatedSlice();
@@ -114,6 +145,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         }
 
         /// The caller owns the returned memory. Empties this ArrayList.
+        /// May invalidate element pointers if remapping memory cannot be done in place.
         pub fn toOwnedSliceSentinel(self: *Self, comptime sentinel: T) Allocator.Error!SentinelSlice(sentinel) {
             // This addition can never overflow because `self.items` can never occupy the whole address space
             try self.ensureTotalCapacityPrecise(self.items.len + 1);
@@ -129,28 +161,31 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
             return cloned;
         }
 
-        /// Insert `item` at index `i`. Moves `list[i .. list.len]` to higher indices to make room.
-        /// If `i` is equal to the length of the list this operation is equivalent to append.
+        /// Insert `item` at index `index`. Moves `list[index .. list.len]` to higher indices to make room.
+        /// If `index` is equal to the length of the list this operation is equivalent to append.
         /// This operation is O(N).
         /// Invalidates element pointers if additional memory is needed.
+        /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Asserts that the index is in bounds or equal to the length.
-        pub fn insert(self: *Self, i: usize, item: T) Allocator.Error!void {
-            const dst = try self.addManyAt(i, 1);
+        pub fn insert(self: *Self, index: usize, item: T) Allocator.Error!void {
+            self.pointer_stability.assertUnlocked();
+            const dst = try self.addManyAt(index, 1);
             dst[0] = item;
         }
 
-        /// Insert `item` at index `i`. Moves `list[i .. list.len]` to higher indices to make room.
-        /// If `i` is equal to the length of the list this operation is
+        /// Insert `item` at index `index`. Moves `list[index .. list.len]` to higher indices to make room.
+        /// If `index` is equal to the length of the list this operation is
         /// equivalent to appendAssumeCapacity.
         /// This operation is O(N).
+        /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Asserts that there is enough capacity for the new item.
         /// Asserts that the index is in bounds or equal to the length.
-        pub fn insertAssumeCapacity(self: *Self, i: usize, item: T) void {
+        pub fn insertAssumeCapacity(self: *Self, index: usize, item: T) void {
+            self.pointer_stability.assertUnlocked();
             assert(self.items.len < self.capacity);
             self.items.len += 1;
-
-            @memmove(self.items[i + 1 .. self.items.len], self.items[i .. self.items.len - 1]);
-            self.items[i] = item;
+            @memmove(self.items[index + 1 .. self.items.len], self.items[index .. self.items.len - 1]);
+            self.items[index] = item;
         }
 
         /// Add `count` new elements at position `index`, which have
@@ -163,6 +198,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         /// Asserts that the index is in bounds or equal to the length.
         pub fn addManyAt(self: *Self, index: usize, count: usize) Allocator.Error![]T {
             const new_len = try addOrOom(self.items.len, count);
+            self.pointer_stability.assertUnlocked();
 
             if (self.capacity >= new_len)
                 return addManyAtAssumeCapacity(self, index, count);
@@ -198,11 +234,11 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         /// `undefined` values. Returns a slice pointing to the newly allocated
         /// elements, which becomes invalid after various `ArrayList`
         /// operations.
+        /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Asserts that there is enough capacity for the new elements.
-        /// Invalidates pre-existing pointers to elements at and after `index`, but
-        /// does not invalidate any before that.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn addManyAtAssumeCapacity(self: *Self, index: usize, count: usize) []T {
+            self.pointer_stability.assertUnlocked();
             const new_len = self.items.len + count;
             assert(self.capacity >= new_len);
             const to_move = self.items[index..];
@@ -213,7 +249,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
             return result;
         }
 
-        /// Insert slice `items` at index `i` by moving `list[i .. list.len]` to make room.
+        /// Insert slice `items` at index `index` by moving `list[index .. list.len]` to make room.
         /// This operation is O(N).
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Invalidates all pre-existing element pointers if capacity must be
@@ -229,7 +265,9 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         }
 
         /// Grows or shrinks the list as necessary.
-        /// Invalidates element pointers if additional capacity is allocated.
+        /// Invalidates element pointers if additional capacity is allocated,
+        /// Invalidates pointers to elements at and above index `start + len`
+        /// when `len` and `new_items.len` are unequal.
         /// Asserts that the range is in bounds.
         pub fn replaceRange(self: *Self, start: usize, len: usize, new_items: []const T) Allocator.Error!void {
             var unmanaged = self.moveToUnmanaged();
@@ -238,7 +276,8 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         }
 
         /// Grows or shrinks the list as necessary.
-        /// Never invalidates element pointers.
+        /// Invalidates pointers to elements at and above index `start + len`
+        /// when `len` and `new_items.len` are unequal.
         /// Asserts the capacity is enough for additional items.
         pub fn replaceRangeAssumeCapacity(self: *Self, start: usize, len: usize, new_items: []const T) void {
             var unmanaged = self.moveToUnmanaged();
@@ -275,10 +314,12 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
 
         /// Removes the element at the specified index and returns it.
         /// The empty slot is filled from the end of the list.
+        /// Invalidates pointers to the end of the list.
         /// This operation is O(1).
         /// This may not preserve item order. Use `orderedRemove` if you need to preserve order.
         /// Asserts that the index is in bounds.
         pub fn swapRemove(self: *Self, i: usize) T {
+            self.pointer_stability.assertUnlocked();
             const val = self.items[i];
             self.items[i] = self.items[self.items.len - 1];
             self.items[self.items.len - 1] = undefined;
@@ -328,6 +369,8 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
             @memcpy(self.items[old_len..][0..items.len], items);
         }
 
+        /// Prints a formatted string into this list.
+        /// Invalidates element pointers if additional memory is needed.
         pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
             const gpa = self.allocator;
             var unmanaged = self.moveToUnmanaged();
@@ -379,6 +422,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         /// Invalidates element pointers for the elements `items[new_len..]`.
         /// Asserts that the new length is less than or equal to the previous length.
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
+            self.pointer_stability.assertUnlocked();
             assert(new_len <= self.items.len);
             @memset(self.items[new_len..], undefined);
             self.items.len = new_len;
@@ -387,12 +431,14 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         /// Reduce length to 0.
         /// Invalidates all element pointers.
         pub fn clearRetainingCapacity(self: *Self) void {
+            self.pointer_stability.assertUnlocked();
             @memset(self.items, undefined);
             self.items.len = 0;
         }
 
         /// Invalidates all element pointers.
         pub fn clearAndFree(self: *Self) void {
+            self.pointer_stability.assertUnlocked();
             self.allocator.free(self.allocatedSlice());
             self.items.len = 0;
             self.capacity = 0;
@@ -424,9 +470,9 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
             }
 
             if (self.capacity >= new_capacity) return;
-
+            self.pointer_stability.assertUnlocked();
             // Here we avoid copying allocated but unused bytes by
-            // attempting a resize in place, and falling back to allocating
+            // attempting a remap, and falling back to allocating
             // a new buffer and doing our own copy. With a realloc() call,
             // the allocator implementation would pointlessly copy our
             // extra capacity.
@@ -457,7 +503,8 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         }
 
         /// Increase length by 1, returning pointer to the new item.
-        /// The returned pointer becomes invalid when the list resized.
+        /// Invalidates element pointers if additional memory is needed.
+        /// The returned pointer may be invalidated by further operations to this list.
         pub fn addOne(self: *Self) Allocator.Error!*T {
             // This can never overflow because `self.items` can never occupy the whole address space
             const newlen = self.items.len + 1;
@@ -466,7 +513,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         }
 
         /// Increase length by 1, returning pointer to the new item.
-        /// The returned pointer becomes invalid when the list is resized.
+        /// The returned pointer may be invalidated by further operations to this list.
         /// Never invalidates element pointers.
         /// Asserts that the list can hold one additional item.
         pub fn addOneAssumeCapacity(self: *Self) *T {
@@ -477,8 +524,9 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
 
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is an array pointing to the newly allocated elements.
-        /// The returned pointer becomes invalid when the list is resized.
+        /// The returned pointer may be invalidated by further operations to this list.
         /// Resizes list if `self.capacity` is not large enough.
+        /// Invalidates element pointers if additional memory is needed.
         pub fn addManyAsArray(self: *Self, comptime n: usize) Allocator.Error!*[n]T {
             const prev_len = self.items.len;
             try self.resize(try addOrOom(self.items.len, n));
@@ -488,7 +536,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is an array pointing to the newly allocated elements.
         /// Never invalidates element pointers.
-        /// The returned pointer becomes invalid when the list is resized.
+        /// The returned pointer may be invalidated by further operations to this list.
         /// Asserts that the list can hold the additional items.
         pub fn addManyAsArrayAssumeCapacity(self: *Self, comptime n: usize) *[n]T {
             assert(self.items.len + n <= self.capacity);
@@ -499,8 +547,9 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
 
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is a slice pointing to the newly allocated elements.
-        /// The returned pointer becomes invalid when the list is resized.
+        /// The returned pointer may be invalidated by further operations to this list.
         /// Resizes list if `self.capacity` is not large enough.
+        /// Invalidates element pointers if additional memory is needed.
         pub fn addManyAsSlice(self: *Self, n: usize) Allocator.Error![]T {
             const prev_len = self.items.len;
             try self.resize(try addOrOom(self.items.len, n));
@@ -510,7 +559,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is a slice pointing to the newly allocated elements.
         /// Never invalidates element pointers.
-        /// The returned pointer becomes invalid when the list is resized.
+        /// The returned pointer may be invalidated by further operations to this list.
         /// Asserts that the list can hold the additional items.
         pub fn addManyAsSliceAssumeCapacity(self: *Self, n: usize) []T {
             assert(self.items.len + n <= self.capacity);
@@ -520,9 +569,10 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         }
 
         /// Remove and return the last element from the list, or return `null` if list is empty.
-        /// Invalidates element pointers to the removed element, if any.
+        /// Invalidates element pointers to the removed element.
         pub fn pop(self: *Self) ?T {
             if (self.items.len == 0) return null;
+            self.pointer_stability.assertUnlocked();
             const val = self.items[self.items.len - 1];
             self.items[self.items.len - 1] = undefined;
             self.items.len -= 1;
@@ -531,6 +581,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
 
         /// Returns a slice of all the items plus the extra capacity, whose memory
         /// contents are `undefined`.
+        /// The returned pointer may be invalidated by further operations to this list.
         pub fn allocatedSlice(self: Self) Slice {
             // `items.len` is the length, not the capacity.
             return self.items.ptr[0..self.capacity];
@@ -540,8 +591,14 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         /// This can be useful for writing directly into an ArrayList.
         /// Note that such an operation must be followed up with a direct
         /// modification of `self.items.len`.
+        /// The returned pointer may be invalidated by further operations to this list.
         pub fn unusedCapacitySlice(self: Self) []T {
             return self.allocatedSlice()[self.items.len..];
+        }
+
+        /// Deprecated
+        pub fn getLast(self: Self) T {
+            return self.items[self.items.len - 1];
         }
 
         /// Deprecated in favor of `last`
@@ -549,6 +606,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
 
         /// Returns the last element from the list, or `null` if the list is
         /// empty.
+        /// Never invalidates element pointers.
         pub fn last(self: Self) ?T {
             if (self.items.len == 0) return null;
             return self.items[self.items.len - 1];
@@ -556,6 +614,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
 
         /// Returns a pointer to the last element from the list, or `null` if
         /// the list is empty.
+        /// The returned pointer may be invalidated by further operations to this list.
         pub fn lastPtr(self: Self) ?*T {
             if (self.items.len == 0) return null;
             return &self.items[self.items.len - 1];
@@ -570,8 +629,6 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
 /// Functions that potentially allocate memory accept an `Allocator` parameter.
 /// Initialize directly or with `initCapacity`, and deinitialize with `deinit`
 /// or use `toOwnedSlice`.
-///
-/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
     if (alignment) |a| {
         if (a.toByteUnits() == @alignOf(T)) {
@@ -585,17 +642,21 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         ///
         /// Pointers to elements in this slice are invalidated by various
         /// functions of this ArrayList in accordance with the respective
-        /// documentation. In all cases, "invalidated" means that the memory
-        /// has been passed to an allocator's resize or free function.
+        /// documentation.
+        ///  An invalidated pointer may point either to valid or freed memory.
         items: Slice,
         /// How many T values this list can hold without allocating
         /// additional memory.
         capacity: usize,
 
+        /// Used to detect memory safety violations.
+        pointer_stability: debug.SafetyLock,
+
         /// An ArrayList containing no elements.
         pub const empty: Self = .{
             .items = &.{},
             .capacity = 0,
+            .pointer_stability = .{},
         };
 
         pub const Slice = if (alignment) |a| ([]align(a.toByteUnits()) T) else []T;
@@ -621,19 +682,44 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             return .{
                 .items = buffer[0..0],
                 .capacity = buffer.len,
+                .pointer_stability = .{},
             };
         }
 
         /// Release all allocated memory.
         pub fn deinit(self: *Self, gpa: Allocator) void {
+            self.pointer_stability.assertUnlocked();
             gpa.free(self.allocatedSlice());
             self.* = undefined;
+        }
+
+        /// Puts the unmanaged array list into a state where any method call that would
+        /// cause an existing value pointer to become invalidated will
+        /// instead trigger an assertion.
+        ///
+        /// `lockPointers` may be called multiple times. This allows multiple
+        /// independent users of the list to keep it locked simultaneously.
+        ///
+        /// `unlockPointers` restores the list to its previous state when
+        /// called the same number of times as `lockPointers`.
+        pub fn lockPointers(self: *Self) void {
+            self.pointer_stability.lockShared();
+        }
+
+        /// Undoes one call to `lockPointers`.
+        pub fn unlockPointers(self: *Self) void {
+            self.pointer_stability.unlockShared();
         }
 
         /// Convert this list into an analogous memory-managed one.
         /// The returned list has ownership of the underlying memory.
         pub fn toManaged(self: *Self, gpa: Allocator) AlignedManaged(T, alignment) {
-            return .{ .items = self.items, .capacity = self.capacity, .allocator = gpa };
+            return .{
+                .items = self.items,
+                .capacity = self.capacity,
+                .allocator = gpa,
+                .pointer_stability = self.pointer_stability,
+            };
         }
 
         /// ArrayList takes ownership of the passed in slice.
@@ -642,6 +728,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             return Self{
                 .items = slice,
                 .capacity = slice.len,
+                .pointer_stability = .{},
             };
         }
 
@@ -651,13 +738,16 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             return Self{
                 .items = slice,
                 .capacity = slice.len + 1,
+                .pointer_stability = .{},
             };
         }
 
         /// The caller owns the returned memory. Empties this ArrayList.
         /// Its capacity is cleared, making deinit() safe but unnecessary to call.
+        /// May invalidate element pointers.
         pub fn toOwnedSlice(self: *Self, gpa: Allocator) Allocator.Error!Slice {
             const old_memory = self.allocatedSlice();
+            self.pointer_stability.assertUnlocked();
             if (gpa.remap(old_memory, self.items.len)) |new_items| {
                 self.* = .empty;
                 return new_items;
@@ -670,7 +760,9 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         }
 
         /// The caller owns the returned memory. ArrayList becomes empty.
+        /// May invalidate element pointers.
         pub fn toOwnedSliceSentinel(self: *Self, gpa: Allocator, comptime sentinel: T) Allocator.Error!SentinelSlice(sentinel) {
+            self.pointer_stability.assertUnlocked();
             // This addition can never overflow because `self.items` can never occupy the whole address space.
             try self.ensureTotalCapacityPrecise(gpa, self.items.len + 1);
             self.appendAssumeCapacity(sentinel);
@@ -683,6 +775,10 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Its capacity is cleared, making deinit() safe but unnecessary to call.
         ///
         /// Asserts what the capacity is equal to the length.
+        /// Never invalidates element pointers.
+        ///
+        /// See also:
+        /// * `shrinkToLen`
         pub fn toOwnedSliceAssert(self: *Self) Slice {
             assert(self.items.len == self.capacity);
             const items = self.items;
@@ -692,6 +788,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// The caller owns the returned memory. ArrayList becomes empty.
         /// Asserts what the capacity is equal to the length + 1.
+        /// Never invalidates element pointers.
         pub fn toOwnedSliceSentinelAssert(self: *Self, comptime sentinel: T) SentinelSlice(sentinel) {
             std.debug.assert(self.items.len + 1 == self.capacity);
             self.appendAssumeCapacity(sentinel);
@@ -706,43 +803,41 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             return cloned;
         }
 
-        /// Insert `item` at index `i`. Moves `list[i .. list.len]` to higher indices to make room.
-        /// If `i` is equal to the length of the list this operation is equivalent to append.
+        /// Insert `item` at index `index`. Moves `list[index .. list.len]` to higher indices to make room.
+        /// If `index` is equal to the length of the list this operation is equivalent to append.
         /// This operation is O(N).
         /// Invalidates element pointers if additional memory is needed.
+        /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Asserts that the index is in bounds or equal to the length.
-        pub fn insert(self: *Self, gpa: Allocator, i: usize, item: T) Allocator.Error!void {
-            const dst = try self.addManyAt(gpa, i, 1);
+        pub fn insert(self: *Self, gpa: Allocator, index: usize, item: T) Allocator.Error!void {
+            self.pointer_stability.assertUnlocked();
+            const dst = try self.addManyAt(gpa, index, 1);
             dst[0] = item;
         }
 
-        /// Insert `item` at index `i`. Moves `list[i .. list.len]` to higher indices to make room.
-        ///
-        /// If `i` is equal to the length of the list this operation is equivalent to append.
-        ///
+        /// Insert `item` at index `index`. Moves `list[index .. list.len]` to higher indices to make room.
+        /// If `index` is equal to the length of the list this operation is
+        /// equivalent to appendAssumeCapacity.
         /// This operation is O(N).
-        ///
+        /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Asserts that the list has capacity for one additional item.
-        ///
         /// Asserts that the index is in bounds or equal to the length.
-        pub fn insertAssumeCapacity(self: *Self, i: usize, item: T) void {
+        pub fn insertAssumeCapacity(self: *Self, index: usize, item: T) void {
+            self.pointer_stability.assertUnlocked();
             assert(self.items.len < self.capacity);
             self.items.len += 1;
-
-            @memmove(self.items[i + 1 .. self.items.len], self.items[i .. self.items.len - 1]);
-            self.items[i] = item;
+            @memmove(self.items[index + 1 .. self.items.len], self.items[index .. self.items.len - 1]);
+            self.items[index] = item;
         }
 
-        /// Insert `item` at index `i`, moving `list[i .. list.len]` to higher indices to make room.
-        ///
-        /// If `i` is equal to the length of the list this operation is equivalent to append.
-        ///
+        /// Insert `item` at index `index`. Moves `list[index .. list.len]` to higher indices to make room.
+        /// If `index` is equal to the length of the list this operation is
+        /// equivalent to appendAssumeCapacity.
         /// This operation is O(N).
-        ///
+        /// Invalidates pre-existing pointers to elements at and after `index`.
+        /// Asserts that the index is in bounds or equal to the length.
         /// If the list lacks unused capacity for the additional item, returns
         /// `error.OutOfMemory`.
-        ///
-        /// Asserts that the index is in bounds or equal to the length.
         pub fn insertBounded(self: *Self, i: usize, item: T) error{OutOfMemory}!void {
             if (self.capacity - self.items.len == 0) return error.OutOfMemory;
             return insertAssumeCapacity(self, i, item);
@@ -762,20 +857,48 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             index: usize,
             count: usize,
         ) Allocator.Error![]T {
-            var managed = self.toManaged(gpa);
-            defer self.* = managed.moveToUnmanaged();
-            return managed.addManyAt(index, count);
+            const new_len = try addOrOom(self.items.len, count);
+            self.pointer_stability.assertUnlocked();
+
+            if (self.capacity >= new_len)
+                return addManyAtAssumeCapacity(self, index, count);
+
+            // Here we avoid copying allocated but unused bytes by
+            // attempting a resize in place, and falling back to allocating
+            // a new buffer and doing our own copy. With a realloc() call,
+            // the allocator implementation would pointlessly copy our
+            // extra capacity.
+            const new_capacity = Aligned(T, alignment).growCapacity(new_len);
+            const old_memory = self.allocatedSlice();
+            if (gpa.remap(old_memory, new_capacity)) |new_memory| {
+                self.items.ptr = new_memory.ptr;
+                self.capacity = new_memory.len;
+                return addManyAtAssumeCapacity(self, index, count);
+            }
+
+            // Make a new allocation, avoiding `ensureTotalCapacity` in order
+            // to avoid extra memory copies.
+            const new_memory = try gpa.alignedAlloc(T, alignment, new_capacity);
+            const to_move = self.items[index..];
+            @memcpy(new_memory[0..index], self.items[0..index]);
+            @memcpy(new_memory[index + count ..][0..to_move.len], to_move);
+            gpa.free(old_memory);
+            self.items = new_memory[0..new_len];
+            self.capacity = new_memory.len;
+            // The inserted elements at `new_memory[index..][0..count]` have
+            // already been set to `undefined` by memory allocation.
+            return new_memory[index..][0..count];
         }
 
         /// Add `count` new elements at position `index`, which have
         /// `undefined` values. Returns a slice pointing to the newly allocated
         /// elements, which becomes invalid after various `ArrayList`
         /// operations.
-        /// Invalidates pre-existing pointers to elements at and after `index`, but
-        /// does not invalidate any before that.
+        /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Asserts that the list has capacity for the additional items.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn addManyAtAssumeCapacity(self: *Self, index: usize, count: usize) []T {
+            self.pointer_stability.assertUnlocked();
             const new_len = self.items.len + count;
             assert(self.capacity >= new_len);
             const to_move = self.items[index..];
@@ -790,20 +913,16 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// `undefined` values, returning a slice pointing to the newly
         /// allocated elements, which becomes invalid after various `ArrayList`
         /// operations.
-        ///
-        /// Invalidates pre-existing pointers to elements at and after `index`, but
-        /// does not invalidate any before that.
-        ///
+        /// Invalidates pre-existing pointers to elements at and after `index`.
         /// If the list lacks unused capacity for the additional items, returns
         /// `error.OutOfMemory`.
-        ///
         /// Asserts that the index is in bounds or equal to the length.
         pub fn addManyAtBounded(self: *Self, index: usize, count: usize) error{OutOfMemory}![]T {
             if (self.capacity - self.items.len < count) return error.OutOfMemory;
             return addManyAtAssumeCapacity(self, index, count);
         }
 
-        /// Insert slice `items` at index `i` by moving `list[i .. list.len]` to make room.
+        /// Insert slice `items` at index `index` by moving `list[index .. list.len]` to make room.
         /// This operation is O(N).
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Invalidates all pre-existing element pointers if capacity must be
@@ -823,7 +942,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             @memcpy(dst, items);
         }
 
-        /// Insert slice `items` at index `i` by moving `list[i .. list.len]` to make room.
+        /// Insert slice `items` at index `index` by moving `list[index .. list.len]` to make room.
         /// This operation is O(N).
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Asserts that the list has capacity for the additional items.
@@ -837,7 +956,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             @memcpy(dst, items);
         }
 
-        /// Insert slice `items` at index `i` by moving `list[i .. list.len]` to make room.
+        /// Insert slice `items` at index `index` by moving `list[index .. list.len]` to make room.
         /// This operation is O(N).
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// If the list lacks unused capacity for the additional items, returns
@@ -853,7 +972,9 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         }
 
         /// Grows or shrinks the list as necessary.
-        /// Invalidates element pointers if additional capacity is allocated.
+        /// Invalidates element pointers if additional capacity is allocated,
+        /// Invalidates pointers to elements at and above index `start + len`
+        /// when `len` and `new_items.len` are unequal.
         /// Asserts that the range is in bounds.
         pub fn replaceRange(
             self: *Self,
@@ -867,9 +988,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         }
 
         /// Grows or shrinks the list as necessary.
-        ///
-        /// Never invalidates element pointers.
-        ///
+        /// Invalidates pointers to elements at and above index `start + len`
+        /// when `len` and `new_items.len` are unequal.
         /// Asserts the capacity is enough for additional items.
         pub fn replaceRangeAssumeCapacity(
             self: *Self,
@@ -878,7 +998,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             new_items: []const T,
         ) void {
             std.debug.assert(self.capacity - self.items.len >= new_items.len -| len);
-
+            self.pointer_stability.assertUnlocked();
             const tail = self.items[start + len ..];
             const vacated = self.items[self.items.len - (len -| new_items.len) ..];
             self.items.len = self.items.len - len + new_items.len;
@@ -887,10 +1007,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             @memset(vacated, undefined);
         }
 
-        /// Grows or shrinks the list as necessary.
-        ///
-        /// Never invalidates element pointers.
-        ///
+        /// Invalidates pointers to elements at and above index `start + len`
+        /// when `len` and `new_items.len` are unequal.
         /// If the unused capacity is insufficient for additional items,
         /// returns `error.OutOfMemory`.
         pub fn replaceRangeBounded(
@@ -953,6 +1071,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         ///
         /// Invalidates element pointers beyond the first deleted index.
         pub fn orderedRemoveMany(self: *Self, sorted_indexes: []const usize) void {
+            self.pointer_stability.assertUnlocked();
             if (sorted_indexes.len == 0) return;
             var shift: usize = 1;
             for (sorted_indexes[0 .. sorted_indexes.len - 1], sorted_indexes[1..]) |removed, end| {
@@ -975,6 +1094,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// This operation is O(1).
         /// Asserts that the index is in bounds.
         pub fn swapRemove(self: *Self, i: usize) T {
+            self.pointer_stability.assertUnlocked();
             const val = self.items[i];
             self.items[i] = self.items[self.items.len - 1];
             self.items[self.items.len - 1] = undefined;
@@ -991,7 +1111,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         }
 
         /// Append the slice of items to the list.
-        ///
+        /// Never invalidates element pointers.
         /// Asserts that the list can hold the additional items.
         pub fn appendSliceAssumeCapacity(self: *Self, items: []const T) void {
             const old_len = self.items.len;
@@ -1002,7 +1122,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         }
 
         /// Append the slice of items to the list.
-        ///
+        /// Never invalidates element pointers.
         /// If the list lacks unused capacity for the additional items, returns `error.OutOfMemory`.
         pub fn appendSliceBounded(self: *Self, items: []const T) error{OutOfMemory}!void {
             if (self.capacity - self.items.len < items.len) return error.OutOfMemory;
@@ -1022,7 +1142,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         ///
         /// Intended to be used only when `appendSliceAssumeCapacity` would be
         /// a compile error.
-        ///
+        /// Never invalidates element pointers.
         /// Asserts that the list can hold the additional items.
         pub fn appendUnalignedSliceAssumeCapacity(self: *Self, items: []align(1) const T) void {
             const old_len = self.items.len;
@@ -1036,7 +1156,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         ///
         /// Intended to be used only when `appendSliceAssumeCapacity` would be
         /// a compile error.
-        ///
+        /// Never invalidates element pointers.
         /// If the list lacks unused capacity for the additional items, returns
         /// `error.OutOfMemory`.
         pub fn appendUnalignedSliceBounded(self: *Self, items: []align(1) const T) error{OutOfMemory}!void {
@@ -1044,6 +1164,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             return appendUnalignedSliceAssumeCapacity(self, items);
         }
 
+        /// Prints a formatted string into this list.
+        /// Invalidates element pointers if additional memory is needed.
         pub fn print(self: *Self, gpa: Allocator, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
             comptime assert(T == u8);
             try self.ensureUnusedCapacity(gpa, fmt.len);
@@ -1054,6 +1176,9 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             };
         }
 
+        /// Prints a formatted string into this list.
+        /// Asserts that there is enough capacity for the write.
+        /// Never invalidates element pointers.
         pub fn printAssumeCapacity(self: *Self, comptime fmt: []const u8, args: anytype) void {
             comptime assert(T == u8);
             var w: std.Io.Writer = .fixed(self.unusedCapacitySlice());
@@ -1061,6 +1186,9 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             self.items.len += w.end;
         }
 
+        /// Prints a formatted string into this list.
+        /// Returns error.OutOfMemory if additional capacity is needed for the write.
+        /// Never invalidates element pointers.
         pub fn printBounded(self: *Self, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
             comptime assert(T == u8);
             var w: std.Io.Writer = .fixed(self.unusedCapacitySlice());
@@ -1136,6 +1264,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Asserts that the new length is less than or equal to the previous length.
         /// If succeds capacity is guaranteed to be equal to the length.
         pub fn shrinkAndFreePrecise(self: *Self, gpa: Allocator, new_len: usize) Allocator.Error!void {
+            self.pointer_stability.assertUnlocked();
             assert(new_len <= self.items.len);
 
             if (@sizeOf(T) == 0) {
@@ -1189,6 +1318,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Keeps capacity the same.
         /// Asserts that the new length is less than or equal to the previous length.
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
+            self.pointer_stability.assertUnlocked();
+
             assert(new_len <= self.items.len);
             @memset(self.items[new_len..], undefined);
             self.items.len = new_len;
@@ -1197,12 +1328,14 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Reduce length to 0.
         /// Invalidates all element pointers.
         pub fn clearRetainingCapacity(self: *Self) void {
+            self.pointer_stability.assertUnlocked();
             @memset(self.items, undefined);
             self.items.len = 0;
         }
 
         /// Invalidates all element pointers.
         pub fn clearAndFree(self: *Self, gpa: Allocator) void {
+            self.pointer_stability.assertUnlocked();
             gpa.free(self.allocatedSlice());
             self.items.len = 0;
             self.capacity = 0;
@@ -1220,6 +1353,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// modify the array so that it can hold exactly `new_capacity` items.
         /// Invalidates element pointers if additional memory is needed.
         pub fn ensureTotalCapacityPrecise(self: *Self, gpa: Allocator, new_capacity: usize) Allocator.Error!void {
+            self.pointer_stability.assertUnlocked();
+
             if (@sizeOf(T) == 0) {
                 self.capacity = math.maxInt(usize);
                 return;
@@ -1263,7 +1398,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         }
 
         /// Increase length by 1, returning pointer to the new item.
-        /// The returned element pointer becomes invalid when the list is resized.
+        /// Invalidates element pointers if additional memory is needed.
+        /// The returned pointer may be invalidated by further operations to this list.
         pub fn addOne(self: *Self, gpa: Allocator) Allocator.Error!*T {
             // This can never overflow because `self.items` can never occupy the whole address space
             const newlen = self.items.len + 1;
@@ -1272,11 +1408,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         }
 
         /// Increase length by 1, returning pointer to the new item.
-        ///
         /// Never invalidates element pointers.
-        ///
-        /// The returned element pointer becomes invalid when the list is resized.
-        ///
+        /// The returned pointer may be invalidated by further operations to this list.
         /// Asserts that the list can hold one additional item.
         pub fn addOneAssumeCapacity(self: *Self) *T {
             assert(self.items.len < self.capacity);
@@ -1286,11 +1419,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         }
 
         /// Increase length by 1, returning pointer to the new item.
-        ///
         /// Never invalidates element pointers.
-        ///
-        /// The returned element pointer becomes invalid when the list is resized.
-        ///
+        /// The returned pointer may be invalidated by further operations to this list.
         /// If the list lacks unused capacity for the additional item, returns `error.OutOfMemory`.
         pub fn addOneBounded(self: *Self) error{OutOfMemory}!*T {
             if (self.capacity - self.items.len < 1) return error.OutOfMemory;
@@ -1298,8 +1428,9 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         }
 
         /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// Invalidates element pointers if additional memory is required.
         /// The return value is an array pointing to the newly allocated elements.
-        /// The returned pointer becomes invalid when the list is resized.
+        /// The returned pointer may be invalidated by further operations to this list.
         pub fn addManyAsArray(self: *Self, gpa: Allocator, comptime n: usize) Allocator.Error!*[n]T {
             const prev_len = self.items.len;
             try self.resize(gpa, try addOrOom(self.items.len, n));
@@ -1307,13 +1438,9 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         }
 
         /// Resize the array, adding `n` new elements, which have `undefined` values.
-        ///
         /// The return value is an array pointing to the newly allocated elements.
-        ///
         /// Never invalidates element pointers.
-        ///
-        /// The returned pointer becomes invalid when the list is resized.
-        ///
+        /// The returned pointer may be invalidated by further operations to this list.
         /// Asserts that the list can hold the additional items.
         pub fn addManyAsArrayAssumeCapacity(self: *Self, comptime n: usize) *[n]T {
             assert(self.items.len + n <= self.capacity);
@@ -1323,13 +1450,9 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         }
 
         /// Resize the array, adding `n` new elements, which have `undefined` values.
-        ///
         /// The return value is an array pointing to the newly allocated elements.
-        ///
         /// Never invalidates element pointers.
-        ///
-        /// The returned pointer becomes invalid when the list is resized.
-        ///
+        /// The returned pointer may be invalidated by further operations to this list.
         /// If the list lacks unused capacity for the additional items, returns
         /// `error.OutOfMemory`.
         pub fn addManyAsArrayBounded(self: *Self, comptime n: usize) error{OutOfMemory}!*[n]T {
@@ -1339,7 +1462,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is a slice pointing to the newly allocated elements.
-        /// The returned pointer becomes invalid when the list is resized.
+        /// The returned pointer may be invalidated by further operations to this list.
         /// Resizes list if `self.capacity` is not large enough.
         pub fn addManyAsSlice(self: *Self, gpa: Allocator, n: usize) Allocator.Error![]T {
             const prev_len = self.items.len;
@@ -1349,10 +1472,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// Resizes the array, adding `n` new elements, which have `undefined`
         /// values, returning a slice pointing to the newly allocated elements.
-        ///
-        /// Never invalidates element pointers. The returned pointer becomes
-        /// invalid when the list is resized.
-        ///
+        /// Never invalidates element pointers.
+        /// The returned pointer may be invalidated by further operations to this list.
         /// Asserts that the list can hold the additional items.
         pub fn addManyAsSliceAssumeCapacity(self: *Self, n: usize) []T {
             assert(self.items.len + n <= self.capacity);
@@ -1363,10 +1484,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// Resizes the array, adding `n` new elements, which have `undefined`
         /// values, returning a slice pointing to the newly allocated elements.
-        ///
-        /// Never invalidates element pointers. The returned pointer becomes
-        /// invalid when the list is resized.
-        ///
+        /// Never invalidates element pointers.
+        /// The returned pointer may be invalidated by further operations to this list.
         /// If the list lacks unused capacity for the additional items, returns
         /// `error.OutOfMemory`.
         pub fn addManyAsSliceBounded(self: *Self, n: usize) error{OutOfMemory}![]T {
@@ -1379,6 +1498,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Invalidates pointers to last element.
         pub fn pop(self: *Self) ?T {
             if (self.items.len == 0) return null;
+            self.pointer_stability.assertUnlocked();
+
             const val = self.items[self.items.len - 1];
             self.items[self.items.len - 1] = undefined;
             self.items.len -= 1;
@@ -1387,6 +1508,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// Returns a slice of all the items plus the extra capacity, whose memory
         /// contents are `undefined`.
+        /// The returned pointer may be invalidated by further operations to this list.
         pub fn allocatedSlice(self: Self) Slice {
             return self.items.ptr[0..self.capacity];
         }
@@ -1395,9 +1517,18 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// This can be useful for writing directly into an ArrayList.
         /// Note that such an operation must be followed up with a direct
         /// modification of `self.items.len`.
+        /// The returned pointer may be invalidated by further operations to this list.
         pub fn unusedCapacitySlice(self: Self) []T {
             return self.allocatedSlice()[self.items.len..];
         }
+
+        /// Deprecated
+        pub fn getLast(self: Self) T {
+            return self.items[self.items.len - 1];
+        }
+
+        /// Deprecated in favor of `last`
+        pub const getLastOrNull = last;
 
         /// Returns the last element from the list, or `null` if the list is
         /// empty.
@@ -1408,6 +1539,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// Returns a pointer to the last element from the list, or `null` if
         /// the list is empty.
+        /// The returned pointer may be invalidated by further operations to this list.
         pub fn lastPtr(self: Self) ?*T {
             if (self.items.len == 0) return null;
             return &self.items[self.items.len - 1];
@@ -2419,6 +2551,7 @@ test "return OutOfMemory when capacity would exceed maximum usize integer value"
         var list: ArrayList(u32) = .{
             .items = undefined,
             .capacity = math.maxInt(usize) - 1,
+            .pointer_stability = .{},
         };
         list.items.len = math.maxInt(usize) - 1;
 
@@ -2437,6 +2570,7 @@ test "return OutOfMemory when capacity would exceed maximum usize integer value"
             .items = undefined,
             .capacity = math.maxInt(usize) - 1,
             .allocator = a,
+            .pointer_stability = .{},
         };
         list.items.len = math.maxInt(usize) - 1;
 

@@ -209,7 +209,7 @@ pub fn addConst(
     pt: Zcu.PerThread,
     pool_index: link.ConstPool.Index,
     val: InternPool.Index,
-) Allocator.Error!void {
+) link.Error!void {
     const zcu = pt.zcu;
     const gpa = zcu.comp.gpa;
     assert(zcu.intern_pool.typeOf(val) == .type_type);
@@ -310,7 +310,7 @@ pub fn updateConst(
     pt: Zcu.PerThread,
     index: link.ConstPool.Index,
     val: InternPool.Index,
-) Allocator.Error!void {
+) link.Error!void {
     const zcu = pt.zcu;
     const gpa = zcu.comp.gpa;
 
@@ -498,7 +498,7 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     mir: *AnyMir,
-) Allocator.Error!void {
+) link.Error!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const nav = zcu.funcInfo(func_index).owner_nav;
@@ -536,11 +536,7 @@ pub fn updateFunc(
     try c.type_pool.flushPending(pt, .{ .c = c });
 }
 
-pub fn updateNav(
-    c: *C,
-    pt: Zcu.PerThread,
-    nav_index: InternPool.Nav.Index,
-) Allocator.Error!void {
+pub fn updateNav(c: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) link.Error!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -603,7 +599,8 @@ pub fn updateNav(
             const start = aw.written().len;
             codegen.genDeclFwd(&dg, &aw.writer) catch |err| switch (err) {
                 error.AlreadyReported => return,
-                error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
+                error.WriteFailed => return error.OutOfMemory,
+                error.Canceled, error.OutOfMemory => |e| return e,
             };
             break :fwd_decl .{
                 .start = @intCast(start),
@@ -617,7 +614,8 @@ pub fn updateNav(
             const start = aw.written().len;
             codegen.genDecl(&dg, &aw.writer) catch |err| switch (err) {
                 error.AlreadyReported => return,
-                error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
+                error.WriteFailed => return error.OutOfMemory,
+                error.Canceled, error.OutOfMemory => |e| return e,
             };
             break :code .{
                 .start = @intCast(start),
@@ -655,7 +653,7 @@ fn updateUav(
     pt: Zcu.PerThread,
     val: Value,
     rendered_decl: *RenderedDecl,
-) Allocator.Error!void {
+) link.Error!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -691,7 +689,8 @@ fn updateUav(
             .init_val = val,
         }) catch |err| switch (err) {
             error.AlreadyReported => return,
-            error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
+            error.WriteFailed => return error.OutOfMemory,
+            error.Canceled, error.OutOfMemory => |e| return e,
         };
         break :fwd_decl .{
             .start = @intCast(start),
@@ -710,7 +709,8 @@ fn updateUav(
             .init_val = val,
         }) catch |err| switch (err) {
             error.AlreadyReported => return,
-            error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
+            error.WriteFailed => return error.OutOfMemory,
+            error.Canceled, error.OutOfMemory => |e| return e,
         };
         break :code .{
             .start = @intCast(start),
@@ -721,12 +721,13 @@ fn updateUav(
     rendered_decl.ctype_deps = try c.addCTypeDependencies(pt, &dg.ctype_deps);
 }
 
-pub fn updateLineNumber(c: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) error{}!void {
+pub fn updateLineNumber(c: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index, line: u32) error{}!void {
     // The C backend does not currently emit "#line" directives. Even if it did, it would not be
     // capable of updating those line numbers without re-generating the entire declaration.
     _ = c;
     _ = pt;
     _ = ti_id;
+    _ = line;
 }
 
 pub fn flush(c: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.Error!void {
@@ -1144,14 +1145,14 @@ pub fn flush(c: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Prog
         for (need_never_tail_funcs.keys()) |fn_nav| {
             codegen.genLazyCallModifierFn(&lazy_dg, fn_nav, .never_tail, &lazy_decls_aw.writer) catch |err| switch (err) {
                 error.WriteFailed => return error.OutOfMemory,
-                error.OutOfMemory => |e| return e,
+                error.Canceled, error.OutOfMemory => |e| return e,
                 error.AlreadyReported => unreachable,
             };
         }
         for (need_never_inline_funcs.keys()) |fn_nav| {
             codegen.genLazyCallModifierFn(&lazy_dg, fn_nav, .never_inline, &lazy_decls_aw.writer) catch |err| switch (err) {
                 error.WriteFailed => return error.OutOfMemory,
-                error.OutOfMemory => |e| return e,
+                error.Canceled, error.OutOfMemory => |e| return e,
                 error.AlreadyReported => unreachable,
             };
         }
@@ -1228,58 +1229,62 @@ const Flush = struct {
 pub fn updateExports(
     c: *C,
     pt: Zcu.PerThread,
-    exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
 ) Allocator.Error!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
 
+    c.exported_navs.clearRetainingCapacity();
+    c.exported_uavs.clearRetainingCapacity();
+
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
 
-    var dg: codegen.DeclGen = .{
-        .gpa = gpa,
-        .arena = arena.allocator(),
-        .pt = pt,
-        .mod = zcu.root_mod,
-        .owner_nav = .none,
-        .is_naked_fn = false,
-        .expected_block = null,
-        .ctype_deps = .empty,
-        .uavs = .empty,
-    };
-    defer {
-        assert(dg.uavs.count() == 0);
-        dg.ctype_deps.deinit(gpa);
+    var by_exported: std.array_hash_map.Auto(Zcu.Exported, std.ArrayList(Zcu.Export.Index)) = .empty;
+    try by_exported.ensureUnusedCapacity(arena.allocator(), export_indices.len);
+
+    for (export_indices) |exp_index| {
+        const exported = exp_index.ptr(zcu).exported;
+        const gop = by_exported.getOrPutAssumeCapacity(exported);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .empty;
+        }
+        try gop.value_ptr.append(arena.allocator(), exp_index);
     }
 
-    const code: String = code: {
-        var aw: std.Io.Writer.Allocating = .fromArrayList(gpa, &c.string_bytes);
-        defer c.string_bytes = aw.toArrayList();
-        const start = aw.written().len;
-        codegen.genExports(&dg, &aw.writer, exported, export_indices) catch |err| switch (err) {
-            error.WriteFailed => return error.OutOfMemory,
-            error.OutOfMemory => |e| return e,
+    for (by_exported.keys(), by_exported.values()) |exported, *exports_of_this| {
+        var dg: codegen.DeclGen = .{
+            .gpa = gpa,
+            .arena = arena.allocator(),
+            .pt = pt,
+            .mod = zcu.root_mod,
+            .owner_nav = .none,
+            .is_naked_fn = false,
+            .expected_block = null,
+            .ctype_deps = .empty,
+            .uavs = .empty,
         };
-        break :code .{
-            .start = @intCast(start),
-            .len = @intCast(aw.written().len - start),
+        defer {
+            assert(dg.uavs.count() == 0);
+            dg.ctype_deps.deinit(gpa);
+        }
+        const code: String = code: {
+            var aw: std.Io.Writer.Allocating = .fromArrayList(gpa, &c.string_bytes);
+            defer c.string_bytes = aw.toArrayList();
+            const start = aw.written().len;
+            codegen.genExports(&dg, &aw.writer, exported, exports_of_this.items) catch |err| switch (err) {
+                error.WriteFailed => return error.OutOfMemory,
+                error.OutOfMemory => |e| return e,
+            };
+            break :code .{
+                .start = @intCast(start),
+                .len = @intCast(aw.written().len - start),
+            };
         };
-    };
-    switch (exported) {
-        .nav => |nav| try c.exported_navs.put(gpa, nav, code),
-        .uav => |uav| try c.exported_uavs.put(gpa, uav, code),
-    }
-}
-
-pub fn deleteExport(
-    self: *C,
-    exported: Zcu.Exported,
-    _: InternPool.NullTerminatedString,
-) void {
-    switch (exported) {
-        .nav => |nav| _ = self.exported_navs.swapRemove(nav),
-        .uav => |uav| _ = self.exported_uavs.swapRemove(uav),
+        switch (exported) {
+            .nav => |nav| try c.exported_navs.put(gpa, nav, code),
+            .uav => |uav| try c.exported_uavs.put(gpa, uav, code),
+        }
     }
 }
 
@@ -1339,7 +1344,7 @@ fn addCTypeDependencies(
     c: *C,
     pt: Zcu.PerThread,
     deps: *const codegen.CType.Dependencies,
-) Allocator.Error!CTypeDependencies {
+) link.Error!CTypeDependencies {
     const gpa = pt.zcu.comp.gpa;
 
     try c.bigint_types.ensureUnusedCapacity(gpa, deps.bigint.count());
@@ -1395,7 +1400,7 @@ fn addCTypeDependencies(
     };
 }
 
-fn updateNewUavs(c: *C, pt: Zcu.PerThread, old_uavs_len: usize) Allocator.Error!void {
+fn updateNewUavs(c: *C, pt: Zcu.PerThread, old_uavs_len: usize) link.Error!void {
     const gpa = pt.zcu.comp.gpa;
     var index = old_uavs_len;
     while (index < c.uavs.count()) : (index += 1) {

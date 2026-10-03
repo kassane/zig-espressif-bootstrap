@@ -163,6 +163,16 @@ pub fn Integer(comptime size: u16) type {
             self.mask = ~self.mask;
         }
 
+        /// Set all bits to 0.
+        pub fn unsetAll(self: *Self) void {
+            self.mask = 0;
+        }
+
+        /// Set all bits to 1.
+        pub fn setAll(self: *Self) void {
+            self.mask = ~@as(MaskInt, 0);
+        }
+
         /// Performs a union of two bit sets, and stores the
         /// result in the first one.  Bits in the result are
         /// set if the corresponding bits were set in either input.
@@ -521,6 +531,23 @@ pub fn Array(comptime MaskIntType: type, comptime size: usize) type {
             }
         }
 
+        /// Set all bits to 0.
+        pub fn unsetAll(self: *Self) void {
+            for (&self.masks) |*mask| {
+                mask.* = 0;
+            }
+        }
+
+        /// Set all bits to 1.
+        pub fn setAll(self: *Self) void {
+            for (&self.masks) |*mask| {
+                mask.* = ~@as(MaskInt, 0);
+            }
+            if (num_masks > 0) {
+                self.masks[num_masks - 1] &= last_item_mask;
+            }
+        }
+
         /// Performs a union of two bit sets, and stores the
         /// result in the first one.  Bits in the result are
         /// set if the corresponding bits were set in either input.
@@ -696,13 +723,8 @@ pub const Dynamic = struct {
     // That slot holds the size of the true allocation, which
     // is needed by Zig's allocator interface in case a shrink
     // fails.
-
-    // Don't modify this value.  Ideally it would go in const data so
-    // modifications would cause a bus error, but the only way
-    // to discard a const qualifier is through intFromPtr, which
-    // cannot currently round trip at comptime.
-    var empty_masks_data = [_]MaskInt{ 0, undefined };
-    const empty_masks_ptr = empty_masks_data[1..2];
+    const empty_masks_data = [_]MaskInt{ 0, undefined };
+    const empty_masks_ptr = @constCast(empty_masks_data[1..2]);
 
     /// Creates a bit set with no elements present.
     /// If bit_length is not zero, deinit must eventually be called.
@@ -896,8 +918,13 @@ pub const Dynamic = struct {
 
     /// Set all bits to 1.
     pub fn setAll(self: *Self) void {
-        const masks_len = numMasks(self.bit_length);
-        @memset(self.masks[0..masks_len], std.math.maxInt(MaskInt));
+        const num_masks = numMasks(self.bit_length);
+        @memset(self.masks[0..num_masks], std.math.maxInt(MaskInt));
+        if (num_masks > 0) {
+            const padding_bits = num_masks * @bitSizeOf(MaskInt) - self.bit_length;
+            const last_item_mask = (~@as(MaskInt, 0)) >> @as(ShiftInt, @intCast(padding_bits));
+            self.masks[num_masks - 1] = last_item_mask;
+        }
     }
 
     /// Flips a specific bit in the bit set
@@ -1205,6 +1232,16 @@ pub const DynamicManaged = struct {
     /// The two sets must both be the same bit_length.
     pub fn setIntersection(self: *Self, other: Self) void {
         self.unmanaged.setIntersection(other.unmanaged);
+    }
+
+    /// Set all bits to 0.
+    pub fn unsetAll(self: *Self) void {
+        self.unmanaged.unsetAll();
+    }
+
+    /// Set all bits to 1.
+    pub fn setAll(self: *Self) void {
+        self.unmanaged.setAll();
     }
 
     /// Finds the index of the first set bit.
@@ -1625,6 +1662,13 @@ fn testBitSet(a: anytype, b: anytype, len: usize) !void {
             try testing.expect(!a.isSet(len - 1));
         }
     }
+
+    a.unsetAll();
+    try testing.expectEqual(0, a.count());
+
+    fillEven(a, len);
+    a.setAll();
+    try testing.expectEqual(len, a.count());
 }
 
 fn fillEven(set: anytype, len: usize) void {

@@ -385,6 +385,7 @@ cmake ../llvm \
   -DLLVM_ENABLE_TERMINFO=OFF \
   -DLLVM_ENABLE_LIBEDIT=OFF \
   -DLLVM_ENABLE_ASSERTIONS=ON \
+  -DLLVM_ENABLE_ZSTD=OFF \
   -DLLVM_PARALLEL_LINK_JOBS=1 \
   -G Ninja
 ninja install
@@ -765,7 +766,7 @@ To build the LLDB fork, make sure you have
 installed, and then do something like:
 
 ```sh
-$ cmake llvm -G Ninja -B build -DLLVM_ENABLE_PROJECTS="clang;lldb" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLLVM_ENABLE_ASSERTIONS=ON -DLLDB_ENABLE_LIBEDIT=ON -DLLDB_ENABLE_PYTHON=ON
+$ cmake llvm -G Ninja -B build -DLLVM_ENABLE_PROJECTS="clang;lldb" -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON -DLLDB_ENABLE_LIBEDIT=ON -DLLDB_ENABLE_PYTHON=ON
 $ cmake --build build --target lldb --target lldb-server
 ```
 
@@ -781,12 +782,20 @@ If you will be debugging the Zig compiler itself, or if you will be debugging
 any project compiled with Zig's LLVM backend (not recommended with the LLDB
 fork, prefer vanilla LLDB with a version that matches the version of LLVM that
 Zig is using), you can get a better debugging experience by using
-[`lldb_pretty_printers.py`](https://codeberg.org/ziglang/zig/src/branch/master/tools/lldb_pretty_printers.py).
+[`lldb/pretty_printers.py`](https://codeberg.org/ziglang/zig/src/branch/master/lib/lldb/pretty_printers.py)
+which is included in Zig's installed lib dir.
 
 Put this line in `~/.lldbinit`:
 
 ```
-command script import /path/to/zig/tools/lldb_pretty_printers.py
+command script import /path/to/zig/lib/lldb/pretty_printers.py
+```
+
+If you will be debugging a Zig compiler built using Zig's self-hosted backends,
+you will also want this line:
+
+```
+type category enable zig.compiler
 ```
 
 If you will be using Zig's LLVM backend (again, not recommended with the LLDB
@@ -797,10 +806,9 @@ type category enable zig.lang
 type category enable zig.std
 ```
 
-If you will be debugging a Zig compiler built using Zig's LLVM backend (again,
-not recommended with the LLDB fork), you will also want this line:
+If you will be debugging a Zig compiler built using Zig's LLVM backend without
+using the LLDB fork, you will also want this line:
 
 ```
-type category enable zig.stage2
+type category enable zig
 ```
-

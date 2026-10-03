@@ -1,7 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const endian = builtin.cpu.arch.endian();
-const testing = @import("std").testing;
+const testing = std.testing;
+const assert = std.debug.assert;
 const ptr_size = @sizeOf(usize);
 
 test "type pun signed and unsigned as single pointer" {
@@ -431,12 +432,16 @@ test "type pun @ptrFromInt" {
 }
 
 test "type pun null pointer-like optional" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const p: ?*u8 = null;
     // note that expectEqual hides the bug
     try testing.expect(@as(*const ?*i8, @ptrCast(&p)).* == null);
 }
 
 test "write empty array to end" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     comptime var array: [5]u8 = "hello".*;
     array[5..5].* = .{};
     array[5..5].* = [0]u8{};
@@ -600,4 +605,14 @@ test "reinterpret sentinel-terminated array as packed struct" {
             try testing.expect(ptr.hi == 0x12);
         },
     }
+}
+
+test "reinterpret pointer as optional pointer via double-pointer coercion" {
+    const p0: *const *anyopaque = &@ptrFromInt(0x1000);
+    const p1: *const ?*anyopaque = p0;
+
+    const loaded = p1.*;
+
+    comptime assert(@TypeOf(loaded) == ?*anyopaque);
+    comptime assert(@intFromPtr(loaded) == 0x1000);
 }

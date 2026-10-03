@@ -15,8 +15,6 @@ unlazy_deps: []String,
 system_integrations: []SystemIntegration,
 available_options: []AvailableOption,
 search_prefixes: []String,
-/// Index 0 always exists and is the root package.
-packages: []Package,
 extra: []u32,
 default_step: Step.Index,
 generated_files_len: u32,
@@ -32,7 +30,6 @@ pub const Header = extern struct {
     system_integrations_len: u32,
     available_options_len: u32,
     search_prefixes_len: u32,
-    packages_len: u32,
     extra_len: u32,
 
     default_step: Step.Index,
@@ -61,7 +58,6 @@ pub const Wip = struct {
     steps: std.ArrayList(Step) = .empty,
     path_deps: std.ArrayList(PathDep) = .empty,
     search_prefixes: std.ArrayList(String) = .empty,
-    packages: std.ArrayList(Package) = .empty,
     extra: std.ArrayList(u32) = .empty,
     next_generated_file_index: u32 = 0,
     cache_poison: bool = false,
@@ -143,7 +139,6 @@ pub const Wip = struct {
         wip.steps.deinit(gpa);
         wip.path_deps.deinit(gpa);
         wip.search_prefixes.deinit(gpa);
-        wip.packages.deinit(gpa);
         wip.extra.deinit(gpa);
         wip.* = undefined;
     }
@@ -163,7 +158,6 @@ pub const Wip = struct {
             .system_integrations_len = @intCast(wip.system_integrations.items.len),
             .available_options_len = @intCast(wip.available_options.items.len),
             .search_prefixes_len = @intCast(wip.search_prefixes.items.len),
-            .packages_len = @intCast(wip.packages.items.len),
             .extra_len = @intCast(wip.extra.items.len),
 
             .default_step = static.default_step,
@@ -181,7 +175,6 @@ pub const Wip = struct {
             @ptrCast(wip.system_integrations.items),
             @ptrCast(wip.available_options.items),
             @ptrCast(wip.search_prefixes.items),
-            @ptrCast(wip.packages.items),
             @ptrCast(wip.extra.items),
         };
         try w.writeVecAll(&buffers);
@@ -672,7 +665,7 @@ pub const Step = extern struct {
             pub const Tag = enum(u2) { none, bytes, lazy_path };
         };
         pub const TrimWhitespace = enum(u2) { none, all, leading, trailing };
-        pub const StdIo = enum(u2) { infer_from_args, inherit, check, zig_test };
+        pub const StdIo = enum(u3) { infer_from_args, inherit, check, zig_test, protocol };
 
         pub const ExpectTermStatus = enum(u2) { exited, signal, stopped, unknown };
 
@@ -682,7 +675,6 @@ pub const Step = extern struct {
             skip_foreign_checks: bool,
             failing_to_execute_foreign_is_an_error: bool,
             has_side_effects: bool,
-            test_runner_mode: bool,
             color: Color,
             stdin: StdIn.Tag,
             stdio: StdIo,
@@ -960,6 +952,7 @@ pub const Step = extern struct {
             import_symbols: bool,
             import_table: bool,
             export_table: bool,
+            growable_table: bool,
             shared_memory: bool,
             link_eh_frame_hdr: bool,
             link_emit_relocs: bool,
@@ -975,7 +968,6 @@ pub const Step = extern struct {
             force_load_objc: bool,
             discard_local_symbols: bool,
             mingw_unicode_entry_point: bool,
-            _: u1 = 0,
         };
 
         pub const Flags2 = packed struct(u32) {
@@ -1385,17 +1377,21 @@ pub const Step = extern struct {
         flags: @This().Flags,
         generated_file: GeneratedFileIndex,
         contents: Bytes,
-        args: Storage.FlagLengthPrefixedList(.flags, .args, Arg),
+        files: Storage.FlagLengthPrefixedList(.flags, .files, NamedPath),
+        directories: Storage.FlagLengthPrefixedList(.flags, .directories, NamedPath),
+        untracked_paths: Storage.FlagLengthPrefixedList(.flags, .untracked_paths, NamedPath),
 
-        pub const Arg = extern struct {
+        pub const NamedPath = extern struct {
             name: String,
             path: LazyPath.Index,
         };
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .options,
-            args: bool,
-            _: u26 = 0,
+            files: bool,
+            directories: bool,
+            untracked_paths: bool,
+            _: u24 = 0,
         };
     };
 
@@ -1405,14 +1401,14 @@ pub const Step = extern struct {
         output_file: GeneratedFileIndex,
         include_dirs: Storage.UnionList(.flags, .include_dirs, Module.IncludeDir),
         system_libs: Storage.FlagLengthPrefixedList(.flags, .system_libs, SystemLib.Index),
-        c_macros: Storage.FlagLengthPrefixedList(.flags, .c_macros, String),
+        cc_argv: Storage.FlagLengthPrefixedList(.flags, .cc_argv, String),
         target: ResolvedTarget.OptionalIndex,
 
         pub const Flags = packed struct(u32) {
             tag: Tag = .translate_c,
             include_dirs: bool,
             system_libs: bool,
-            c_macros: bool,
+            cc_argv: bool,
             link_libc: bool,
             optimize: Module.Optimize,
             _: u20 = 0,
@@ -1515,13 +1511,7 @@ pub const LazyPath = union(@This().Tag) {
     };
 
     /// An index into `extra`.
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn get(this: @This(), c: *const Configuration) LazyPath {
-            return extraData(c, LazyPath, @backingInt(this));
-        }
-    };
+    pub const Index = IndexType(@This());
 
     /// An index into `extra`, or `null`.
     pub const OptionalIndex = enum(u32) {
@@ -1585,6 +1575,7 @@ pub const LazyPath = union(@This().Tag) {
             install_lib,
             install_bin,
             install_include,
+            libc_runtimes,
         };
     };
 };
@@ -1609,28 +1600,30 @@ pub const OptionalGeneratedFileIndex = enum(u32) {
     }
 };
 
-pub const Package = extern struct {
+pub const Package = struct {
     dep_prefix: String,
     hash: String,
     root_path: String,
-    deps: Dep.List.Index,
 
     pub const Index = enum(u32) {
-        root,
+        root = max_u32,
         _,
 
-        pub fn ptr(i: @This(), c: *const Configuration) *const Package {
-            return &c.packages[@backingInt(i)];
+        /// Returns `null` for root package.
+        pub fn get(i: @This(), c: *const Configuration) ?Package {
+            if (i == .root) return null;
+            return extraData(c, Package, @backingInt(i));
         }
 
         pub fn depPrefixSlice(i: @This(), c: *const Configuration) [:0]const u8 {
-            return ptr(i, c).dep_prefix.slice(c);
+            const package = get(i, c) orelse return "";
+            return package.dep_prefix.slice(c);
         }
     };
 
     pub const OptionalIndex = enum(u32) {
-        root,
-        none = max_u32,
+        none = max_u32 - 1,
+        root = max_u32,
         _,
 
         pub fn init(i: Index) OptionalIndex {
@@ -1646,28 +1639,6 @@ pub const Package = extern struct {
                 _ => @fromBackingInt(@intCast(@backingInt(this))),
             };
         }
-    };
-
-    pub const Dep = extern struct {
-        name: String,
-        /// Must not be `.root`.
-        package: Package.Index,
-
-        pub const List = struct {
-            deps: Storage.LengthPrefixedList(Dep),
-
-            pub const Index = enum(u32) {
-                _,
-
-                pub fn get(this: @This(), c: *const Configuration) List {
-                    return extraData(c, List, @backingInt(this));
-                }
-
-                pub fn slice(this: @This(), c: *const Configuration) []const Dep {
-                    return get(this, c).deps.slice;
-                }
-            };
-        };
     };
 };
 
@@ -1685,6 +1656,7 @@ pub const Module = struct {
     rpaths: Storage.UnionList(.flags, .rpaths, RPath),
     link_objects: Storage.UnionList(.flags, .link_objects, LinkObject),
     frameworks: Storage.FlagLengthPrefixedList(.flags, .frameworks, Framework),
+    patchable_function_entry: u32,
 
     pub const Optimize = enum(u3) {
         debug,
@@ -1693,7 +1665,7 @@ pub const Module = struct {
         small,
         default,
 
-        pub fn init(o: ?std.builtin.OptimizeMode) Optimize {
+        pub fn init(o: ?std.builtin.Optimize) Optimize {
             return switch (o orelse return .default) {
                 .debug => .debug,
                 .safe => .safe,
@@ -1743,14 +1715,6 @@ pub const Module = struct {
                 .@"32" => .@"32",
                 .@"64" => .@"64",
             };
-        }
-    };
-
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn get(this: @This(), c: *const Configuration) Module {
-            return extraData(c, Module, @backingInt(this));
         }
     };
 
@@ -1824,6 +1788,8 @@ pub const Module = struct {
             _: u30 = 0,
         };
     };
+
+    pub const Index = IndexType(@This());
 };
 
 pub const ImportTable = struct {
@@ -1911,12 +1877,11 @@ pub const PathDep = extern struct {
     pkg: Package.OptionalIndex,
 
     pub const Flags = packed struct(u32) {
-        mode: Mode,
+        is_directory: bool,
+        metadata_only: bool,
         base: LazyPath.Relative.Base,
-        _: u16 = 0,
+        _: u22 = 0,
     };
-
-    pub const Mode = enum(u8) { directory, contents, metadata };
 };
 
 pub const InstallDestDir = enum(u32) {
@@ -2051,13 +2016,7 @@ pub const SystemLib = struct {
     name: String,
     flags: Flags,
 
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn get(this: @This(), c: *const Configuration) SystemLib {
-            return extraData(c, SystemLib, @backingInt(this));
-        }
-    };
+    pub const Index = IndexType(@This());
 
     pub const UsePkgConfig = enum(u2) {
         /// Don't use pkg-config, just pass -lfoo where foo is name.
@@ -2090,13 +2049,7 @@ pub const CSourceFiles = struct {
     args: Storage.FlagList(.flags, .args_len, String),
     sub_paths: Storage.LengthPrefixedList(String),
 
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn get(this: @This(), c: *const Configuration) CSourceFiles {
-            return extraData(c, CSourceFiles, @backingInt(this));
-        }
-    };
+    pub const Index = IndexType(@This());
 
     pub const Flags = packed struct(u32) {
         /// C compiler CLI flags.
@@ -2110,13 +2063,7 @@ pub const CSourceFile = struct {
     file: LazyPath.Index,
     args: Storage.FlagList(.flags, .args_len, String),
 
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn get(this: @This(), c: *const Configuration) CSourceFile {
-            return extraData(c, CSourceFile, @backingInt(this));
-        }
-    };
+    pub const Index = IndexType(@This());
 
     pub const Flags = packed struct(u32) {
         /// C compiler CLI flags.
@@ -2131,13 +2078,7 @@ pub const RcSourceFile = struct {
     args: Storage.FlagList(.flags, .args_len, String),
     include_paths: Storage.FlagLengthPrefixedList(.flags, .include_paths, LazyPath.Index),
 
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn get(this: @This(), c: *const Configuration) RcSourceFile {
-            return extraData(c, RcSourceFile, @backingInt(this));
-        }
-    };
+    pub const Index = IndexType(@This());
 
     pub const Flags = packed struct(u32) {
         /// C compiler CLI flags.
@@ -2176,13 +2117,7 @@ pub const ResolvedTarget = struct {
     /// defaults will be resolved.
     result: TargetQuery.Index,
 
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn get(this: @This(), c: *const Configuration) ResolvedTarget {
-            return extraData(c, ResolvedTarget, @backingInt(this));
-        }
-    };
+    pub const Index = IndexType(@This());
 
     pub const OptionalIndex = enum(u32) {
         none = max_u32,
@@ -2410,6 +2345,7 @@ pub const TargetQuery = struct {
         sheb,
         sparc,
         sparc64,
+        spork8,
         spirv32,
         spirv64,
         thumb,
@@ -2484,6 +2420,7 @@ pub const TargetQuery = struct {
         @"3ds",
         wiiu,
         @"switch",
+        gba,
         psx,
         ps3,
         ps4,
@@ -3217,7 +3154,6 @@ pub fn load(arena: Allocator, reader: *Io.Reader) LoadError!Configuration {
         .system_integrations = try arena.alloc(SystemIntegration, header.system_integrations_len),
         .available_options = try arena.alloc(AvailableOption, header.available_options_len),
         .search_prefixes = try arena.alloc(String, header.search_prefixes_len),
-        .packages = try arena.alloc(Package, header.packages_len),
         .extra = try arena.alloc(u32, header.extra_len),
         .default_step = header.default_step,
         .generated_files_len = header.generated_files_len,
@@ -3231,7 +3167,6 @@ pub fn load(arena: Allocator, reader: *Io.Reader) LoadError!Configuration {
         @ptrCast(result.system_integrations),
         @ptrCast(result.available_options),
         @ptrCast(result.search_prefixes),
-        @ptrCast(result.packages),
         @ptrCast(result.extra),
     };
     try reader.readVecAll(&vecs);

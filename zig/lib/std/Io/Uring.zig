@@ -1100,7 +1100,7 @@ const Completion = struct {
     };
 
     fn errno(completion: Completion) linux.E {
-        return linux.errno(@bitCast(@as(isize, completion.result)));
+        return linux.errno(completion.result);
     }
 };
 
@@ -5152,6 +5152,7 @@ fn netReceive(
             .PIPE => return .{ error.SocketUnconnected, message_i },
             .OPNOTSUPP => |err| return .{ errnoBug(err), message_i },
             .CONNRESET => return .{ error.ConnectionResetByPeer, message_i },
+            .TIMEDOUT => return .{ error.ConnectionTimedOut, message_i },
             .NETDOWN => return .{ error.NetworkDown, message_i },
             else => |err| return .{ unexpectedErrno(err), message_i },
         }
@@ -5792,7 +5793,7 @@ fn realPath(
 ) File.RealPathError!usize {
     _ = ev;
     var procfs_buf: [std.fmt.count("/proc/self/fd/{d}\x00", .{std.math.minInt(fd_t)})]u8 = undefined;
-    const proc_path = std.fmt.bufPrintSentinel(&procfs_buf, "/proc/self/fd/{d}", .{fd}, 0) catch
+    const proc_path = std.mem.printSentinel(&procfs_buf, "/proc/self/fd/{d}", .{fd}, 0) catch
         unreachable;
     while (true) {
         try sync.cancel_region.await(.nothing);

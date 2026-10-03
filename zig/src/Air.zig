@@ -748,6 +748,16 @@ pub const Inst = struct {
         /// Given a pointer to an array, return a slice.
         /// Uses the `ty_op` field.
         array_to_slice,
+        /// Given an array, return a vector with the same element type and length. A sentinel on
+        /// the operand type is not included in the result.
+        ///
+        /// Vectors have no well-defined in-memory layout, so only the backend can know whether
+        /// the array representation may be reinterpreted rather than copied element-by-element.
+        /// Backends which do not lower this directly can enable
+        /// `Air.Legalize.Feature.expand_array_to_vector`.
+        ///
+        /// Uses the `ty_op` field.
+        array_to_vector,
         /// Given a float operand, return the integer with the closest mathematical meaning.
         /// Uses the `ty_op` field.
         int_from_float,
@@ -770,8 +780,8 @@ pub const Inst = struct {
         reduce,
         /// Same as `reduce` with optimized float mode.
         reduce_optimized,
-        /// Given an integer, bool, float, or pointer operand, return a vector with all elements
-        /// equal to the scalar value.
+        /// Given an operand, return a vector or array with all elements equal to the operand.
+        /// For a sentinel-terminated array, the sentinel is derived from the result type.
         /// Uses the `ty_op` field.
         splat,
         /// Constructs a vector by selecting elements from a single vector based on a mask. Each
@@ -1287,15 +1297,15 @@ pub const Inst = struct {
         },
         ty: Type,
         arg: struct {
-            ty: Ref,
+            ty: Type,
             zir_param_index: u32,
         },
         ty_op: struct {
-            ty: Ref,
+            ty: Type,
             operand: Ref,
         },
         ty_pl: struct {
-            ty: Ref,
+            ty: Type,
             // Index into a different array.
             payload: u32,
         },
@@ -1329,7 +1339,7 @@ pub const Inst = struct {
             operation: std.lang.ReduceOp,
         },
         ty_nav: struct {
-            ty: InternPool.Index,
+            ty: Type,
             nav: InternPool.Nav.Index,
         },
         legalize_compiler_rt_call: struct {
@@ -1690,7 +1700,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .c_va_start,
         => return datas[@backingInt(inst)].ty,
 
-        .arg => return datas[@backingInt(inst)].arg.ty.toType(),
+        .arg => return datas[@backingInt(inst)].arg.ty,
 
         .assembly,
         .block,
@@ -1717,7 +1727,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .try_ptr_cold,
         .shuffle_one,
         .shuffle_two,
-        => return datas[@backingInt(inst)].ty_pl.ty.toType(),
+        => return datas[@backingInt(inst)].ty_pl.ty,
 
         .not,
         .bit_cast,
@@ -1754,6 +1764,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .struct_field_ptr_index_2,
         .struct_field_ptr_index_3,
         .array_to_slice,
+        .array_to_vector,
         .int_from_float,
         .int_from_float_optimized,
         .int_from_float_safe,
@@ -1770,7 +1781,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .c_va_arg,
         .c_va_copy,
         .abs,
-        => return datas[@backingInt(inst)].ty_op.ty.toType(),
+        => return datas[@backingInt(inst)].ty_op.ty,
 
         .loop,
         .repeat,
@@ -1854,7 +1865,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
             return .fromInterned(ip.indexToKey(err_union_ty.ip_index).error_union_type.payload_type);
         },
 
-        .runtime_nav_ptr => return .fromInterned(datas[@backingInt(inst)].ty_nav.ty),
+        .runtime_nav_ptr => return datas[@backingInt(inst)].ty_nav.ty,
 
         .work_item_id,
         .work_group_size,
@@ -2106,6 +2117,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .slice_elem_ptr,
         .ptr_elem_ptr,
         .array_to_slice,
+        .array_to_vector,
         .int_from_float,
         .int_from_float_optimized,
         .float_from_int,
@@ -2256,7 +2268,7 @@ pub fn unwrapDbgBlock(air: *const Air, inst_index: Inst.Index) UnwrappedDbgInlin
     const extra = air.extraData(Air.DbgInlineBlock, payload);
     return .{
         .func = extra.data.func,
-        .ty = data.ty_pl.ty.toType(),
+        .ty = data.ty_pl.ty,
         .body = @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]),
     };
 }
@@ -2275,7 +2287,7 @@ pub fn unwrapBlock(air: *const Air, inst_index: Inst.Index) UnwrappedBlock {
     };
     const extra = air.extraData(Air.Block, payload);
     return .{
-        .ty = data.ty_pl.ty.toType(),
+        .ty = data.ty_pl.ty,
         .body = @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]),
     };
 }
@@ -2355,7 +2367,7 @@ pub fn unwrapTry(air: *const Air, inst_index: Inst.Index) UnwrappedTry {
 }
 
 pub const UnwrappedTryPtr = struct {
-    error_union_payload_ptr_ty: Inst.Ref,
+    error_union_payload_ptr_ty: Type,
     error_union_ptr: Inst.Ref,
     else_body: []const Inst.Index,
 };
@@ -2470,7 +2482,7 @@ pub fn unwrapShuffleOne(air: *const Air, zcu: *const Zcu, inst_index: Inst.Index
         .shuffle_one => {},
         else => unreachable, // assertion failure
     }
-    const result_ty: Type = .fromInterned(inst.data.ty_pl.ty.toInterned().?);
+    const result_ty: Type = inst.data.ty_pl.ty;
     const mask_len: u32 = result_ty.vectorLen(zcu);
     const extra_idx = inst.data.ty_pl.payload;
     return .{
@@ -2493,7 +2505,7 @@ pub fn unwrapShuffleTwo(air: *const Air, zcu: *const Zcu, inst_index: Inst.Index
         .shuffle_two => {},
         else => unreachable, // assertion failure
     }
-    const result_ty: Type = .fromInterned(inst.data.ty_pl.ty.toInterned().?);
+    const result_ty: Type = inst.data.ty_pl.ty;
     const mask_len: u32 = result_ty.vectorLen(zcu);
     const extra_idx = inst.data.ty_pl.payload;
     return .{

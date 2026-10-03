@@ -6,7 +6,7 @@ const log = std.log.scoped(.c);
 const Allocator = mem.Allocator;
 const Writer = std.Io.Writer;
 
-const dev = @import("../dev.zig");
+const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");
 const Zcu = @import("../Zcu.zig");
 const Module = @import("../Module.zig");
@@ -24,7 +24,7 @@ const BigIntLimb = std.math.big.Limb;
 const BigInt = std.math.big.int;
 
 pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
-    return comptime switch (dev.env.supports(.legalize)) {
+    return comptime switch (@import("../dev.zig").env.supports(.legalize)) {
         inline false, true => |supports_legalize| &.init(.{
             // we don't currently ask zig1 to use safe optimization modes
             .expand_bit_cast_safe = supports_legalize,
@@ -39,6 +39,8 @@ pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
             .expand_packed_store = true,
             .expand_packed_agg_field_val = true,
             .expand_packed_aggregate_init = true,
+            .expand_array_splat = true,
+            .expand_array_to_vector = true,
 
             .scalarize_bit_cast_array = true,
             .scalarize_bit_cast_vector_non_elementwise = true,
@@ -84,7 +86,7 @@ pub const Mir = struct {
     }
 };
 
-pub const Error = Writer.Error || Allocator.Error || error{AlreadyReported};
+pub const Error = codegen.Error || Writer.Error;
 
 pub const CType = @import("c/type.zig").CType;
 
@@ -738,59 +740,57 @@ pub const DeclGen = struct {
     fn renderUav(
         dg: *DeclGen,
         w: *Writer,
-        uav: InternPool.Key.Ptr.BaseAddr.Uav,
+        uav_val: Value,
+        derivation: Value.PointerDerivation,
         location: ValueRenderLocation,
     ) Error!void {
         const pt = dg.pt;
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
-        const uav_val = Value.fromInterned(uav.val);
         const uav_ty = uav_val.typeOf(zcu);
 
         // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
-        const ptr_ty: Type = .fromInterned(uav.orig_ty);
-        if (ptr_ty.isPtrAtRuntime(zcu) and !uav_ty.isRuntimeFnOrHasRuntimeBits(zcu)) {
-            try w.writeByte('(');
-            try dg.renderOpvPointer(w, ptr_ty, location);
-            return w.writeByte(')');
+        if (!uav_ty.isRuntimeFnOrHasRuntimeBits(zcu)) {
+            const target = zcu.getTarget();
+            const alignment = switch (derivation.@"align") {
+                .none => derivation.elem_ty.abiAlignment(zcu),
+                else => |a| a,
+            };
+            try w.writeAll("((");
+            try dg.renderDerivedPointerType(w, derivation);
+            try w.print("){f})", .{fmtUnsignedIntLiteralSmall(
+                target,
+                .uintptr_t,
+                alignment.forward(undefPattern(u64) >> @intCast(64 - target.ptrBitWidth())),
+                location == .static_initializer,
+                16,
+                .lower,
+            )});
+            return;
         }
 
-        switch (ip.indexToKey(uav.val)) {
+        switch (ip.indexToKey(uav_val.toIntern())) {
             .func => unreachable,
             .@"extern" => unreachable,
             else => {},
         }
 
-        // We shouldn't cast C function pointers as this is UB (when you call
-        // them).  The analysis until now should ensure that the C function
-        // pointers are compatible.  If they are not, then there is a bug
-        // somewhere and we should let the C compiler tell us about it.
-        const elem_ty = ptr_ty.childType(zcu);
-        const need_cast = elem_ty.toIntern() != uav_ty.toIntern() and
-            elem_ty.zigTypeTag(zcu) != .@"fn" or uav_ty.zigTypeTag(zcu) != .@"fn";
-        if (need_cast) {
-            try w.writeAll("((");
-            try dg.renderType(w, ptr_ty);
-            try w.writeByte(')');
-        }
         try w.writeByte('&');
         try renderUavName(w, uav_val);
-        if (need_cast) try w.writeByte(')');
 
         // Indicate that the anon decl should be rendered to the output so that
         // our reference above is not undefined.
-        const ptr_type = ip.indexToKey(uav.orig_ty).ptr_type;
-        const gop = try dg.uavs.getOrPut(dg.gpa, uav.val);
+        const gop = try dg.uavs.getOrPut(dg.gpa, uav_val.toIntern());
         if (!gop.found_existing) gop.value_ptr.* = .none;
         // If there is an explicit alignment, greater than the current one, use it.
         // Note that we intentionally start at `.none`, so `gop.value_ptr.*` is never
         // underaligned, so we don't need to worry about the `.none` case here.
-        if (ptr_type.flags.alignment != .none) {
+        if (derivation.@"align" != .none) {
             // Resolve the current alignment so we can choose the bigger one.
             const cur_alignment: Alignment = if (gop.value_ptr.* == .none) abi: {
-                break :abi Type.fromInterned(ptr_type.child).abiAlignment(zcu);
+                break :abi uav_ty.abiAlignment(zcu);
             } else gop.value_ptr.*;
-            gop.value_ptr.* = cur_alignment.maxStrict(ptr_type.flags.alignment);
+            gop.value_ptr.* = cur_alignment.maxStrict(derivation.@"align");
         }
     }
 
@@ -816,28 +816,14 @@ pub const DeclGen = struct {
 
         // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
         const nav_ty: Type = .fromInterned(ip.getNav(owner_nav).resolved.?.type);
-        const ptr_ty = try pt.navPtrType(owner_nav);
         if (nav_ty.zigTypeTag(zcu) != .@"opaque" and !nav_ty.isRuntimeFnOrHasRuntimeBits(zcu)) {
             try w.writeByte('(');
-            try dg.renderOpvPointer(w, ptr_ty, location);
+            try dg.renderOpvPointer(w, try pt.navPtrType(owner_nav), location);
             return w.writeByte(')');
         }
 
-        // We shouldn't cast C function pointers as this is UB (when you call
-        // them).  The analysis until now should ensure that the C function
-        // pointers are compatible.  If they are not, then there is a bug
-        // somewhere and we should let the C compiler tell us about it.
-        const elem_ty = ptr_ty.childType(zcu);
-        const need_cast = elem_ty.toIntern() != nav_ty.toIntern() and
-            elem_ty.zigTypeTag(zcu) != .@"fn" or nav_ty.zigTypeTag(zcu) != .@"fn";
-        if (need_cast) {
-            try w.writeAll("((");
-            try dg.renderType(w, ptr_ty);
-            try w.writeByte(')');
-        }
         try w.writeByte('&');
         try renderNavName(w, owner_nav, ip);
-        if (need_cast) try w.writeByte(')');
     }
 
     fn renderOpvPointer(
@@ -863,91 +849,107 @@ pub const DeclGen = struct {
     fn renderPointer(
         dg: *DeclGen,
         w: *Writer,
-        derivation: Value.PointerDeriveStep,
+        derivation: Value.PointerDerivation,
         location: ValueRenderLocation,
     ) Error!void {
         const pt = dg.pt;
         const zcu = pt.zcu;
-        switch (derivation) {
-            .comptime_alloc_ptr, .comptime_field_ptr => unreachable,
+        switch (derivation.addr) {
+            .comptime_alloc, .comptime_field => unreachable,
             .int => |int| {
-                const addr_val = try pt.intValue(.usize, int.addr);
+                const addr_val = try pt.intValue(.usize, int);
                 try w.writeByte('(');
-                try dg.renderType(w, int.ptr_ty);
+                try dg.renderDerivedPointerType(w, derivation);
                 try w.print("){f}", .{try dg.fmtIntLiteralHex(addr_val, .other)});
             },
 
-            .nav_ptr => |nav| try dg.renderNav(w, nav, location),
-            .uav_ptr => |uav| try dg.renderUav(w, uav, location),
+            .nav => |nav| try dg.renderNav(w, nav, location),
+            .uav => |val| try dg.renderUav(w, val, derivation, location),
 
-            inline .eu_payload_ptr, .opt_payload_ptr => |info| {
+            inline .eu_payload, .opt_payload => |info| {
                 try w.writeAll("&(");
                 try dg.renderPointer(w, info.parent.*, location);
                 try w.writeAll(")->payload");
             },
 
-            .field_ptr => |field| {
-                const parent_ptr_ty = try field.parent.ptrType(pt);
-
-                switch (fieldLocation(parent_ptr_ty, field.result_ptr_ty, field.field_idx, zcu)) {
+            .field => |derived| {
+                switch (fieldLocation(derived.parent.elem_ty, derivation.elem_ty, derived.field_index, zcu)) {
                     .begin => {
                         try w.writeByte('(');
-                        try dg.renderType(w, field.result_ptr_ty);
+                        try dg.renderDerivedPointerType(w, derivation);
                         try w.writeByte(')');
-                        try dg.renderPointer(w, field.parent.*, location);
+                        try dg.renderPointer(w, derived.parent.*, location);
                     },
                     .field => |name| {
                         try w.writeAll("&(");
-                        try dg.renderPointer(w, field.parent.*, location);
+                        try dg.renderPointer(w, derived.parent.*, location);
                         try w.writeAll(")->");
                         try dg.writeCValue(w, name);
                     },
                     .byte_offset => |byte_offset| {
                         try w.writeByte('(');
-                        try dg.renderType(w, field.result_ptr_ty);
+                        try dg.renderDerivedPointerType(w, derivation);
                         try w.writeByte(')');
                         const offset_val = try pt.intValue(.usize, byte_offset);
                         try w.writeAll("((char *)");
-                        try dg.renderPointer(w, field.parent.*, location);
+                        try dg.renderPointer(w, derived.parent.*, location);
                         try w.print(" + {f})", .{try dg.fmtIntLiteralDec(offset_val, .other)});
                     },
                 }
             },
 
-            .elem_ptr => |elem| if (!(try elem.parent.ptrType(pt)).childType(zcu).hasRuntimeBits(zcu)) {
+            .elem => |derived| if (!derived.parent.elem_ty.hasRuntimeBits(zcu)) {
                 // Element type is zero-bit, so lowers to `void`. The index is irrelevant; just cast the pointer.
                 try w.writeByte('(');
-                try dg.renderType(w, elem.result_ptr_ty);
+                try dg.renderDerivedPointerType(w, derivation);
                 try w.writeByte(')');
-                try dg.renderPointer(w, elem.parent.*, location);
+                try dg.renderPointer(w, derived.parent.*, location);
             } else {
-                const index_val = try pt.intValue(.usize, elem.elem_idx);
+                const index_val = try pt.intValue(.usize, derived.elem_index);
                 try w.writeByte('(');
                 // We want to do pointer arithmetic on a pointer to the element type, but the parent
-                // might be a pointer-to-array, in which case we must cast it.
-                if (elem.result_ptr_ty.toIntern() != (try elem.parent.ptrType(pt)).toIntern()) {
-                    try w.writeByte('(');
-                    try dg.renderType(w, elem.result_ptr_ty);
-                    try w.writeByte(')');
-                }
-                try dg.renderPointer(w, elem.parent.*, location);
+                // is a pointer-to-array, so we need to cast first.
+                try w.writeByte('(');
+                try dg.renderDerivedPointerType(w, derivation);
+                try w.writeByte(')');
+
+                try dg.renderPointer(w, derived.parent.*, location);
                 try w.print(" + {f})", .{try dg.fmtIntLiteralDec(index_val, .other)});
             },
 
-            .offset_and_cast => |oac| {
+            .offset_and_cast => |derived| {
                 try w.writeByte('(');
-                try dg.renderType(w, oac.new_ptr_ty);
+                try dg.renderDerivedPointerType(w, derivation);
                 try w.writeByte(')');
-                if (oac.byte_offset == 0) {
-                    try dg.renderPointer(w, oac.parent.*, location);
+                if (derived.byte_offset == 0) {
+                    try dg.renderPointer(w, derived.parent.*, location);
                 } else {
-                    const offset_val = try pt.intValue(.usize, oac.byte_offset);
+                    const offset_val = try pt.intValue(.usize, derived.byte_offset);
                     try w.writeAll("((char *)");
-                    try dg.renderPointer(w, oac.parent.*, location);
+                    try dg.renderPointer(w, derived.parent.*, location);
                     try w.print(" + {f})", .{try dg.fmtIntLiteralDec(offset_val, .other)});
                 }
             },
         }
+    }
+    fn renderDerivedPointerType(
+        dg: *DeclGen,
+        w: *Writer,
+        derivation: Value.PointerDerivation,
+    ) Error!void {
+        return dg.renderType(w, try dg.pt.ptrType(.{
+            .child = derivation.elem_ty.toIntern(),
+            .flags = .{
+                .size = switch (derivation.size) {
+                    .one => .one,
+                    .many => .many,
+                },
+                .alignment = derivation.@"align",
+                .is_const = derivation.@"const",
+                .is_volatile = derivation.@"volatile",
+                .is_allowzero = derivation.@"allowzero",
+            },
+        }));
     }
 
     fn renderValueAsLvalue(
@@ -1164,7 +1166,31 @@ pub const DeclGen = struct {
                 try w.writeByte('}');
             },
             .ptr => {
-                const derivation = try val.pointerDerivation(dg.arena, pt, null);
+                // TODO: `Value.pointerDerivation` ought to do this for us, but it doesn't receive
+                // `pt`, so it actually *can't* until https://github.com/ziglang/zig/issues/24061 is
+                // implemented.
+                const non_packed_ptr: Value = non_packed_ptr: {
+                    const ptr_info = val.typeOf(zcu).ptrInfo(zcu);
+                    if (ptr_info.packed_offset.host_size == 0) {
+                        break :non_packed_ptr val;
+                    }
+                    const backing_ty: Type = switch (ptr_info.flags.vector_index) {
+                        _ => .fromInterned(ptr_info.child),
+                        .none => try pt.intType(
+                            .unsigned,
+                            @intCast(ptr_info.packed_offset.host_size * 8),
+                        ),
+                    };
+                    const new_ptr_ty = try pt.ptrType(info: {
+                        var info = ptr_info;
+                        info.child = backing_ty.toIntern();
+                        info.packed_offset = .{ .host_size = 0, .bit_offset = 0 };
+                        info.flags.vector_index = .none;
+                        break :info info;
+                    });
+                    break :non_packed_ptr try pt.getCoerced(val, new_ptr_ty);
+                };
+                const derivation = try non_packed_ptr.pointerDerivation(dg.arena, zcu, null);
                 try w.writeByte('(');
                 try dg.renderPointer(w, derivation, location);
                 try w.writeByte(')');
@@ -1733,6 +1759,14 @@ pub const DeclGen = struct {
         const fn_ty = fn_val.typeOf(zcu);
 
         const fn_info = zcu.typeToFunc(fn_ty).?;
+
+        if (kind == .definition) {
+            if (dg.mod.patchable_function_entry > 0) {
+                const count = dg.mod.patchable_function_entry;
+                try w.print("zig_patchable_function_entry({d}) ", .{count});
+            }
+        }
+
         if (fn_info.cc == .naked) {
             switch (kind) {
                 .forward_decl => try w.writeAll("zig_naked_decl "),
@@ -2172,11 +2206,11 @@ pub fn genTagNameFn(
     }
 
     if (!zcu.comp.config.root_strip) try w.print("/* @tagName({f}) */\n", .{
-        loaded_enum.name.fmt(ip),
+        loaded_enum.fqn.fmt(ip),
     });
     try w.print("static {s} zig_tagName_{f}__{d}({s} tag) {{\n", .{
         slice_const_u8_sentinel_0_type_name,
-        fmtIdentUnsolo(loaded_enum.name.toSlice(ip)),
+        fmtIdentUnsolo(loaded_enum.fqn.toSlice(ip)),
         @backingInt(enum_ty.toIntern()),
         enum_type_name,
     });
@@ -2249,7 +2283,7 @@ pub fn generate(
     func_index: InternPool.Index,
     air: *const Air,
     liveness: *const ?Air.Liveness,
-) @import("../codegen.zig").Error!Mir {
+) codegen.Error!Mir {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
 
@@ -2505,10 +2539,8 @@ pub fn genDeclFwd(dg: *DeclGen, w: *Writer) Error!void {
             },
             else => {
                 switch (@"extern".linkage) {
-                    .internal => try w.writeAll("static "),
                     .strong => try w.print("zig_extern zig_visibility({t}) ", .{@"extern".visibility}),
                     .weak => try w.print("zig_extern zig_weak_linkage zig_visibility({t}) ", .{@"extern".visibility}),
-                    .link_once => return dg.fail("TODO: CBE: implement linkonce linkage?", .{}),
                 }
                 if (nav.resolved.?.@"threadlocal" and !dg.mod.single_threaded) {
                     try w.writeAll("zig_threadlocal ");
@@ -2870,6 +2902,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) Error!void {
             .store_safe       => try airStore(f, inst, true),
             .struct_field_ptr => try airStructFieldPtr(f, inst),
             .array_to_slice   => try airArrayToSlice(f, inst),
+            .array_to_vector  => unreachable, // legalize .expand_array_to_vector
             .cmpxchg_weak     => try airCmpxchg(f, inst, "weak"),
             .cmpxchg_strong   => try airCmpxchg(f, inst, "strong"),
             .atomic_rmw       => try airAtomicRmw(f, inst),
@@ -3411,7 +3444,7 @@ fn airIntCast(f: *Function, inst: Air.Inst.Index, operation: []const u8, info: B
     const zcu = pt.zcu;
     const ty_op = f.air.instructions.items(.data)[@backingInt(inst)].ty_op;
 
-    const inst_ty = ty_op.ty.toType();
+    const inst_ty = ty_op.ty;
     const inst_scalar_ty = inst_ty.scalarType(zcu);
     const operand_ty = f.typeOf(ty_op.operand);
     const operand_scalar_ty = operand_ty.scalarType(zcu);
@@ -5371,8 +5404,8 @@ fn airOptionalPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn fieldLocation(
-    container_ptr_ty: Type,
-    field_ptr_ty: Type,
+    container_ty: Type,
+    field_ty: Type,
     field_index: u32,
     zcu: *Zcu,
 ) union(enum) {
@@ -5381,27 +5414,22 @@ fn fieldLocation(
     byte_offset: u64,
 } {
     const ip = &zcu.intern_pool;
-    const container_ty: Type = .fromInterned(ip.indexToKey(container_ptr_ty.toIntern()).ptr_type.child);
     switch (ip.indexToKey(container_ty.toIntern())) {
         .struct_type => {
             const loaded_struct = ip.loadStructType(container_ty.toIntern());
             return switch (loaded_struct.layout) {
                 .auto, .@"extern" => if (!container_ty.hasRuntimeBits(zcu))
                     .begin
-                else if (!field_ptr_ty.childType(zcu).hasRuntimeBits(zcu))
+                else if (!field_ty.hasRuntimeBits(zcu))
                     .{ .byte_offset = loaded_struct.field_offsets.get(ip)[field_index] }
                 else
                     .{ .field = .{ .identifier = loaded_struct.field_names.get(ip)[field_index].toSlice(ip) } },
-                .@"packed" => if (field_ptr_ty.ptrInfo(zcu).packed_offset.host_size == 0)
-                    .{ .byte_offset = @divExact(zcu.structPackedFieldBitOffset(loaded_struct, field_index) +
-                        container_ptr_ty.ptrInfo(zcu).packed_offset.bit_offset, 8) }
-                else
-                    .begin,
+                .@"packed" => .begin,
             };
         },
         .tuple_type => return if (!container_ty.hasRuntimeBits(zcu))
             .begin
-        else if (!field_ptr_ty.childType(zcu).hasRuntimeBits(zcu))
+        else if (!field_ty.hasRuntimeBits(zcu))
             .{ .byte_offset = container_ty.structFieldOffset(field_index, zcu) }
         else
             .{ .field = .{ .field = field_index } },
@@ -5409,7 +5437,6 @@ fn fieldLocation(
             const loaded_union = ip.loadUnionType(container_ty.toIntern());
             switch (loaded_union.layout) {
                 .auto => {
-                    const field_ty: Type = .fromInterned(loaded_union.field_types.get(ip)[field_index]);
                     if (!field_ty.hasRuntimeBits(zcu)) {
                         if (container_ty.unionHasAllZeroBitFieldTypes(zcu)) return .begin;
                         return .{ .field = .{ .identifier = "payload" } };
@@ -5418,7 +5445,6 @@ fn fieldLocation(
                     return .{ .field = .{ .payload_identifier = field_name.toSlice(ip) } };
                 },
                 .@"extern" => {
-                    const field_ty: Type = .fromInterned(loaded_union.field_types.get(ip)[field_index]);
                     if (!field_ty.hasRuntimeBits(zcu)) return .begin;
                     const field_name = ip.loadEnumType(loaded_union.enum_tag_type).field_names.get(ip)[field_index];
                     return .{ .field = .{ .identifier = field_name.toSlice(ip) } };
@@ -5477,7 +5503,7 @@ fn airFieldParentPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.renderType(w, container_ptr_ty);
     try w.writeByte(')');
 
-    switch (fieldLocation(container_ptr_ty, field_ptr_ty, extra.field_index, zcu)) {
+    switch (fieldLocation(container_ty, field_ptr_ty.childType(zcu), extra.field_index, zcu)) {
         .begin => try f.writeCValue(w, field_ptr_val, .other),
         .field => |field| {
             const u8_ptr_ty = try pt.adjustPtrTypeChild(field_ptr_ty, .u8);
@@ -5528,7 +5554,12 @@ fn fieldPtr(
     try f.renderType(w, field_ptr_ty);
     try w.writeByte(')');
 
-    switch (fieldLocation(container_ptr_ty, field_ptr_ty, field_index, zcu)) {
+    switch (fieldLocation(
+        container_ptr_ty.childType(zcu),
+        field_ptr_ty.childType(zcu),
+        field_index,
+        zcu,
+    )) {
         .begin => try f.writeCValue(w, container_ptr_val, .other),
         .field => |field| {
             try w.writeByte('&');
@@ -6663,7 +6694,7 @@ fn airTagName(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(w, local, .other);
     try f.need_tag_name_funcs.put(gpa, enum_ty.toIntern(), {});
     try w.print(" = zig_tagName_{f}__{d}(", .{
-        fmtIdentUnsolo(enum_ty.containerTypeName(ip).toSlice(ip)),
+        fmtIdentUnsolo(enum_ty.containerTypeName(ip).fqn.toSlice(ip)),
         @backingInt(enum_ty.toIntern()),
     });
     try f.writeCValue(w, operand, .other);
@@ -7217,7 +7248,7 @@ fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airRuntimeNavPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_nav = f.air.instructions.items(.data)[@backingInt(inst)].ty_nav;
     const w = &f.code.writer;
-    const local = try f.allocLocal(inst, .fromInterned(ty_nav.ty));
+    const local = try f.allocLocal(inst, ty_nav.ty);
     try f.writeCValue(w, local, .other);
     try w.writeAll(" = ");
     try f.dg.renderNav(w, ty_nav.nav, .other);
@@ -7259,7 +7290,7 @@ fn airCVaArg(f: *Function, inst: Air.Inst.Index) !CValue {
     try w.writeAll(" = va_arg(*(va_list *)");
     try f.writeCValue(w, va_list, .other);
     try w.writeAll(", ");
-    try f.renderType(w, ty_op.ty.toType());
+    try f.renderType(w, ty_op.ty);
     try w.writeAll(");");
     try f.newline();
     return local;
@@ -7464,7 +7495,7 @@ const StringLiteral = struct {
             },
             else => {
                 var buf: [4]u8 = undefined;
-                const printed = std.fmt.bufPrint(&buf, "\\{o:0>3}", .{c}) catch unreachable;
+                const printed = std.mem.print(&buf, "\\{o:0>3}", .{c}) catch unreachable;
                 try w.writeAll(printed);
                 return printed.len;
             },
@@ -7486,7 +7517,7 @@ const StringLiteral = struct {
         } else {
             if (!sl.first) try sl.w.writeByte(',');
             var buf: [6]u8 = undefined;
-            const printed = std.fmt.bufPrint(&buf, "'\\x{x}'", .{c}) catch unreachable;
+            const printed = std.mem.print(&buf, "'\\x{x}'", .{c}) catch unreachable;
             try sl.w.writeAll(printed);
             sl.cur_len += printed.len;
             sl.first = false;

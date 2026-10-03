@@ -213,13 +213,13 @@ pub const VTable = struct {
     processSetCurrentDir: *const fn (?*anyopaque, Dir) std.process.SetCurrentDirError!void,
     processSetCurrentPath: *const fn (?*anyopaque, []const u8) std.process.SetCurrentPathError!void,
     processReplace: *const fn (?*anyopaque, std.process.ReplaceOptions) std.process.ReplaceError,
-    processReplacePath: *const fn (?*anyopaque, Dir, std.process.ReplaceOptions) std.process.ReplaceError,
     processSpawn: *const fn (?*anyopaque, std.process.SpawnOptions) std.process.SpawnError!std.process.Child,
-    processSpawnPath: *const fn (?*anyopaque, Dir, std.process.SpawnOptions) std.process.SpawnError!std.process.Child,
     childWait: *const fn (?*anyopaque, *std.process.Child) std.process.Child.WaitError!std.process.Child.Term,
     childKill: *const fn (?*anyopaque, *std.process.Child) void,
 
     progressParentFile: *const fn (?*anyopaque) std.Progress.ParentFileError!File,
+    inheritParentDir: *const fn (?*anyopaque, handle: Dir.Handle) InheritParentHandleError!Dir,
+    inheritParentFile: *const fn (?*anyopaque, handle: File.Handle, flags: File.Flags) InheritParentHandleError!File,
 
     now: *const fn (?*anyopaque, Clock) Timestamp,
     clockResolution: *const fn (?*anyopaque, Clock) Clock.ResolutionError!Duration,
@@ -373,6 +373,9 @@ pub const Operation = union(enum) {
             /// the OS where it was queued up to be reported at the next call
             /// to send or receive on the bound socket.
             PortUnreachable,
+            /// The remote peer did not respond to ongoing communication, causing the
+            /// OS to abort the connection.
+            ConnectionTimedOut,
         } || Io.UnexpectedError;
 
         pub const Result = struct { ?net.Socket.ReceiveError, usize };
@@ -416,6 +419,9 @@ pub const Operation = union(enum) {
             /// An attempt was made to send to a network/broadcast address as
             /// though it was a unicast address.
             AccessDenied,
+            /// The remote peer did not respond to ongoing communication, causing the
+            /// OS to abort the connection.
+            ConnectionTimedOut,
         } || Io.UnexpectedError;
 
         pub const Result = struct { ?net.Socket.SendError, usize };
@@ -424,18 +430,21 @@ pub const Operation = union(enum) {
     pub const NetRead = struct {
         socket_handle: net.Socket.Handle,
         data: [][]u8,
+        control: []u8 = &.{},
 
         pub const Error = error{
             SystemResources,
             ConnectionResetByPeer,
             SocketUnconnected,
-            /// The file descriptor does not hold the required rights to read
-            /// from it.
+            /// File descriptor does not hold the required rights to read from it.
             AccessDenied,
             NetworkDown,
+            /// The remote peer did not respond to ongoing communication, causing the
+            /// OS to abort the connection.
+            ConnectionTimedOut,
         } || Io.UnexpectedError;
 
-        pub const Result = Error!usize;
+        pub const Result = Error!net.Stream.ReadResult;
     };
 
     pub const NetWrite = struct {
@@ -443,6 +452,7 @@ pub const Operation = union(enum) {
         header: []const u8 = &.{},
         data: []const []const u8,
         splat: usize = 1,
+        control: []const u8 = &.{},
 
         pub const Error = error{
             /// Another TCP Fast Open is already in progress.
@@ -469,6 +479,9 @@ pub const Operation = union(enum) {
             /// Local end has been shut down on a connection-oriented socket, or
             /// the socket was never connected.
             SocketUnconnected,
+            /// The remote peer did not respond to ongoing communication, causing the
+            /// OS to abort the connection.
+            ConnectionTimedOut,
             SocketNotBound,
         } || Io.UnexpectedError;
 
@@ -815,6 +828,10 @@ pub const UnexpectedError = error{
     /// the respective function.
     Unexpected,
 };
+
+pub const InheritParentHandleError = error{
+    UnsupportedOperation,
+} || Cancelable || UnexpectedError;
 
 pub const Clock = enum {
     /// A settable system-wide clock that measures real (i.e. wall-clock)
@@ -2786,13 +2803,13 @@ pub const failing: std.Io = .{
         .processSetCurrentDir = failingProcessSetCurrentDir,
         .processSetCurrentPath = failingProcessSetCurrentPath,
         .processReplace = failingProcessReplace,
-        .processReplacePath = failingProcessReplacePath,
         .processSpawn = failingProcessSpawn,
-        .processSpawnPath = failingProcessSpawnPath,
         .childWait = unreachableChildWait,
         .childKill = unreachableChildKill,
 
         .progressParentFile = failingProgressParentFile,
+        .inheritParentDir = failingInheritParentDir,
+        .inheritParentFile = failingInheritParentFile,
 
         .random = noRandom,
         .randomSecure = failingRandomSecure,
@@ -3066,8 +3083,8 @@ pub fn unreachableDirClose(userdata: ?*anyopaque, dirs: []const Dir) void {
 
 pub fn noDirRead(userdata: ?*anyopaque, dir_reader: *Dir.Reader, buffer: []Dir.Entry) Dir.Reader.Error!usize {
     _ = userdata;
-    _ = dir_reader;
     _ = buffer;
+    dir_reader.state = .finished;
     return 0;
 }
 
@@ -3440,22 +3457,8 @@ pub fn failingProcessReplace(userdata: ?*anyopaque, options: std.process.Replace
     return error.OperationUnsupported;
 }
 
-pub fn failingProcessReplacePath(userdata: ?*anyopaque, dir: Dir, options: std.process.ReplaceOptions) std.process.ReplaceError {
-    _ = userdata;
-    _ = dir;
-    _ = options;
-    return error.OperationUnsupported;
-}
-
 pub fn failingProcessSpawn(userdata: ?*anyopaque, options: std.process.SpawnOptions) std.process.SpawnError!std.process.Child {
     _ = userdata;
-    _ = options;
-    return error.OperationUnsupported;
-}
-
-pub fn failingProcessSpawnPath(userdata: ?*anyopaque, dir: Dir, options: std.process.SpawnOptions) std.process.SpawnError!std.process.Child {
-    _ = userdata;
-    _ = dir;
     _ = options;
     return error.OperationUnsupported;
 }
@@ -3474,6 +3477,19 @@ pub fn unreachableChildKill(userdata: ?*anyopaque, child: *std.process.Child) vo
 
 pub fn failingProgressParentFile(userdata: ?*anyopaque) std.Progress.ParentFileError!File {
     _ = userdata;
+    return error.UnsupportedOperation;
+}
+
+pub fn failingInheritParentDir(userdata: ?*anyopaque, handle: Dir.Handle) InheritParentHandleError!Dir {
+    _ = userdata;
+    _ = handle;
+    return error.UnsupportedOperation;
+}
+
+pub fn failingInheritParentFile(userdata: ?*anyopaque, handle: File.Handle, flags: File.Flags) InheritParentHandleError!File {
+    _ = userdata;
+    _ = handle;
+    _ = flags;
     return error.UnsupportedOperation;
 }
 

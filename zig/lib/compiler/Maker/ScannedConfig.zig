@@ -83,27 +83,6 @@ pub fn print(sc: *const ScannedConfig, w: *Writer) Writer.Error!void {
         try tf.end();
     }
 
-    {
-        var tf = try s.beginTupleField("packages", .{});
-        for (c.packages) |package| {
-            var sf = try tf.beginStructField(.{});
-            try sf.field("dep_prefix", package.dep_prefix.slice(c), .{});
-            try sf.field("hash", package.hash.slice(c), .{});
-            try sf.field("root_path", package.root_path.slice(c), .{});
-
-            var dtf = try sf.beginTupleField("deps", .{});
-            for (package.deps.slice(c)) |dep| {
-                var dsf = try dtf.beginStructField(.{});
-                try sc.printStruct(&dsf, Configuration.Package.Dep, dep);
-                try dsf.end();
-            }
-            try dtf.end();
-
-            try sf.end();
-        }
-        try tf.end();
-    }
-
     try s.end();
 }
 
@@ -381,6 +360,7 @@ pub fn printUsage(sc: *const ScannedConfig, graph: *Graph, w: *Writer) !void {
         \\                               limit to the max number of iterations. The argument supports
         \\                               an optional 'K', 'M', or 'G' suffix (e.g. '10K'). Implies
         \\                               '--webui' when no limit is specified.
+        \\  --listen=-                   Enable the build server protocol on stdio
         \\  --time-report                Force full rebuild and provide detailed information on
         \\                               compilation time of Zig source code (implies '--webui')
         \\  -fincremental                Enable incremental compilation

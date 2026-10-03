@@ -95,6 +95,7 @@ fn runServer(ids: *IncrementalDebugServer) void {
                 => |e| log.err("failed to serve '{f}' ({t})", .{ stream.socket.address, e }),
 
                 error.EndOfStream,
+                error.ConnectionTimedOut,
                 error.ConnectionResetByPeer,
                 => log.info("client '{f}' disconnected", .{stream.socket.address}),
 
@@ -242,7 +243,7 @@ fn handleCommand(zcu: *Zcu, w: *Io.Writer, cmd_str: []const u8, arg_str: []const
         var num_results: usize = 0;
         for (zcu.incremental_debug_state.types.keys()) |type_ip_index| {
             const ty: Type = .fromInterned(type_ip_index);
-            const ty_name = ty.containerTypeName(ip).toSlice(ip);
+            const ty_name = ty.containerTypeName(ip).fqn.toSlice(ip);
             const success = switch (@as(u2, @intFromBool(anchor_start)) << 1 | @intFromBool(anchor_end)) {
                 0b00 => std.mem.find(u8, ty_name, query) != null,
                 0b01 => std.mem.endsWith(u8, ty_name, query),
@@ -346,7 +347,7 @@ fn handleCommand(zcu: *Zcu, w: *Io.Writer, cmd_str: []const u8, arg_str: []const
             \\created on generation: {d}
             \\
         , .{
-            Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip),
+            Type.fromInterned(ip_index).containerTypeName(ip).fqn.fmt(ip),
             create_gen,
         });
     } else if (std.mem.eql(u8, cmd_str, "type_namespace")) {
@@ -404,10 +405,10 @@ fn parseAnalUnit(str: []const u8) ?AnalUnit {
 }
 fn printAnalUnit(unit: AnalUnit, buf: *[32]u8) []const u8 {
     const idx: u32 = switch (unit.unwrap()) {
-        .memoized_state => |stage| return std.fmt.bufPrint(buf, "memoized_state {s}", .{@tagName(stage)}) catch unreachable,
+        .memoized_state => |stage| return std.mem.print(buf, "memoized_state {s}", .{@tagName(stage)}) catch unreachable,
         inline else => |i| @backingInt(i),
     };
-    return std.fmt.bufPrint(buf, "{s} {d}", .{ @tagName(unit.unwrap()), idx }) catch unreachable;
+    return std.mem.print(buf, "{s} {d}", .{ @tagName(unit.unwrap()), idx }) catch unreachable;
 }
 
 fn printType(ty: Type, zcu: *const Zcu, w: *Io.Writer) Io.Writer.Error!void {
@@ -450,7 +451,7 @@ fn printType(ty: Type, zcu: *const Zcu, w: *Io.Writer) Io.Writer.Error!void {
         .union_type,
         .enum_type,
         .opaque_type,
-        => try w.print("{f}[{d}]", .{ ty.containerTypeName(ip).fmt(ip), @backingInt(ty.toIntern()) }),
+        => try w.print("{f}[{d}]", .{ ty.containerTypeName(ip).fqn.fmt(ip), @backingInt(ty.toIntern()) }),
 
         else => unreachable,
     }

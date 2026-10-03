@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 
+const dev = @import("dev.zig");
 const Type = @import("Type.zig");
 const AddressSpace = std.lang.AddressSpace;
 const Alignment = @import("InternPool.zig").Alignment;
@@ -271,6 +272,7 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat) 
         .sheb,
         .x86_16,
         .xtensaeb,
+        .spork8,
         => false,
     };
 }
@@ -283,10 +285,21 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
     };
 }
 
+pub fn preferNewLinkerOverLld(target: *const std.Target) bool {
+    return switch (target.ofmt) {
+        .elf => switch (target.cpu.arch) {
+            // Elf2 is more complete than LLD on these targets.
+            .sparc64 => true,
+            else => false,
+        },
+        else => false,
+    };
+}
+
 /// Returns `true` if `ofmt` has two linker implementations, so `-fnew-linker` is meaningful.
 pub fn hasNewLinker(ofmt: std.Target.ObjectFormat) bool {
     return switch (ofmt) {
-        .elf => true,
+        .elf, .macho => true,
         else => false,
     };
 }
@@ -303,12 +316,18 @@ pub fn selfHostedBackendIsAsRobustAsLlvm(target: *const std.Target) bool {
             // https://github.com/ziglang/zig/issues/25699
             return false;
         }
-        if (target.os.tag.isBSD()) {
-            // Self-hosted linker needs work: https://github.com/ziglang/zig/issues/24341
-            return false;
+        // Self-hosted linker needs work: https://github.com/ziglang/zig/issues/24341
+        switch (target.os.tag) {
+            .dragonfly,
+            .freebsd,
+            .netbsd,
+            .openbsd,
+            => return false,
+            else => {},
         }
         return switch (target.ofmt) {
-            .elf, .macho => true,
+            .elf => true,
+            .macho => false, // https://codeberg.org/ziglang/zig/issues/35267
             else => false,
         };
     }
@@ -389,26 +408,29 @@ pub fn classifyCompilerRtLibName(name: []const u8) CompilerRtClassification {
 }
 
 pub fn hasDebugInfo(target: *const std.Target) bool {
-    return switch (target.cpu.arch) {
-        // TODO: We should make newer PTX versions depend on older ones so we'd just check `ptx75`.
-        .nvptx, .nvptx64 => target.cpu.hasAny(.nvptx, &.{
-            .ptx75,
-            .ptx76,
-            .ptx77,
-            .ptx78,
-            .ptx80,
-            .ptx81,
-            .ptx82,
-            .ptx83,
-            .ptx84,
-            .ptx85,
-            .ptx86,
-            .ptx87,
-            .ptx88,
-            .ptx90,
-        }),
-        .bpfel, .bpfeb => false,
-        else => true,
+    return switch (target.ofmt) {
+        .raw, .hex => false,
+        else => switch (target.cpu.arch) {
+            // TODO: We should make newer PTX versions depend on older ones so we'd just check `ptx75`.
+            .nvptx, .nvptx64 => target.cpu.hasAny(.nvptx, &.{
+                .ptx75,
+                .ptx76,
+                .ptx77,
+                .ptx78,
+                .ptx80,
+                .ptx81,
+                .ptx82,
+                .ptx83,
+                .ptx84,
+                .ptx85,
+                .ptx86,
+                .ptx87,
+                .ptx88,
+                .ptx90,
+            }),
+            .bpfel, .bpfeb => false,
+            else => true,
+        },
     };
 }
 
@@ -427,6 +449,7 @@ pub fn canBuildLibCompilerRt(target: *const std.Target) enum { no, yes, llvm_onl
     }
     switch (target.cpu.arch) {
         .spirv32, .spirv64 => return .no,
+        .spork8 => return .no,
         // Remove this once https://github.com/ziglang/zig/issues/23714 is fixed
         .amdgcn => return .no,
         else => {},
@@ -439,6 +462,7 @@ pub fn canBuildLibCompilerRt(target: *const std.Target) enum { no, yes, llvm_onl
 
 pub fn canBuildLibUbsanRt(target: *const std.Target) enum { no, yes, llvm_only, llvm_lld_only } {
     switch (target.cpu.arch) {
+        .spork8 => return .no,
         .spirv32, .spirv64 => return .no,
         // Remove this once https://github.com/ziglang/zig/issues/23715 is fixed
         .nvptx, .nvptx64 => return .no,
@@ -486,7 +510,7 @@ pub fn libcFullLinkFlags(target: *const std.Target) []const []const u8 {
         },
         // On SerenityOS libc includes libm, libpthread, libdl, and libssp.
         .serenity => &.{"-lc"},
-        else => &.{},
+        else => if (target.os.tag.isDarwin()) &.{"-lSystem"} else &.{},
     };
     return result;
 }
@@ -591,6 +615,7 @@ pub fn defaultAddressSpace(
     // The default address space for functions on AVR is .flash to produce
     // correct fixups into progmem.
     if (context == .function and target.cpu.arch == .avr) return .flash;
+    if (context == .global_mutable and target.os.tag == .vulkan) return .private;
     return .generic;
 }
 
@@ -636,6 +661,7 @@ pub fn shouldBlockPointerOps(target: *const std.Target, as: AddressSpace) bool {
         // Logical pointers that never support operations
         .constant,
         .local,
+        .private,
         .input,
         .output,
         .uniform,
@@ -843,7 +869,10 @@ pub fn functionPointerMask(target: *const std.Target) ?u64 {
 
 pub fn supportsTailCall(target: *const std.Target, backend: std.lang.CompilerBackend) bool {
     switch (backend) {
-        .stage2_llvm => return @import("codegen/llvm.zig").supportsTailCall(target),
+        .stage2_llvm => {
+            dev.check(.llvm_backend);
+            return @import("codegen/llvm.zig").supportsTailCall(target);
+        },
         .stage2_c => return true,
         else => return false,
     }
@@ -853,6 +882,7 @@ pub fn supportsThreads(target: *const std.Target, backend: std.lang.CompilerBack
     _ = target;
     return switch (backend) {
         .stage2_aarch64 => false,
+        .stage2_loongarch => false,
         else => true,
     };
 }
@@ -914,6 +944,7 @@ pub fn zigBackend(target: *const std.Target, use_llvm: bool) std.lang.CompilerBa
     return switch (target.cpu.arch) {
         .aarch64, .aarch64_be => .stage2_aarch64,
         .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
+        .loongarch32, .loongarch64 => .stage2_loongarch,
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => .stage2_powerpc,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
@@ -921,6 +952,7 @@ pub fn zigBackend(target: *const std.Target, use_llvm: bool) std.lang.CompilerBa
         .wasm32, .wasm64 => .stage2_wasm,
         .x86 => .stage2_x86,
         .x86_64 => .stage2_x86_64,
+        .spork8 => .zsf_spork8,
         else => .other,
     };
 }
@@ -950,7 +982,7 @@ pub inline fn backendSupportsFeature(backend: std.lang.CompilerBackend, comptime
             else => false,
         },
         .field_reordering => switch (backend) {
-            .stage2_aarch64, .stage2_c, .stage2_llvm, .stage2_x86_64, .stage2_wasm => true,
+            .stage2_aarch64, .stage2_c, .stage2_llvm, .stage2_loongarch, .stage2_x86_64, .stage2_wasm => true,
             else => false,
         },
         .separate_thread => switch (backend) {

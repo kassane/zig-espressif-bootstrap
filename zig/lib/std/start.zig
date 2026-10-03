@@ -79,6 +79,7 @@ comptime {
             .@"3ds",
             .wiiu,
             .@"switch",
+            .gba,
 
             .psx,
             .psp,
@@ -183,12 +184,15 @@ fn _start() callconv(.naked) noreturn {
             .csky => ".cfi_undefined lr",
             .hexagon => ".cfi_undefined r31",
             .kvx => ".cfi_undefined r14",
-            .loongarch32, .loongarch64 => ".cfi_undefined 1",
+            .loongarch32, .loongarch64 => if (builtin.zig_backend == .stage2_loongarch)
+                ""
+            else
+                ".cfi_undefined 1",
             .m68k => ".cfi_undefined %%pc",
             .m88k => ".cfi_undefined %%r1",
             .microblaze, .microblazeel => "", // No CFI support.
             .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
-            .or1k => ".cfi_undefined r9",
+            .or1k => ".cfi_undefined 9",
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
             .riscv32, .riscv32be, .riscv64, .riscv64be => if (builtin.zig_backend == .stage2_riscv64)
                 ""
@@ -218,6 +222,32 @@ fn _start() callconv(.naked) noreturn {
     // kernel is usually good about upholding the ABI guarantees, the same cannot be said of dynamic
     // linkers; musl's ldso, for example, opts to not align the stack when invoking the dynamic
     // linker explicitly.
+    if (builtin.zig_backend == .stage2_loongarch) {
+        // TODO: need "X" constraint support
+        asm volatile (switch (native_arch) {
+                .loongarch32 =>
+                \\ move $fp, $zero
+                \\ move $ra, $zero
+                \\ move $a0, $sp
+                \\ srli.w $sp, $sp, 4
+                \\ slli.w $sp, $sp, 4
+                \\ jirl $ra, %[posixCallMainAndExit], 0
+                ,
+                .loongarch64 =>
+                \\ move $fp, $zero
+                \\ move $ra, $zero
+                \\ move $a0, $sp
+                \\ bstrins.d $sp, $zero, 3, 0
+                \\ jirl $ra, %[posixCallMainAndExit], 0
+                ,
+                else => unreachable,
+            }
+            :
+            : [posixCallMainAndExit] "r" (&posixCallMainAndExit),
+            : .{ .r1 = true, .r4 = true, .r22 = true });
+        unreachable;
+    }
+
     asm volatile (switch (native_arch) {
             .x86_64 =>
             \\ xorl %%ebp, %%ebp
@@ -590,11 +620,11 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
         var i: usize = 0;
         var at_phdr: usize = 0;
         var at_phnum: usize = 0;
-        while (auxv[i].a_type != elf.AT_NULL) : (i += 1) {
+        while (auxv[i].a_type != elf.AT.NULL) : (i += 1) {
             switch (auxv[i].a_type) {
-                elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
-                elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
-                elf.AT_HWCAP => at_hwcap = auxv[i].a_un.a_val,
+                elf.AT.PHNUM => at_phnum = auxv[i].a_un.a_val,
+                elf.AT.PHDR => at_phdr = auxv[i].a_un.a_val,
+                elf.AT.HWCAP => at_hwcap = auxv[i].a_un.a_val,
                 else => continue,
             }
         }
@@ -709,8 +739,8 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
 
     switch (builtin.os.tag) {
         .linux => {
-            const at_phdr = std.c.getauxval(elf.AT_PHDR);
-            const at_phnum = std.c.getauxval(elf.AT_PHNUM);
+            const at_phdr = std.c.getauxval(elf.AT.PHDR);
+            const at_phnum = std.c.getauxval(elf.AT.PHNUM);
             const phdrs = (@as([*]elf.ElfN.Phdr, @ptrFromInt(at_phdr)))[0..at_phnum];
             expandStackSize(phdrs);
         },

@@ -287,16 +287,20 @@ pub const LimitedAllocError = Allocator.Error || ShortError || error{StreamTooLo
 /// Transfers all bytes from the current position to the end of the stream, up
 /// to `limit`, returning them as a caller-owned allocated slice.
 ///
-/// If `limit` would be exceeded, `error.StreamTooLong` is returned instead. In
-/// such case, the next byte that would be read will be the first one to exceed
-/// `limit`, and all preceeding bytes have been discarded.
+/// If `limit` is exceeded, `error.StreamTooLong` is returned instead.
+/// In such case, the next byte that would be read will be one byte past the
+/// first one to exceed `limit`, and all preceeding bytes have been discarded.
 ///
 /// See also:
 /// * `appendRemaining`
 pub fn allocRemaining(r: *Reader, gpa: Allocator, limit: Limit) LimitedAllocError![]u8 {
     var buffer: ArrayList(u8) = .empty;
     defer buffer.deinit(gpa);
-    try appendRemaining(r, gpa, &buffer, limit);
+
+    try appendRemaining(r, gpa, &buffer, switch (limit) {
+        .unlimited => limit,
+        .nothing, _ => .limited(@backingInt(limit) + 1),
+    });
     return buffer.toOwnedSlice(gpa);
 }
 
@@ -393,6 +397,7 @@ pub fn appendRemainingAligned(
 pub const UnlimitedAllocError = Allocator.Error || ShortError;
 
 pub fn appendRemainingUnlimited(r: *Reader, gpa: Allocator, list: *ArrayList(u8)) UnlimitedAllocError!void {
+    list.pointer_stability.assertUnlocked();
     var a: std.Io.Writer.Allocating = .initOwnedSlice(gpa, list.allocatedSlice());
     a.writer.end = list.items.len;
     list.* = .empty;
@@ -400,6 +405,7 @@ pub fn appendRemainingUnlimited(r: *Reader, gpa: Allocator, list: *ArrayList(u8)
         list.* = .{
             .items = a.writer.buffer[0..a.writer.end],
             .capacity = a.writer.buffer.len,
+            .pointer_stability = .{},
         };
     }
     _ = streamRemaining(r, &a.writer) catch |err| switch (err) {
@@ -738,12 +744,25 @@ pub inline fn readSliceEndianAlloc(
     return dest;
 }
 
+/// Deprecated; use readAllocAll. to be removed after 0.17.
+pub const readAlloc = readAllocAll;
+
 /// Shortcut for calling `readSliceAll` with a buffer provided by `allocator`.
-pub fn readAlloc(r: *Reader, allocator: Allocator, len: usize) ReadAllocError![]u8 {
+pub fn readAllocAll(r: *Reader, allocator: Allocator, len: usize) ReadAllocError![]u8 {
     const dest = try allocator.alloc(u8, len);
     errdefer allocator.free(dest);
     try readSliceAll(r, dest);
     return dest;
+}
+
+/// Shortcut for calling `readSliceShort` with a buffer provided by `allocator`,
+/// shrinking allocation if stream reached the end.
+pub fn readAllocShort(r: *Reader, allocator: Allocator, len: usize) ReadAllocError![]u8 {
+    const dest = try allocator.alloc(u8, len);
+    errdefer allocator.free(dest);
+    const n = try readSliceShort(r, dest);
+    if (n == dest.len) return dest;
+    return try allocator.realloc(dest, n);
 }
 
 pub const DelimiterError = error{
@@ -1740,6 +1759,47 @@ test "readSliceShort with indirect reader" {
     try testing.expectEqual(0, try ri.interface.readSliceShort(&buf));
 }
 
+test readAllocAll {
+    const allocator = testing.allocator;
+    var r: Reader = .fixed("HelloFren");
+
+    const s1 = try r.readAllocAll(allocator, 5);
+    defer allocator.free(s1);
+    try testing.expectEqualStrings("Hello", s1);
+
+    const s2 = try r.readAllocAll(allocator, 4);
+    defer allocator.free(s2);
+    try testing.expectEqualStrings("Fren", s2);
+}
+
+test "readAllocAll with buffer bigger than content" {
+    const allocator = testing.allocator;
+    var r: Reader = .fixed("HelloFren");
+
+    const s1 = try r.readAllocAll(allocator, 5);
+    defer allocator.free(s1);
+    try testing.expectEqualStrings("Hello", s1);
+
+    const res = r.readAllocAll(allocator, 10);
+    try testing.expectError(Error.EndOfStream, res);
+}
+
+test readAllocShort {
+    var r: Reader = .fixed("HelloFren");
+
+    const s1 = try r.readAllocShort(testing.allocator, 5);
+    defer testing.allocator.free(s1);
+    try testing.expectEqualStrings("Hello", s1);
+
+    const s2 = try r.readAllocShort(testing.allocator, 10);
+    defer testing.allocator.free(s2);
+    try testing.expectEqualStrings("Fren", s2);
+
+    const s3 = try r.readAllocShort(testing.allocator, 10);
+    defer testing.allocator.free(s3);
+    try testing.expectEqual(0, s3.len);
+}
+
 test readVec {
     var r: Reader = .fixed(std.ascii.letters);
     var flat_buffer: [52]u8 = undefined;
@@ -1891,6 +1951,31 @@ test "takeStruct and peekStruct packed" {
     }), try r.takeStruct(S, .big));
 
     try testing.expectError(error.EndOfStream, r.takeStruct(S, .little));
+}
+
+test allocRemaining {
+    {
+        var r: Reader = .fixed("abc");
+        const str = try r.allocRemaining(testing.allocator, .unlimited);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("abc", str);
+    }
+    {
+        var r: Reader = .fixed("abc");
+        const str = try r.allocRemaining(testing.allocator, .limited(5));
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("abc", str);
+    }
+    {
+        var r: Reader = .fixed("abc");
+        const str = try r.allocRemaining(testing.allocator, .limited(3));
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("abc", str);
+    }
+    {
+        var r: Reader = .fixed("abcd");
+        try testing.expectError(error.StreamTooLong, r.allocRemaining(testing.allocator, .limited(3)));
+    }
 }
 
 /// Provides a `Reader` implementation by passing data from an underlying

@@ -7,6 +7,8 @@ const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
 test "array to slice" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
     const a_slice: []align(1) const u32 = @as(*const [1]u32, &a)[0..];
@@ -19,8 +21,10 @@ test "array to slice" {
 }
 
 test "arrays" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     var array: [5]u32 = undefined;
 
     var i: u32 = 0;
@@ -578,6 +582,7 @@ test "array with comptime-only element type" {
 }
 
 test "tuple to array handles sentinel" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -635,13 +640,19 @@ test "array of array agregate init" {
 test "pointer to array has ptr field" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
-    const arr: *const [5]u32 = &.{ 10, 20, 30, 40, 50 };
-    try std.testing.expect(arr.ptr == @as([*]const u32, arr));
-    try std.testing.expect(arr.ptr[0] == 10);
-    try std.testing.expect(arr.ptr[1] == 20);
-    try std.testing.expect(arr.ptr[2] == 30);
-    try std.testing.expect(arr.ptr[3] == 40);
-    try std.testing.expect((&arr.ptr).*[4] == 50);
+    const S = struct {
+        fn doTheTest(p: *const [5]u32) !void {
+            try std.testing.expect(p.ptr == @as([*]const u32, p));
+            try std.testing.expect(p.ptr[0] == 10);
+            try std.testing.expect(p.ptr[1] == 20);
+            try std.testing.expect(p.ptr[2] == 30);
+            try std.testing.expect(p.ptr[3] == 40);
+            try std.testing.expect((&p.ptr).*[4] == 50);
+        }
+    };
+    const arr: [5]u32 = .{ 10, 20, 30, 40, 50 };
+    try comptime S.doTheTest(&arr);
+    try S.doTheTest(&arr);
 }
 
 test "discarded array init preserves result location" {
@@ -932,7 +943,6 @@ test "accessing multidimensional global array at comptime" {
 
 test "union that needs padding bytes inside an array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 

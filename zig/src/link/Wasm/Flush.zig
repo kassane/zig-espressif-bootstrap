@@ -41,6 +41,7 @@ data_imports: std.array_hash_map.Auto(String, Wasm.DataImportId) = .empty,
 data_exports: std.array_hash_map.Auto(String, DataExportSymbol) = .empty,
 
 indirect_function_table: std.array_hash_map.Auto(Wasm.OutputFunctionIndex, void) = .empty,
+sorted_init_funcs: std.ArrayList(Wasm.InitFunc) = .empty,
 
 /// A subset of the full interned function type list created only during flush.
 func_types: std.array_hash_map.Auto(Wasm.FunctionType.Index, void) = .empty,
@@ -52,6 +53,8 @@ data_relocs: std.ArrayList(Relocation) = .empty,
 
 /// For debug purposes only.
 memory_layout_finished: bool = false,
+
+virtual_addrs: VirtualAddrs = undefined,
 
 /// Index into `func_types`.
 pub const FuncTypeIndex = enum(u32) {
@@ -201,11 +204,13 @@ pub fn clear(f: *Flush) void {
     f.function_export_symbols.clearRetainingCapacity();
     f.data_exports.clearRetainingCapacity();
     f.indirect_function_table.clearRetainingCapacity();
+    f.sorted_init_funcs.clearRetainingCapacity();
     f.func_types.clearRetainingCapacity();
     f.enum_tag_name_table.clearRetainingCapacity();
     f.code_relocs.clearRetainingCapacity();
     f.data_relocs.clearRetainingCapacity();
     f.memory_layout_finished = false;
+    f.virtual_addrs = undefined;
 }
 
 pub fn deinit(f: *Flush, gpa: Allocator) void {
@@ -220,6 +225,7 @@ pub fn deinit(f: *Flush, gpa: Allocator) void {
     f.data_imports.deinit(gpa);
     f.data_exports.deinit(gpa);
     f.indirect_function_table.deinit(gpa);
+    f.sorted_init_funcs.deinit(gpa);
     f.func_types.deinit(gpa);
     f.enum_tag_name_table.deinit(gpa);
     f.code_relocs.deinit(gpa);
@@ -243,6 +249,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     };
     const is_obj = comp.config.output_mode == .Obj;
     const allow_undefined = is_obj or wasm.import_symbols;
+    const zcu_references = if (comp.zcu) |zcu| try zcu.resolveReferences() else null;
 
     const entry_name = if (wasm.entry_resolution.isNavOrUnresolved(wasm)) wasm.entry_name else .none;
 
@@ -312,10 +319,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                     .function_index = function_index,
                     .flags = .{
                         .binding = switch (opts.linkage) {
-                            .internal => .local,
                             .strong => .strong,
                             .weak => .weak,
-                            .link_once => @panic("TODO: COMDAT"),
                         },
                         .visibility_hidden = is_hidden,
                         .exported = !is_hidden,
@@ -339,10 +344,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                     .resolution = .fromIpNav(wasm, nav_export.nav_index),
                     .flags = if (is_obj) .{
                         .binding = switch (opts.linkage) {
-                            .internal => .local,
                             .strong => .strong,
                             .weak => .weak,
-                            .link_once => @panic("TODO: COMDAT"),
                         },
                         .visibility_hidden = !explicit and switch (opts.visibility) {
                             .default => false,
@@ -376,10 +379,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 .resolution = .fromIpIndex(wasm, uav_export.uav_index),
                 .flags = if (is_obj) .{
                     .binding = switch (opts.linkage) {
-                        .internal => .local,
                         .strong => .strong,
                         .weak => .weak,
-                        .link_once => @panic("TODO: COMDAT"),
                     },
                     .visibility_hidden = !explicit and switch (opts.visibility) {
                         .default => false,
@@ -542,9 +543,15 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     for (wasm.object_indirect_function_set.keys()) |object_function_index|
         f.indirect_function_table.putAssumeCapacity(.fromObjectFunction(wasm, object_function_index), {});
 
-    if (wasm.object_init_funcs.items.len > 0) {
+    try f.sorted_init_funcs.ensureUnusedCapacity(gpa, wasm.object_init_funcs.items.len);
+    for (wasm.object_init_funcs.items) |init_func| {
+        const func = init_func.function_index.ptr(wasm);
+        if (!func.object_index.ptr(wasm).is_included) continue;
+        f.sorted_init_funcs.appendAssumeCapacity(init_func);
+    }
+    if (f.sorted_init_funcs.items.len > 0) {
         // Zig has no constructors so these are only for object file inputs.
-        mem.sortUnstable(Wasm.InitFunc, wasm.object_init_funcs.items, {}, Wasm.InitFunc.lessThan);
+        mem.sortUnstable(Wasm.InitFunc, f.sorted_init_funcs.items, {}, Wasm.InitFunc.lessThan);
         if (!is_obj) try wasm.functions.put(gpa, .__wasm_call_ctors, {});
     }
 
@@ -703,10 +710,13 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     // Always place the stack at the start by default unless the user specified the global-base flag.
     const place_stack_first, var memory_ptr: u64 = if (wasm.global_base) |base| .{ false, base } else .{ true, 0 };
 
-    var virtual_addrs: VirtualAddrs = .{
+    const virtual_addrs = &f.virtual_addrs;
+    virtual_addrs.* = .{
+        .global_base = undefined,
         .stack_pointer = undefined,
         .heap_base = undefined,
         .heap_end = undefined,
+        .wasm_first_page_end = page_size,
         .tls_base = null,
         .tls_align = .none,
         .tls_size = null,
@@ -719,10 +729,12 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         virtual_addrs.stack_pointer = @intCast(memory_ptr);
     }
 
+    const data_vaddr: u32 = @intCast(memory_ptr);
+    virtual_addrs.global_base = data_vaddr;
+
     const segment_ids = f.data_segments.keys();
     const segment_vaddrs = f.data_segments.values();
     assert(f.data_segment_groups.items.len == 0);
-    const data_vaddr: u32 = @intCast(memory_ptr);
     if (segment_ids.len > 0) {
         var seen_tls: enum { before, during, after } = .before;
         var category: Wasm.DataSegmentId.Category = undefined;
@@ -1165,7 +1177,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             .__wasm_init_memory => {
                 const code_start = try reserveSize(gpa, binary_bytes);
                 defer replaceSize(binary_bytes, code_start);
-                try emitInitMemoryFunction(wasm, binary_bytes, &virtual_addrs);
+                try emitInitMemoryFunction(wasm, binary_bytes);
             },
             .__wasm_init_tls => {
                 const code_start = try reserveSize(gpa, binary_bytes);
@@ -1206,6 +1218,14 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                         try emitTagIndexFunction(wasm, binary_bytes, ip_index);
                     },
                     else => {
+                        if (!zcu_references.?.contains(.wrap(.{ .func = ip_index }))) {
+                            try binary_bytes.appendSlice(gpa, &.{
+                                0, // no locals
+                                @backingInt(std.wasm.Opcode.@"unreachable"),
+                                @backingInt(std.wasm.Opcode.end),
+                            });
+                            continue;
+                        }
                         const func = i.value(wasm).function;
                         const mir: Mir = .{
                             .instructions = wasm.mir_instructions.slice().subslice(func.instructions_off, func.instructions_len),
@@ -1327,14 +1347,6 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             const output_offset: u32 = @intCast(binary_bytes.items.len - section_offset);
             append: {
                 const code = switch (segment_id.unpack(wasm)) {
-                    .__heap_base => {
-                        mem.writeInt(u32, try binary_bytes.addManyAsArray(gpa, 4), virtual_addrs.heap_base, .little);
-                        break :append;
-                    },
-                    .__heap_end => {
-                        mem.writeInt(u32, try binary_bytes.addManyAsArray(gpa, 4), virtual_addrs.heap_end, .little);
-                        break :append;
-                    },
                     .__zig_error_names => {
                         try binary_bytes.appendSlice(gpa, wasm.error_name_bytes.items);
                         break :append;
@@ -1472,14 +1484,16 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 // SYMTAB_FUNCTION
                 {
                     symbol_table_offsets.function = symbol_count;
-                    for (f.function_imports.values(), 0..) |i, function_index| {
+                    for (f.function_imports.keys(), f.function_imports.values(), 0..) |symbol_name, i, function_index| {
                         try binary_bytes.append(gpa, @backingInt(Object.Symbol.Tag.function));
                         const flags = i.flags(wasm);
                         assert(flags.undefined);
                         try appendLeb128(gpa, binary_bytes, flags.toAbiInteger());
                         try appendLeb128(gpa, binary_bytes, @as(u32, @intCast(function_index)));
                         if (flags.explicit_name) {
-                            unreachable; // never set
+                            const name = symbol_name.slice(wasm);
+                            try appendLeb128(gpa, binary_bytes, @as(u32, @intCast(name.len)));
+                            try binary_bytes.appendSlice(gpa, name);
                         }
                         symbol_count += 1;
                     }
@@ -1641,22 +1655,9 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 const sub_offset = try reserveCustomSectionHeader(gpa, binary_bytes);
                 defer replaceHeader(binary_bytes, sub_offset, @backingInt(Object.SubsectionType.init_funcs));
 
-                const init_funcs = wasm.object_init_funcs.items;
-                const total_functions: u32 = b: {
-                    var cnt: u32 = 0;
-                    for (init_funcs) |init_func| {
-                        const func = init_func.function_index.ptr(wasm);
-                        if (!func.object_index.ptr(wasm).is_included) continue;
-                        cnt += 1;
-                    }
-                    break :b cnt;
-                };
-                try appendLeb128(gpa, binary_bytes, total_functions);
+                try appendLeb128(gpa, binary_bytes, @as(u32, @intCast(f.sorted_init_funcs.items.len)));
 
-                for (init_funcs) |init_func| {
-                    const func = init_func.function_index.ptr(wasm);
-                    if (!func.object_index.ptr(wasm).is_included) continue;
-
+                for (f.sorted_init_funcs.items) |init_func| {
                     try appendLeb128(gpa, binary_bytes, init_func.priority);
                     const out_index: Wasm.OutputFunctionIndex = .fromObjectFunction(wasm, init_func.function_index);
                     const symbol_index: u32 = symbol_table_offsets.function + @backingInt(out_index);
@@ -1699,14 +1700,14 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 var id: [16]u8 = undefined;
                 std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
                 var uuid: [36]u8 = undefined;
-                _ = try std.fmt.bufPrint(&uuid, "{x}-{x}-{x}-{x}-{x}", .{
+                _ = try std.mem.print(&uuid, "{x}-{x}-{x}-{x}-{x}", .{
                     id[0..4], id[4..6], id[6..8], id[8..10], id[10..],
                 });
                 try emitBuildIdSection(gpa, binary_bytes, &uuid);
             },
             .hexstring => |hs| {
                 var buffer: [32 * 2]u8 = undefined;
-                const str = std.fmt.bufPrint(&buffer, "{x}", .{hs.toSlice()}) catch unreachable;
+                const str = std.mem.print(&buffer, "{x}", .{hs.toSlice()}) catch unreachable;
                 try emitBuildIdSection(gpa, binary_bytes, str);
             },
             else => |mode| {
@@ -1734,9 +1735,11 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 }
 
 const VirtualAddrs = struct {
+    global_base: u32,
     stack_pointer: u32,
     heap_base: u32,
     heap_end: u32,
+    wasm_first_page_end: u32,
     tls_base: ?u32,
     tls_align: Alignment,
     tls_size: ?u32,
@@ -2585,6 +2588,9 @@ const RelocAddr = struct {
         const flush = &wasm.flush_buffer;
         if (wasm.object_data_imports.getPtr(name)) |import| {
             if (import.resolution != .unresolved) {
+                if (wasm.syntheticDataAddr(import.resolution)) |addr| {
+                    return fromAddr(addr, addend);
+                }
                 return fromDataLoc(flush, import.resolution.dataLoc(wasm), addend);
             }
         }
@@ -2598,8 +2604,11 @@ const RelocAddr = struct {
     }
 
     fn fromDataLoc(flush: *const Flush, data_loc: Wasm.DataLoc, addend: i32) RelocAddr {
-        const base_addr: i64 = flush.data_segments.get(data_loc.segment).?;
-        return .{ .addr = @intCast(base_addr + data_loc.offset + addend) };
+        return fromAddr(flush.data_segments.get(data_loc.segment).? + data_loc.offset, addend);
+    }
+
+    fn fromAddr(addr: u32, addend: i32) RelocAddr {
+        return .{ .addr = @intCast(@as(i64, addr) + addend) };
     }
 };
 
@@ -2641,9 +2650,8 @@ fn emitCallCtorsFunction(wasm: *const Wasm, binary_bytes: *ArrayList(u8)) Alloca
     try binary_bytes.ensureUnusedCapacity(gpa, 5 + 1);
     appendReservedUleb32(binary_bytes, 0); // no locals
 
-    for (wasm.object_init_funcs.items) |init_func| {
+    for (wasm.flush_buffer.sorted_init_funcs.items) |init_func| {
         const func = init_func.function_index.ptr(wasm);
-        if (!func.object_index.ptr(wasm).is_included) continue;
         const ty = func.type_index.ptr(wasm);
         const n_returns = ty.returns.slice(wasm).len;
 
@@ -2660,14 +2668,11 @@ fn emitCallCtorsFunction(wasm: *const Wasm, binary_bytes: *ArrayList(u8)) Alloca
     binary_bytes.appendAssumeCapacity(@backingInt(std.wasm.Opcode.end)); // end function body
 }
 
-fn emitInitMemoryFunction(
-    wasm: *const Wasm,
-    binary_bytes: *ArrayList(u8),
-    virtual_addrs: *const VirtualAddrs,
-) Allocator.Error!void {
+fn emitInitMemoryFunction(wasm: *const Wasm, binary_bytes: *ArrayList(u8)) Allocator.Error!void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const shared_memory = comp.config.shared_memory;
+    const virtual_addrs = &wasm.flush_buffer.virtual_addrs;
 
     // Passive segments are used to avoid memory being reinitialized on each
     // thread's instantiation. These passive segments are initialized and

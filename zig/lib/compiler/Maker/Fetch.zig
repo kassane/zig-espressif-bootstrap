@@ -362,7 +362,7 @@ pub const JobQueue = struct {
         var dest_sub_path_buf: ["p/".len + Package.Hash.max_len + ".tar.gz".len]u8 = undefined;
         const dest_path: Path = .{
             .root_dir = jq.global_cache,
-            .sub_path = std.fmt.bufPrint(&dest_sub_path_buf, "p/{s}.tar.gz", .{pkg_hash_slice}) catch unreachable,
+            .sub_path = std.mem.print(&dest_sub_path_buf, "p/{s}.tar.gz", .{pkg_hash_slice}) catch unreachable,
         };
 
         const gpa = jq.http_client.allocator;
@@ -527,7 +527,7 @@ pub fn run(f: *Fetch) RunError!void {
     const arena = f.arena.allocator();
     const gpa = f.arena.child_allocator;
 
-    try eb.init(gpa);
+    eb.* = try .init(gpa);
 
     // Check the global zig package cache to see if the hash already exists. If
     // so, load, parse, and validate the build.zig.zon file therein, and skip
@@ -843,7 +843,7 @@ pub fn computedPackageHash(f: *const Fetch) Package.Hash {
     if (f.have_manifest) {
         const man = &f.manifest;
         var version_buffer: [32]u8 = undefined;
-        const version: []const u8 = std.fmt.bufPrint(&version_buffer, "{f}", .{man.version}) catch &version_buffer;
+        const version: []const u8 = std.mem.print(&version_buffer, "{f}", .{man.version}) catch &version_buffer;
         return .init(f.computed_hash.digest, man.name, version, man.id, saturated_size);
     }
     // In the future build.zig.zon fields will be added to allow overriding these values
@@ -1306,15 +1306,15 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
             return error.FetchFailed;
         }
 
-        var want_oid_buf: [git.Oid.max_formatted_length]u8 = undefined;
-        _ = std.fmt.bufPrint(&want_oid_buf, "{f}", .{want_oid}) catch unreachable;
+        var want_oid_hex_buf: [git.Oid.max_formatted_length]u8 = undefined;
+        const want_oid_hex = std.mem.print(&want_oid_hex_buf, "{f}", .{want_oid}) catch unreachable;
         resource.* = .{ .git = .{
             .session = session,
             .fetch_stream = undefined,
             .want_oid = want_oid,
         } };
         const fetch_stream = &resource.git.fetch_stream;
-        session.fetch(fetch_stream, &.{&want_oid_buf}, reader_buffer) catch |err| {
+        session.fetch(fetch_stream, &.{want_oid_hex}, reader_buffer) catch |err| {
             return f.fail(f.location_tok, try eb.printString("unable to create fetch stream: {t}", .{err}));
         };
         errdefer fetch_stream.deinit(fetch_stream);

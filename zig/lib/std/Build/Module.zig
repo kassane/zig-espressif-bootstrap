@@ -15,7 +15,7 @@ root_source_file: ?LazyPath,
 import_table: std.array_hash_map.String(*Module),
 
 resolved_target: ?std.Build.ResolvedTarget = null,
-optimize: ?std.builtin.OptimizeMode = null,
+optimize: ?std.builtin.Optimize = null,
 dwarf_format: ?std.dwarf.Format,
 
 c_macros: ArrayList([]const u8),
@@ -42,6 +42,7 @@ error_tracing: ?bool,
 link_libc: ?bool,
 link_libcpp: ?bool,
 no_builtin: ?bool,
+patchable_function_entry: u16,
 
 /// Symbols to be exported when compiling to WebAssembly.
 export_symbol_names: []const []const u8 = &.{},
@@ -200,7 +201,7 @@ pub const CreateOptions = struct {
     imports: []const Import = &.{},
 
     target: ?std.Build.ResolvedTarget = null,
-    optimize: ?std.builtin.OptimizeMode = null,
+    optimize: ?std.builtin.Optimize = null,
 
     /// `true` requires a compilation that includes this Module to link libc.
     /// `false` causes a build failure if a compilation that includes this Module would link libc.
@@ -230,6 +231,7 @@ pub const CreateOptions = struct {
     omit_frame_pointer: ?bool = null,
     error_tracing: ?bool = null,
     no_builtin: ?bool = null,
+    patchable_function_entry: u16 = 0,
 };
 
 pub const Import = struct {
@@ -278,6 +280,7 @@ pub fn init(
                 .error_tracing = options.error_tracing,
                 .export_symbol_names = &.{},
                 .no_builtin = options.no_builtin,
+                .patchable_function_entry = options.patchable_function_entry,
             };
 
             m.import_table.ensureUnusedCapacity(arena, options.imports.len) catch @panic("OOM");

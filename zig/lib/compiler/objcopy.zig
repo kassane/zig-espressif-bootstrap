@@ -234,9 +234,9 @@ fn cmdObjCopy(arena: Allocator, io: Io, args: []const []const u8) !void {
                     // The build system already knows what the output is at this point, we
                     // only need to communicate that the process has finished.
                     // Use the empty error bundle to indicate that the update is done.
-                    try server.serveErrorBundle(std.zig.ErrorBundle.empty);
+                    try server.serveErrorBundle(.error_bundle, std.zig.ErrorBundle.empty);
                 },
-                else => fatal("unsupported message: {s}", .{@tagName(hdr.tag)}),
+                else => fatal("unsupported message: {t}", .{hdr.tag}),
             }
         }
     }
@@ -409,7 +409,7 @@ const BinaryElfOutput = struct {
             const shstrtab_shdr = (try section_headers.next()).?;
 
             try in.seekTo(shstrtab_shdr.sh_offset);
-            break :blk try in.interface.readAlloc(allocator, shstrtab_shdr.sh_size);
+            break :blk try in.interface.readAllocAll(allocator, shstrtab_shdr.sh_size);
         };
 
         errdefer if (self.shstrtab) |shstrtab| allocator.free(shstrtab);
@@ -615,7 +615,7 @@ const HexWriter = struct {
             const payload_bytes = self.getPayloadBytes();
             assert(payload_bytes.len <= max_payload_len);
 
-            const line = try std.fmt.bufPrint(&outbuf, ":{0X:0>2}{1X:0>4}{2X:0>2}{3X}{4X:0>2}" ++ linesep, .{
+            const line = try std.mem.print(&outbuf, ":{0X:0>2}{1X:0>4}{2X:0>2}{3X}{4X:0>2}" ++ linesep, .{
                 @as(u8, @intCast(payload_bytes.len)),
                 self.address,
                 @backingInt(self.payload),

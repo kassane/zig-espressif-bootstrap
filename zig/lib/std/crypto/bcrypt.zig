@@ -514,6 +514,12 @@ const pbkdf_prf = struct {
         out.* = hash(self.sha2pass, sha2salt);
     }
 
+    pub fn finalResult(d: *Self) [mac_length]u8 {
+        var result: [mac_length]u8 = undefined;
+        d.final(&result);
+        return result;
+    }
+
     /// Matches OpenBSD function
     /// https://github.com/openbsd/src/blob/6df1256b7792691e66c2ed9d86a8c103069f9e34/lib/libutil/bcrypt_pbkdf.c#L98
     pub fn hash(sha2pass: [Sha512.digest_length]u8, sha2salt: [Sha512.digest_length]u8) [32]u8 {
@@ -635,7 +641,7 @@ const crypt_format = struct {
         _ = Codec.Encoder.encode(&ct_str, dk[0..]);
 
         var s_buf: [hash_length]u8 = undefined;
-        const s = fmt.bufPrint(
+        const s = mem.print(
             s_buf[0..],
             "{s}b${d}{d}${s}{s}",
             .{ prefix, params.rounds_log / 10, params.rounds_log % 10, salt_str, ct_str },

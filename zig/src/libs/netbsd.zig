@@ -406,12 +406,28 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     man.hash.add(target.abi);
     man.hash.add(target_version);
 
-    const full_abilists_path = try comp.dirs.zig_lib.join(arena, &.{abilists_path});
-    const abilists_index = try man.addFile(full_abilists_path, abilists_max_size);
+    const abilists_index = try man.addInputPath(.{
+        .root_dir = comp.dirs.zig_lib,
+        .sub_path = abilists_path,
+    }, .{
+        .request_contents = true,
+    });
 
-    if (try man.hit(prog_node)) {
-        const digest = man.final();
-
+    var diag: Cache.Manifest.CheckDiagnostic = undefined;
+    const status = man.check(&diag, prog_node) catch |err| switch (err) {
+        error.CacheCheckFailed => {
+            comp.lockAndSetMiscFailure(
+                .netbsd_shared_objects,
+                "compiling NetBSD libc shared objects: checking cache failed: {f}",
+                .{diag.fmt(&man)},
+            );
+            return error.AlreadyReported;
+        },
+        error.OutOfMemory, error.Canceled => |e| return e,
+    };
+    log.debug("netbsd_shared_objects cache {f}", .{status.fmt(&man)});
+    if (status == .hit) {
+        const digest = man.hitDigestHex();
         return queueSharedObjects(comp, .{
             .lock = man.toOwnedLock(),
             .dir_path = .{
@@ -421,8 +437,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         });
     }
 
-    const digest = man.final();
-    const o_sub_path = try path.join(arena, &[_][]const u8{ "o", &digest });
+    const digest = man.missDigestHex();
+    const o_sub_path = try path.join(arena, &.{ "o", &digest });
 
     var o_directory: Cache.Directory = .{
         .handle = try comp.dirs.global_cache.handle.createDirPathOpen(io, o_sub_path, .{}),
@@ -430,7 +446,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     };
     defer o_directory.handle.close(io);
 
-    const abilists_contents = man.files.keys()[abilists_index].contents.?;
+    const abilists_contents = abilists_index.contents(&man);
     const metadata = try loadMetaData(gpa, abilists_contents);
     defer metadata.destroy(gpa);
 
@@ -634,14 +650,12 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         }
 
         var lib_name_buf: [32]u8 = undefined; // Larger than each of the names "c", "pthread", etc.
-        const asm_file_basename = std.fmt.bufPrint(&lib_name_buf, "{s}.s", .{lib.name}) catch unreachable;
+        const asm_file_basename = std.mem.print(&lib_name_buf, "{s}.s", .{lib.name}) catch unreachable;
         try o_directory.handle.writeFile(io, .{ .sub_path = asm_file_basename, .data = stubs_asm.items });
         try buildSharedLib(comp, arena, o_directory, asm_file_basename, lib, prog_node);
     }
 
-    man.writeManifest() catch |err| {
-        log.warn("failed to write cache manifest for NetBSD libc stubs: {s}", .{@errorName(err)});
-    };
+    man.finalize() catch |err| log.warn("failed to write cache manifest for NetBSD libc stubs: {t}", .{err});
 
     return queueSharedObjects(comp, .{
         .lock = man.toOwnedLock(),

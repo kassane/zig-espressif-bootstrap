@@ -611,63 +611,43 @@ pub fn flush(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) link.E
     assert(!self.debug_strtab_dirty);
 }
 
-pub fn getNavVAddr(
-    self: *ZigObject,
+pub fn navSymbol(
+    zo: *ZigObject,
     macho_file: *MachO,
-    pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
-    reloc_info: link.File.RelocInfo,
-) !u64 {
-    const zcu = pt.zcu;
+) link.Error!link.File.SymbolId {
+    const zcu = macho_file.base.comp.zcu.?;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
-    log.debug("getNavVAddr {f}({d})", .{ nav.fqn.fmt(ip), nav_index });
-    const sym_index = if (nav.getExtern(ip)) |@"extern"| try self.getGlobalSymbol(
-        macho_file,
-        nav.name.toSlice(ip),
-        @"extern".lib_name.toSlice(ip),
-    ) else try self.getOrCreateMetadataForNav(macho_file, nav_index);
-    const sym = self.symbols.items[sym_index];
-    const vaddr = sym.getAddress(.{}, macho_file);
-    switch (reloc_info.parent) {
-        .none => unreachable,
-        .atom_index => |atom_index| {
-            const parent_atom = self.symbols.items[@backingInt(atom_index)].getAtom(macho_file).?;
-            try parent_atom.addReloc(macho_file, .{
-                .tag = .@"extern",
-                .offset = @intCast(reloc_info.offset),
-                .target = sym_index,
-                .addend = reloc_info.addend,
-                .type = .unsigned,
-                .meta = .{
-                    .pcrel = false,
-                    .has_subtractor = false,
-                    .length = 3,
-                    .symbolnum = @intCast(sym.nlist_idx),
-                },
-            });
-        },
-        .debug_output => |debug_output| switch (debug_output) {
-            .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
-                .source_off = @intCast(reloc_info.offset),
-                .target_sym = @fromBackingInt(@intCast(sym_index)),
-                .target_off = reloc_info.addend,
-            }),
-            .none => unreachable,
-        },
+    if (nav.getExtern(ip)) |@"extern"| {
+        const sym_index = try zo.getGlobalSymbol(
+            macho_file,
+            nav.name.toSlice(ip),
+            @"extern".lib_name.toSlice(ip),
+        );
+        if (@"extern".linkage == .weak) {
+            zo.symbols.items[sym_index].flags.weak = true;
+        }
+        if (nav.resolved.?.@"threadlocal") {
+            zo.symbols.items[sym_index].flags.tlv = true;
+        }
+        return @fromBackingInt(sym_index);
+    } else {
+        const sym_index = try zo.getOrCreateMetadataForNav(macho_file, nav_index);
+        if (nav.resolved.?.@"threadlocal") {
+            zo.symbols.items[sym_index].flags.tlv = true;
+        }
+        return @fromBackingInt(sym_index);
     }
-    return vaddr;
 }
 
-pub fn getUavVAddr(
+pub fn relocSymAddr(
     self: *ZigObject,
     macho_file: *MachO,
-    uav: InternPool.Index,
     reloc_info: link.File.RelocInfo,
-) !u64 {
-    const sym_index = self.uavs.get(uav).?.symbol_index;
+) !void {
+    const sym_index = @backingInt(reloc_info.target);
     const sym = self.symbols.items[sym_index];
-    const vaddr = sym.getAddress(.{}, macho_file);
     switch (reloc_info.parent) {
         .none => unreachable,
         .atom_index => |atom_index| {
@@ -686,19 +666,15 @@ pub fn getUavVAddr(
                 },
             });
         },
-        .debug_output => |debug_output| switch (debug_output) {
-            .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
-                .source_off = @intCast(reloc_info.offset),
-                .target_sym = @fromBackingInt(@intCast(sym_index)),
-                .target_off = reloc_info.addend,
-            }),
-            .none => unreachable,
-        },
+        .debug_output => |debug_output| try debug_output.dwarf.infoExternalReloc(.{
+            .source_off = @intCast(reloc_info.offset),
+            .target_sym = @fromBackingInt(@intCast(sym_index)),
+            .target_off = reloc_info.addend,
+        }),
     }
-    return vaddr;
 }
 
-pub fn lowerUav(
+pub fn uavSymbol(
     self: *ZigObject,
     macho_file: *MachO,
     pt: Zcu.PerThread,
@@ -720,7 +696,7 @@ pub fn lowerUav(
     }
 
     var name_buf: [32]u8 = undefined;
-    const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
+    const name = std.mem.print(&name_buf, "__anon_{d}", .{
         @backingInt(uav),
     }) catch unreachable;
     const sym_index = self.lowerConst(
@@ -1238,7 +1214,6 @@ pub fn updateExports(
     self: *ZigObject,
     macho_file: *MachO,
     pt: Zcu.PerThread,
-    exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
 ) link.Error!void {
     const tracy = trace(@src());
@@ -1246,26 +1221,60 @@ pub fn updateExports(
 
     const zcu = pt.zcu;
     const gpa = macho_file.base.comp.gpa;
-    const metadata = switch (exported) {
-        .nav => |nav| blk: {
-            _ = try self.getOrCreateMetadataForNav(macho_file, nav);
-            break :blk self.navs.getPtr(nav).?;
-        },
-        .uav => |uav| self.uavs.getPtr(uav) orelse blk: {
-            _ = try self.lowerUav(macho_file, pt, uav, .none);
-            break :blk self.uavs.getPtr(uav).?;
-        },
-    };
-    const sym_index = metadata.symbol_index;
-    const nlist_idx = self.symbols.items[sym_index].nlist_idx;
-    const nlist = self.symtab.items(.nlist)[nlist_idx];
 
-    for (export_indices) |export_idx| {
-        const exp = export_idx.ptr(zcu);
+    // Delete all existing exports first
+    for (self.navs.values()) |*metadata| {
+        for (metadata.exports.items) |nlist_index| {
+            const nlist = &self.symtab.items(.nlist)[nlist_index];
+            self.symtab.items(.size)[nlist_index] = 0;
+            _ = self.globals_lookup.remove(nlist.n_strx);
+            // TODO actually remove the export
+            // const sym_index = macho_file.globals.get(nlist.n_strx).?;
+            // const sym = &self.symbols.items[sym_index];
+            // if (sym.file == self.index) {
+            //     sym.* = .{};
+            // }
+            nlist.* = MachO.null_sym;
+        }
+        metadata.exports.clearRetainingCapacity();
+    }
+    for (self.uavs.values()) |*metadata| {
+        for (metadata.exports.items) |nlist_index| {
+            const nlist = &self.symtab.items(.nlist)[nlist_index];
+            self.symtab.items(.size)[nlist_index] = 0;
+            _ = self.globals_lookup.remove(nlist.n_strx);
+            // TODO actually remove the export
+            // const sym_index = macho_file.globals.get(nlist.n_strx).?;
+            // const sym = &self.symbols.items[sym_index];
+            // if (sym.file == self.index) {
+            //     sym.* = .{};
+            // }
+            nlist.* = MachO.null_sym;
+        }
+        metadata.exports.clearRetainingCapacity();
+    }
+
+    for (export_indices) |export_index| {
+        const exp = export_index.ptr(zcu);
+
+        const metadata = switch (exp.exported) {
+            .nav => |nav| blk: {
+                _ = try self.getOrCreateMetadataForNav(macho_file, nav);
+                break :blk self.navs.getPtr(nav).?;
+            },
+            .uav => |uav| self.uavs.getPtr(uav) orelse blk: {
+                _ = try self.uavSymbol(macho_file, pt, uav, .none);
+                break :blk self.uavs.getPtr(uav).?;
+            },
+        };
+        const sym_index = metadata.symbol_index;
+        const nlist_idx = self.symbols.items[sym_index].nlist_idx;
+        const nlist = self.symtab.items(.nlist)[nlist_idx];
+
         if (exp.opts.section.unwrap()) |section_name| {
             if (!section_name.eqlSlice("__text", &zcu.intern_pool)) {
                 try zcu.failed_exports.ensureUnusedCapacity(zcu.gpa, 1);
-                zcu.failed_exports.putAssumeCapacityNoClobber(export_idx, try Zcu.ErrorMsg.create(
+                zcu.failed_exports.putAssumeCapacityNoClobber(export_index, try Zcu.ErrorMsg.create(
                     gpa,
                     exp.src,
                     "Unimplemented: ExportOptions.section",
@@ -1274,24 +1283,11 @@ pub fn updateExports(
                 continue;
             }
         }
-        if (exp.opts.linkage == .link_once) {
-            try zcu.failed_exports.putNoClobber(zcu.gpa, export_idx, try Zcu.ErrorMsg.create(
-                gpa,
-                exp.src,
-                "Unimplemented: GlobalLinkage.link_once",
-                .{},
-            ));
-            continue;
-        }
 
         const exp_name = exp.opts.name.toSlice(&zcu.intern_pool);
-        const global_nlist_index = if (metadata.@"export"(self, exp_name)) |exp_index|
-            exp_index.*
-        else blk: {
-            const global_nlist_index = try self.getGlobalSymbol(macho_file, exp_name, null);
-            try metadata.exports.append(gpa, global_nlist_index);
-            break :blk global_nlist_index;
-        };
+        const global_nlist_index = try self.getGlobalSymbol(macho_file, exp_name, null);
+        try metadata.exports.append(gpa, global_nlist_index);
+
         const global_nlist = &self.symtab.items(.nlist)[global_nlist_index];
         const atom_index = self.symtab.items(.atom)[nlist_idx];
         const global_sym = &self.symbols.items[global_nlist_index];
@@ -1303,11 +1299,6 @@ pub fn updateExports(
         global_sym.atom_ref = .{ .index = atom_index, .file = self.index };
 
         switch (exp.opts.linkage) {
-            .internal => {
-                // Symbol should be hidden, or in MachO lingo, private extern.
-                global_nlist.n_type.bits.pext = true;
-                global_sym.visibility = .hidden;
-            },
             .strong => {
                 global_sym.visibility = .global;
             },
@@ -1318,7 +1309,6 @@ pub fn updateExports(
                 global_sym.visibility = .global;
                 global_sym.flags.weak = true;
             },
-            else => unreachable,
         }
     }
 }
@@ -1340,7 +1330,7 @@ fn updateLazySymbol(
     const name_str = blk: {
         const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{f}", .{
             @tagName(lazy_sym.kind),
-            Type.fromInterned(lazy_sym.ty).fmt(pt),
+            Type.fromInterned(lazy_sym.ty).fmt(zcu),
         });
         defer gpa.free(name);
         break :blk try self.addString(gpa, name);
@@ -1389,43 +1379,15 @@ fn updateLazySymbol(
     try macho_file.pwriteAll(code, file_offset);
 }
 
-pub fn updateLineNumber(self: *ZigObject, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) link.Error!void {
+pub fn updateLineNumber(self: *ZigObject, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index, line: u32) link.Error!void {
     if (self.dwarf) |*dwarf| {
         const comp = dwarf.bin_file.comp;
         const diags = &comp.link_diags;
-        dwarf.updateLineNumber(pt.zcu, ti_id) catch |err| switch (err) {
+        dwarf.updateLineNumber(pt.zcu, ti_id, line) catch |err| switch (err) {
             error.OutOfMemory, error.Canceled, error.AlreadyReported => |e| return e,
             else => |e| return diags.fail("failed to update dwarf line numbers: {s}", .{@errorName(e)}),
         };
     }
-}
-
-pub fn deleteExport(
-    self: *ZigObject,
-    macho_file: *MachO,
-    exported: Zcu.Exported,
-    name: InternPool.NullTerminatedString,
-) void {
-    const zcu = macho_file.base.comp.zcu.?;
-
-    const metadata = switch (exported) {
-        .nav => |nav| self.navs.getPtr(nav),
-        .uav => |uav| self.uavs.getPtr(uav),
-    } orelse return;
-    const nlist_index = metadata.@"export"(self, name.toSlice(&zcu.intern_pool)) orelse return;
-
-    log.debug("deleting export '{f}'", .{name.fmt(&zcu.intern_pool)});
-
-    const nlist = &self.symtab.items(.nlist)[nlist_index.*];
-    self.symtab.items(.size)[nlist_index.*] = 0;
-    _ = self.globals_lookup.remove(nlist.n_strx);
-    // TODO actually remove the export
-    // const sym_index = macho_file.globals.get(nlist.n_strx).?;
-    // const sym = &self.symbols.items[sym_index];
-    // if (sym.file == self.index) {
-    //     sym.* = .{};
-    // }
-    nlist.* = MachO.null_sym;
 }
 
 pub fn getGlobalSymbol(self: *ZigObject, macho_file: *MachO, name: []const u8, lib_name: ?[]const u8) !u32 {
@@ -1722,15 +1684,6 @@ const AvMetadata = struct {
     symbol_index: Symbol.Index,
     /// A list of all exports aliases of this Av.
     exports: std.ArrayList(Symbol.Index) = .empty,
-
-    fn @"export"(m: AvMetadata, zig_object: *ZigObject, name: []const u8) ?*u32 {
-        for (m.exports.items) |*exp| {
-            const nlist = zig_object.symtab.items(.nlist)[exp.*];
-            const exp_name = zig_object.strtab.getAssumeExists(nlist.n_strx);
-            if (mem.eql(u8, name, exp_name)) return exp;
-        }
-        return null;
-    }
 };
 
 const LazySymbolMetadata = struct {
@@ -1758,6 +1711,7 @@ const TlvInitializerTable = std.array_hash_map.Auto(Atom.Index, TlvInitializer);
 
 const x86_64 = struct {
     fn writeTrampolineCode(source_addr: u64, target_addr: u64, buf: *[max_trampoline_len]u8) ![]u8 {
+        dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
         const disp = @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr)) - 5;
         var bytes = [_]u8{
             0xe9, 0x00, 0x00, 0x00, 0x00, // jmp rel32
@@ -1772,6 +1726,7 @@ const x86_64 = struct {
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const codegen = @import("../../codegen.zig");
+const dev = @import("../../dev.zig");
 const link = @import("../../link.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;

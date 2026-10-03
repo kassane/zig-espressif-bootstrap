@@ -1,0 +1,41 @@
+#exe {
+-Mroot=main.zig
+#}
+
+#write main.zig {
+const std = @import("std");
+var some_enum: enum { first, second } = .first;
+const io = std.Io.Threaded.global_single_threaded.io();
+pub fn main() !void {
+    try std.Io.File.stdout().writeStreamingAll(io, @tagName(some_enum));
+}
+#}
+#update
+#check stdout {
+first#}
+
+#write main.zig {
+const std = @import("std");
+var some_enum: enum { first, second } = .first;
+const io = std.Io.Threaded.global_single_threaded.io();
+pub fn main() !void {
+    try std.Io.File.stdout().writeStreamingAll(io, @tagName(some_enum));
+}
+#}
+#update {
+no change#}
+#check stdout {
+first#}
+
+#write main.zig {
+const std = @import("std");
+var some_enum: enum { second, first } = .first;
+const io = std.Io.Threaded.global_single_threaded.io();
+pub fn main() !void {
+    try std.Io.File.stdout().writeStreamingAll(io, @tagName(some_enum));
+}
+#}
+#update {
+swap fields#}
+#check stdout {
+first#}

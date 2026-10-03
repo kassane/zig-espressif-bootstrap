@@ -24,12 +24,21 @@ pub fn make(
     const conf = &maker.scanned_config.configuration;
     const conf_step = step_index.ptr(conf);
     const conf_wf = conf_step.extended.get(conf.extra).write_file;
-    const cache_root = graph.local_cache_root;
     const directories = conf_wf.directories.slice;
 
     const open_dir_cache = try arena.alloc(Io.Dir, directories.len);
     var open_dirs_count: u32 = 0;
     defer Io.Dir.closeMany(io, open_dir_cache[0..open_dirs_count]);
+
+    for (directories, open_dir_cache) |conf_dir, *opened_dir| {
+        const src_lazy_path = conf_dir.src_path.get(conf);
+        const src_dir_path = try maker.resolveLazyPath(arena, src_lazy_path, step_index);
+
+        opened_dir.* = src_dir_path.root_dir.handle.openDir(io, src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
+            return step.fail(maker, "failed opening source directory {f}: {t}", .{ src_dir_path, err });
+        };
+        open_dirs_count += 1;
+    }
 
     // Doesn't yet include contents of directories.
     var total_items: usize = conf_wf.embeds.slice.len + conf_wf.copies.slice.len + conf_wf.directories.slice.len;
@@ -55,11 +64,11 @@ pub fn make(
                 man.hash.addBytes(copy.sub_path.slice(conf));
                 const src_lazy_path = copy.src_file.get(conf);
                 const source_path = try maker.resolveLazyPath(arena, src_lazy_path, step_index);
-                _ = try man.addFilePath(source_path, null);
+                _ = try man.addInputPath(source_path, .{});
                 try step.addWatchInput(maker, arena, src_lazy_path);
             }
 
-            for (directories, open_dir_cache) |conf_dir, *opened_dir| {
+            for (directories, open_dir_cache) |conf_dir, src_dir| {
                 const exclude_extensions = conf_dir.exclude_extensions.slice(conf) orelse &.{};
                 const include_extensions = conf_dir.include_extensions.slice(conf);
 
@@ -72,12 +81,6 @@ pub fn make(
                 const src_lazy_path = conf_dir.src_path.get(conf);
                 const need_derived_inputs = try step.addDirectoryWatchInput(maker, src_lazy_path);
                 const src_dir_path = try maker.resolveLazyPath(arena, src_lazy_path, step_index);
-
-                var src_dir = src_dir_path.root_dir.handle.openDir(io, src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
-                    return step.fail(maker, "failed opening source directory {f}: {t}", .{ src_dir_path, err });
-                };
-                opened_dir.* = src_dir;
-                open_dirs_count += 1;
 
                 var it = try src_dir.walk(gpa);
                 defer it.deinit();
@@ -96,7 +99,7 @@ pub fn make(
                         },
                         .file => {
                             const entry_path = try src_dir_path.join(arena, entry.path);
-                            _ = try man.addFilePath(entry_path, null);
+                            _ = try man.addInputPath(entry_path, .{});
                             total_items += 1;
                         },
                         else => continue,
@@ -105,26 +108,18 @@ pub fn make(
             }
 
             if (try step.cacheHit(maker, &man, progress_node)) {
-                const digest = man.final();
-                maker.generatedPath(conf_wf.generated_directory).* = .{
-                    .root_dir = cache_root,
-                    .sub_path = try Io.Dir.path.join(arena, &.{ "o", &digest }),
-                };
+                const digest = man.hitDigestHex();
+                _ = try maker.setGeneratedPath(conf_wf.generated_directory, .local_cache, &.{ "o", &digest });
                 assert(step.result_cached);
                 return;
             }
 
-            const digest = man.final();
-            const out_path: Path = .{
-                .root_dir = cache_root,
-                .sub_path = try Io.Dir.path.join(arena, &.{ "o", &digest }),
-            };
+            const digest = man.missDigestHex();
+            const out_path = try maker.setGeneratedPath(conf_wf.generated_directory, .local_cache, &.{ "o", &digest });
 
             progress_node.setEstimatedTotalItems(total_items);
             try operate(maker, step_index, open_dir_cache, out_path, progress_node);
-            try step.writeManifest(maker, &man);
-
-            maker.generatedPath(conf_wf.generated_directory).* = out_path;
+            try step.finalizeManifest(maker, &man);
         },
         .tmp => {
             step.result_cached = false;
@@ -133,20 +128,17 @@ pub fn make(
             io.random(@ptrCast(&rand_int));
             const hex_digest = std.fmt.hex(rand_int);
 
-            const out_path: Path = .{
-                .root_dir = cache_root,
-                .sub_path = try Io.Dir.path.join(arena, &.{ "tmp", &hex_digest }),
-            };
+            const out_path = try maker.setGeneratedPath(conf_wf.generated_directory, .local_cache, &.{
+                "tmp", &hex_digest,
+            });
 
             try operate(maker, step_index, open_dir_cache, out_path, progress_node);
-
-            maker.generatedPath(conf_wf.generated_directory).* = out_path;
         },
         .mutate => {
             step.result_cached = false;
             const root_path = try maker.resolveLazyPathIndex(arena, conf_wf.mutate_path.value.?, step_index);
             try operate(maker, step_index, open_dir_cache, root_path, progress_node);
-            maker.generatedPath(conf_wf.generated_directory).* = root_path;
+            _ = try maker.setGeneratedPathPath(conf_wf.generated_directory, root_path);
         },
     }
 }

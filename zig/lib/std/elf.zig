@@ -1,56 +1,238 @@
 //! Executable and Linkable Format.
 
+const builtin = @import("builtin");
 const std = @import("std.zig");
 const Io = std.Io;
 const math = std.math;
 const mem = std.mem;
 const assert = std.debug.assert;
 const Endian = std.builtin.Endian;
-const native_endian = @import("builtin").target.cpu.arch.endian();
 
-pub const AT_NULL = 0;
-pub const AT_IGNORE = 1;
-pub const AT_EXECFD = 2;
-pub const AT_PHDR = 3;
-pub const AT_PHENT = 4;
-pub const AT_PHNUM = 5;
-pub const AT_PAGESZ = 6;
-pub const AT_BASE = 7;
-pub const AT_FLAGS = 8;
-pub const AT_ENTRY = 9;
-pub const AT_NOTELF = 10;
-pub const AT_UID = 11;
-pub const AT_EUID = 12;
-pub const AT_GID = 13;
-pub const AT_EGID = 14;
-pub const AT_CLKTCK = 17;
-pub const AT_PLATFORM = 15;
-pub const AT_HWCAP = 16;
-pub const AT_FPUCW = 18;
-pub const AT_DCACHEBSIZE = 19;
-pub const AT_ICACHEBSIZE = 20;
-pub const AT_UCACHEBSIZE = 21;
-pub const AT_IGNOREPPC = 22;
-pub const AT_SECURE = 23;
-pub const AT_BASE_PLATFORM = 24;
-pub const AT_RANDOM = 25;
-pub const AT_HWCAP2 = 26;
-pub const AT_EXECFN = 31;
-pub const AT_SYSINFO = 32;
-pub const AT_SYSINFO_EHDR = 33;
-pub const AT_L1I_CACHESHAPE = 34;
-pub const AT_L1D_CACHESHAPE = 35;
-pub const AT_L2_CACHESHAPE = 36;
-pub const AT_L3_CACHESHAPE = 37;
-pub const AT_L1I_CACHESIZE = 40;
-pub const AT_L1I_CACHEGEOMETRY = 41;
-pub const AT_L1D_CACHESIZE = 42;
-pub const AT_L1D_CACHEGEOMETRY = 43;
-pub const AT_L2_CACHESIZE = 44;
-pub const AT_L2_CACHEGEOMETRY = 45;
-pub const AT_L3_CACHESIZE = 46;
-pub const AT_L3_CACHEGEOMETRY = 47;
-pub const AT_MINSIGSTKSZ = 51;
+const native_endian = builtin.target.cpu.arch.endian();
+const native_os = builtin.target.os.tag;
+
+pub const AT = switch (native_os) {
+    .dragonfly => struct {
+        pub const NULL = 0;
+        pub const IGNORE = 1;
+        pub const EXECFD = 2;
+        pub const PHDR = 3;
+        pub const PHENT = 4;
+        pub const PHNUM = 5;
+        pub const PAGESZ = 6;
+        pub const BASE = 7;
+        pub const FLAGS = 8;
+        pub const ENTRY = 9;
+        pub const NOTELF = 10;
+        pub const UID = 11;
+        pub const EUID = 12;
+        pub const GID = 13;
+        pub const EGID = 14;
+        pub const EXECPATH = 15;
+        pub const CANARY = 16;
+        pub const CANARYLEN = 17;
+        pub const OSRELDATE = 18;
+        pub const NCPUS = 19;
+        pub const PAGESIZES = 20;
+        pub const PAGESIZESLEN = 21;
+        pub const STACKPROT = 23;
+    },
+    .freebsd => struct {
+        pub const NULL = 0;
+        pub const IGNORE = 1;
+        pub const EXECFD = 2;
+        pub const PHDR = 3;
+        pub const PHENT = 4;
+        pub const PHNUM = 5;
+        pub const PAGESZ = 6;
+        pub const BASE = 7;
+        pub const FLAGS = 8;
+        pub const ENTRY = 9;
+        pub const NOTELF = 10;
+        pub const UID = 11;
+        pub const EUID = 12;
+        pub const GID = 13;
+        pub const EGID = 14;
+        pub const EXECPATH = 15;
+        pub const CANARY = 16;
+        pub const CANARYLEN = 17;
+        pub const OSRELDATE = 18;
+        pub const NCPUS = 19;
+        pub const PAGESIZES = 20;
+        pub const PAGESIZESLEN = 21;
+        pub const TIMEKEEP = 22;
+        pub const STACKPROT = 23;
+        pub const EHDRFLAGS = 24;
+        pub const HWCAP = 25;
+        pub const HWCAP2 = 26;
+        pub const BSDFLAGS = 27;
+        pub const ARGC = 28;
+        pub const ARGV = 29;
+        pub const ENVC = 30;
+        pub const ENVV = 31;
+        pub const PS_STRINGS = 32;
+        pub const FXRNG = 33;
+        pub const KPRELOAD = 34;
+        pub const USRSTACKBASE = 35;
+        pub const USRSTACKLIM = 36;
+        pub const CHERI_STATS = 37;
+        pub const HWCAP3 = 38;
+        pub const HWCAP4 = 39;
+    },
+    .illumos => struct {
+        pub const NULL = 0;
+        pub const IGNORE = 1;
+        pub const EXECFD = 2;
+        pub const PHDR = 3;
+        pub const PHENT = 4;
+        pub const PHNUM = 5;
+        pub const PAGESZ = 6;
+        pub const BASE = 7;
+        pub const FLAGS = 8;
+        pub const ENTRY = 9;
+        pub const NOTELF = 10;
+        pub const UID = 11;
+        pub const EUID = 12;
+        pub const GID = 13;
+        pub const EGID = 14;
+        pub const EXECPATH = 15;
+        pub const CANARY = 16;
+        pub const CANARYLEN = 17;
+        pub const OSRELDATE = 18;
+        pub const NCPUS = 19;
+        pub const PAGESIZES = 20;
+        pub const PAGESIZESLEN = 21;
+        pub const TIMEKEEP = 22;
+        pub const STACKPROT = 23;
+    },
+    .linux => struct {
+        pub const NULL = 0;
+        pub const IGNORE = 1;
+        pub const EXECFD = 2;
+        pub const PHDR = 3;
+        pub const PHENT = 4;
+        pub const PHNUM = 5;
+        pub const PAGESZ = 6;
+        pub const BASE = 7;
+        pub const FLAGS = 8;
+        pub const ENTRY = 9;
+        pub const NOTELF = 10;
+        pub const UID = 11;
+        pub const EUID = 12;
+        pub const GID = 13;
+        pub const EGID = 14;
+        pub const CLKTCK = 17;
+        pub const PLATFORM = 15;
+        pub const HWCAP = 16;
+        pub const FPUCW = 18;
+        pub const DCACHEBSIZE = 19;
+        pub const ICACHEBSIZE = 20;
+        pub const UCACHEBSIZE = 21;
+        pub const IGNOREPPC = 22;
+        pub const SECURE = 23;
+        pub const BASE_PLATFORM = 24;
+        pub const RANDOM = 25;
+        pub const HWCAP2 = 26;
+        pub const RSEQ_FEATURE_SIZE = 27;
+        pub const RSEQ_ALIGN = 28;
+        pub const HWCAP3 = 29;
+        pub const HWCAP4 = 30;
+        pub const EXECFN = 31;
+        pub const SYSINFO = 32;
+        pub const SYSINFO_EHDR = 33;
+        pub const L1I_CACHESHAPE = 34;
+        pub const L1D_CACHESHAPE = 35;
+        pub const L2_CACHESHAPE = 36;
+        pub const L3_CACHESHAPE = 37;
+        pub const L1I_CACHESIZE = 40;
+        pub const L1I_CACHEGEOMETRY = 41;
+        pub const L1D_CACHESIZE = 42;
+        pub const L1D_CACHEGEOMETRY = 43;
+        pub const L2_CACHESIZE = 44;
+        pub const L2_CACHEGEOMETRY = 45;
+        pub const L3_CACHESIZE = 46;
+        pub const L3_CACHEGEOMETRY = 47;
+        pub const MINSIGSTKSZ = 51;
+    },
+    .netbsd => struct {
+        pub const NULL = 0;
+        pub const IGNORE = 1;
+        pub const EXECFD = 2;
+        pub const PHDR = 3;
+        pub const PHENT = 4;
+        pub const PHNUM = 5;
+        pub const PAGESZ = 6;
+        pub const BASE = 7;
+        pub const FLAGS = 8;
+        pub const ENTRY = 9;
+        pub const MIPS_NOTELF = 10;
+        pub const DCACHEBSIZE = 10;
+        pub const ICACHEBSIZE = 11;
+        pub const UCACHEBSIZE = 12;
+        pub const STACKBASE = 13;
+        pub const EUID = 2000;
+        pub const RUID = 2001;
+        pub const EGID = 2002;
+        pub const RGID = 2003;
+        pub const SUN_LDELF = 2004;
+        pub const SUN_LDSHDR = 2005;
+        pub const SUN_LDNAME = 2006;
+        pub const SUN_LPGSIZE = 2007;
+        pub const SUN_PLATFORM = 2008;
+        pub const SUN_HWCAP = 2009;
+        pub const SUN_IFLUSH = 2010;
+        pub const SUN_CPU = 2011;
+        pub const SUN_EMUL_ENTRY = 2012;
+        pub const SUN_EMUL_EXECFD = 2013;
+        pub const SUN_EXECNAME = 2014;
+    },
+    .openbsd => struct {
+        pub const NULL = 0;
+        pub const IGNORE = 1;
+        pub const PAGESZ = 6;
+        pub const HWCAP = 25;
+        pub const HWCAP2 = 26;
+    },
+    .serenity => struct {
+        pub const NULL = 0;
+        pub const IGNORE = 1;
+        pub const EXECFD = 2;
+        pub const PHDR = 3;
+        pub const PHENT = 4;
+        pub const PHNUM = 5;
+        pub const PAGESZ = 6;
+        pub const BASE = 7;
+        pub const FLAGS = 8;
+        pub const ENTRY = 9;
+        pub const NOTELF = 10;
+        pub const UID = 11;
+        pub const EUID = 12;
+        pub const GID = 13;
+        pub const PLATFORM = 15;
+        pub const HWCAP = 16;
+        pub const CLKTCK = 17;
+        pub const SECURE = 23;
+        pub const BASE_PLATFORM = 24;
+        pub const RANDOM = 25;
+        pub const HWCAP2 = 26;
+        pub const EXECFN = 31;
+        pub const EXE_BASE = 32;
+        pub const EXE_SIZE = 33;
+    },
+    else => struct {
+        pub const NULL = 0;
+        pub const IGNORE = 1;
+        pub const EXECFD = 2;
+        pub const PHDR = 3;
+        pub const PHENT = 4;
+        pub const PHNUM = 5;
+        pub const PAGESZ = 6;
+        pub const BASE = 7;
+        pub const FLAGS = 8;
+        pub const ENTRY = 9;
+        pub const NOTELF = 10;
+    },
+};
 
 pub const DT_NULL = 0;
 pub const DT_NEEDED = 1;
@@ -1383,6 +1565,7 @@ pub const Verdaux = extern struct {
     name: Word,
     next: Word,
 };
+/// Deprecated, use `std.elf.Verneed`
 pub const Elf32_Verneed = extern struct {
     vn_version: Half,
     vn_cnt: Half,
@@ -1390,12 +1573,20 @@ pub const Elf32_Verneed = extern struct {
     vn_aux: Word,
     vn_next: Word,
 };
+/// Deprecated, use `std.elf.Verneed`
 pub const Elf64_Verneed = extern struct {
     vn_version: Half,
     vn_cnt: Half,
     vn_file: Word,
     vn_aux: Word,
     vn_next: Word,
+};
+pub const Verneed = extern struct {
+    version: Half,
+    cnt: Half,
+    file: Word,
+    aux: Word,
+    next: Word,
 };
 pub const Vernaux = extern struct {
     hash: Word,
@@ -3346,13 +3537,11 @@ pub const gnu_hash = struct {
 
     /// Calculate the hash value for a name
     pub fn calculate(name: []const u8) u32 {
-        var hash: u32 = 5381;
-
+        var h: u32 = 5381;
         for (name) |char| {
-            hash = (hash << 5) +% hash +% char;
+            h = (h << 5) +% h +% char;
         }
-
-        return hash;
+        return h;
     }
 
     test calculate {
@@ -3362,6 +3551,52 @@ pub const gnu_hash = struct {
         try std.testing.expectEqual(0xbac212a0, calculate("syscall"));
         try std.testing.expectEqual(0x8ae9f18e, calculate("flapenguin.me"));
     }
+};
+
+/// Things for the `SHT.HASH` section type.
+///
+/// Resources:
+/// * https://refspecs.linuxfoundation.org/elf/gabi4+/ch5.dynamic.html#hash
+/// * https://flapenguin.me/elf-dt-hash
+/// * https://github.com/IBM/s390x-abi
+pub const hash = struct {
+    pub fn calculate(name: []const u8) u32 {
+        var h: u32 = 0;
+        for (name) |c| {
+            h = (h << 4) +% c;
+            const g = h & 0xF000_0000;
+            h = (h ^ (g >> 24)) & ~g;
+        }
+        return h;
+    }
+
+    /// The header of a `SHT.HASH` section on most architectures. Immediately followed by:
+    /// * `buckets: [nbucket]u32`
+    /// * `chains: [nchain]u32`
+    ///
+    /// The bucket for a symbol named `name` is `std.elf.hash.calculate(name) % nbuckets`.
+    ///
+    /// `buckets[b]` is the index of the first symbol in bucket `b`. If bucket `b` is empty then the
+    /// value is 0 (`STN_UNDEF`).
+    ///
+    /// `chain[sym_index]` is the index of the next symbol in the same bucket as `sym_index`. If
+    /// `sym_index` is the last symbol in its bucket then the value is 0 (`STN_UNDEF`).
+    ///
+    /// See also `Header64`.
+    pub const Header32 = extern struct {
+        nbucket: u32,
+        nchain: u32,
+    };
+
+    /// The header of a `SHT.HASH` section on alpha and s390x. Immediately followed by:
+    /// * `buckets: [nbucket]u64`
+    /// * `chains: [nchain]u64`
+    ///
+    /// See also `Header32`.
+    pub const Header64 = extern struct {
+        nbucket: u64,
+        nchain: u64,
+    };
 };
 
 pub const EhdrFlags = packed union(Word) {

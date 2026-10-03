@@ -261,6 +261,12 @@
 #define zig_no_builtin
 #endif
 
+#if zig_has_attribute(patchable_function_entry)
+#define zig_patchable_function_entry(count) __attribute__((patchable_function_entry(count)))
+#else
+#define zig_patchable_function_entry(count) zig_patchable_function_entry_unavailable
+#endif
+
 #if zig_has_attribute(aligned) || defined(zig_tinyc)
 #define zig_under_align(alignment) __attribute__((aligned(alignment)))
 #elif defined(zig_msvc)
@@ -6750,19 +6756,7 @@ static inline void* zig_e_zig_windows_peb(void) {
 
 #endif
 
-#if defined(zig_loongarch)
-
-static inline void zig_e_zig_loongarch_cpucfg(uint32_t word, uint32_t* result) zig_mangled(zig_e_zig_loongarch_cpucfg, "zig_loongarch_cpucfg");
-
-static inline void zig_e_zig_loongarch_cpucfg(uint32_t word, uint32_t* result) {
-#if defined(zig_gnuc_asm)
-    __asm__("cpucfg %[result], %[word]" : [result] "=r" (*result) : [word] "r" (word));
-#else
-    *result = 0;
-#endif
-}
-
-#elif defined(zig_x86) && !defined(zig_x86_16)
+#if defined(zig_x86) && !defined(zig_x86_16)
 
 static inline void zig_e_zig_x86_cpuid(uint32_t leaf_id, uint32_t subid, uint32_t* eax, uint32_t* ebx, uint32_t* ecx, uint32_t* edx) zig_mangled(zig_e_zig_x86_cpuid, "zig_x86_cpuid");
 static inline uint32_t zig_e_zig_x86_get_xcr0(void) zig_mangled(zig_e_zig_x86_get_xcr0, "zig_x86_get_xcr0");
@@ -6794,10 +6788,7 @@ static inline uint32_t zig_e_zig_x86_get_xcr0(void) {
     __asm__("xgetbv" : "=a" (eax), "=d" (edx) : "c" (0));
     return eax;
 #else
-    *eax = 0;
-    *ebx = 0;
-    *ecx = 0;
-    *edx = 0;
+    return 0;
 #endif
 }
 

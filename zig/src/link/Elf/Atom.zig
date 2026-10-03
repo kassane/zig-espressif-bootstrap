@@ -963,7 +963,7 @@ const x86_64 = struct {
         code: ?[]const u8,
         it: *RelocsIterator,
     ) !void {
-        dev.check(.x86_64_backend);
+        dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
         const t = &elf_file.base.comp.root_mod.resolved_target.result;
         const is_static = elf_file.base.isStatic();
         const is_dyn_lib = elf_file.isEffectivelyDynLib();
@@ -1077,7 +1077,7 @@ const x86_64 = struct {
         it: *RelocsIterator,
         code: []u8,
     ) !void {
-        dev.check(.x86_64_backend);
+        dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
         const t = &elf_file.base.comp.root_mod.resolved_target.result;
         const diags = &elf_file.base.comp.link_diags;
         const r_type: elf.R_X86_64 = @fromBackingInt(@intCast(rel.r_type()));
@@ -1218,7 +1218,7 @@ const x86_64 = struct {
         args: ResolveArgs,
         code: []u8,
     ) !void {
-        dev.check(.x86_64_backend);
+        dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
         const r_type: elf.R_X86_64 = @fromBackingInt(@intCast(rel.r_type()));
 
         _, const A, const S, const GOT, _, _, const DTP = args;
@@ -1258,7 +1258,7 @@ const x86_64 = struct {
     }
 
     fn relaxGotpcrelx(code: []u8, t: *const std.Target) !void {
-        dev.check(.x86_64_backend);
+        dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         const inst: Instruction = switch (old_inst.encoding.mnemonic) {
             .call => try .new(old_inst.prefix, .call, &.{
@@ -1277,7 +1277,7 @@ const x86_64 = struct {
     }
 
     fn relaxRexGotpcrelx(code: []u8, t: *const std.Target) !void {
-        dev.check(.x86_64_backend);
+        dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
@@ -1297,7 +1297,7 @@ const x86_64 = struct {
         code: []u8,
         r_offset: usize,
     ) !void {
-        dev.check(.x86_64_backend);
+        dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
         assert(rels.len == 2);
         const diags = &elf_file.base.comp.link_diags;
         const rel: elf.R_X86_64 = @fromBackingInt(@intCast(rels[1].r_type()));
@@ -1337,7 +1337,7 @@ const x86_64 = struct {
         code: []u8,
         r_offset: usize,
     ) !void {
-        dev.check(.x86_64_backend);
+        dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
         assert(rels.len == 2);
         const diags = &elf_file.base.comp.link_diags;
         const rel: elf.R_X86_64 = @fromBackingInt(@intCast(rels[1].r_type()));
@@ -1384,7 +1384,7 @@ const x86_64 = struct {
     }
 
     fn canRelaxGotTpOff(code: []const u8, t: *const std.Target) bool {
-        dev.check(.x86_64_backend);
+        dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
         const old_inst = disassemble(code) orelse return false;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
@@ -1402,7 +1402,7 @@ const x86_64 = struct {
     }
 
     fn relaxGotTpOff(code: []u8, t: *const std.Target) void {
-        dev.check(.x86_64_backend);
+        dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
         const old_inst = disassemble(code) orelse unreachable;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
@@ -1419,7 +1419,7 @@ const x86_64 = struct {
     }
 
     fn relaxGotPcTlsDesc(code: []u8, target: *const std.Target) !void {
-        dev.check(.x86_64_backend);
+        dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         switch (old_inst.encoding.mnemonic) {
             .lea => {
@@ -1443,7 +1443,7 @@ const x86_64 = struct {
         code: []u8,
         r_offset: usize,
     ) !void {
-        dev.check(.x86_64_backend);
+        dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
         assert(rels.len == 2);
         const diags = &elf_file.base.comp.link_diags;
         const rel: elf.R_X86_64 = @fromBackingInt(@intCast(rels[1].r_type()));
@@ -1510,6 +1510,7 @@ const aarch64 = struct {
     ) !void {
         _ = code;
         _ = it;
+        dev.checkAny(&.{ .llvm_backend, .aarch64_backend });
 
         const r_type: elf.R_AARCH64 = @fromBackingInt(@intCast(rel.r_type()));
         const is_dyn_lib = elf_file.isEffectivelyDynLib();
@@ -1587,6 +1588,7 @@ const aarch64 = struct {
         code_buffer: []u8,
     ) (error{ UnexpectedRemainder, DivisionByZero } || RelocError)!void {
         _ = it;
+        dev.checkAny(&.{ .llvm_backend, .aarch64_backend });
 
         const diags = &elf_file.base.comp.link_diags;
         const r_type: elf.R_AARCH64 = @fromBackingInt(@intCast(rel.r_type()));
@@ -1760,6 +1762,7 @@ const aarch64 = struct {
         args: ResolveArgs,
         code: []u8,
     ) !void {
+        dev.checkAny(&.{ .llvm_backend, .aarch64_backend });
         const r_type: elf.R_AARCH64 = @fromBackingInt(@intCast(rel.r_type()));
 
         _, const A, const S, _, _, _, _ = args;
@@ -1790,6 +1793,7 @@ const riscv = struct {
     ) !void {
         _ = code;
         _ = it;
+        dev.checkAny(&.{ .llvm_backend, .riscv64_backend });
 
         const r_type: elf.R_RISCV = @fromBackingInt(@intCast(rel.r_type()));
 
@@ -1833,6 +1837,7 @@ const riscv = struct {
         it: *RelocsIterator,
         code: []u8,
     ) !void {
+        dev.checkAny(&.{ .llvm_backend, .riscv64_backend });
         const diags = &elf_file.base.comp.link_diags;
         const r_type: elf.R_RISCV = @fromBackingInt(@intCast(rel.r_type()));
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
@@ -1969,6 +1974,7 @@ const riscv = struct {
         args: ResolveArgs,
         code: []u8,
     ) !void {
+        dev.checkAny(&.{ .llvm_backend, .riscv64_backend });
         const r_type: elf.R_RISCV = @fromBackingInt(@intCast(rel.r_type()));
 
         _, const A, const S, const GOT, _, _, const DTP = args;

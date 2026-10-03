@@ -1,0 +1,32 @@
+#exe {
+-Mroot=main.zig
+#}
+
+#write main.zig {
+fn getEnum(s: @Struct(.auto, null, &.{"field"}, &.{struct { tag: Enum }}, &.{.{}})) Enum {
+    return s.field.tag;
+}
+pub fn main(init: std.process.Init) !void {
+    try std.Io.File.stdout().writeStreamingAll(init.io, @tagName(getEnum(.{ .field = .{ .tag = .foo } })));
+}
+const Enum = enum { foo, bar };
+const std = @import("std");
+#}
+#update
+#check stdout {
+foo#}
+
+#write main.zig {
+fn getEnum(s: @Struct(.auto, null, &.{"field"}, &.{Enum}, &.{.{}})) Enum {
+    return s.field;
+}
+pub fn main(init: std.process.Init) !void {
+    try std.Io.File.stdout().writeStreamingAll(init.io, @tagName(getEnum(.{ .field = .bar })));
+}
+const Enum = enum { foo, bar };
+const std = @import("std");
+#}
+#update {
+change field type#}
+#check stdout {
+bar#}

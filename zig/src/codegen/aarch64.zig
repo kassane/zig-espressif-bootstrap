@@ -8,6 +8,8 @@ pub const Select = @import("aarch64/Select.zig");
 pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
     return comptime &.initMany(&.{
         .expand_bit_cast_safe,
+        .expand_array_splat,
+        .expand_array_to_vector,
     });
 }
 
@@ -74,7 +76,7 @@ pub fn generate(
     const air_args = for (air_main_body, 0..) |air_inst_index, body_index| {
         if (air.instructions.items(.tag)[@backingInt(air_inst_index)] != .arg) break air_main_body[0..body_index];
         const arg = air.instructions.items(.data)[@backingInt(air_inst_index)].arg;
-        const param_ty = arg.ty.toType();
+        const param_ty = arg.ty;
         const param_vi = param_vi: {
             if (arg.zir_param_index >= named_params_len) {
                 assert(func_type.is_var_args);

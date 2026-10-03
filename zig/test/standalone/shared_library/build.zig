@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
-    const optimize: std.builtin.OptimizeMode = .Debug;
+    const optimize: std.builtin.Optimize = .debug;
     const target = b.standardTargetOptions(.{});
 
     const exe_names: []const []const u8 = &.{
@@ -46,6 +46,7 @@ pub fn build(b: *std.Build) void {
         if (no_llvm and target.result.cpu.arch == .aarch64) continue; // TODO
         if (no_llvm and target.result.cpu.arch == .loongarch64) continue; // TODO
         if (no_llvm and target.result.cpu.arch == .powerpc64le) continue; // TODO
+        if (no_llvm and target.result.cpu.arch == .riscv64) continue; // TODO
         if (no_llvm and target.result.cpu.arch == .s390x) continue; // TODO
 
         const lib = b.addLibrary(.{

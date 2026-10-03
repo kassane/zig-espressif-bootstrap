@@ -270,7 +270,10 @@ pub fn make(
             .compile => break :t null,
             .run => {
                 const run_flags: Configuration.Step.Run.Flags = @bitCast(flags);
-                if (run_flags.stdio == .zig_test) break :t null;
+                switch (run_flags.stdio) {
+                    .infer_from_args, .inherit, .check => {},
+                    .zig_test, .protocol => break :t null,
+                }
             },
             else => {},
         }
@@ -307,6 +310,31 @@ pub fn make(
             s.oomWrap(s.result_error_msgs.append(arena, msg));
         } else |_| s.result_oom = true;
     }
+}
+
+pub fn deinit(step: *Step, gpa: Allocator, io: Io) void {
+    step.clearResultStderr(gpa);
+    step.clearFailedCommand(gpa);
+    step.clearErrorBundle(gpa);
+    step.inputs.deinit(gpa);
+    switch (step.extended) {
+        .check_file,
+        .config_header,
+        .fail,
+        .find_program,
+        .install_artifact,
+        .install_dir,
+        .install_file,
+        .obj_copy,
+        .options,
+        .top_level,
+        .translate_c,
+        .update_source_files,
+        .write_file,
+        => {},
+        inline .compile, .fmt, .run => |*extended| extended.deinit(gpa, io),
+    }
+    step.* = undefined;
 }
 
 /// Prepares the step for being re-evaluated.
@@ -428,6 +456,20 @@ pub const ZigProcess = struct {
         zp.multi_reader.deinit();
         zp.* = undefined;
     }
+
+    pub fn destroy(zp: *ZigProcess, gpa: Allocator, io: Io) void {
+        zp.deinit(io);
+        gpa.destroy(zp);
+    }
+};
+
+pub const OptCacheDigest = struct {
+    bin: ?Cache.BinDigest,
+
+    pub fn toHex(ocd: *const OptCacheDigest) ?Cache.HexDigest {
+        const bin = ocd.bin orelse return null;
+        return Cache.binToHex(bin);
+    }
 };
 
 /// Assumes that argv contains `--listen=-` and that the process being spawned
@@ -440,7 +482,7 @@ pub fn evalZigProcess(
     argv: []const []const u8,
     prog_node: std.Progress.Node,
     watch: bool,
-) (Step.ExtendedMakeError || error{NeedCompileErrorCheck})!?Path {
+) (Step.ExtendedMakeError || error{NeedCompileErrorCheck})!OptCacheDigest {
     const s = maker.stepByIndex(step_index);
     const gpa = maker.gpa;
     const graph = maker.graph;
@@ -455,9 +497,8 @@ pub fn evalZigProcess(
         zp.progress_ipc_index = null;
         var exited = false;
         defer if (exited) {
-            s.extended.compile.zig_process = null;
-            zp.deinit(io);
-            gpa.destroy(zp);
+            s.clearZigProcess();
+            zp.destroy(gpa, io);
         } else zp.saveState(prog_node);
         const result = zigProcessUpdate(step_index, maker, zp, watch) catch |err| switch (err) {
             error.BrokenPipe, error.EndOfStream => |reason| {
@@ -474,7 +515,7 @@ pub fn evalZigProcess(
         if (s.result_error_bundle.errorMessageCount() > 0)
             return s.fail(maker, "{d} compilation errors", .{s.result_error_bundle.errorMessageCount()});
 
-        if (s.result_error_msgs.items.len > 0 and result == null) {
+        if (s.result_error_msgs.items.len > 0 and result.bin == null) {
             // Crash detected.
             const term = zp.child.wait(io) catch |e| {
                 return s.fail(maker, "unable to wait for {s}: {t}", .{ argv[0], e });
@@ -549,7 +590,7 @@ pub fn evalZigProcess(
     return result;
 }
 
-fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *ZigProcess, watch: bool) !?Path {
+fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *ZigProcess, watch: bool) !OptCacheDigest {
     const s = maker.stepByIndex(step_index);
     const gpa = maker.gpa;
     const graph = maker.graph;
@@ -561,7 +602,7 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
     try sendMessage(io, zp.child.stdin.?, .update);
     if (!watch) try sendMessage(io, zp.child.stdin.?, .exit);
 
-    var result: ?Path = null;
+    var result: OptCacheDigest = .{ .bin = null };
     var eos_err: error{EndOfStream}!void = {};
 
     var client: std.zig.Client = .{
@@ -583,6 +624,7 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
             else => |e| return e,
         };
         const body = client.in.take(header.bytes_len) catch unreachable;
+        var body_r: std.Io.Reader = .fixed(body);
 
         switch (header.tag) {
             .zig_version => {
@@ -594,20 +636,22 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                     );
                 }
             },
+            .config => switch (s.extended) {
+                else => unreachable,
+                .compile => |*compile| compile.config =
+                    body_r.takeStruct(std.zig.Server.Message.Config, .little) catch unreachable,
+                .translate_c => {},
+            },
             .error_bundle => {
                 s.result_error_bundle = try std.zig.Server.allocErrorBundle(gpa, body);
                 // This message indicates the end of the update.
                 if (watch) break;
             },
             .emit_digest => {
-                const EmitDigest = std.zig.Server.Message.EmitDigest;
-                const emit_digest: *align(1) const EmitDigest = @ptrCast(body);
+                const emit_digest = body_r.takeStruct(std.zig.Server.Message.EmitDigest, .little) catch unreachable;
+                const digest = body_r.takeArray(Cache.bin_digest_len) catch unreachable;
                 s.result_cached = emit_digest.flags.cache_hit;
-                const digest = body[@sizeOf(EmitDigest)..][0..Cache.bin_digest_len];
-                result = .{
-                    .root_dir = graph.local_cache_root,
-                    .sub_path = try arena.dupe(u8, "o" ++ Dir.path.sep_str ++ Cache.binToHex(digest.*)),
-                };
+                result = .{ .bin = digest.* };
             },
             .file_system_inputs => {
                 clearWatchInputs(s, maker);
@@ -656,12 +700,18 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                             };
                             try addWatchInputFromPath(s, maker, path, Dir.path.basename(sub_path));
                         },
+                        .build_root => {
+                            const path: Path = .{
+                                .root_dir = graph.build_root_directory,
+                                .sub_path = sub_path_dirname,
+                            };
+                            try addWatchInputFromPath(s, maker, path, Dir.path.basename(sub_path));
+                        },
                     }
                 }
             },
             .time_report => if (maker.web_server) |ws| {
-                const TimeReport = std.zig.Server.Message.TimeReport;
-                const tr: *align(1) const TimeReport = @ptrCast(body[0..@sizeOf(TimeReport)]);
+                const tr = body_r.takeStruct(std.zig.Server.Message.TimeReport, .little) catch unreachable;
                 ws.updateTimeReportCompile(.{
                     .compile_step = step_index,
                     .use_llvm = tr.flags.use_llvm,
@@ -670,7 +720,7 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                     .llvm_pass_timings_len = tr.llvm_pass_timings_len,
                     .files_len = tr.files_len,
                     .decls_len = tr.decls_len,
-                    .trailing = body[@sizeOf(TimeReport)..],
+                    .trailing = body_r.buffered(),
                 });
             },
             else => {}, // ignore other messages
@@ -696,6 +746,13 @@ pub fn getZigProcess(s: *Step) ?*ZigProcess {
     };
 }
 
+fn clearZigProcess(s: *Step) void {
+    (switch (s.extended) {
+        .compile => |*compile| &compile.zig_process,
+        else => return,
+    }).* = null;
+}
+
 fn sendMessage(io: Io, file: Io.File, tag: std.zig.Client.Message.Tag) !void {
     const header: std.zig.Client.Message.Header = .{
         .tag = tag,
@@ -719,53 +776,48 @@ pub fn handleChildProcessTerm(s: *Step, maker: *Maker, term: std.process.Child.T
 /// Prefer `cacheHitWatched` unless you already added watch inputs
 /// separately from using the cache system.
 pub fn cacheHit(s: *Step, maker: *Maker, man: *Cache.Manifest, parent_progress_node: std.Progress.Node) !bool {
-    s.result_cached = man.hit(parent_progress_node) catch |err| return failWithCacheError(s, maker, man, err);
-    return s.result_cached;
+    var diag: Cache.Manifest.CheckDiagnostic = undefined;
+    const status = man.check(&diag, parent_progress_node) catch |err|
+        return failWithCacheError(s, maker, man, &diag, err);
+    const hit = .hit == status; // TODO cache miss reason in the build summary
+    s.result_cached = hit;
+    return hit;
 }
 
 /// Clears previous watch inputs, if any, and then populates watch inputs from
 /// the full set of files picked up by the cache manifest.
 ///
-/// Must be accompanied with `writeManifestAndWatch`.
+/// Must be accompanied with `finalizeManifestAndWatch`.
 pub fn cacheHitWatched(s: *Step, maker: *Maker, man: *Cache.Manifest, parent_progress_node: std.Progress.Node) !bool {
-    const is_hit = man.hit(parent_progress_node) catch |err| return failWithCacheError(s, maker, man, err);
-    s.result_cached = is_hit;
+    var diag: Cache.Manifest.CheckDiagnostic = undefined;
+    const status = man.check(&diag, parent_progress_node) catch |err|
+        return failWithCacheError(s, maker, man, &diag, err);
+    const hit = .hit == status; // TODO cache miss reason in the build summary
+    s.result_cached = hit;
     // The above call to hit() populates the manifest with files, so in case of
     // a hit, we need to populate watch inputs.
-    if (is_hit) try setWatchInputsFromManifest(s, maker, man);
-    return is_hit;
+    if (hit) try setWatchInputsFromManifest(s, maker, man);
+    return hit;
 }
 
 fn failWithCacheError(
     s: *Step,
     maker: *Maker,
     man: *const Cache.Manifest,
-    err: Cache.Manifest.HitError,
+    diag: *const Cache.Manifest.CheckDiagnostic,
+    err: Cache.Manifest.CheckError,
 ) error{ OutOfMemory, Canceled, MakeFailed } {
     switch (err) {
-        error.CacheCheckFailed => switch (man.diagnostic) {
-            .none => unreachable,
-            .manifest_create, .manifest_read, .manifest_lock => |e| return s.fail(maker, "failed checking cache: {t} {t}", .{
-                man.diagnostic, e,
-            }),
-            .file_open, .file_stat, .file_read, .file_hash => |op| {
-                const pp = man.files.keys()[op.file_index].prefixed_path;
-                const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
-                return s.fail(maker, "failed checking cache: {s}{c}{s} {t} {t}", .{
-                    prefix, Dir.path.sep, pp.sub_path, man.diagnostic, op.err,
-                });
-            },
-        },
+        error.CacheCheckFailed => return s.fail(maker, "checking cache failed: {f}", .{diag.fmt(man)}),
         error.OutOfMemory, error.Canceled => |e| return e,
-        error.InvalidFormat => return s.fail(maker, "failed checking cache: invalid manifest file format", .{}),
     }
 }
 
-/// Prefer `writeManifestAndWatch` unless you already added watch inputs
+/// Prefer `finalizeManifestAndWatch` unless you already added watch inputs
 /// separately from using the cache system.
-pub fn writeManifest(s: *Step, maker: *Maker, man: *Cache.Manifest) !void {
+pub fn finalizeManifest(s: *Step, maker: *Maker, man: *Cache.Manifest) !void {
     if (s.test_results.isSuccess()) {
-        man.writeManifest() catch |err| switch (err) {
+        man.finalize() catch |err| switch (err) {
             error.Canceled => |e| return e,
             else => |e| try s.addError(maker, "failed writing cache manifest: {t}", .{e}),
         };
@@ -776,28 +828,36 @@ pub fn writeManifest(s: *Step, maker: *Maker, man: *Cache.Manifest) !void {
 /// the full set of files picked up by the cache manifest.
 ///
 /// Must be accompanied with `cacheHitWatched`.
-pub fn writeManifestAndWatch(s: *Step, maker: *Maker, man: *Cache.Manifest) !void {
-    try writeManifest(s, maker, man);
+pub fn finalizeManifestAndWatch(s: *Step, maker: *Maker, man: *Cache.Manifest) !void {
+    try finalizeManifest(s, maker, man);
     try setWatchInputsFromManifest(s, maker, man);
 }
 
-fn setWatchInputsFromManifest(s: *Step, maker: *Maker, man: *Cache.Manifest) !void {
+pub fn setWatchInputsFromManifest(s: *Step, maker: *Maker, man: *Cache.Manifest) !void {
+    return setWatchInputsFromManifestFiles(s, maker, &man.borrowFiles(), man.cache.prefixes());
+}
+
+pub fn setWatchInputsFromManifestFiles(
+    s: *Step,
+    maker: *Maker,
+    scf: *const Cache.Manifest.SelfContainedFiles,
+    prefixes: []const Cache.Directory,
+) !void {
     const graph = maker.graph;
     const arena = graph.arena; // TODO don't leak into process arena
-    const prefixes = man.cache.prefixes();
     clearWatchInputs(s, maker);
-    for (man.files.keys()) |file| {
+    for (scf.files.keys()) |file_offset| {
         // The file path data is freed when the cache manifest is cleaned up at the end of `make`.
-        const sub_path = try arena.dupe(u8, file.prefixed_path.sub_path);
+        const sub_path = try arena.dupe(u8, scf.path(file_offset));
         try addWatchInputFromPath(s, maker, .{
-            .root_dir = prefixes[file.prefixed_path.prefix],
+            .root_dir = prefixes[file_offset.get(scf.contents.items).flags.prefix],
             .sub_path = Dir.path.dirname(sub_path) orelse "",
         }, Dir.path.basename(sub_path));
     }
 }
 
 /// For steps that have a single input that never changes when re-running `make`.
-pub fn singleUnchangingWatchInput(step: *Step, maker: *Maker, arena: Allocator, lazy_path: LazyPath) Allocator.Error!void {
+pub fn singleUnchangingWatchInput(step: *Step, maker: *Maker, arena: Allocator, lazy_path: LazyPath) FailError!void {
     if (!step.inputs.populated()) try step.addWatchInput(maker, arena, lazy_path);
 }
 
@@ -806,7 +866,7 @@ pub fn clearWatchInputs(step: *Step, maker: *Maker) void {
 }
 
 /// Places a *file* dependency on the path.
-pub fn addWatchInput(step: *Step, maker: *Maker, arena: Allocator, lazy_file: LazyPath) Allocator.Error!void {
+pub fn addWatchInput(step: *Step, maker: *Maker, arena: Allocator, lazy_file: LazyPath) FailError!void {
     const conf = &maker.scanned_config.configuration;
     switch (lazy_file) {
         .source_path => |source_path| {
@@ -815,7 +875,7 @@ pub fn addWatchInput(step: *Step, maker: *Maker, arena: Allocator, lazy_file: La
             try addWatchInputPath(step, maker, pkg_path);
         },
         .relative => |relative| {
-            const resolved_path = try maker.relativePath(arena, relative);
+            const resolved_path = try maker.relativePath(arena, relative, step);
             try addWatchInputPath(step, maker, resolved_path);
         },
         // Nothing to watch because this dependency edge is modeled instead via `dependants`.
@@ -830,7 +890,7 @@ pub fn addWatchInput(step: *Step, maker: *Maker, arena: Allocator, lazy_file: La
 /// Paths derived from this directory should also be manually added via
 /// `addDirectoryWatchInputFromPath` if and only if this function returns
 /// `true`.
-pub fn addDirectoryWatchInput(step: *Step, maker: *Maker, lazy_directory: LazyPath) Allocator.Error!bool {
+pub fn addDirectoryWatchInput(step: *Step, maker: *Maker, lazy_directory: LazyPath) FailError!bool {
     const graph = maker.graph;
     const arena = graph.arena; // TODO don't leak into the process arena
     switch (lazy_directory) {
@@ -841,7 +901,7 @@ pub fn addDirectoryWatchInput(step: *Step, maker: *Maker, lazy_directory: LazyPa
             try addDirectoryWatchInputFromPath(step, maker, pkg_path);
         },
         .relative => |relative| {
-            const resolved_path = try maker.relativePath(arena, relative);
+            const resolved_path = try maker.relativePath(arena, relative, step);
             try addDirectoryWatchInputFromPath(step, maker, resolved_path);
         },
         // Nothing to watch because this dependency edge is modeled instead via `dependants`.

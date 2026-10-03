@@ -156,7 +156,7 @@ fn printOutput(
             try shell_out.print("$ zig build-exe {s}.zig ", .{code_name});
 
             switch (code.mode) {
-                .Debug => {},
+                .debug => {},
                 else => {
                     try build_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
                     try shell_out.print("-O {s} ", .{@tagName(code.mode)});
@@ -291,7 +291,7 @@ fn printOutput(
             try shell_out.print("$ zig test {s}.zig ", .{code_name});
 
             switch (code.mode) {
-                .Debug => {},
+                .debug => {},
                 else => {
                     try test_args.appendSlice(&[_][]const u8{
                         "-O", @tagName(code.mode),
@@ -314,6 +314,7 @@ fn printOutput(
                 switch (getExternalExecutor(io, &target, .{
                     .host_cpu_arch = host.cpu.arch,
                     .host_os_tag = host.os.tag,
+                    .link_mode = code.link_mode orelse .dynamic,
                     .link_libc = code.link_libc,
                 })) {
                     .native => {},
@@ -354,7 +355,7 @@ fn printOutput(
             try shell_out.print("$ zig test {s}.zig ", .{code_name});
 
             switch (code.mode) {
-                .Debug => {},
+                .debug => {},
                 else => {
                     try test_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
                     try shell_out.print("-O {s} ", .{@tagName(code.mode)});
@@ -404,18 +405,18 @@ fn printOutput(
             }
             var mode_arg: []const u8 = "";
             switch (code.mode) {
-                .Debug => {},
-                .ReleaseSafe => {
-                    try test_args.append("-OReleaseSafe");
-                    mode_arg = "-OReleaseSafe";
+                .debug => {},
+                .safe => {
+                    try test_args.append("-Osafe");
+                    mode_arg = "-Osafe";
                 },
-                .ReleaseFast => {
-                    try test_args.append("-OReleaseFast");
-                    mode_arg = "-OReleaseFast";
+                .fast => {
+                    try test_args.append("-Ofast");
+                    mode_arg = "-Ofast";
                 },
-                .ReleaseSmall => {
-                    try test_args.append("-OReleaseSmall");
-                    mode_arg = "-OReleaseSmall";
+                .small => {
+                    try test_args.append("-Osmall");
+                    mode_arg = "-Osmall";
                 },
             }
 
@@ -468,7 +469,7 @@ fn printOutput(
             try shell_out.print("$ zig build-obj {s}.zig ", .{code_name});
 
             switch (code.mode) {
-                .Debug => {},
+                .debug => {},
                 else => {
                     try build_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
                     try shell_out.print("-O {s} ", .{@tagName(code.mode)});
@@ -548,7 +549,7 @@ fn printOutput(
             try shell_out.print("$ zig build-lib {s}.zig ", .{code_name});
 
             switch (code.mode) {
-                .Debug => {},
+                .debug => {},
                 else => {
                     try test_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
                     try shell_out.print("-O {s} ", .{@tagName(code.mode)});
@@ -843,7 +844,7 @@ fn writeEscapedLines(out: *Writer, text: []const u8) !void {
 
 const Code = struct {
     id: Id,
-    mode: std.builtin.OptimizeMode,
+    mode: std.builtin.Optimize,
     link_objects: []const []const u8,
     target_str: ?[]const u8,
     link_libc: bool,
@@ -903,7 +904,7 @@ fn parseManifest(arena: Allocator, source_bytes: []const u8) !Code {
     else
         fatal("unrecognized manifest id: '{s}'", .{first_line});
 
-    var mode: std.builtin.OptimizeMode = .Debug;
+    var mode: std.builtin.Optimize = .debug;
     var link_mode: ?std.builtin.LinkMode = null;
     var link_objects: std.ArrayList([]const u8) = .empty;
     var additional_options: std.ArrayList([]const u8) = .empty;

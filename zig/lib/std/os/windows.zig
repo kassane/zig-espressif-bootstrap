@@ -147,8 +147,22 @@ pub const OBJECT = struct {
         pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".field_names.len;
     };
 
+    pub const BASIC_INFORMATION = extern struct {
+        Attributes: ATTRIBUTES.Flags,
+        GrantedAccess: ACCESS_MASK,
+        HandleCount: ULONG,
+        PointerCount: ULONG,
+        Reserved: [10]ULONG,
+    };
+
     pub const NAME_INFORMATION = extern struct {
         Name: UNICODE_STRING,
+    };
+
+    pub const HANDLE_FLAG = packed struct(USHORT) {
+        INHERIT: bool = false,
+        PROTECT_FROM_CLOSE: bool = false,
+        Reserved1: u14 = 0,
     };
 };
 
@@ -3503,6 +3517,39 @@ pub const SEC = packed struct(ULONG) {
 
 pub const ERESOURCE = opaque {};
 
+pub const VIRTUAL_MEMORY = struct {
+    pub const INFORMATION_CLASS = enum(c_int) {
+        Prefetch = 0,
+        PagePriority = 1,
+        CfgCallTarget = 2,
+        PageDirtyState = 3,
+        ImageHotPatch = 4,
+        PhysicalContiguity = 5,
+        VirtualMachinePrepopulate = 6,
+        RemoveFromWorkingSet = 7,
+        _,
+
+        pub const Max: @typeInfo(@This()).@"enum".tag_type = @typeInfo(@This()).@"enum".field_names.len;
+    };
+
+    pub const MEMORY_PREFETCH_INFORMATION = extern struct {
+        Flags: VM_PREFETCH,
+
+        pub const VM_PREFETCH = packed struct(ULONG) {
+            /// Introduced in Windows 11 24H4.
+            /// Attempt to populate specified single or multiple address ranges
+            /// into the process working set (bring pages into physical memory).
+            TO_WORKING_SET: bool,
+            Reserved1: u31 = 0,
+        };
+    };
+};
+
+pub const MEMORY_RANGE_ENTRY = extern struct {
+    VirtualAddress: PVOID,
+    NumberOfBytes: SIZE_T,
+};
+
 // ref: shared/ntdef.h
 
 pub const EVENT_TYPE = enum(c_int) {
@@ -3645,14 +3692,12 @@ pub fn teb() *TEB {
 }
 
 pub fn peb() *PEB {
-    if (builtin.zig_backend == .stage2_c) switch (native_arch) {
-        .x86, .x86_64 => return @ptrCast(@alignCast(struct {
-            /// This is a workaround for the C backend until zig has the ability to put
-            /// C code in inline assembly.
-            extern fn zig_windows_peb() callconv(.c) *anyopaque;
-        }.zig_windows_peb())),
-        else => {},
-    } else switch (native_arch) {
+    if (builtin.zig_backend == .stage2_c) return @ptrCast(@alignCast(struct {
+        /// This is a workaround for the C backend until zig has the ability to put
+        /// C code in inline assembly.
+        extern fn zig_windows_peb() callconv(.c) *anyopaque;
+    }.zig_windows_peb()));
+    switch (native_arch) {
         .aarch64 => {
             comptime assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x60);
             return asm (
@@ -3955,7 +4000,7 @@ pub fn unexpectedStatus(status: NTSTATUS) UnexpectedError {
 
 pub fn statusBug(status: NTSTATUS) UnexpectedError {
     switch (builtin.mode) {
-        .Debug => std.debug.panic("programmer bug caused syscall status: 0x{x} ({s})", .{
+        .debug => std.debug.panic("programmer bug caused syscall status: 0x{x} ({s})", .{
             @backingInt(status),
             std.enums.tagName(NTSTATUS, status) orelse "<unnamed>",
         }),
@@ -3965,7 +4010,7 @@ pub fn statusBug(status: NTSTATUS) UnexpectedError {
 
 pub fn errorBug(err: Win32Error) UnexpectedError {
     switch (builtin.mode) {
-        .Debug => std.debug.panic("programmer bug caused syscall error: 0x{x} ({s})", .{
+        .debug => std.debug.panic("programmer bug caused syscall error: 0x{x} ({s})", .{
             @backingInt(err),
             std.enums.tagName(Win32Error, err) orelse "<unnamed>",
         }),
@@ -5006,7 +5051,7 @@ pub const TEB = extern struct {
 };
 
 comptime {
-    // XXX: Without this check we cannot use `std.Io.Writer` on 16-bit platforms. `std.fmt.bufPrint` will hit the unreachable in `PEB.GdiHandleBuffer` without this guard.
+    // XXX: Without this check we cannot use `std.Io.Writer` on 16-bit platforms. `std.mem.print` will hit the unreachable in `PEB.GdiHandleBuffer` without this guard.
     if (builtin.os.tag == .windows) {
         // Offsets taken from WinDbg info and Geoff Chappell[1] (RIP)
         // [1]: https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/pebteb/teb/index.htm

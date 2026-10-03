@@ -75,8 +75,8 @@ pub fn TargetInfo(os: std.Target.Os.Tag, arch: std.Target.Cpu.Arch) type {
             else => @import("debug/SelfInfo/Elf.zig"),
         },
         .macho => @import("debug/SelfInfo/MachO.zig"),
-        .plan9, .spirv, .wasm => void,
-        .c, .hex, .raw => unreachable,
+        .plan9, .spirv, .wasm, .raw, .hex => void,
+        .c => unreachable,
     };
 }
 
@@ -498,6 +498,7 @@ threadlocal var panic_stage: usize = 0;
 const use_trap_panic = switch (builtin.zig_backend) {
     .stage2_aarch64,
     .stage2_arm,
+    .stage2_loongarch,
     .stage2_powerpc,
     .stage2_riscv64,
     .stage2_spirv,
@@ -519,6 +520,7 @@ pub fn defaultPanic(msg: []const u8, first_trace_addr: ?usize) noreturn {
         .@"3ds",
         .wiiu,
         .@"switch",
+        .gba,
 
         .psx,
         .psp,
@@ -1084,10 +1086,12 @@ const StackIterator = union(enum) {
         switch (it.*) {
             .ctx_first => |context_ptr| {
                 // After the first frame, start actually unwinding.
-                it.* = if (SelfInfo != void and SelfInfo.can_unwind and fp_usability != .ideal)
-                    .{ .di = .init(context_ptr) }
-                else
-                    .{ .fp = context_ptr.getFp() };
+                if (SelfInfo != void and SelfInfo.can_unwind and fp_usability != .ideal) {
+                    it.* = .{ .di = .init(context_ptr) };
+                } else {
+                    const fp = applyOffset(context_ptr.getFp(), stack_bias) orelse return .end;
+                    it.* = .{ .fp = fp };
+                }
 
                 // The caller expects *return* addresses, where they will subtract 1 to find the address of the call.
                 // However, we have the actual current PC, which should not be adjusted. Compensate by adding 1.
@@ -1097,7 +1101,8 @@ const StackIterator = union(enum) {
                 const di = getSelfDebugInfo() catch unreachable;
                 const ret_addr = di.unwindFrame(io, unwind_context) catch |err| {
                     const pc = unwind_context.pc;
-                    const fp = unwind_context.getFp();
+                    const fp = applyOffset(unwind_context.getFp(), stack_bias) orelse return .end;
+                    unwind_context.deinit();
                     it.* = .{ .fp = fp };
                     return .{ .switch_to_fp = .{
                         .address = pc,
@@ -1644,21 +1649,6 @@ fn handleSegfaultPosix(sig: posix.SIG, info: *const posix.siginfo_t, ctx_ptr: ?*
     };
     const opt_cpu_context: ?cpu_context.Native = cpu_context.fromPosixSignalContext(ctx_ptr);
 
-    if (native_arch.isSPARC()) {
-        // It's unclear to me whether this is a QEMU bug or also real kernel behavior, but in the
-        // former, I observed that the most recent register window wasn't getting spilled on the
-        // stack as expected when a signal arrived. A `flushw` from the signal handler does not
-        // appear to be sufficient either. On the other hand, when doing a synchronous stack trace
-        // and using `flushw`, this all appears to work as expected. So, *probably* a QEMU bug, but
-        // someone with real SPARC hardware should verify.
-        //
-        // In any case, the register save area exists specifically so that register windows can be
-        // spilled asynchronously. This means that it should be perfectly fine for us to manually do
-        // so here.
-        const ctx = opt_cpu_context.?;
-        @as(*[16]usize, @ptrFromInt(ctx.o[6] + StackIterator.stack_bias)).* = ctx.l ++ ctx.i;
-    }
-
     handleSegfault(addr, name, if (opt_cpu_context) |*ctx| ctx else null);
 }
 
@@ -1861,18 +1851,44 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
 pub const SafetyLock = struct {
     state: State = if (runtime_safety) .unlocked else .unknown,
 
-    pub const State = if (runtime_safety) enum { unlocked, locked } else enum { unknown };
+    pub const State = if (runtime_safety) enum(usize) {
+        unlocked = 0,
+        exclusive = math.maxInt(usize),
+        _, // shared lock count
 
+        fn isShared(state: State) bool {
+            return switch (state) {
+                _ => true,
+                else => false,
+            };
+        }
+    } else enum { unknown };
+
+    /// Exclusive. Use when mutating data.
     pub fn lock(l: *SafetyLock) void {
         if (!runtime_safety) return;
         assert(l.state == .unlocked);
-        l.state = .locked;
+        l.state = .exclusive;
     }
 
     pub fn unlock(l: *SafetyLock) void {
         if (!runtime_safety) return;
-        assert(l.state == .locked);
+        assert(l.state == .exclusive);
         l.state = .unlocked;
+    }
+
+    /// Use when consuming data in a read-only manner.
+    pub fn lockShared(l: *SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state != .exclusive);
+        l.state = @fromBackingInt(@backingInt(l.state) + 1);
+        assert(l.state.isShared()); // Catch overflow to `exclusive`.
+    }
+
+    pub fn unlockShared(l: *SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state.isShared());
+        l.state = @fromBackingInt(@backingInt(l.state) - 1);
     }
 
     pub fn assertUnlocked(l: SafetyLock) void {
@@ -1882,7 +1898,12 @@ pub const SafetyLock = struct {
 
     pub fn assertLocked(l: SafetyLock) void {
         if (!runtime_safety) return;
-        assert(l.state == .locked);
+        assert(l.state == .exclusive);
+    }
+
+    pub fn assertLockedShared(l: SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state.isShared());
     }
 };
 
@@ -1892,6 +1913,12 @@ test SafetyLock {
     safety_lock.lock();
     safety_lock.assertLocked();
     safety_lock.unlock();
+    safety_lock.assertUnlocked();
+    safety_lock.lockShared();
+    safety_lock.assertLockedShared();
+    for (0..3) |_| safety_lock.lockShared();
+    safety_lock.assertLockedShared();
+    for (0..4) |_| safety_lock.unlockShared();
     safety_lock.assertUnlocked();
 }
 

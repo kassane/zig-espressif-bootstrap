@@ -7,7 +7,7 @@ const elf = std.elf;
 const log = std.log.scoped(.elf);
 const mem = std.mem;
 const Path = std.Build.Cache.Path;
-const Stat = std.Build.Cache.File.Stat;
+const Stat = std.Build.Cache.Manifest.Stat;
 const Allocator = mem.Allocator;
 
 const Elf = @import("../Elf.zig");
@@ -30,6 +30,8 @@ needed: bool,
 alive: bool,
 
 output_symtab_ctx: Elf.SymtabCtx,
+
+fallback_soname: []const u8,
 
 pub fn deinit(so: *SharedObject, gpa: Allocator) void {
     gpa.free(so.path.sub_path);
@@ -427,7 +429,7 @@ pub fn asFile(self: *SharedObject) File {
 }
 
 pub fn soname(self: *SharedObject) []const u8 {
-    return self.parsed.soname() orelse self.path.basename();
+    return self.parsed.soname() orelse self.fallback_soname;
 }
 
 pub fn initSymbolAliases(self: *SharedObject, elf_file: *Elf) !void {

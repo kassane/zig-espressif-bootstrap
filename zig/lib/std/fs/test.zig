@@ -529,7 +529,7 @@ test "Dir.Iterator many entries" {
     var i: usize = 0;
     var buf: [4]u8 = undefined; // Enough to store "1024".
     while (i < num) : (i += 1) {
-        const name = try std.fmt.bufPrint(&buf, "{}", .{i});
+        const name = try std.mem.print(&buf, "{}", .{i});
         const file = try tmp_dir.dir.createFile(io, name, .{});
         file.close(io);
     }
@@ -551,7 +551,7 @@ test "Dir.Iterator many entries" {
 
     i = 0;
     while (i < num) : (i += 1) {
-        const name = try std.fmt.bufPrint(&buf, "{}", .{i});
+        const name = try std.mem.print(&buf, "{}", .{i});
         try expect(contains(&entries, .{ .name = name, .kind = .file, .inode = 0 }));
     }
 }
@@ -2409,13 +2409,19 @@ test "seekBy" {
     try tmp_dir.dir.writeFile(io, .{ .sub_path = "blah.txt", .data = "let's test seekBy" });
     const f = try tmp_dir.dir.openFile(io, "blah.txt", .{ .mode = .read_only });
     defer f.close(io);
-    var reader = f.readerStreaming(io, &.{});
+    var buf: [10]u8 = undefined;
+    var reader = f.readerStreaming(io, &buf);
+    // Seek without any buffered data
+    try reader.seekBy(2);
+
+    // Seek when the buffered data is sufficient to satisfy the seek amount
+    try reader.interface.fill(2);
     try reader.seekBy(2);
 
     var buffer: [20]u8 = undefined;
     const n = try reader.interface.readSliceShort(&buffer);
-    try expectEqual(15, n);
-    try expectEqualStrings("t's test seekBy", buffer[0..15]);
+    try expectEqual(13, n);
+    try expectEqualStrings("s test seekBy", buffer[0..n]);
 }
 
 test "seekTo flushes buffered data" {

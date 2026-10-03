@@ -58,6 +58,8 @@ const WORD = windows.WORD;
 const USER_THREAD_START_ROUTINE = windows.USER_THREAD_START_ROUTINE;
 const PS = windows.PS;
 const TEB = windows.TEB;
+const VIRTUAL_MEMORY = windows.VIRTUAL_MEMORY;
+const MEMORY_RANGE_ENTRY = windows.MEMORY_RANGE_ENTRY;
 
 // ref: km/ntifs.h
 
@@ -461,6 +463,13 @@ pub extern "ntdll" fn LdrUnregisterDllNotification(
     Cookie: LDR.DLL_NOTIFICATION.COOKIE,
 ) callconv(.winapi) NTSTATUS;
 
+pub extern "ntdll" fn NtSetInformationObject(
+    Handle: HANDLE,
+    ObjectInformationClass: OBJECT.INFORMATION_CLASS,
+    ObjectInformation: *const anyopaque,
+    ObjectInformationLength: ULONG,
+) callconv(.winapi) NTSTATUS;
+
 pub extern "ntdll" fn NtQueryAttributesFile(
     ObjectAttributes: *const OBJECT.ATTRIBUTES,
     FileAttributes: *FILE.BASIC_INFORMATION,
@@ -622,6 +631,15 @@ pub extern "ntdll" fn NtProtectVirtualMemory(
     NumberOfBytesToProtect: *SIZE_T,
     NewAccessProtection: PAGE,
     OldAccessProtection: *PAGE,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn NtSetInformationVirtualMemory(
+    ProcessHandle: HANDLE,
+    VmInformationClass: VIRTUAL_MEMORY.INFORMATION_CLASS,
+    NumberOfExtries: SIZE_T,
+    VirtualAddresses: [*]const MEMORY_RANGE_ENTRY,
+    VmInformation: *anyopaque,
+    VmInformationLength: DWORD,
 ) callconv(.winapi) NTSTATUS;
 
 pub extern "ntdll" fn NtWaitForAlertByThreadId(

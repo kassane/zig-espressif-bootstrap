@@ -58,9 +58,14 @@ pub const Init = struct {
 };
 
 pub const CurrentPathError = error{
+    /// Buffer is too small to contain the current path.
     NameTooLong,
     /// Not possible on Windows. Always returned on WASI.
     CurrentDirUnlinked,
+    /// The current path cannot be retrieved due to a limitation of the
+    /// underlying libc or syscall implementation. Retrying with a larger
+    /// buffer will not succeed.
+    PathExceedsLimit,
 } || Io.Cancelable || Io.UnexpectedError;
 
 /// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
@@ -70,11 +75,10 @@ pub fn currentPath(io: Io, buffer: []u8) CurrentPathError!usize {
     return io.vtable.processCurrentPath(io.userdata, buffer);
 }
 
-pub const CurrentPathAllocError = Allocator.Error || error{
-    /// Not possible on Windows. Always returned on WASI.
-    CurrentDirUnlinked,
-} || Io.Cancelable || Io.UnexpectedError;
+pub const CurrentPathAllocError = Allocator.Error || CurrentPathError;
 
+/// Shortcut for calling `currentPath` with a buffer of size `max_path_bytes`.
+///
 /// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no
 /// particular encoding.
@@ -82,10 +86,7 @@ pub const CurrentPathAllocError = Allocator.Error || error{
 /// Caller owns returned memory.
 pub fn currentPathAlloc(io: Io, allocator: Allocator) CurrentPathAllocError![:0]u8 {
     var buffer: [max_path_bytes]u8 = undefined;
-    const n = currentPath(io, &buffer) catch |err| switch (err) {
-        error.NameTooLong => unreachable,
-        else => |e| return e,
-    };
+    const n = try currentPath(io, &buffer);
     return allocator.dupeSentinel(u8, buffer[0..n], 0);
 }
 
@@ -281,35 +282,48 @@ pub const ReplaceError = error{
 } || Allocator.Error || Io.Dir.PathNameError || Io.Cancelable || Io.UnexpectedError;
 
 pub const ReplaceOptions = struct {
+    exe: Exe = .detect,
     argv: []const []const u8,
-    expand_arg0: ArgExpansion = .no_expand,
+
+    /// Set to change the current working directory when spawning the child process.
+    cwd: Child.Cwd = .inherit,
     /// Replaces the environment when provided. The PATH value from here is
     /// never used to resolve `argv[0]`.
     environ_map: ?*const Environ.Map = null,
+    expand_arg0: ArgExpansion = .no_expand,
+
+    inherit_dirs: []const Dir = &.{},
+    inherit_files: []const File = &.{},
+
+    /// Start child process in suspended state.
+    /// For Posix systems it's started as if SIGSTOP was sent.
+    start_suspended: bool = false,
+
+    pub const Exe = union(enum) {
+        /// `argv[0]` is the name of the program to execute. If it is not already a
+        /// file path (i.e. it contains '/'), it is resolved into a file path based on
+        /// PATH from the parent environment.
+        detect,
+        /// `argv[0]` is the name of the program to execute, resolved into a file path
+        /// based on PATH from the parent environment.
+        search,
+        /// `argv[0]` is the file path of the program to execute, relative to `Dir` payload.
+        /// It is *always* treated as a file path, even if it does not contain '/'.
+        path: Dir,
+        /// `File` payload is the program to execute.
+        file: File,
+        /// `path` is the file path of the program to execute, relative to `dir`.
+        /// It is *always* treated as a file path, even if it does not contain '/'.
+        explicit: struct { dir: Dir, path: []const u8 },
+    };
 };
 
 /// Replaces the current process image with the executed process. If this
 /// function succeeds, it does not return.
 ///
-/// `argv[0]` is the name of the process to replace the current one with. If it
-/// is not already a file path (i.e. it contains '/'), it is resolved into a
-/// file path based on PATH from the parent environment.
-///
 /// It is illegal to call this function in a fork() child.
 pub fn replace(io: Io, options: ReplaceOptions) ReplaceError {
     return io.vtable.processReplace(io.userdata, options);
-}
-
-/// Replaces the current process image with the executed process. If this
-/// function succeeds, it does not return.
-///
-/// `argv[0]` is the file path of the process to replace the current one with,
-/// relative to `dir`. It is *always* treated as a file path, even if it does
-/// not contain '/'.
-///
-/// It is illegal to call this function in a fork() child.
-pub fn replacePath(io: Io, dir: Io.Dir, options: ReplaceOptions) ReplaceError {
-    return io.vtable.processReplacePath(io.userdata, dir, options);
 }
 
 pub const ArgExpansion = enum { expand, no_expand };
@@ -367,6 +381,7 @@ pub const SpawnError = error{
 } || Io.File.OpenError || Io.Dir.PathNameError || Io.Cancelable || Io.UnexpectedError;
 
 pub const SpawnOptions = struct {
+    exe: ReplaceOptions.Exe = .detect,
     argv: []const []const u8,
 
     /// Set to change the current working directory when spawning the child process.
@@ -384,11 +399,13 @@ pub const SpawnOptions = struct {
     ///
     /// The child's progress tree will be grafted into the parent's progress tree,
     /// by substituting this node with the child's root node.
-    progress_node: std.Progress.Node = std.Progress.Node.none,
+    progress_node: std.Progress.Node = .none,
 
     stdin: StdIo = .inherit,
     stdout: StdIo = .inherit,
     stderr: StdIo = .inherit,
+    inherit_dirs: []const Dir = &.{},
+    inherit_files: []const File = &.{},
 
     /// Set to true to obtain rusage information for the child process.
     /// Depending on the target platform and implementation status, the
@@ -410,8 +427,6 @@ pub const SpawnOptions = struct {
     start_suspended: bool = false,
     /// Windows-only. Sets the CREATE_NO_WINDOW flag in CreateProcess.
     create_no_window: bool = false,
-    /// Darwin-only. Disable ASLR for the child process.
-    disable_aslr: bool = false,
 
     /// Behavior of the child process's standard input, output, and error streams.
     pub const StdIo = union(enum) {
@@ -444,20 +459,8 @@ pub const SpawnOptions = struct {
 };
 
 /// Creates a child process.
-///
-/// `argv[0]` is the name of the program to execute. If it is not already a
-/// file path (i.e. it contains '/'), it is resolved into a file path based on
-/// PATH from the parent environment.
 pub fn spawn(io: Io, options: SpawnOptions) SpawnError!Child {
     return io.vtable.processSpawn(io.userdata, options);
-}
-
-/// Creates a child process.
-///
-/// `argv[0]` is the file path of the program to execute, relative to `dir`. It
-/// is *always* treated as a file path, even if it does not contain '/'.
-pub fn spawnPath(io: Io, dir: Io.Dir, options: SpawnOptions) SpawnError!Child {
-    return io.vtable.processSpawnPath(io.userdata, dir, options);
 }
 
 pub const RunError = error{
@@ -465,6 +468,7 @@ pub const RunError = error{
 } || SpawnError || Io.File.MultiReader.UnendingError || Io.Timeout.Error;
 
 pub const RunOptions = struct {
+    exe: ReplaceOptions.Exe = .detect,
     argv: []const []const u8,
     stderr_limit: Io.Limit = .unlimited,
     stdout_limit: Io.Limit = .unlimited,
@@ -489,8 +493,6 @@ pub const RunOptions = struct {
     progress_node: std.Progress.Node = std.Progress.Node.none,
     /// Windows-only. Sets the CREATE_NO_WINDOW flag in CreateProcess.
     create_no_window: bool = true,
-    /// Darwin-only. Disable ASLR for the child process.
-    disable_aslr: bool = false,
     timeout: Io.Timeout = .none,
 };
 
@@ -504,13 +506,13 @@ pub const RunResult = struct {
 /// If it succeeds, the caller owns result.stdout and result.stderr memory.
 pub fn run(gpa: Allocator, io: Io, options: RunOptions) RunError!RunResult {
     var child = try spawn(io, .{
+        .exe = options.exe,
         .argv = options.argv,
         .cwd = options.cwd,
         .environ_map = options.environ_map,
         .expand_arg0 = options.expand_arg0,
         .progress_node = options.progress_node,
         .create_no_window = options.create_no_window,
-        .disable_aslr = options.disable_aslr,
 
         .stdin = .ignore,
         .stdout = .pipe,

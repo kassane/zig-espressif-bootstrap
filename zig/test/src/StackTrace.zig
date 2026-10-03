@@ -34,10 +34,11 @@ pub const Options = struct {
 pub const CaseParameters = struct {
     linkage: ?std.builtin.LinkMode = null,
     target: std.Target.Query = .{},
-    optimize: std.builtin.OptimizeMode = .debug,
+    optimize: std.lang.Optimize = .debug,
     link_libc: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    use_new_linker: ?bool = null,
     pie: ?bool = null,
     /// To enable this coverage, one of two things needs to happen:
     /// * The compiler needs to gain the ability to strip only debug info (not symbols)
@@ -701,15 +702,14 @@ pub const param_sets = [_]CaseParameters{
             .abi = .none,
         },
     },
-    // SPARC linking support is currently incomplete.
-    // .{
-    //     .target = .{
-    //         .cpu_arch = .sparc64,
-    //         .os_tag = .linux,
-    //         .abi = .gnu,
-    //     },
-    //     .link_libc = true,
-    // },
+    .{
+        .target = .{
+            .cpu_arch = .sparc64,
+            .os_tag = .linux,
+            .abi = .gnu,
+        },
+        .link_libc = true,
+    },
 
     .{
         .target = .{
@@ -758,8 +758,25 @@ pub const param_sets = [_]CaseParameters{
             .os_tag = .linux,
             .abi = .none,
         },
+        .use_new_linker = true,
+    },
+    .{
+        .target = .{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .none,
+        },
         .use_llvm = true,
         .use_lld = true,
+    },
+    .{
+        .target = .{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .none,
+        },
+        .use_llvm = true,
+        .use_new_linker = true,
     },
     .{
         .target = .{
@@ -876,37 +893,6 @@ pub const param_sets = [_]CaseParameters{
     .{
         .target = .{
             .cpu_arch = .aarch64,
-            .os_tag = .windows,
-            .abi = .gnu,
-        },
-        .link_libc = true,
-    },
-
-    .{
-        .target = .{
-            .cpu_arch = .thumb,
-            .os_tag = .windows,
-            .abi = .msvc,
-        },
-    },
-    .{
-        .target = .{
-            .cpu_arch = .thumb,
-            .os_tag = .windows,
-            .abi = .msvc,
-        },
-        .link_libc = true,
-    },
-    .{
-        .target = .{
-            .cpu_arch = .thumb,
-            .os_tag = .windows,
-            .abi = .gnu,
-        },
-    },
-    .{
-        .target = .{
-            .cpu_arch = .thumb,
             .os_tag = .windows,
             .abi = .gnu,
         },
@@ -1175,9 +1161,14 @@ fn addCaseInstance(
 
     const annotated_case_name = b.fmt("check {s} ({s}{s}{s}{s}{s}{s}{s}{s}{s})", .{
         name,
-        triple orelse "",
-        if (triple != null) " " else "",
+        triple orelse "native",
         backend_string,
+        if (params.use_new_linker == true)
+            " new_linker"
+        else if (params.use_lld == true)
+            " lld"
+        else
+            "",
         if (params.pie == true) " pie" else "",
         if (params.link_libc == true) " libc" else "",
         if (params.linkage) |linkage| switch (linkage) {
@@ -1210,6 +1201,7 @@ fn addCaseInstance(
         .use_llvm = params.use_llvm,
         .use_lld = params.use_lld,
     });
+    exe.use_new_linker = params.use_new_linker;
     exe.linkage = params.linkage;
     exe.pie = params.pie;
     exe.bundle_ubsan_rt = false;

@@ -150,6 +150,8 @@ pub const blkcnt_t = system.blkcnt_t;
 pub const blksize_t = system.blksize_t;
 pub const clock_t = system.clock_t;
 pub const clockid_t = system.clockid_t;
+pub const cmsghdr = system.cmsghdr;
+pub const cmsg_align = system.cmsg_align;
 pub const timerfd_clockid_t = system.timerfd_clockid_t;
 pub const cpu_set_t = system.cpu_set_t;
 pub const dev_t = system.dev_t;
@@ -775,9 +777,9 @@ pub fn sysctl(
 
 pub fn getSelfPhdrs() []std.elf.ElfN.Phdr {
     const getauxval = if (builtin.link_libc) std.c.getauxval else std.os.linux.getauxval;
-    assert(getauxval(std.elf.AT_PHENT) == @sizeOf(std.elf.ElfN.Phdr));
-    const phdrs: [*]std.elf.ElfN.Phdr = @ptrFromInt(getauxval(std.elf.AT_PHDR));
-    return phdrs[0..getauxval(std.elf.AT_PHNUM)];
+    assert(getauxval(std.elf.AT.PHENT) == @sizeOf(std.elf.ElfN.Phdr));
+    const phdrs: [*]std.elf.ElfN.Phdr = @ptrFromInt(getauxval(std.elf.AT.PHDR));
+    return phdrs[0..getauxval(std.elf.AT.PHNUM)];
 }
 
 pub fn dl_iterate_phdr(
@@ -819,7 +821,7 @@ pub fn dl_iterate_phdr(
                 .PHDR => break @intFromPtr(phdrs.ptr) - phdr.vaddr,
                 else => {},
             } else unreachable,
-            .name = switch (getauxval(std.elf.AT_EXECFN)) {
+            .name = switch (getauxval(std.elf.AT.EXECFN)) {
                 0 => "/proc/self/exe",
                 else => |name| @ptrFromInt(name),
             },

@@ -197,6 +197,24 @@ pub fn renderToTerminal(eb: ErrorBundle, options: RenderOptions, t: Io.Terminal)
     }
 }
 
+pub fn readAlloc(
+    r: *Io.Reader,
+    gpa: Allocator,
+    extra_len: u32,
+    string_bytes_len: u32,
+) Io.Reader.ReadAllocError!ErrorBundle {
+    const extra = try r.readSliceEndianAlloc(gpa, u32, extra_len, .little);
+    errdefer gpa.free(extra);
+
+    const string_bytes = try r.readAlloc(gpa, string_bytes_len);
+    errdefer gpa.free(string_bytes);
+
+    return .{
+        .extra = extra,
+        .string_bytes = string_bytes,
+    };
+}
+
 fn renderErrorMessage(
     eb: ErrorBundle,
     options: RenderOptions,
@@ -342,22 +360,25 @@ pub const Wip = struct {
     extra: std.ArrayList(u32),
     root_list: std.ArrayList(MessageIndex),
 
-    pub fn init(wip: *Wip, gpa: Allocator) !void {
-        wip.* = .{
+    pub fn init(gpa: Allocator) !Wip {
+        var wip: Wip = .{
             .gpa = gpa,
             .string_bytes = .empty,
             .extra = .empty,
             .root_list = .empty,
         };
+        errdefer wip.deinit();
 
         // So that 0 can be used to indicate a null string.
         try wip.string_bytes.append(gpa, 0);
 
-        assert(0 == try addExtra(wip, ErrorMessageList{
+        assert(0 == try wip.addExtra(ErrorMessageList{
             .len = 0,
             .start = 0,
             .compile_log_text = 0,
         }));
+
+        return wip;
     }
 
     pub fn deinit(wip: *Wip) void {
@@ -613,7 +634,7 @@ pub const Wip = struct {
             const err_loc = std.zig.findLineColumn(source, err_span.main);
 
             try eb.addRootErrorMessage(.{
-                .msg = try eb.addString(err.msg.get(zoir)),
+                .msg = try eb.addString(err.msg.get(&zoir)),
                 .src_loc = try eb.addSourceLocation(.{
                     .src_path = try eb.addString(src_path),
                     .span_start = err_span.start,
@@ -643,7 +664,7 @@ pub const Wip = struct {
 
                 // This line can cause `wip.extra.items` to be resized.
                 const note_index = @backingInt(try eb.addErrorMessage(.{
-                    .msg = try eb.addString(note.msg.get(zoir)),
+                    .msg = try eb.addString(note.msg.get(&zoir)),
                     .src_loc = try eb.addSourceLocation(.{
                         .src_path = try eb.addString(src_path),
                         .span_start = note_span.start,
@@ -755,7 +776,7 @@ pub const Wip = struct {
                 u32 => @field(extra, field_name),
                 MessageIndex => @backingInt(@field(extra, field_name)),
                 SourceLocationIndex => @backingInt(@field(extra, field_name)),
-                else => @compileError("bad field type"),
+                else => @compileError("bad field type: " ++ @typeName(field_type)),
             };
             i += 1;
         }
